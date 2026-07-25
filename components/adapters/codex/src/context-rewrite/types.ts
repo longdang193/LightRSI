@@ -1,4 +1,14 @@
-export type JsonObject = Record<string, unknown>;
+import type {
+  CodexEffectiveHistory,
+  CodexEffectiveHistoryItem,
+  JsonObject,
+} from "../context-history/types.js";
+
+export type {
+  CodexEffectiveHistory,
+  CodexEffectiveHistoryItem,
+  JsonObject,
+} from "../context-history/types.js";
 
 export type CodexContextRewriteConfig = {
   enabled: boolean;
@@ -8,23 +18,17 @@ export type CodexContextRewriteConfig = {
   cooldownMs: number;
 };
 
-export type CodexEffectiveHistoryItem = {
-  stableItemId: string;
-  nativeId?: string;
-  item: JsonObject;
-};
-
-export type CodexEffectiveHistory = {
-  revision: string;
-  replayableItems: CodexEffectiveHistoryItem[];
-  observationOnlyItems?: CodexEffectiveHistoryItem[];
-};
-
 export type CodexMutationPlan = {
   operations: Array<{
     type: string;
     stableItemId?: string;
   }>;
+};
+
+export type CodexRebaseValidation = {
+  valid: boolean;
+  reasons: string[];
+  evictedStableItemIds: string[];
 };
 
 export type CodexRebaseRequestResult = {
@@ -42,6 +46,7 @@ export type CodexUpstreamResponse = {
 export type CodexRebaseFallbackResult = {
   response: CodexUpstreamResponse;
   outcome: "committed" | "bypassed" | "failed";
+  newResponseId?: string;
   rebaseResponse?: CodexUpstreamResponse;
   cooldown?: {
     planId: string;

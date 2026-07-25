@@ -114,6 +114,9 @@ function effectiveHistoryFixture(): CodexEffectiveHistory {
         item: { type: "web_search_call", query: "not replayable by default" },
       },
     ],
+    unresolvedCallIds: [],
+    source: "proxy_journal",
+    incomplete: false,
   };
 }
 
@@ -149,6 +152,51 @@ test("CDR-02 builds a rebase request that removes previous_response_id and evict
     inputItems.some((item) => asObject(item).type === "web_search_call"),
     false,
   );
+});
+
+test("CDR-01 rejects stale revisions before constructing a rebase request", () => {
+  const originalPayload = baseResponsesPayload();
+  assert.throws(() => buildCodexRebaseRequest({
+    sessionId: "codex-session-1",
+    planId: "plan-stale",
+    baseRevision: "history-rev-stale",
+    originalPayload,
+    effectiveHistory: effectiveHistoryFixture(),
+    currentInput: originalPayload.input,
+    mutationPlan: { operations: [] },
+  }), /revision_mismatch/);
+});
+
+test("CDR-01 rejects mutations that break function call closure", () => {
+  const originalPayload = baseResponsesPayload();
+  assert.throws(() => buildCodexRebaseRequest({
+    sessionId: "codex-session-1",
+    planId: "plan-orphan-output",
+    baseRevision: "history-rev-1",
+    originalPayload,
+    effectiveHistory: effectiveHistoryFixture(),
+    currentInput: originalPayload.input,
+    mutationPlan: { operations: [{ type: "evict", stableItemId: "call-1" }] },
+  }), /tool_closure_incomplete:call-1/);
+});
+
+test("CDR-01 allows a function call and its output to be evicted together", () => {
+  const originalPayload = baseResponsesPayload();
+  const result = buildCodexRebaseRequest({
+    sessionId: "codex-session-1",
+    planId: "plan-closed-tool-eviction",
+    baseRevision: "history-rev-1",
+    originalPayload,
+    effectiveHistory: effectiveHistoryFixture(),
+    currentInput: originalPayload.input,
+    mutationPlan: {
+      operations: [
+        { type: "evict", stableItemId: "call-1" },
+        { type: "evict", stableItemId: "result-1" },
+      ],
+    },
+  });
+  assert.doesNotMatch(JSON.stringify(result.payload.input), /call-1/);
 });
 
 test("CDR-04 retries the original request once when rebase replay is rejected upstream", async () => {
