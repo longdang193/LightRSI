@@ -21,10 +21,29 @@ export function codexContextHistoryJournalPath(stateDir: string, sessionId: stri
 }
 
 function isContextHistoryJournalEntry(entry: unknown): entry is CodexContextHistoryJournalEntry {
-  return Boolean(entry && typeof entry === "object" && (
-    (entry as { schema?: unknown }).schema === CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA
-    || (entry as { schema?: unknown }).schema === CODEX_CONTEXT_HISTORY_RESPONSE_SCHEMA
-  ));
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+  const candidate = entry as Record<string, unknown>;
+  const validStatus = candidate.status === "pending"
+    || candidate.status === "completed"
+    || candidate.status === "failed"
+    || candidate.status === "incomplete";
+  if (!validStatus || typeof candidate.sessionId !== "string" || typeof candidate.observedAt !== "string") {
+    return false;
+  }
+  if (candidate.schema === CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA) {
+    return candidate.kind === "request"
+      && typeof candidate.requestId === "string"
+      && typeof candidate.turnOrdinal === "number"
+      && typeof candidate.stream === "boolean"
+      && Array.isArray(candidate.inputItems);
+  }
+  if (candidate.schema === CODEX_CONTEXT_HISTORY_RESPONSE_SCHEMA) {
+    return candidate.kind === "response"
+      && typeof candidate.stream === "boolean"
+      && Array.isArray(candidate.outputItems)
+      && Array.isArray(candidate.outputItemRefs);
+  }
+  return false;
 }
 
 function errorCode(error: unknown): string | undefined {

@@ -107,14 +107,56 @@ test("CDH-01 isolates malformed JSONL records without discarding valid history",
     });
     await appendFile(
       codexContextHistoryJournalPath(stateDir, "codex-session-1"),
-      "{\"truncated\":",
+      [
+        "{\"truncated\":",
+        JSON.stringify({
+          schema: "lightmem2.codex.context-history.request/v1",
+          kind: "request",
+          status: "completed",
+        }),
+      ].join("\n"),
       "utf8",
     );
 
     const journal = await readCodexContextHistoryJournal(stateDir, "codex-session-1");
     assert.equal(journal.entries.length, 1);
-    assert.equal(journal.malformedLineCount, 1);
+    assert.equal(journal.malformedLineCount, 2);
     assert.equal(journal.readError, undefined);
+  });
+});
+
+test("CDH-04 marks an orphan incomplete response after the committed head as incomplete", async () => {
+  await withTempState(async (stateDir) => {
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "root" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "request-1",
+      response: { id: "resp-1", output: [] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      rawStreamText: [
+        "event: response.created",
+        "data: {\"response\":{\"id\":\"resp-orphan\"}}",
+        "",
+      ].join("\n"),
+    });
+
+    const history = await buildCodexEffectiveHistory({
+      stateDir,
+      sessionId: "codex-session-1",
+    });
+    assert.equal(history.incomplete, true);
+    assert.equal(history.replayableItems.length, 1);
   });
 });
 

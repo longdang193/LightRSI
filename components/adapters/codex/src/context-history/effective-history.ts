@@ -180,6 +180,21 @@ function hasUncommittedActiveWork(params: {
   });
 }
 
+function hasUncommittedResponseWork(params: {
+  chain: CommittedTurn[];
+  explicitHead: boolean;
+  journal: CodexContextHistoryJournalEntry[];
+  requests: Map<string, IndexedRequest>;
+}): boolean {
+  if (params.explicitHead) return false;
+  const headJournalIndex = params.chain.at(-1)?.response.journalIndex ?? -1;
+  return params.journal.some((entry, journalIndex) => {
+    if (journalIndex <= headJournalIndex || entry.kind !== "response" || entry.status === "failed") return false;
+    if (!entry.requestId) return true;
+    return params.requests.get(entry.requestId)?.entry.status !== "failed";
+  });
+}
+
 export async function buildCodexEffectiveHistory(params: {
   stateDir: string;
   sessionId: string;
@@ -210,6 +225,12 @@ export async function buildCodexEffectiveHistory(params: {
       chain: committedChain.chain,
       currentRequestId: params.currentRequestId,
       explicitHead: params.headResponseId !== undefined,
+      requests,
+    })
+    || hasUncommittedResponseWork({
+      chain: committedChain.chain,
+      explicitHead: params.headResponseId !== undefined,
+      journal: journalRead.entries,
       requests,
     }),
   );
