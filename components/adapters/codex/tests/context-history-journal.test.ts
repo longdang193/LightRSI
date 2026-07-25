@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,8 +8,10 @@ import {
   appendCodexRequestJournalEntry,
   appendCodexResponseJournalEntry,
   buildCodexEffectiveHistory,
+  codexContextHistoryJournalPath,
   collectCodexResponseItemsFromStream,
   loadCodexContextHistoryJournal,
+  readCodexContextHistoryJournal,
 } from "../src/context-history/index.js";
 
 async function withTempState(
@@ -72,6 +74,47 @@ test("CDH-01 request journal stores sanitized input metadata and deduplicates re
     assert.equal(journal[0]?.turnOrdinal, 7);
     assert.equal(journal[0]?.inputItems.length, 2);
     assert.doesNotMatch(JSON.stringify(journal[0]), /authorization|headers|sk-should-not-persist|Bearer secret/i);
+  });
+});
+
+test("CDH-01 request journal advances pending requests to a terminal state", async () => {
+  await withTempState(async (stateDir) => {
+    const params = {
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "continue" }] },
+    };
+    await appendCodexRequestJournalEntry({ ...params, status: "pending" });
+    const completed = await appendCodexRequestJournalEntry({ ...params, status: "completed" });
+
+    const journal = await loadCodexContextHistoryJournal(stateDir, "codex-session-1");
+    const requestStates = journal.filter((entry) => entry.kind === "request");
+    assert.deepEqual(requestStates.map((entry) => entry.status), ["pending", "completed"]);
+    assert.equal(completed.status, "completed");
+    assert.equal(requestStates[0]?.turnOrdinal, requestStates[1]?.turnOrdinal);
+  });
+});
+
+test("CDH-01 isolates malformed JSONL records without discarding valid history", async () => {
+  await withTempState(async (stateDir) => {
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "valid" }] },
+      status: "completed",
+    });
+    await appendFile(
+      codexContextHistoryJournalPath(stateDir, "codex-session-1"),
+      "{\"truncated\":",
+      "utf8",
+    );
+
+    const journal = await readCodexContextHistoryJournal(stateDir, "codex-session-1");
+    assert.equal(journal.entries.length, 1);
+    assert.equal(journal.malformedLineCount, 1);
+    assert.equal(journal.readError, undefined);
   });
 });
 
