@@ -240,6 +240,89 @@ test("CDR-04 retries the original request once when rebase replay is rejected up
   assert.equal(result.cooldown?.planId, "plan-evict-obsolete-details");
 });
 
+test("CDR-03 does not commit a 2xx rebase response without a response id", async () => {
+  const originalPayload = baseResponsesPayload();
+  const sentPayloads: JsonObject[] = [];
+  const result = await executeCodexRebaseWithFallback({
+    sessionId: "codex-session-1",
+    planId: "plan-missing-response-id",
+    epochId: "epoch-1",
+    originalPayload,
+    rebasedPayload: { ...originalPayload, previous_response_id: undefined },
+    async sendUpstream(payload) {
+      sentPayloads.push(payload);
+      if (sentPayloads.length === 1) {
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          text: JSON.stringify({ output: [] }),
+        };
+      }
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        text: JSON.stringify({ id: "resp-original-fallback", output: [] }),
+      };
+    },
+  });
+
+  assert.equal(sentPayloads.length, 2);
+  assert.equal(result.outcome, "bypassed");
+  assert.equal(result.newResponseId, undefined);
+  assert.equal(result.cooldown?.reason, "rebase_response_id_missing");
+});
+
+test("CDR-03 commits a streaming rebase only after observing its response id", async () => {
+  const result = await executeCodexRebaseWithFallback({
+    sessionId: "codex-session-1",
+    planId: "plan-streaming-response",
+    epochId: "epoch-1",
+    originalPayload: baseResponsesPayload(),
+    rebasedPayload: { input: [] },
+    async sendUpstream() {
+      return {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+        text: [
+          "event: response.created",
+          "data: {\"response\":{\"id\":\"resp-rebased-stream\"}}",
+          "",
+          "data: [DONE]",
+          "",
+        ].join("\n"),
+      };
+    },
+  });
+
+  assert.equal(result.outcome, "committed");
+  assert.equal(result.newResponseId, "resp-rebased-stream");
+});
+
+test("CDR-04 falls back to the original request after a transport error", async () => {
+  let calls = 0;
+  const result = await executeCodexRebaseWithFallback({
+    sessionId: "codex-session-1",
+    planId: "plan-transport-error",
+    epochId: "epoch-1",
+    originalPayload: baseResponsesPayload(),
+    rebasedPayload: { input: [] },
+    async sendUpstream() {
+      calls += 1;
+      if (calls === 1) throw new Error("connection reset");
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        text: JSON.stringify({ id: "resp-original-fallback", output: [] }),
+      };
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.outcome, "bypassed");
+  assert.equal(result.rebaseResponse, undefined);
+  assert.equal(result.cooldown?.reason, "rebase_upstream_error");
+});
+
 test("CDR-07 leaves the Codex payload equivalent when context rewrite is disabled", async () => {
   const originalPayload = baseResponsesPayload();
   const before = JSON.parse(JSON.stringify(originalPayload));
