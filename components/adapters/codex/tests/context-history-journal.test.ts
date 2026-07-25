@@ -242,10 +242,25 @@ test("CDH-04 builds effective history from proxy journal in strict order with re
       status: "completed",
       observedAt: "2026-07-24T10:00:02.000Z",
     });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "request-2",
+      response: {
+        id: "resp-2",
+        previous_response_id: "resp-1",
+        output: [
+          { id: "msg-2", type: "message", role: "assistant", content: [{ type: "output_text", text: "done" }] },
+        ],
+      },
+      status: "completed",
+      observedAt: "2026-07-24T10:00:03.000Z",
+    });
 
     const history = await buildCodexEffectiveHistory({
       stateDir,
       sessionId: "codex-session-1",
+      headResponseId: "resp-2",
     });
 
     assert.equal(history.source, "proxy_journal");
@@ -255,10 +270,120 @@ test("CDH-04 builds effective history from proxy journal in strict order with re
     assert.equal(history.observationOnlyItems[0]?.item.type, "web_search_call");
     assert.deepEqual(
       history.replayableItems.map((entry) => entry.item.type ?? entry.item.role),
-      ["developer", "user", "message", "function_call", "function_call_output", "user"],
+      ["developer", "user", "message", "function_call", "function_call_output", "user", "message"],
     );
     assert.match(history.revision, /^rev-[0-9a-f]+$/);
   });
+});
+
+test("CDH-04 excludes failed requests and abandoned response branches", async () => {
+  await withTempState(async (stateDir) => {
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "root-request",
+      turnOrdinal: 1,
+      payload: { input: [{ role: "user", content: "root" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "root-request",
+      response: { id: "resp-root", output: [] },
+      status: "completed",
+    });
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "failed-request",
+      turnOrdinal: 2,
+      payload: {
+        previous_response_id: "resp-root",
+        input: [{ role: "user", content: "FAILED_BRANCH_SENTINEL" }],
+      },
+      status: "failed",
+    });
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "branch-a-request",
+      turnOrdinal: 3,
+      payload: {
+        previous_response_id: "resp-root",
+        input: [{ role: "user", content: "BRANCH_A_SENTINEL" }],
+      },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "branch-a-request",
+      response: { id: "resp-a", previous_response_id: "resp-root", output: [] },
+      status: "completed",
+    });
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "branch-b-request",
+      turnOrdinal: 4,
+      payload: {
+        previous_response_id: "resp-root",
+        input: [{ role: "user", content: "BRANCH_B_SENTINEL" }],
+      },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "branch-b-request",
+      response: { id: "resp-b", previous_response_id: "resp-root", output: [] },
+      status: "completed",
+    });
+
+    const history = await buildCodexEffectiveHistory({
+      stateDir,
+      sessionId: "codex-session-1",
+      headResponseId: "resp-a",
+    });
+    const replayed = JSON.stringify(history.replayableItems);
+    assert.match(replayed, /BRANCH_A_SENTINEL/);
+    assert.doesNotMatch(replayed, /BRANCH_B_SENTINEL|FAILED_BRANCH_SENTINEL/);
+    assert.equal(history.incomplete, false);
+  });
+});
+
+test("CDH-04 keeps synthetic item ids stable across request state events", async () => {
+  async function buildWithStates(states: Array<"pending" | "completed">): Promise<string[]> {
+    let ids: string[] = [];
+    await withTempState(async (stateDir) => {
+      for (const status of states) {
+        await appendCodexRequestJournalEntry({
+          stateDir,
+          sessionId: "codex-session-1",
+          requestId: "request-1",
+          turnOrdinal: 1,
+          payload: { input: [{ role: "user", content: "stable synthetic item" }] },
+          status,
+        });
+      }
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId: "codex-session-1",
+        requestId: "request-1",
+        response: { id: "resp-1", output: [] },
+        status: "completed",
+      });
+      ids = (await buildCodexEffectiveHistory({
+        stateDir,
+        sessionId: "codex-session-1",
+        headResponseId: "resp-1",
+      })).replayableItems.map((entry) => entry.stableItemId);
+    });
+    return ids;
+  }
+
+  assert.deepEqual(await buildWithStates(["completed"]), await buildWithStates(["pending", "completed"]));
 });
 
 test("CDH-04 delegates to rollout parser bootstrap when proxy journal is incomplete", async () => {
