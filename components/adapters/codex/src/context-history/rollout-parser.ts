@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
 
 import {
   asJsonObject,
@@ -29,14 +30,32 @@ function itemCallId(item: JsonObject): string | undefined {
   return typeof item.call_id === "string" ? item.call_id : undefined;
 }
 
-function isToolCall(item: JsonObject): boolean {
-  const type = itemType(item);
-  return type === "function_call" || type === "custom_tool_call";
-}
-
 function isToolOutput(item: JsonObject): boolean {
   const type = itemType(item);
   return type === "function_call_output" || type === "custom_tool_call_output";
+}
+
+type RolloutAccumulator = {
+  replayCandidates: JsonObject[];
+  observationCandidates: JsonObject[];
+  malformedLineCount: number;
+  malformedSinceBaseline: number;
+  sessionMeta?: CodexRolloutSessionMeta;
+  compactionBaselineApplied: boolean;
+  unknownRecordTypeCounts: Record<string, number>;
+  taskEvidence: CodexRolloutTaskEvidence;
+};
+
+function createAccumulator(): RolloutAccumulator {
+  return {
+    replayCandidates: [],
+    observationCandidates: [],
+    malformedLineCount: 0,
+    malformedSinceBaseline: 0,
+    compactionBaselineApplied: false,
+    unknownRecordTypeCounts: {},
+    taskEvidence: { completedTurnIds: [], abortedTurnIds: [] },
+  };
 }
 
 function expectedOutputType(item: JsonObject): string | undefined {
@@ -178,99 +197,100 @@ function buildHistory(params: {
   };
 }
 
-export function parseCodexRolloutText(params: {
-  text: string;
-}): CodexRolloutSnapshot | null {
-  let replayCandidates: JsonObject[] = [];
-  let observationCandidates: JsonObject[] = [];
-  let malformedLineCount = 0;
-  let malformedSinceBaseline = 0;
-  let sessionMeta: CodexRolloutSessionMeta | undefined;
-  let compactionBaselineApplied = false;
-  const unknownRecordTypeCounts: Record<string, number> = {};
-  let taskEvidence: CodexRolloutTaskEvidence = {
-    completedTurnIds: [],
-    abortedTurnIds: [],
-  };
-
-  for (const rawLine of params.text.split(/\r?\n/u)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const record = parseRecord(line);
-    if (!record) {
-      malformedLineCount += 1;
-      malformedSinceBaseline += 1;
-      continue;
-    }
-
-    const recordType = typeof record.type === "string" ? record.type : undefined;
-    const payload = asJsonObject(sanitizeValue(record.payload));
-    if (!recordType || !payload) {
-      malformedLineCount += 1;
-      malformedSinceBaseline += 1;
-      continue;
-    }
-
-    if (recordType === "session_meta") {
-      sessionMeta = parseSessionMeta(payload);
-      continue;
-    }
-    if (recordType === "response_item") {
-      replayCandidates.push(payload);
-      continue;
-    }
-    if (recordType === "compacted") {
-      const replacementItems = compactionReplacementItems(payload);
-      if (!replacementItems) {
-        malformedLineCount += 1;
-        malformedSinceBaseline += 1;
-        continue;
-      }
-      replayCandidates = replacementItems;
-      observationCandidates = [];
-      malformedSinceBaseline = 0;
-      taskEvidence = { completedTurnIds: [], abortedTurnIds: [] };
-      compactionBaselineApplied = true;
-      continue;
-    }
-    if (recordType === "turn_context" || recordType === "event_msg") {
-      if (recordType === "event_msg") addTaskEvidence(payload, taskEvidence);
-      observationCandidates.push({ type: recordType, payload });
-      continue;
-    }
-    unknownRecordTypeCounts[recordType] = (unknownRecordTypeCounts[recordType] ?? 0) + 1;
+function consumeRolloutLine(accumulator: RolloutAccumulator, rawLine: string): void {
+  const line = rawLine.trim();
+  if (!line) return;
+  const record = parseRecord(line);
+  if (!record) {
+    accumulator.malformedLineCount += 1;
+    accumulator.malformedSinceBaseline += 1;
+    return;
   }
 
+  const recordType = typeof record.type === "string" ? record.type : undefined;
+  const payload = asJsonObject(sanitizeValue(record.payload));
+  if (!recordType || !payload) {
+    accumulator.malformedLineCount += 1;
+    accumulator.malformedSinceBaseline += 1;
+    return;
+  }
+
+  if (recordType === "session_meta") {
+    accumulator.sessionMeta = parseSessionMeta(payload);
+    return;
+  }
+  if (recordType === "response_item") {
+    accumulator.replayCandidates.push(payload);
+    return;
+  }
+  if (recordType === "compacted") {
+    const replacementItems = compactionReplacementItems(payload);
+    if (!replacementItems) {
+      accumulator.malformedLineCount += 1;
+      accumulator.malformedSinceBaseline += 1;
+      return;
+    }
+    accumulator.replayCandidates = replacementItems;
+    accumulator.observationCandidates = [];
+    accumulator.malformedSinceBaseline = 0;
+    accumulator.taskEvidence = { completedTurnIds: [], abortedTurnIds: [] };
+    accumulator.compactionBaselineApplied = true;
+    return;
+  }
+  if (recordType === "turn_context" || recordType === "event_msg") {
+    if (recordType === "event_msg") addTaskEvidence(payload, accumulator.taskEvidence);
+    accumulator.observationCandidates.push({ type: recordType, payload });
+    return;
+  }
+  accumulator.unknownRecordTypeCounts[recordType] = (
+    accumulator.unknownRecordTypeCounts[recordType] ?? 0
+  ) + 1;
+}
+
+function finishRolloutSnapshot(accumulator: RolloutAccumulator): CodexRolloutSnapshot | null {
   if (
-    replayCandidates.length === 0
-    && observationCandidates.length === 0
-    && !sessionMeta
+    accumulator.replayCandidates.length === 0
+    && accumulator.observationCandidates.length === 0
+    && !accumulator.sessionMeta
   ) {
     return null;
   }
-
   return {
     history: buildHistory({
-      replayCandidates,
-      observationCandidates,
-      malformedSinceBaseline,
+      replayCandidates: accumulator.replayCandidates,
+      observationCandidates: accumulator.observationCandidates,
+      malformedSinceBaseline: accumulator.malformedSinceBaseline,
     }),
-    sessionMeta,
-    malformedLineCount,
-    unknownRecordTypeCounts,
+    sessionMeta: accumulator.sessionMeta,
+    malformedLineCount: accumulator.malformedLineCount,
+    unknownRecordTypeCounts: accumulator.unknownRecordTypeCounts,
     taskEvidence: {
-      completedTurnIds: Array.from(new Set(taskEvidence.completedTurnIds)),
-      abortedTurnIds: Array.from(new Set(taskEvidence.abortedTurnIds)),
+      completedTurnIds: Array.from(new Set(accumulator.taskEvidence.completedTurnIds)),
+      abortedTurnIds: Array.from(new Set(accumulator.taskEvidence.abortedTurnIds)),
     },
-    compactionBaselineApplied,
+    compactionBaselineApplied: accumulator.compactionBaselineApplied,
   };
+}
+
+export function parseCodexRolloutText(params: {
+  text: string;
+}): CodexRolloutSnapshot | null {
+  const accumulator = createAccumulator();
+  for (const rawLine of params.text.split(/\r?\n/u)) consumeRolloutLine(accumulator, rawLine);
+  return finishRolloutSnapshot(accumulator);
 }
 
 export async function parseCodexRollout(
   rolloutPath: string,
 ): Promise<CodexRolloutSnapshot | null> {
+  const accumulator = createAccumulator();
   try {
-    return parseCodexRolloutText({ text: await readFile(rolloutPath, "utf8") });
+    const lines = createInterface({
+      input: createReadStream(rolloutPath, { encoding: "utf8" }),
+      crlfDelay: Infinity,
+    });
+    for await (const line of lines) consumeRolloutLine(accumulator, line);
+    return finishRolloutSnapshot(accumulator);
   } catch {
     return null;
   }
