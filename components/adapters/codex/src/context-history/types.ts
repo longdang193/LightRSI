@@ -62,3 +62,26 @@ export type CodexEffectiveHistory = {
   source: "proxy_journal" | "rollout_bootstrap" | "empty";
   incomplete: boolean;
 };
+
+export type CodexRolloutSessionMeta = {
+  sessionId?: string;
+  cwd?: string;
+  originator?: string;
+  cliVersion?: string;
+  source?: string;
+  modelProvider?: string;
+};
+
+export type CodexRolloutTaskEvidence = {
+  completedTurnIds: string[];
+  abortedTurnIds: string[];
+};
+
+export type CodexRolloutSnapshot = {
+  history: CodexEffectiveHistory;
+  sessionMeta?: CodexRolloutSessionMeta;
+  malformedLineCount: number;
+  unknownRecordTypeCounts: Record<string, number>;
+  taskEvidence: CodexRolloutTaskEvidence;
+  compactionBaselineApplied: boolean;
+};

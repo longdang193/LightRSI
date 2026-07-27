@@ -11,3 +11,8 @@ export {
   collectCodexResponseItemsFromStream,
 } from "./response-journal.js";
 export { buildCodexEffectiveHistory } from "./effective-history.js";
+export {
+  parseCodexRollout,
+  parseCodexRolloutFile,
+  parseCodexRolloutText,
+} from "./rollout-parser.js";
