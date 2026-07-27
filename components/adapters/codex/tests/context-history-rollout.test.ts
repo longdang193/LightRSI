@@ -113,6 +113,10 @@ test("GUA-04 uses only the latest compaction baseline", () => {
     text: [
       "{malformed before baseline",
       JSON.stringify({
+        type: "event_msg",
+        payload: { type: "task_complete", turn_id: "turn-before-baseline" },
+      }),
+      JSON.stringify({
         type: "compacted",
         payload: {
           replacement_history: [{ role: "user", content: "FIRST_BASELINE_SENTINEL" }],
@@ -132,6 +136,10 @@ test("GUA-04 uses only the latest compaction baseline", () => {
         type: "response_item",
         payload: { role: "assistant", content: "after latest baseline" },
       }),
+      JSON.stringify({
+        type: "event_msg",
+        payload: { type: "task_complete", turn_id: "turn-after-baseline" },
+      }),
     ].join("\n"),
   });
   assert.ok(snapshot);
@@ -140,6 +148,7 @@ test("GUA-04 uses only the latest compaction baseline", () => {
   const replayed = JSON.stringify(snapshot.history.replayableItems);
   assert.doesNotMatch(replayed, /FIRST_BASELINE_SENTINEL|between baselines/);
   assert.match(replayed, /LATEST_BASELINE_SENTINEL|after latest baseline/);
+  assert.deepEqual(snapshot.taskEvidence.completedTurnIds, ["turn-after-baseline"]);
 });
 
 test("GUA-04 rejects mismatched custom and function tool outputs", () => {

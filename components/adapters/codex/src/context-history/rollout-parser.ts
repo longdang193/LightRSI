@@ -188,7 +188,7 @@ export function parseCodexRolloutText(params: {
   let sessionMeta: CodexRolloutSessionMeta | undefined;
   let compactionBaselineApplied = false;
   const unknownRecordTypeCounts: Record<string, number> = {};
-  const taskEvidence: CodexRolloutTaskEvidence = {
+  let taskEvidence: CodexRolloutTaskEvidence = {
     completedTurnIds: [],
     abortedTurnIds: [],
   };
@@ -229,6 +229,7 @@ export function parseCodexRolloutText(params: {
       replayCandidates = replacementItems;
       observationCandidates = [];
       malformedSinceBaseline = 0;
+      taskEvidence = { completedTurnIds: [], abortedTurnIds: [] };
       compactionBaselineApplied = true;
       continue;
     }
