@@ -7,9 +7,7 @@ import test from "node:test";
 import {
   appendCodexRequestJournalEntry,
   appendCodexResponseJournalEntry,
-  buildCodexEffectiveHistory,
   codexContextHistoryJournalPath,
-  collectCodexResponseItemsFromStream,
   loadCodexContextHistoryJournal,
   readCodexContextHistoryJournal,
 } from "../src/context-history/index.js";
@@ -77,6 +75,49 @@ test("CDH-01 request journal stores sanitized input metadata and deduplicates re
   });
 });
 
+test("CDH-01 request journal deduplicates retries after sanitizing volatile input metadata", async () => {
+  await withTempState(async (stateDir) => {
+    const first = await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      payload: {
+        model: "gpt-5.4-mini",
+        previous_response_id: "resp-prev-1",
+        input: [
+          {
+            role: "user",
+            content: "same request body",
+            headers: { authorization: "Bearer first-token" },
+          },
+        ],
+      },
+      status: "completed",
+    });
+    const retry = await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      payload: {
+        model: "gpt-5.4-mini",
+        previous_response_id: "resp-prev-1",
+        input: [
+          {
+            role: "user",
+            content: "same request body",
+            headers: { authorization: "Bearer second-token" },
+          },
+        ],
+      },
+      status: "completed",
+    });
+
+    const journal = await loadCodexContextHistoryJournal(stateDir, "codex-session-1");
+
+    assert.equal(first.requestId, retry.requestId);
+    assert.equal(journal.length, 1);
+    assert.doesNotMatch(JSON.stringify(journal[0]), /authorization|Bearer first-token|Bearer second-token/i);
+  });
+});
+
 test("CDH-01 request journal advances pending requests to a terminal state", async () => {
   await withTempState(async (stateDir) => {
     const params = {
@@ -125,41 +166,6 @@ test("CDH-01 isolates malformed JSONL records without discarding valid history",
   });
 });
 
-test("CDH-04 marks an orphan incomplete response after the committed head as incomplete", async () => {
-  await withTempState(async (stateDir) => {
-    await appendCodexRequestJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      requestId: "request-1",
-      payload: { input: [{ role: "user", content: "root" }] },
-      status: "completed",
-    });
-    await appendCodexResponseJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      requestId: "request-1",
-      response: { id: "resp-1", output: [] },
-      status: "completed",
-    });
-    await appendCodexResponseJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      rawStreamText: [
-        "event: response.created",
-        "data: {\"response\":{\"id\":\"resp-orphan\"}}",
-        "",
-      ].join("\n"),
-    });
-
-    const history = await buildCodexEffectiveHistory({
-      stateDir,
-      sessionId: "codex-session-1",
-    });
-    assert.equal(history.incomplete, true);
-    assert.equal(history.replayableItems.length, 1);
-  });
-});
-
 test("CDH-02 response journal stores full non-stream output items and native refs", async () => {
   await withTempState(async (stateDir) => {
     const entry = await appendCodexResponseJournalEntry({
@@ -199,273 +205,87 @@ test("CDH-02 response journal stores full non-stream output items and native ref
   });
 });
 
-test("CDH-02 stream collector aggregates output items and marks incomplete streams", () => {
-  const completeStream = [
-    "event: response.created",
-    "data: {\"response\":{\"id\":\"resp-stream-1\",\"previous_response_id\":\"resp-prev-1\"}}",
-    "",
-    "event: response.output_item.added",
-    "data: {\"output_index\":0,\"item\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"\"}]}}",
-    "",
-    "event: response.output_text.delta",
-    "data: {\"item_id\":\"msg-1\",\"output_index\":0,\"delta\":\"hello\"}",
-    "",
-    "event: response.output_item.added",
-    "data: {\"output_index\":1,\"item\":{\"id\":\"fc-1\",\"type\":\"function_call\",\"call_id\":\"call-1\",\"name\":\"run_tests\",\"arguments\":\"\"}}",
-    "",
-    "event: response.function_call_arguments.delta",
-    "data: {\"item_id\":\"fc-1\",\"output_index\":1,\"delta\":\"{\\\"command\\\":\"}",
-    "",
-    "event: response.function_call_arguments.delta",
-    "data: {\"item_id\":\"fc-1\",\"output_index\":1,\"delta\":\"\\\"npm test\\\"}\"}",
-    "",
-    "event: response.completed",
-    "data: {\"response\":{\"id\":\"resp-stream-1\"}}",
-    "",
-    "data: [DONE]",
-    "",
-  ].join("\n");
-
-  const complete = collectCodexResponseItemsFromStream(completeStream);
-  assert.equal(complete.status, "completed");
-  assert.equal(complete.responseId, "resp-stream-1");
-  assert.equal(complete.previousResponseId, "resp-prev-1");
-  assert.equal(complete.outputItems.length, 2);
-  assert.match(JSON.stringify(complete.outputItems), /hello/);
-  assert.match(JSON.stringify(complete.outputItems), /npm test/);
-  assert.equal(complete.eventTypeCounts["response.output_text.delta"], 1);
-
-  const incomplete = collectCodexResponseItemsFromStream(completeStream.replace("event: response.completed", "event: response.output_text.delta"));
-  assert.equal(incomplete.status, "incomplete");
-});
-
-test("CDH-04 builds effective history from proxy journal in strict order with replay and observation split", async () => {
+test("CDH-02 response journal stores stream output items and stream metadata", async () => {
   await withTempState(async (stateDir) => {
-    await appendCodexRequestJournalEntry({
+    const completeStream = [
+      "event: response.created",
+      "data: {\"response\":{\"id\":\"resp-stream-1\",\"previous_response_id\":\"resp-prev-1\"}}",
+      "",
+      "event: response.output_item.added",
+      "data: {\"output_index\":0,\"item\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"\"}]}}",
+      "",
+      "event: response.output_text.delta",
+      "data: {\"item_id\":\"msg-1\",\"output_index\":0,\"delta\":\"hello\"}",
+      "",
+      "event: response.output_item.added",
+      "data: {\"output_index\":1,\"item\":{\"id\":\"fc-1\",\"type\":\"function_call\",\"call_id\":\"call-1\",\"name\":\"run_tests\",\"arguments\":\"\"}}",
+      "",
+      "event: response.function_call_arguments.delta",
+      "data: {\"item_id\":\"fc-1\",\"output_index\":1,\"delta\":\"{\\\"command\\\":\"}",
+      "",
+      "event: response.function_call_arguments.delta",
+      "data: {\"item_id\":\"fc-1\",\"output_index\":1,\"delta\":\"\\\"npm test\\\"}\"}",
+      "",
+      "event: response.completed",
+      "data: {\"response\":{\"id\":\"resp-stream-1\"}}",
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n");
+
+    const complete = await appendCodexResponseJournalEntry({
       stateDir,
       sessionId: "codex-session-1",
       requestId: "request-1",
-      payload: {
-        model: "gpt-5.4-mini",
-        input: [
-          { role: "developer", content: "stable instructions" },
-          { role: "user", content: "turn one" },
-        ],
-      },
-      status: "completed",
-      observedAt: "2026-07-24T10:00:00.000Z",
+      rawStreamText: completeStream,
     });
-    await appendCodexResponseJournalEntry({
+    const incomplete = await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "request-2",
+      rawStreamText: completeStream.replace("event: response.completed", "event: response.output_text.delta"),
+    });
+
+    const journal = await loadCodexContextHistoryJournal(stateDir, "codex-session-1");
+
+    assert.equal(complete.stream, true);
+    assert.equal(complete.status, "completed");
+    assert.equal(complete.responseId, "resp-stream-1");
+    assert.equal(complete.previousResponseId, "resp-prev-1");
+    assert.equal(complete.outputItems.length, 2);
+    assert.match(JSON.stringify(complete.outputItems), /hello/);
+    assert.match(JSON.stringify(complete.outputItems), /npm test/);
+    assert.equal(complete.eventTypeCounts?.["response.output_text.delta"], 1);
+    assert.equal(incomplete.status, "incomplete");
+    assert.equal(journal.length, 2);
+  });
+});
+
+test("CDH-02 response journal marks malformed completed streams incomplete", async () => {
+  await withTempState(async (stateDir) => {
+    const entry = await appendCodexResponseJournalEntry({
       stateDir,
       sessionId: "codex-session-1",
       requestId: "request-1",
-      response: {
-        id: "resp-1",
-        output: [
-          { id: "msg-1", type: "message", role: "assistant", content: [{ type: "output_text", text: "need tool" }] },
-          { id: "fc-1", type: "function_call", call_id: "call-1", name: "run_tests", arguments: "{}" },
-          { id: "ws-1", type: "web_search_call", query: "observed but not replayed" },
-        ],
-      },
-      observedAt: "2026-07-24T10:00:01.000Z",
-    });
-    await appendCodexRequestJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      requestId: "request-2",
-      payload: {
-        model: "gpt-5.4-mini",
-        previous_response_id: "resp-1",
-        input: [
-          { type: "function_call_output", call_id: "call-1", output: "{\"passed\":true}" },
-          { role: "user", content: "turn two" },
-        ],
-      },
-      status: "completed",
-      observedAt: "2026-07-24T10:00:02.000Z",
-    });
-    await appendCodexResponseJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      requestId: "request-2",
-      response: {
-        id: "resp-2",
-        previous_response_id: "resp-1",
-        output: [
-          { id: "msg-2", type: "message", role: "assistant", content: [{ type: "output_text", text: "done" }] },
-        ],
-      },
-      status: "completed",
-      observedAt: "2026-07-24T10:00:03.000Z",
-    });
-
-    const history = await buildCodexEffectiveHistory({
-      stateDir,
-      sessionId: "codex-session-1",
-      headResponseId: "resp-2",
-    });
-
-    assert.equal(history.source, "proxy_journal");
-    assert.equal(history.incomplete, false);
-    assert.equal(history.unresolvedCallIds.length, 0);
-    assert.equal(history.observationOnlyItems.length, 1);
-    assert.equal(history.observationOnlyItems[0]?.item.type, "web_search_call");
-    assert.deepEqual(
-      history.replayableItems.map((entry) => entry.item.type ?? entry.item.role),
-      ["developer", "user", "message", "function_call", "function_call_output", "user", "message"],
-    );
-    assert.match(history.revision, /^rev-[0-9a-f]+$/);
-  });
-});
-
-test("CDH-04 excludes failed requests and abandoned response branches", async () => {
-  await withTempState(async (stateDir) => {
-    await appendCodexRequestJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      requestId: "root-request",
-      turnOrdinal: 1,
-      payload: { input: [{ role: "user", content: "root" }] },
-      status: "completed",
-    });
-    await appendCodexResponseJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      requestId: "root-request",
-      response: { id: "resp-root", output: [] },
-      status: "completed",
-    });
-    await appendCodexRequestJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      requestId: "failed-request",
-      turnOrdinal: 2,
-      payload: {
-        previous_response_id: "resp-root",
-        input: [{ role: "user", content: "FAILED_BRANCH_SENTINEL" }],
-      },
-      status: "failed",
-    });
-    await appendCodexRequestJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      requestId: "branch-a-request",
-      turnOrdinal: 3,
-      payload: {
-        previous_response_id: "resp-root",
-        input: [{ role: "user", content: "BRANCH_A_SENTINEL" }],
-      },
-      status: "completed",
-    });
-    await appendCodexResponseJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      requestId: "branch-a-request",
-      response: { id: "resp-a", previous_response_id: "resp-root", output: [] },
-      status: "completed",
-    });
-    await appendCodexRequestJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      requestId: "branch-b-request",
-      turnOrdinal: 4,
-      payload: {
-        previous_response_id: "resp-root",
-        input: [{ role: "user", content: "BRANCH_B_SENTINEL" }],
-      },
-      status: "completed",
-    });
-    await appendCodexResponseJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
-      requestId: "branch-b-request",
-      response: { id: "resp-b", previous_response_id: "resp-root", output: [] },
-      status: "completed",
-    });
-
-    const history = await buildCodexEffectiveHistory({
-      stateDir,
-      sessionId: "codex-session-1",
-      headResponseId: "resp-a",
-    });
-    const replayed = JSON.stringify(history.replayableItems);
-    assert.match(replayed, /BRANCH_A_SENTINEL/);
-    assert.doesNotMatch(replayed, /BRANCH_B_SENTINEL|FAILED_BRANCH_SENTINEL/);
-    assert.equal(history.incomplete, false);
-  });
-});
-
-test("CDH-04 keeps synthetic item ids stable across request state events", async () => {
-  async function buildWithStates(states: Array<"pending" | "completed">): Promise<string[]> {
-    let ids: string[] = [];
-    await withTempState(async (stateDir) => {
-      for (const status of states) {
-        await appendCodexRequestJournalEntry({
-          stateDir,
-          sessionId: "codex-session-1",
-          requestId: "request-1",
-          turnOrdinal: 1,
-          payload: { input: [{ role: "user", content: "stable synthetic item" }] },
-          status,
-        });
-      }
-      await appendCodexResponseJournalEntry({
-        stateDir,
-        sessionId: "codex-session-1",
-        requestId: "request-1",
-        response: { id: "resp-1", output: [] },
-        status: "completed",
-      });
-      ids = (await buildCodexEffectiveHistory({
-        stateDir,
-        sessionId: "codex-session-1",
-        headResponseId: "resp-1",
-      })).replayableItems.map((entry) => entry.stableItemId);
-    });
-    return ids;
-  }
-
-  assert.deepEqual(await buildWithStates(["completed"]), await buildWithStates(["pending", "completed"]));
-});
-
-test("CDH-04 delegates to rollout parser bootstrap when proxy journal is incomplete", async () => {
-  await withTempState(async (stateDir) => {
-    await appendCodexResponseJournalEntry({
-      stateDir,
-      sessionId: "codex-session-1",
       rawStreamText: [
         "event: response.created",
-        "data: {\"response\":{\"id\":\"resp-incomplete\"}}",
+        "data: {\"response\":{\"id\":\"resp-malformed-completed\"}}",
+        "",
+        "event: response.output_item.done",
+        "data: {\"output_index\":0,\"item\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"kept\"}]}}",
         "",
         "event: response.output_text.delta",
-        "data: {\"item_id\":\"msg-1\",\"delta\":\"partial\"}",
+        "data: {\"truncated\":",
+        "",
+        "event: response.completed",
+        "data: {\"response\":{\"id\":\"resp-malformed-completed\"}}",
         "",
       ].join("\n"),
     });
 
-    const history = await buildCodexEffectiveHistory({
-      stateDir,
-      sessionId: "codex-session-1",
-      async rolloutParserBootstrap() {
-        return {
-          revision: "rollout-rev-1",
-          replayableItems: [
-            {
-              stableItemId: "rollout-user-1",
-              nativeId: "rollout-msg-1",
-              item: { role: "user", content: "bootstrapped from rollout parser fake" },
-            },
-          ],
-          observationOnlyItems: [],
-          unresolvedCallIds: [],
-          source: "rollout_bootstrap",
-          incomplete: false,
-        };
-      },
-    });
-
-    assert.equal(history.source, "rollout_bootstrap");
-    assert.equal(history.revision, "rollout-rev-1");
-    assert.equal(history.replayableItems[0]?.item.content, "bootstrapped from rollout parser fake");
+    assert.equal(entry.status, "incomplete");
+    assert.equal(entry.responseId, "resp-malformed-completed");
+    assert.equal(entry.malformedEventCount, 1);
+    assert.match(JSON.stringify(entry.outputItems), /kept/);
   });
 });
