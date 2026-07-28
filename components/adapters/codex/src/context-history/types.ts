@@ -38,6 +38,8 @@ export type CodexResponseJournalEntry = {
   outputItems: JsonObject[];
   outputItemRefs: CodexResponseOutputRef[];
   eventTypeCounts?: Record<string, number>;
+  malformedEventCount?: number;
+  malformedEventTypeCounts?: Record<string, number>;
   status: CodexJournalStatus;
   error?: string;
   observedAt: string;

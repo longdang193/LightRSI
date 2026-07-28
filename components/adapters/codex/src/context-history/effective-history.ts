@@ -1,4 +1,5 @@
 import { readCodexContextHistoryJournal } from "./journal-store.js";
+import { isCodexObservationOnlyItem } from "./replayability.js";
 import { cloneJson, hashJson } from "./shared.js";
 import type {
   CodexContextHistoryJournalEntry,
@@ -42,13 +43,20 @@ function latestResponsesById(journal: CodexContextHistoryJournalEntry[]): Map<st
   return responses;
 }
 
+function isCommittedResponseEntry(entry: CodexResponseJournalEntry): boolean {
+  if (entry.status === "completed") return true;
+  return entry.status === "incomplete"
+    && (entry.malformedEventCount ?? 0) > 0
+    && (entry.eventTypeCounts?.["response.completed"] ?? 0) > 0;
+}
+
 function committedResponses(
   responses: Map<string, IndexedResponse>,
   requests: Map<string, IndexedRequest>,
 ): IndexedResponse[] {
   return Array.from(responses.values())
     .filter(({ entry }) => {
-      if (entry.status !== "completed" || !entry.requestId) return false;
+      if (!isCommittedResponseEntry(entry) || !entry.requestId) return false;
       return requests.get(entry.requestId)?.entry.status === "completed";
     })
     .sort((left, right) => left.journalIndex - right.journalIndex);
@@ -77,7 +85,7 @@ function buildCommittedChain(params: {
   while (cursor) {
     const responseId = cursor.entry.responseId;
     const requestId = cursor.entry.requestId;
-    if (!responseId || !requestId || cursor.entry.status !== "completed") {
+    if (!responseId || !requestId || !isCommittedResponseEntry(cursor.entry)) {
       return { chain: [], complete: false };
     }
     if (seenResponseIds.has(responseId)) return { chain: [], complete: false };
@@ -122,11 +130,6 @@ function itemIdentity(params: {
   })}`;
 }
 
-function isObservationOnlyItem(item: JsonObject): boolean {
-  const type = String(item.type ?? "").toLowerCase();
-  return type === "web_search_call" || type === "event_msg" || type === "turn_context";
-}
-
 function appendEffectiveItem(params: {
   item: JsonObject;
   sessionId: string;
@@ -146,7 +149,7 @@ function appendEffectiveItem(params: {
     callId: typeof params.item.call_id === "string" ? params.item.call_id : undefined,
     item: cloneJson(params.item),
   };
-  if (isObservationOnlyItem(params.item)) params.observationOnlyItems.push(effectiveItem);
+  if (isCodexObservationOnlyItem(params.item)) params.observationOnlyItems.push(effectiveItem);
   else params.replayableItems.push(effectiveItem);
 }
 
@@ -195,6 +198,10 @@ function hasUncommittedResponseWork(params: {
   });
 }
 
+function hasMalformedStreamEvents(chain: CommittedTurn[]): boolean {
+  return chain.some((turn) => (turn.response.entry.malformedEventCount ?? 0) > 0);
+}
+
 export async function buildCodexEffectiveHistory(params: {
   stateDir: string;
   sessionId: string;
@@ -213,6 +220,7 @@ export async function buildCodexEffectiveHistory(params: {
   const journalIncomplete = Boolean(
     journalRead.readError
     || journalRead.malformedLineCount > 0
+    || hasMalformedStreamEvents(committedChain.chain)
     || !committedChain.complete
     || (
       committedChain.chain.length === 0

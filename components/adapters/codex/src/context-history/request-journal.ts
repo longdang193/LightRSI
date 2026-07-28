@@ -24,7 +24,7 @@ function requestIdFromPayload(params: {
     turnOrdinal: params.turnOrdinal,
     model: params.payload.model,
     previousResponseId: params.payload.previous_response_id,
-    input: params.payload.input,
+    input: sanitizedInputItems(params.payload),
   })}`;
 }
 
