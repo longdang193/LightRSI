@@ -248,6 +248,26 @@ test("CDH-03 SSE Item Collector preserves accumulated fields across empty item u
   assert.equal(outputText(asObject(result.outputItems[0])), "partial");
 });
 
+test("CDH-03 SSE Item Collector preserves encrypted reasoning across empty item updates", () => {
+  const result = collectCodexResponseItemsFromStream(sseStream(
+    sseBlock("response.output_item.added", {
+      output_index: 0,
+      item: { id: "rs-1", type: "reasoning", encrypted_content: "opaque" },
+    }),
+    sseBlock("response.output_item.done", {
+      output_index: 0,
+      item: {
+        id: "rs-1",
+        type: "reasoning",
+        encrypted_content: null,
+        summary: [{ type: "summary_text", text: "summary" }],
+      },
+    }),
+  ));
+
+  assert.equal(asObject(result.outputItems[0]).encrypted_content, "opaque");
+});
+
 test("CDH-03 SSE Item Collector keeps reasoning items and only counts unknown events", () => {
   const result = collectCodexResponseItemsFromStream(sseStream(
     sseBlock("response.future_event", {

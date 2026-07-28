@@ -124,6 +124,7 @@ function mergeOutputItem(existing: JsonObject | undefined, incoming: JsonObject)
   preserveNonEmptyString(merged, existing, incoming, "arguments");
   preserveNonEmptyString(merged, existing, incoming, "input");
   preserveNonEmptyString(merged, existing, incoming, "text");
+  preserveNonEmptyString(merged, existing, incoming, "encrypted_content");
   return merged;
 }
 
@@ -164,7 +165,11 @@ function preserveNonEmptyString(
 ): void {
   const existingValue = existing[field];
   const incomingValue = incoming[field];
-  if (typeof existingValue === "string" && existingValue.length > 0 && incomingValue === "") {
+  if (
+    typeof existingValue === "string"
+    && existingValue.length > 0
+    && (typeof incomingValue !== "string" || incomingValue.length === 0)
+  ) {
     target[field] = existingValue;
   }
 }
