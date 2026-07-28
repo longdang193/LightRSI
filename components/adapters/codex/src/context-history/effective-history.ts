@@ -1,5 +1,5 @@
 import { readCodexContextHistoryJournal } from "./journal-store.js";
-import { isCodexObservationOnlyItem } from "./replayability.js";
+import { codexReplayabilityForItem } from "./replayability.js";
 import { cloneJson, hashJson } from "./shared.js";
 import type {
   CodexContextHistoryJournalEntry,
@@ -139,6 +139,7 @@ function appendEffectiveItem(params: {
   seen: Set<string>;
   replayableItems: CodexEffectiveHistoryItem[];
   observationOnlyItems: CodexEffectiveHistoryItem[];
+  deferredItems: CodexEffectiveHistoryItem[];
 }): void {
   const nativeId = itemIdentity(params);
   if (params.seen.has(nativeId)) return;
@@ -149,8 +150,10 @@ function appendEffectiveItem(params: {
     callId: typeof params.item.call_id === "string" ? params.item.call_id : undefined,
     item: cloneJson(params.item),
   };
-  if (isCodexObservationOnlyItem(params.item)) params.observationOnlyItems.push(effectiveItem);
-  else params.replayableItems.push(effectiveItem);
+  const replayability = codexReplayabilityForItem(params.item);
+  if (replayability.mode === "replayable") params.replayableItems.push(effectiveItem);
+  else if (replayability.mode === "observation_only") params.observationOnlyItems.push(effectiveItem);
+  else params.deferredItems.push(effectiveItem);
 }
 
 function unresolvedCallIds(items: CodexEffectiveHistoryItem[]): string[] {
@@ -242,13 +245,9 @@ export async function buildCodexEffectiveHistory(params: {
       requests,
     }),
   );
-  if ((journalRead.entries.length === 0 || journalIncomplete) && params.rolloutParserBootstrap) {
-    const bootstrapped = await params.rolloutParserBootstrap();
-    if (bootstrapped) return bootstrapped;
-  }
-
   const replayableItems: CodexEffectiveHistoryItem[] = [];
   const observationOnlyItems: CodexEffectiveHistoryItem[] = [];
+  const deferredItems: CodexEffectiveHistoryItem[] = [];
   const seen = new Set<string>();
   for (const turn of committedChain.chain) {
     turn.request.entry.inputItems.forEach((item, itemOrdinal) => {
@@ -261,6 +260,7 @@ export async function buildCodexEffectiveHistory(params: {
         seen,
         replayableItems,
         observationOnlyItems,
+        deferredItems,
       });
     });
     turn.response.entry.outputItems.forEach((item, itemOrdinal) => {
@@ -273,11 +273,17 @@ export async function buildCodexEffectiveHistory(params: {
         seen,
         replayableItems,
         observationOnlyItems,
+        deferredItems,
       });
     });
   }
 
   const unresolved = unresolvedCallIds(replayableItems);
+  const effectiveIncomplete = journalIncomplete || deferredItems.length > 0 || unresolved.length > 0;
+  if ((journalRead.entries.length === 0 || effectiveIncomplete) && params.rolloutParserBootstrap) {
+    const bootstrapped = await params.rolloutParserBootstrap();
+    if (bootstrapped) return bootstrapped;
+  }
   const revision = `rev-${hashJson({
     replayableItems: replayableItems.map((entry) => ({
       stableItemId: entry.stableItemId,
@@ -287,16 +293,21 @@ export async function buildCodexEffectiveHistory(params: {
       stableItemId: entry.stableItemId,
       fingerprint: hashJson(entry.item),
     })),
+    deferredItems: deferredItems.map((entry) => ({
+      stableItemId: entry.stableItemId,
+      fingerprint: hashJson(entry.item),
+    })),
     unresolved,
-    journalIncomplete,
+    incomplete: effectiveIncomplete,
   })}`;
 
   return {
     revision,
     replayableItems,
     observationOnlyItems,
+    deferredItems,
     unresolvedCallIds: unresolved,
     source: journalRead.entries.length > 0 ? "proxy_journal" : "empty",
-    incomplete: journalIncomplete,
+    incomplete: effectiveIncomplete,
   };
 }

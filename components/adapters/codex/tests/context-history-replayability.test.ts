@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   codexReplayabilityForItem,
+  isCodexDeferredItem,
   isCodexObservationOnlyItem,
   type CodexReplayabilityMode,
   type CodexReplayabilityReason,
@@ -58,6 +59,24 @@ test("CDH-05 Replayability keeps exact encrypted reasoning payloads replayable",
 
   assertReplayability(reasoning, "replayable", "exact_payload_required");
   assert.equal(isCodexObservationOnlyItem(reasoning), false);
+});
+
+test("CDH-05 Replayability defers reasoning without its exact encrypted payload", () => {
+  const reasoning = {
+    id: "rs-summary-only",
+    type: "reasoning",
+    summary: [{ type: "summary_text", text: "partial" }],
+  };
+
+  assertReplayability(reasoning, "deferred", "exact_payload_missing");
+  assert.equal(isCodexDeferredItem(reasoning), true);
+});
+
+test("CDH-05 Replayability defers unknown provider item types", () => {
+  const item = { type: "future_provider_item", payload: "opaque" };
+
+  assertReplayability(item, "deferred", "unsupported_item_type");
+  assert.equal(isCodexDeferredItem(item), true);
 });
 
 test("CDH-05 Replayability classifies provider observations as observation-only by default", () => {

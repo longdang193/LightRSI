@@ -6,6 +6,7 @@ import {
   hashJson,
   sanitizeValue,
 } from "./shared.js";
+import { codexReplayabilityForItem } from "./replayability.js";
 import type {
   CodexEffectiveHistory,
   CodexEffectiveHistoryItem,
@@ -140,9 +141,19 @@ function buildHistory(params: {
   observationCandidates: JsonObject[];
   malformedSinceBaseline: number;
 }): CodexEffectiveHistory {
+  const replayCandidates: JsonObject[] = [];
+  const observationCandidates = [...params.observationCandidates];
+  const deferredCandidates: JsonObject[] = [];
+  for (const item of params.replayCandidates) {
+    const replayability = codexReplayabilityForItem(item);
+    if (replayability.mode === "replayable") replayCandidates.push(item);
+    else if (replayability.mode === "observation_only") observationCandidates.push(item);
+    else deferredCandidates.push(item);
+  }
+
   const expectedOutputs = new Map<string, string>();
   const outputTypes = new Map<string, string>();
-  for (const item of params.replayCandidates) {
+  for (const item of replayCandidates) {
     const callId = itemCallId(item);
     if (!callId) continue;
     const expectedType = expectedOutputType(item);
@@ -150,10 +161,10 @@ function buildHistory(params: {
     if (isToolOutput(item)) outputTypes.set(callId, itemType(item));
   }
 
-  let incomplete = params.malformedSinceBaseline > 0;
+  let incomplete = params.malformedSinceBaseline > 0 || deferredCandidates.length > 0;
   const occurrences = new Map<string, number>();
   const replayableItems: CodexEffectiveHistoryItem[] = [];
-  for (const item of params.replayCandidates) {
+  for (const item of replayCandidates) {
     const callId = itemCallId(item);
     if (isToolOutput(item) && (
       !callId
@@ -165,9 +176,10 @@ function buildHistory(params: {
     replayableItems.push(createEffectiveItem(item, occurrences));
   }
 
-  const observationOnlyItems = params.observationCandidates.map((item) =>
+  const observationOnlyItems = observationCandidates.map((item) =>
     createEffectiveItem(item, occurrences)
   );
+  const deferredItems = deferredCandidates.map((item) => createEffectiveItem(item, occurrences));
   const unresolvedCallIds = Array.from(expectedOutputs)
     .filter(([callId, expectedType]) => outputTypes.get(callId) !== expectedType)
     .map(([callId]) => callId)
@@ -183,6 +195,10 @@ function buildHistory(params: {
       stableItemId: entry.stableItemId,
       fingerprint: hashJson(entry.item),
     })),
+    deferredItems: deferredItems.map((entry) => ({
+      stableItemId: entry.stableItemId,
+      fingerprint: hashJson(entry.item),
+    })),
     unresolvedCallIds,
     incomplete,
   })}`;
@@ -191,6 +207,7 @@ function buildHistory(params: {
     revision,
     replayableItems,
     observationOnlyItems,
+    deferredItems,
     unresolvedCallIds,
     source: "rollout_bootstrap",
     incomplete,

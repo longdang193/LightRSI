@@ -283,6 +283,7 @@ test("CDH-04 Effective History Builder delegates to rollout parser bootstrap whe
             },
           ],
           observationOnlyItems: [],
+          deferredItems: [],
           unresolvedCallIds: [],
           source: "rollout_bootstrap",
           incomplete: false,
@@ -527,5 +528,76 @@ test("CDH-04 Effective History Builder consumes SSE-collected response items", a
       ],
     );
     assert.match(JSON.stringify(history.replayableItems), /SSE done/);
+  });
+});
+
+test("CDH-04 Effective History Builder defers summary-only reasoning and blocks rebase", async () => {
+  await withTempState(async (stateDir) => {
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "codex-session-deferred",
+      requestId: "request-1",
+      payload: { stream: true, input: [{ role: "user", content: "reason" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-deferred",
+      requestId: "request-1",
+      rawStreamText: sseStream(
+        sseBlock("response.created", { response: { id: "resp-1" } }),
+        sseBlock("response.output_item.added", {
+          output_index: 0,
+          item: { id: "rs-1", type: "reasoning", summary: [] },
+        }),
+        sseBlock("response.reasoning_summary_text.done", {
+          item_id: "rs-1",
+          output_index: 0,
+          summary_index: 0,
+          text: "summary only",
+        }),
+        sseBlock("response.completed", { response: { id: "resp-1" } }),
+      ),
+    });
+
+    const history = await buildCodexEffectiveHistory({
+      stateDir,
+      sessionId: "codex-session-deferred",
+    });
+
+    assert.equal(history.incomplete, true);
+    assert.equal(history.deferredItems.length, 1);
+    assert.equal(history.deferredItems[0]?.item.type, "reasoning");
+    assert.doesNotMatch(JSON.stringify(history.replayableItems), /summary only/);
+  });
+});
+
+test("CDH-04 Effective History Builder marks unresolved tool calls incomplete", async () => {
+  await withTempState(async (stateDir) => {
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "codex-session-unresolved",
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "run tool" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-unresolved",
+      requestId: "request-1",
+      response: {
+        id: "resp-1",
+        output: [{ type: "function_call", call_id: "call-1", name: "run", arguments: "{}" }],
+      },
+      status: "completed",
+    });
+
+    const history = await buildCodexEffectiveHistory({
+      stateDir,
+      sessionId: "codex-session-unresolved",
+    });
+
+    assert.equal(history.incomplete, true);
+    assert.deepEqual(history.unresolvedCallIds, ["call-1"]);
   });
 });

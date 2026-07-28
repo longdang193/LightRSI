@@ -60,6 +60,7 @@ export type CodexEffectiveHistory = {
   revision: string;
   replayableItems: CodexEffectiveHistoryItem[];
   observationOnlyItems: CodexEffectiveHistoryItem[];
+  deferredItems: CodexEffectiveHistoryItem[];
   unresolvedCallIds: string[];
   source: "proxy_journal" | "rollout_bootstrap" | "empty";
   incomplete: boolean;

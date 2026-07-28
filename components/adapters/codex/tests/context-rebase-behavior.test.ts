@@ -114,6 +114,7 @@ function effectiveHistoryFixture(): CodexEffectiveHistory {
         item: { type: "web_search_call", query: "not replayable by default" },
       },
     ],
+    deferredItems: [],
     unresolvedCallIds: [],
     source: "proxy_journal",
     incomplete: false,
@@ -165,6 +166,27 @@ test("CDR-01 rejects stale revisions before constructing a rebase request", () =
     currentInput: originalPayload.input,
     mutationPlan: { operations: [] },
   }), /revision_mismatch/);
+});
+
+test("CDR-01 rejects effective history containing deferred provider items", () => {
+  const originalPayload = baseResponsesPayload();
+  const effectiveHistory = effectiveHistoryFixture();
+  effectiveHistory.deferredItems.push({
+    stableItemId: "deferred-1",
+    nativeId: "future-1",
+    item: { type: "future_provider_item", payload: "opaque" },
+  });
+  effectiveHistory.incomplete = true;
+
+  assert.throws(() => buildCodexRebaseRequest({
+    sessionId: "codex-session-1",
+    planId: "plan-deferred",
+    baseRevision: effectiveHistory.revision,
+    originalPayload,
+    effectiveHistory,
+    currentInput: originalPayload.input,
+    mutationPlan: { operations: [] },
+  }), /effective_history_incomplete/);
 });
 
 test("CDR-01 rejects mutations that break function call closure", () => {

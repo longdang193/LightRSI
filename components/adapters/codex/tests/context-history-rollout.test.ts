@@ -173,6 +173,32 @@ test("GUA-04 rejects mismatched custom and function tool outputs", () => {
   );
 });
 
+test("GUA-04 defers unsafe rollout items instead of replaying them", () => {
+  const snapshot = parseCodexRolloutText({
+    text: [
+      JSON.stringify({
+        type: "response_item",
+        payload: {
+          type: "reasoning",
+          summary: [{ type: "summary_text", text: "missing encrypted payload" }],
+        },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: { type: "future_provider_item", payload: "opaque" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.ok(snapshot);
+  assert.equal(snapshot.history.incomplete, true);
+  assert.equal(snapshot.history.replayableItems.length, 0);
+  assert.deepEqual(
+    snapshot.history.deferredItems.map((entry) => entry.item.type),
+    ["reasoning", "future_provider_item"],
+  );
+});
+
 test("GUA-04 records completion and abort evidence without failing on unknown rows", () => {
   const snapshot = parseCodexRolloutText({
     text: [
