@@ -8,6 +8,10 @@ components/tokenpilot/packages/openclaw-plugin/.tmp/
 components/tokenpilot/packages/openclaw-plugin/*.tgz
 components/tokenpilot/adapters/openclaw/.tmp/
 components/tokenpilot/adapters/openclaw/*.tgz
+components/adapters/openclaw/*.tgz
+components/adapters/codex/*.tgz
+components/adapters/claude-code/*.tgz
+release-artifacts/
 
 log/
 
@@ -241,4 +245,3 @@ __marimo__/
 # Website (VitePress)
 website/.vitepress/cache/
 website/.vitepress/dist/
-website/package-lock.json
