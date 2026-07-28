@@ -2,10 +2,6 @@
 
 Codex CLI integration uses a **local proxy + hooks** pattern. TokenPilot runs as a sidecar proxy that intercepts requests between Codex and the model API.
 
-::: info Test Environment
-**OS**: macOS 14 / Linux (Ubuntu 22.04) &nbsp;|&nbsp; **Node**: v20+ &nbsp;|&nbsp; **Last verified**: 2026-07-16
-:::
-
 ## Installation
 
 ```bash
@@ -92,16 +88,6 @@ lightmem2 codex reduction mode balanced
 lightmem2 codex help
 ```
 
-## Useful Controls
-
-| Command | Effect |
-| :-- | :-- |
-| `stabilizer on\|off` | Toggle stable-prefix rewriting |
-| `stabilizer target <developer\|user>` | Choose where dynamic context is attached |
-| `reduction on\|off` | Toggle observation reduction |
-| `reduction mode <light\|balanced>` | Switch between lighter and stronger trimming |
-| `reduction pass toolPayloadTrim off` | Disable one specific reduction pass |
-
 ## PATH Setup
 
 If `lightmem2` is not found after install:
@@ -111,15 +97,6 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Add to `~/.bashrc` or `~/.zshrc` to make permanent.
-
-## Failure Recovery
-
-```bash
-# Restore original config
-cp ~/.codex/config.toml.tokenpilot.bak ~/.codex/config.toml
-cp ~/.codex/hooks.json.tokenpilot.bak ~/.codex/hooks.json
-rm ~/.codex/tokenpilot.json
-```
 
 ## Troubleshooting
 

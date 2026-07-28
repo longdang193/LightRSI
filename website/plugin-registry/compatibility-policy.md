@@ -1,7 +1,0 @@
-# Compatibility Policy
-
-::: danger 
-README 
-:::
-
-

@@ -241,3 +241,4 @@ __marimo__/
 # Website (VitePress)
 website/.vitepress/cache/
 website/.vitepress/dist/
+website/package-lock.json

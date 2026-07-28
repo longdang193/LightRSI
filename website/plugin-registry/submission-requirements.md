@@ -1,7 +1,0 @@
-# Submission Requirements
-
-::: danger 
-README 
-:::
-
-

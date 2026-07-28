@@ -1,7 +1,0 @@
-# Security Review
-
-::: danger 
-README 
-:::
-
-
