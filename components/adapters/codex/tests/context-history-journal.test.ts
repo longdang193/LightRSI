@@ -205,6 +205,50 @@ test("CDH-02 response journal stores full non-stream output items and native ref
   });
 });
 
+test("CDH-02 response journal respects failed non-stream response bodies", async () => {
+  await withTempState(async (stateDir) => {
+    const entry = await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "request-1",
+      response: {
+        id: "resp-body-failed",
+        status: "failed",
+        output: [
+          { id: "msg-1", type: "message", role: "assistant", content: [{ type: "output_text", text: "partial" }] },
+        ],
+      },
+      status: "completed",
+    });
+
+    assert.equal(entry.status, "failed");
+    assert.equal(entry.responseId, "resp-body-failed");
+    assert.match(JSON.stringify(entry.outputItems), /partial/);
+  });
+});
+
+test("CDH-02 response journal respects incomplete non-stream response bodies", async () => {
+  await withTempState(async (stateDir) => {
+    const entry = await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "request-1",
+      response: {
+        id: "resp-body-incomplete",
+        status: "incomplete",
+        output: [
+          { id: "msg-1", type: "message", role: "assistant", content: [{ type: "output_text", text: "partial" }] },
+        ],
+      },
+      status: "completed",
+    });
+
+    assert.equal(entry.status, "incomplete");
+    assert.equal(entry.responseId, "resp-body-incomplete");
+    assert.match(JSON.stringify(entry.outputItems), /partial/);
+  });
+});
+
 test("CDH-02 response journal stores stream output items and stream metadata", async () => {
   await withTempState(async (stateDir) => {
     const completeStream = [
@@ -287,5 +331,28 @@ test("CDH-02 response journal marks malformed completed streams incomplete", asy
     assert.equal(entry.responseId, "resp-malformed-completed");
     assert.equal(entry.malformedEventCount, 1);
     assert.match(JSON.stringify(entry.outputItems), /kept/);
+  });
+});
+
+test("CDH-02 response journal keeps interrupted 2xx streams incomplete", async () => {
+  await withTempState(async (stateDir) => {
+    const entry = await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "request-1",
+      rawStreamText: [
+        "event: response.created",
+        "data: {\"response\":{\"id\":\"resp-interrupted-2xx\"}}",
+        "",
+        "event: response.output_item.done",
+        "data: {\"output_index\":0,\"item\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"partial\"}]}}",
+        "",
+      ].join("\n"),
+      status: "completed",
+    });
+
+    assert.equal(entry.status, "incomplete");
+    assert.equal(entry.responseId, "resp-interrupted-2xx");
+    assert.match(JSON.stringify(entry.outputItems), /partial/);
   });
 });

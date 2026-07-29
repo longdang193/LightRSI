@@ -1,4 +1,34 @@
 export * from "./types.js";
 export { applyCodexContextRewrite } from "./disabled.js";
 export { executeCodexRebaseWithFallback } from "./fallback.js";
-export { buildCodexRebaseRequest, validateCodexRebaseRequest } from "./rebase-request.js";
+export {
+  buildCodexRebaseRequest,
+  validateCodexRebaseRequest,
+  withCodexRebaseReplayAccountingInput,
+} from "./rebase-request.js";
+export {
+  appendCodexRebaseCapability,
+  codexRebaseCapabilityJournalPath,
+  codexRebasePayloadItemTypes,
+  formatCodexRebaseCapabilityStatus,
+  readCodexRebaseCapabilityJournal,
+  readUnsupportedCodexRebaseItemTypes,
+  unsupportedCodexRebaseItemTypesFromResponse,
+} from "./rebase-capability.js";
+export {
+  appendCodexRebaseCooldown,
+  codexRebaseCooldownJournalPath,
+  codexRebaseCooldownNotice,
+  readActiveCodexRebaseCooldown,
+  readCodexRebaseCooldownJournal,
+} from "./rebase-cooldown.js";
+export {
+  appendPendingCodexRebaseEpoch,
+  codexRebaseEpochJournalPath,
+  commitCodexRebaseEpoch,
+  failCodexRebaseEpoch,
+  readCodexRebaseEpochJournal,
+  readLatestCodexRebaseEpoch,
+  readPendingCodexRebaseEpochs,
+  rollbackCodexRebaseEpoch,
+} from "./rebase-epoch.js";
