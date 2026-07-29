@@ -1,13 +1,13 @@
 # Components
 
-This directory contains runtime components built on top of the LightMem2 framework.
-Each component can expose one or more host adapters without duplicating its shared runtime logic.
+This directory contains the shared packages, feature modules, presets, products,
+and host adapters that make up LightMem2.
 
 The current public repository ships one component:
 
 | Component | Status | Role | Docs |
 | :-- | :-- | :-- | :-- |
-| `TokenPilot` | public | Runtime component for context stabilization, reduction, and lifecycle-aware eviction | [components/tokenpilot/README.md](./tokenpilot/README.md) |
+| `TokenPilot` | public | Preset combining Stabilizer, Reduction, and Eviction | [presets/tokenpilot/README.md](./presets/tokenpilot/README.md) |
 
 ## Component And Adapter Split
 
@@ -24,6 +24,11 @@ LightMem2 separates:
 
 This layout is meant to let a single component support multiple agent hosts over time.
 
+TokenPilot is represented by `presets/tokenpilot/`; it no longer owns the
+shared packages, adapters, or products. Adapters explicitly bind the preset and
+declare which TokenPilot features they support. Products discover host state
+through adapter-provided registrations rather than a second hardcoded host map.
+
 ## How To Read This Directory
 
 Use the root [README.md](../README.md) first if you want the fastest path to:
@@ -32,7 +37,7 @@ Use the root [README.md](../README.md) first if you want the fastest path to:
 - install the current component
 - verify the runtime path in a real session
 
-Use a component subtree when you need component-specific material such as:
+Use a preset subtree when you need product-specific material such as:
 
 - command surface
 - package layout
@@ -45,24 +50,63 @@ Use a component subtree when you need component-specific material such as:
 
 ```text
 components/
-└── tokenpilot/
-    ├── adapters/
-    │   ├── openclaw/
-    │   ├── codex/
-    │   └── claude-code/
-    ├── README.md
-    ├── products/
-    └── packages/
-        ├── host-adapter/
-        ├── product-surface/
-        ├── runtime-core/
-        ├── kernel/
-        └── layers/
+├── packages/
+│   ├── foundation/
+│   │   ├── kernel/
+│   │   ├── runtime-core/
+│   │   ├── host-adapter/
+│   │   ├── history/
+│   │   ├── artifact-store/
+│   │   └── product-surface/
+│   └── features/
+│       ├── stabilizer/
+│       ├── reduction/
+│       ├── eviction/
+│       └── memory/
+├── presets/
+│   └── tokenpilot/
+├── adapters/
+│   ├── openclaw/
+│   ├── codex/
+│   └── claude-code/
+└── products/
+    ├── cli/
+    └── mcp/
 ```
+
+Current preset bindings:
+
+| Host | TokenPilot feature support |
+| :-- | :-- |
+| OpenClaw | Stabilizer, Reduction, Eviction |
+| Codex | Stabilizer, Reduction |
+| Claude Code | Stabilizer, Reduction |
 
 ## Naming Boundary
 
 At the repository level, the framework name is `LightMem2`.
+
+Workspace npm packages use the `@lightmem2` scope:
+
+| Layer | Package identities |
+| :-- | :-- |
+| Foundation | `@lightmem2/kernel`, `@lightmem2/runtime-core`, `@lightmem2/host-adapter`, `@lightmem2/history`, `@lightmem2/artifact-store`, `@lightmem2/product-surface` |
+| Features | `@lightmem2/stabilizer`, `@lightmem2/reduction`, `@lightmem2/eviction`, `@lightmem2/memory` |
+| Preset | `@lightmem2/tokenpilot` |
+| Products | `@lightmem2/cli`, `@lightmem2/mcp` |
+| Adapters | `@lightmem2/openclaw-adapter`, `@lightmem2/codex-adapter`, `@lightmem2/claude-code-adapter` |
+
+These names define workspace ownership. They do not imply that every internal
+package is independently published; release entrypoints and their public
+export contracts are versioned separately.
+
+Source ownership follows the same boundary:
+
+- foundation packages expose product-neutral contracts such as
+  `ProductSurfaceHostBridge`, `StatePathResolver`, and `HostIdentity`
+- presets own branded composition and presentation identity; TokenPilot owns
+  its display name, `/tokenpilot` command, and compatibility aliases
+- adapters own host-specific compatibility paths and environment bridges
 
 At the current runtime-compatibility layer, the shipped component still uses
 the established `tokenpilot` namespace for plugin id and persisted state. On

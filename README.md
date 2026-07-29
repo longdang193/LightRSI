@@ -134,8 +134,8 @@ pnpm component:install:tokenpilot:openclaw
 Default install:
 
 ```bash
-npm --prefix components/tokenpilot/adapters/codex run build
-npm --prefix components/tokenpilot/adapters/codex run install:codex
+npm --prefix components/adapters/codex run build
+npm --prefix components/adapters/codex run install:codex
 ```
 
 This keeps your current active Codex provider name, reroutes that provider through the local TokenPilot proxy, writes `~/.codex/tokenpilot.json`, registers hooks in `~/.codex/hooks.json`, registers the shared `tokenpilot_memory_fault_recover` MCP server, and creates the standalone `lightmem2` CLI entrypoint at `~/.local/bin/lightmem2`.
@@ -151,8 +151,8 @@ export TOKENPILOT_CODEX_CONFIG="/path/to/tokenpilot.json"
 Then run the same install flow:
 
 ```bash
-npm --prefix components/tokenpilot/adapters/codex run build
-npm --prefix components/tokenpilot/adapters/codex run install:codex
+npm --prefix components/adapters/codex run build
+npm --prefix components/adapters/codex run install:codex
 ```
 
 If `lightmem2` is not found after install, make sure `~/.local/bin` is on your `PATH`.
@@ -167,8 +167,8 @@ If `lightmem2` is not found after install, make sure `~/.local/bin` is on your `
 Default install:
 
 ```bash
-npm --prefix components/tokenpilot/adapters/claude-code run build
-npm --prefix components/tokenpilot/adapters/claude-code run install:claude-code
+npm --prefix components/adapters/claude-code run build
+npm --prefix components/adapters/claude-code run install:claude-code
 ```
 
 This updates `~/.claude/settings.json` for local gateway routing, writes `~/.claude/tokenpilot.json`, registers the shared `tokenpilot_memory_fault_recover` MCP server in `~/.claude/.claude.json`, installs a `SessionStart` hook that auto-starts the local gateway on first use, and preserves existing Claude files as `.tokenpilot.bak` backups before rewriting.
@@ -184,8 +184,8 @@ export TOKENPILOT_CLAUDE_CODE_CONFIG="/path/to/tokenpilot.json"
 Then run the same install flow:
 
 ```bash
-npm --prefix components/tokenpilot/adapters/claude-code run build
-npm --prefix components/tokenpilot/adapters/claude-code run install:claude-code
+npm --prefix components/adapters/claude-code run build
+npm --prefix components/adapters/claude-code run install:claude-code
 ```
 
 If `lightmem2` is not found after install, make sure `~/.local/bin` is on your `PATH`.
@@ -349,38 +349,43 @@ Eviction view:
 
 ## 🏗️ Architecture
 
-The current public repository is organized around the released component and its current host adapters.
+The current public repository separates reusable capabilities, verified presets,
+host adapters, and user-facing products.
 
 At a high level:
 
-- `components/<name>/packages`
-  - shared logic that should remain reusable across hosts
-- `components/<name>/adapters`
-  - host-specific integration code, install surfaces, runtime hooks, and command wiring
+- `components/packages`
+  - shared foundation and independently composable feature packages
+- `components/presets`
+  - verified feature combinations such as TokenPilot
+- `components/adapters`
+  - host-specific integration, install surfaces, runtime hooks, and product registration
+- `components/products`
+  - shared CLI, Visual launcher, and MCP recovery surfaces
 
 ```text
 LightMem2/
 ├── components/
-│   └── tokenpilot/
-│       ├── adapters/
-│       │   ├── openclaw/         # production host adapter for OpenClaw
-│       │   ├── codex/            # Codex CLI adapter with hooks + local proxy
-│       │   └── claude-code/      # Claude Code adapter with gateway routing + MCP recovery
-│       ├── products/
-│       │   ├── cli/              # shared lightmem2 CLI surface
-│       │   └── mcp/              # shared memory_fault_recover MCP server
-│       └── packages/
-│           ├── host-adapter/     # Shared host-adapter contracts and path-resolution interfaces
-│           ├── runtime-core/     # Host-agnostic runtime engine and shared execution logic
-│           ├── kernel/           # Shared types, interfaces, events, and runtime contracts
-│           └── layers/           # Stateful and policy-oriented logic
-│               ├── history/      # Canonical state, raw semantic turns, task registry
-│               ├── decision/     # Policy analysis, reduction/eviction decisions, estimator
-│               └── memory/       # Experimental memory layer; distillation and retrieval are still in progress
+│   ├── packages/
+│   │   ├── foundation/           # contracts, runtime, host, history, artifact, product infrastructure
+│   │   └── features/             # stabilizer, reduction, eviction, and memory
+│   ├── presets/
+│   │   └── tokenpilot/           # Stabilizer + Reduction + Eviction composition contract
+│   ├── adapters/
+│   │   ├── openclaw/             # OpenClaw adapter
+│   │   ├── codex/                # Codex CLI adapter
+│   │   └── claude-code/          # Claude Code adapter
+│   └── products/
+│       ├── cli/                  # shared lightmem2 CLI and browser visual launcher
+│       └── mcp/                  # shared memory_fault_recover MCP server
 ├── docs/                         # Public-facing notes and smoke helpers for the current runtime path
 ├── experiments/                  # Benchmark adapters and evaluation scripts for the current runtime path
 └── README.md
 ```
+
+TokenPilot is now a preset rather than a source-code parent directory. Each
+adapter explicitly binds the preset and contributes host discovery metadata;
+the shared CLI and Visual surface consume those registrations.
 
 <span id='experiments'/>
 

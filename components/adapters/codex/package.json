@@ -1,0 +1,55 @@
+{
+  "name": "@lightmem2/codex-adapter",
+  "version": "0.1.0-beta.1",
+  "description": "TokenPilot adapter for Codex via an OpenAI-compatible Responses proxy.",
+  "lightmem2": {
+    "role": "adapter"
+  },
+  "main": "dist/index.js",
+  "bin": {
+    "tokenpilot-codex": "dist/cli.js",
+    "lightmem2-install-codex": "dist/install-codex.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zjunlp/LightMem2.git",
+    "directory": "components/adapters/codex"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@lightmem2/artifact-store": "workspace:*",
+    "@lightmem2/tokenpilot": "workspace:*",
+    "@lightmem2/host-adapter": "workspace:*",
+    "@lightmem2/kernel": "workspace:*",
+    "@lightmem2/mcp": "workspace:*",
+    "@lightmem2/product-surface": "workspace:*",
+    "@lightmem2/reduction": "workspace:*",
+    "@lightmem2/stabilizer": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsx build.ts",
+    "start": "node dist/cli.js serve",
+    "doctor:codex": "node --import tsx scripts/doctor-codex.ts",
+    "report-cache-audit:codex": "node --import tsx scripts/report-cache-audit-codex.ts",
+    "install:codex": "node --import tsx scripts/install-codex.ts",
+    "pack:release": "bash ./scripts/pack_release.sh",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.10",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "keywords": [
+    "codex",
+    "tokenpilot",
+    "responses-api",
+    "context-management",
+    "token-efficiency"
+  ]
+}

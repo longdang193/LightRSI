@@ -1,0 +1,19 @@
+{
+  "name": "@lightmem2/artifact-store",
+  "version": "0.1.0-beta.1",
+  "private": true,
+  "lightmem2": {
+    "role": "foundation"
+  },
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@lightmem2/host-adapter": "workspace:*"
+  }
+}

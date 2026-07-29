@@ -1,0 +1,64 @@
+{
+  "name": "@lightmem2/openclaw-adapter",
+  "version": "0.1.0-beta.1",
+  "description": "LightMem2 adapter for OpenClaw, currently binding the TokenPilot preset.",
+  "lightmem2": {
+    "role": "adapter"
+  },
+  "main": "dist/index.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zjunlp/LightMem2.git",
+    "directory": "components/adapters/openclaw"
+  },
+  "files": [
+    "dist/index.js",
+    "dist/index.js.map",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@lightmem2/artifact-store": "workspace:*",
+    "@lightmem2/tokenpilot": "workspace:*",
+    "@lightmem2/eviction": "workspace:*",
+    "@lightmem2/host-adapter": "workspace:*",
+    "@lightmem2/history": "workspace:*",
+    "@lightmem2/kernel": "workspace:*",
+    "@lightmem2/memory": "workspace:*",
+    "@lightmem2/product-surface": "workspace:*",
+    "@lightmem2/reduction": "workspace:*",
+    "@lightmem2/runtime-core": "workspace:*",
+    "@lightmem2/stabilizer": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsx build.ts",
+    "test": "node scripts/run-tests.mjs",
+    "doctor:openclaw": "node --import tsx scripts/doctor-openclaw.ts",
+    "report-cache-audit:openclaw": "node --import tsx scripts/report-cache-audit-openclaw.ts",
+    "pack:release": "bash ./scripts/pack_release.sh",
+    "install:release": "bash ./scripts/install_release.sh",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.10",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "tokenpilot",
+    "llm-routing",
+    "token-efficiency"
+  ]
+}
