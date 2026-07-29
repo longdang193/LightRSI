@@ -23,6 +23,7 @@ export type TokenPilotClaudeCodeConfig = {
   modules: {
     stabilizer: boolean;
     reduction: boolean;
+    eviction: boolean;
   };
   reduction: {
     triggerMinChars: number;
@@ -156,6 +157,7 @@ export function normalizeTokenPilotClaudeCodeConfig(
     modules: {
       stabilizer: boolValue(modules.stabilizer, true),
       reduction: boolValue(modules.reduction, true),
+      eviction: boolValue(modules.eviction, false),
     },
     reduction: {
       triggerMinChars: numberValue(reduction.triggerMinChars, 2200, 256, 1_000_000),

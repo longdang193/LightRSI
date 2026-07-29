@@ -22,6 +22,7 @@ import { proxyBaseUrlForPort } from "./config.js";
 import type { TokenPilotClaudeCodeLogger } from "./logger.js";
 import { createClaudeMessagesPayloadCodec } from "./messages-codec.js";
 import { reduceClaudeRequestEnvelope, type ClaudeReductionSummary } from "./reduction.js";
+import { applyClaudeEviction } from "./eviction.js";
 import {
   appendClaudeCodeRecentTurnBinding,
   upsertClaudeCodeSessionSnapshot,
@@ -370,6 +371,12 @@ export async function startClaudeCodeGatewayRuntime(params: {
       });
       const reductionSummary = prepared.reductionSummary;
       payload = codec.encodeRequest(prepared.envelope);
+      const evictionSummary = applyClaudeEviction({
+        payload,
+        sessionId,
+        model: prepared.envelope.model,
+        config: { enabled: config.modules.eviction, minBlockChars: config.reduction.triggerMinChars },
+      });
       const reducedRequestText = typeof prepared.envelope.metadata?.inputText === "string"
         ? prepared.envelope.metadata.inputText
         : "";

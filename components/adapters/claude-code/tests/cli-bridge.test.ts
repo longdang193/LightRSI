@@ -310,7 +310,8 @@ test("claude-code mode writes only claude-supported fields", async () => {
     assert.equal("eviction" in record, false);
     const modules = record.modules as Record<string, unknown>;
     assert.equal("policy" in modules, false);
-    assert.equal("eviction" in modules, false);
+    assert.equal("eviction" in modules, true);
+    assert.equal(reloaded.modules.eviction, false);
   } finally {
     if (originalHome === undefined) {
       delete process.env.HOME;
