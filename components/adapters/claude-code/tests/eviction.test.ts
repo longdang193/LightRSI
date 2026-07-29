@@ -58,3 +58,22 @@ test("small blocks below the size floor are not evicted", () => {
   assert.equal(result.changed, false);
   assert.deepEqual(result.evictedBlockIds, []);
 });
+
+test("apply replaces evicted messages with a stub in place", () => {
+  const { applyClaudeEviction } = require("../src/eviction.js");
+  const payload = { messages: sampleMessages() };
+  const summary = applyClaudeEviction({
+    payload,
+    sessionId: "s1",
+    model: "claude-sonnet-4",
+    config: { enabled: true, minBlockChars: 256 },
+  });
+  assert.equal(summary.enabled, true);
+  assert.equal(summary.changed, true);
+  assert.ok(summary.evictedMessageCount > 0);
+  assert.ok(summary.savedChars > 0);
+  const stubbed = payload.messages.filter(
+    (m) => typeof m.content === "string" && m.content.includes("[evicted"),
+  );
+  assert.ok(stubbed.length > 0, "at least one message should be stubbed");
+});

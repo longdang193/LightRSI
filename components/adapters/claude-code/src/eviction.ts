@@ -157,3 +157,85 @@ export function analyzeClaudeEviction(params: {
     selections,
   };
 }
+
+export type ClaudeEvictionApplySummary = {
+  enabled: boolean;
+  changed: boolean;
+  evictedMessageCount: number;
+  savedChars: number;
+  evictedBlockIds: string[];
+};
+
+function segmentIdToMessageIndex(segmentId: string): number | undefined {
+  const match = /^msg-(\d+)$/.exec(segmentId);
+  return match ? Number(match[1]) : undefined;
+}
+
+// Apply eviction to the outbound payload in place. Evicted messages are replaced
+// with a short pointer stub rather than removed, so message indices and
+// tool_use/tool_result pairing stay intact for the upstream API.
+export function applyClaudeEviction(params: {
+  payload: { messages?: unknown[] };
+  sessionId: string;
+  model: string;
+  config: ClaudeEvictionConfig;
+}): ClaudeEvictionApplySummary {
+  const messages = params.payload.messages;
+  if (!params.config.enabled || !Array.isArray(messages)) {
+    return {
+      enabled: Boolean(params.config.enabled),
+      changed: false,
+      evictedMessageCount: 0,
+      savedChars: 0,
+      evictedBlockIds: [],
+    };
+  }
+
+  const analysis = analyzeClaudeEviction({
+    sessionId: params.sessionId,
+    model: params.model,
+    messages,
+    config: params.config,
+  });
+  if (!analysis.changed) {
+    return {
+      enabled: true,
+      changed: false,
+      evictedMessageCount: 0,
+      savedChars: 0,
+      evictedBlockIds: [],
+    };
+  }
+
+  const targetIndices = new Set<number>();
+  for (const selection of analysis.selections) {
+    for (const segmentId of selection.segmentIds) {
+      const index = segmentIdToMessageIndex(segmentId);
+      if (index !== undefined) targetIndices.add(index);
+    }
+  }
+
+  let savedChars = 0;
+  let evictedMessageCount = 0;
+  for (const index of targetIndices) {
+    const message = messages[index];
+    const record = asRecord(message);
+    if (!record) continue;
+    const before = contentToText(record.content).length;
+    const role = typeof record.role === "string" ? record.role : "user";
+    messages[index] = {
+      role,
+      content: "[evicted: earlier content removed to save context]",
+    };
+    savedChars += Math.max(0, before - String((messages[index] as { content: string }).content).length);
+    evictedMessageCount += 1;
+  }
+
+  return {
+    enabled: true,
+    changed: evictedMessageCount > 0,
+    evictedMessageCount,
+    savedChars,
+    evictedBlockIds: analysis.evictedBlockIds,
+  };
+}
