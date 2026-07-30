@@ -54,6 +54,42 @@ const validation: ContextRewriteValidation = {
   reasons: [],
 };
 
+const sharedSnapshotRejectsRawMetadata: ModelContextSnapshot = {
+  ...snapshot,
+  // @ts-expect-error Shared persisted snapshots cannot carry adapter-owned raw payloads.
+  adapterMetadata: { nativeMessages: [{ role: "user", content: "raw" }] },
+};
+
+const sharedPlanRejectsRawReplacements: ContextMutationPlan = {
+  ...plan,
+  operations: [{
+    ...plan.operations[0]!,
+    // @ts-expect-error Shared persisted plans cannot carry adapter-owned replacement payloads.
+    replacementItems: [{ type: "host_native_message", content: "raw" }],
+  }],
+};
+
+const sharedResultRejectsRawDetails: ContextRewriteResult = {
+  schemaVersion: MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
+  mode: "none",
+  planId: "plan-1",
+  applied: false,
+  changed: false,
+  previousRevision: "revision-1",
+  nextRevision: "revision-1",
+  appliedOperationIds: [],
+  deferredOperationIds: [],
+  removedItemIds: [],
+  savedChars: 0,
+  fallbackUsed: true,
+  // @ts-expect-error Shared persisted results cannot carry adapter-owned raw details.
+  details: { rawRequest: { input: "secret" } },
+};
+
+void sharedSnapshotRejectsRawMetadata;
+void sharedPlanRejectsRawReplacements;
+void sharedResultRejectsRawDetails;
+
 function createResult(
   mode: ModelContextRewriteMode,
 ): ContextRewriteResult {
@@ -136,10 +172,14 @@ test("context rewrite capabilities default to disabled", () => {
 });
 
 test("persistent rewrite modes support lifecycle eviction", () => {
-  const requestOverlayCapabilities = {
+  const unsafeRequestOverlayCapabilities = {
     ...MINIMAL_HOST_CAPABILITIES,
     modelContextRewriteMode: "request_overlay" as const,
     supportsPersistentRewritePlans: true,
+  };
+  const requestOverlayCapabilities = {
+    ...unsafeRequestOverlayCapabilities,
+    supportsRewriteRollback: true,
   };
   const legacyTranscriptCapabilities = {
     ...MINIMAL_HOST_CAPABILITIES,
@@ -152,8 +192,71 @@ test("persistent rewrite modes support lifecycle eviction", () => {
     false,
   );
   assert.equal(
-    canSupportLifecycleEvictionEquivalently(requestOverlayCapabilities),
-    true,
+    canSupportLifecycleEvictionEquivalently(unsafeRequestOverlayCapabilities),
+    false,
   );
+  assert.equal(canSupportLifecycleEvictionEquivalently(requestOverlayCapabilities), true);
   assert.equal(canSupportLifecycleEvictionEquivalently(legacyTranscriptCapabilities), true);
+});
+
+test("adapter-owned generic fields stay explicit and process-local", async () => {
+  type AdapterMetadata = { nativeMessageCount: number };
+  type AdapterReplacement = { nativeType: string };
+  type AdapterResultDetails = { providerResponseId: string };
+
+  const nativeSnapshot: ModelContextSnapshot<AdapterMetadata> = {
+    ...snapshot,
+    adapterMetadata: { nativeMessageCount: 1 },
+  };
+  const nativePlan: ContextMutationPlan<AdapterReplacement> = {
+    ...plan,
+    operations: [{
+      ...plan.operations[0]!,
+      replacementItems: [{ nativeType: "pointer_stub" }],
+    }],
+  };
+  const backend: ModelContextRewriteBackend<
+    FakeRequest,
+    AdapterMetadata,
+    AdapterReplacement,
+    AdapterResultDetails
+  > = {
+    hostId: "adapter-with-native-state",
+    mode: "request_overlay",
+    async readSnapshot() {
+      return nativeSnapshot;
+    },
+    async validate() {
+      return validation;
+    },
+    async apply({ request }) {
+      return {
+        request,
+        result: {
+          ...createResult(this.mode),
+          details: { providerResponseId: "resp-1" },
+        },
+      };
+    },
+  };
+
+  const applied = await backend.apply({
+    snapshot: nativeSnapshot,
+    plan: nativePlan,
+    request: { input: "hello" },
+  });
+  assert.equal(nativeSnapshot.adapterMetadata?.nativeMessageCount, 1);
+  assert.equal(nativePlan.operations[0]?.replacementItems?.[0]?.nativeType, "pointer_stub");
+  assert.equal(applied.result.details?.providerResponseId, "resp-1");
+});
+
+test("newer contract fields remain structurally forward compatible", () => {
+  const futurePlan = {
+    ...plan,
+    futureSchemaHint: { introducedIn: 2 },
+  };
+  const acceptedByCurrentContract: ContextMutationPlan = futurePlan;
+
+  assert.equal(acceptedByCurrentContract.planId, plan.planId);
+  assert.equal(futurePlan.futureSchemaHint.introducedIn, 2);
 });

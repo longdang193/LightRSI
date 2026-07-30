@@ -29,23 +29,23 @@ export type ContextItemRef = {
 };
 
 /**
- * Adapter metadata may retain host-native values in memory. Shared persistence
- * must omit raw payloads and preserve only explicitly safe metadata.
+ * Adapter-owned generic fields are process-local. Persisted shared contracts
+ * must use the default `never` parameters so raw host payloads cannot leak.
  */
-export type ModelContextSnapshot = {
+export type ModelContextSnapshot<TAdapterMetadata = never> = {
   schemaVersion: typeof MODEL_CONTEXT_REWRITE_SCHEMA_VERSION;
   hostId: string;
   sessionId: string;
   revision: string;
   items: ContextItemRef[];
-  adapterMetadata?: Record<string, unknown>;
+  adapterMetadata?: TAdapterMetadata;
 };
 
-export type ContextMutationOperation = {
+export type ContextMutationOperation<TAdapterReplacementItem = never> = {
   id: string;
   type: "remove" | "replace";
   targetItemIds: string[];
-  replacementItems?: unknown[];
+  replacementItems?: TAdapterReplacementItem[];
   taskIds?: string[];
   rationale: string;
   estimatedSavedChars: number;
@@ -53,7 +53,7 @@ export type ContextMutationOperation = {
 };
 
 /** Persisted readers must ignore unknown fields from newer schema revisions. */
-export type ContextMutationPlan = {
+export type ContextMutationPlan<TAdapterReplacementItem = never> = {
   schemaVersion: typeof MODEL_CONTEXT_REWRITE_SCHEMA_VERSION;
   planId: string;
   hostId: string;
@@ -61,7 +61,7 @@ export type ContextMutationPlan = {
   baseRevision: string;
   sourceModuleId: string;
   sourcePresetId?: string;
-  operations: ContextMutationOperation[];
+  operations: ContextMutationOperation<TAdapterReplacementItem>[];
   createdAt: string;
 };
 
@@ -72,7 +72,7 @@ export type ContextRewriteValidation = {
   reasons: string[];
 };
 
-export type ContextRewriteResult = {
+export type ContextRewriteResult<TResultDetails = never> = {
   schemaVersion: typeof MODEL_CONTEXT_REWRITE_SCHEMA_VERSION;
   mode: ModelContextRewriteMode;
   planId: string;
@@ -85,29 +85,34 @@ export type ContextRewriteResult = {
   removedItemIds: string[];
   savedChars: number;
   fallbackUsed: boolean;
-  details?: Record<string, unknown>;
+  details?: TResultDetails;
 };
 
-export interface ModelContextRewriteBackend<TRequest = unknown> {
+export interface ModelContextRewriteBackend<
+  TRequest = unknown,
+  TAdapterMetadata = never,
+  TAdapterReplacementItem = never,
+  TResultDetails = never,
+> {
   readonly hostId: string;
   readonly mode: ModelContextRewriteMode;
 
   readSnapshot(params: {
     sessionId: string;
     request: TRequest;
-  }): Promise<ModelContextSnapshot>;
+  }): Promise<ModelContextSnapshot<TAdapterMetadata>>;
 
   validate(params: {
-    snapshot: ModelContextSnapshot;
-    plan: ContextMutationPlan;
+    snapshot: ModelContextSnapshot<TAdapterMetadata>;
+    plan: ContextMutationPlan<TAdapterReplacementItem>;
   }): Promise<ContextRewriteValidation>;
 
   apply(params: {
-    snapshot: ModelContextSnapshot;
-    plan: ContextMutationPlan;
+    snapshot: ModelContextSnapshot<TAdapterMetadata>;
+    plan: ContextMutationPlan<TAdapterReplacementItem>;
     request: TRequest;
   }): Promise<{
     request: TRequest;
-    result: ContextRewriteResult;
+    result: ContextRewriteResult<TResultDetails>;
   }>;
 }

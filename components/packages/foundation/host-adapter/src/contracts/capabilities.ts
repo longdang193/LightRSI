@@ -69,7 +69,8 @@ export function canSupportLifecycleEvictionEquivalently(
   return (capabilities.supportsTranscriptRead
       && capabilities.supportsTranscriptRewrite)
     || (capabilities.modelContextRewriteMode !== "none"
-      && capabilities.supportsPersistentRewritePlans);
+      && capabilities.supportsPersistentRewritePlans
+      && capabilities.supportsRewriteRollback);
 }
 
 export function canSupportToolCallMemo(
