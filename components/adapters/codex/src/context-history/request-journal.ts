@@ -49,6 +49,7 @@ export async function appendCodexRequestJournalEntry(params: {
   stateDir: string;
   sessionId: string;
   payload: JsonObject;
+  committedInputItems?: JsonObject[];
   requestId?: string;
   turnOrdinal?: number;
   status?: CodexJournalStatus;
@@ -79,6 +80,11 @@ export async function appendCodexRequestJournalEntry(params: {
       typeof params.payload.prompt_cache_key === "string" ? params.payload.prompt_cache_key : undefined
     ),
     inputItems: existing?.inputItems ?? sanitizedInputItems(params.payload),
+    committedInputItems: existing?.committedInputItems ?? (
+      params.committedInputItems
+        ? cloneJson(sanitizeValue(params.committedInputItems)) as JsonObject[]
+        : undefined
+    ),
     status: nextStatus,
     error: params.error,
     observedAt: params.observedAt ?? new Date().toISOString(),

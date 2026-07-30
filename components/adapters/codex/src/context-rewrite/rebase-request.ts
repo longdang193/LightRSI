@@ -2,6 +2,7 @@ import { cloneJson, stableInputKey } from "./shared.js";
 import type {
   CodexEffectiveHistory,
   CodexMutationPlan,
+  CodexRebaseAccounting,
   CodexRebaseRequestResult,
   CodexRebaseValidation,
   JsonObject,
@@ -90,6 +91,71 @@ function stripServerOwnedResponsesFields(item: JsonObject): JsonObject {
   return next;
 }
 
+function jsonChars(value: unknown): number {
+  const text = JSON.stringify(value);
+  return typeof text === "string" ? text.length : 0;
+}
+
+function estimatedTokens(chars: number): number {
+  return chars > 0 ? Math.ceil(chars / 4) : 0;
+}
+
+function sumItemChars(items: JsonObject[]): number {
+  return items.reduce((total, item) => total + jsonChars(item), 0);
+}
+
+function buildRebaseAccounting(params: {
+  effectiveHistory: CodexEffectiveHistory;
+  evictedStableItemIds: Set<string>;
+  payload: JsonObject;
+}): CodexRebaseAccounting {
+  const plannedItems = [
+    ...params.effectiveHistory.replayableItems,
+    ...params.effectiveHistory.observationOnlyItems,
+  ].filter((entry) => params.evictedStableItemIds.has(entry.stableItemId));
+  const removedItems = params.effectiveHistory.replayableItems
+    .filter((entry) => params.evictedStableItemIds.has(entry.stableItemId));
+  const plannedSavedChars = sumItemChars(plannedItems.map((entry) => entry.item));
+  const actuallyRemovedChars = sumItemChars(removedItems.map((entry) => entry.item));
+  const rebaseReplayCostChars = jsonChars(params.payload.input);
+  const estimatorCostChars = 0;
+  const totalOneTimeCost = rebaseReplayCostChars + estimatorCostChars;
+  return {
+    plannedSavedChars,
+    plannedSavedTokens: estimatedTokens(plannedSavedChars),
+    actuallyRemovedChars,
+    actuallyRemovedTokens: estimatedTokens(actuallyRemovedChars),
+    rebaseReplayCostChars,
+    rebaseReplayCostTokens: estimatedTokens(rebaseReplayCostChars),
+    subsequentSavedCharsPerTurn: actuallyRemovedChars,
+    subsequentSavedTokensPerTurn: estimatedTokens(actuallyRemovedChars),
+    estimatorCostChars,
+    estimatorCostTokens: estimatedTokens(estimatorCostChars),
+    fallbackExtraRequestCount: 0,
+    cacheColdMissCount: 1,
+    breakEvenTurn: actuallyRemovedChars > 0
+      ? Math.ceil(totalOneTimeCost / actuallyRemovedChars)
+      : undefined,
+  };
+}
+
+export function withCodexRebaseReplayAccountingInput(
+  accounting: CodexRebaseAccounting,
+  input: unknown,
+): CodexRebaseAccounting {
+  const rebaseReplayCostChars = jsonChars(input);
+  const estimatorCostChars = accounting.estimatorCostChars;
+  const totalOneTimeCost = rebaseReplayCostChars + estimatorCostChars;
+  return {
+    ...accounting,
+    rebaseReplayCostChars,
+    rebaseReplayCostTokens: estimatedTokens(rebaseReplayCostChars),
+    breakEvenTurn: accounting.subsequentSavedCharsPerTurn > 0
+      ? Math.ceil(totalOneTimeCost / accounting.subsequentSavedCharsPerTurn)
+      : undefined,
+  };
+}
+
 export function buildCodexRebaseRequest(params: {
   sessionId: string;
   planId: string;
@@ -125,5 +191,10 @@ export function buildCodexRebaseRequest(params: {
     payload,
     oldRevision: params.effectiveHistory.revision,
     rebaseRevision: `${params.effectiveHistory.revision}:${params.planId}:rebase`,
+    accounting: buildRebaseAccounting({
+      effectiveHistory: params.effectiveHistory,
+      evictedStableItemIds: evicted,
+      payload,
+    }),
   };
 }
