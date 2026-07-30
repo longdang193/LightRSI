@@ -94,7 +94,7 @@ function buildTurnContext(
 ): RuntimeTurnContext {
   return {
     sessionId,
-    sessionMode: "normal",
+    sessionMode: "balanced",
     provider: "anthropic",
     model,
     apiFamily: "anthropic-messages",
