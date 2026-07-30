@@ -9,182 +9,251 @@ import {
   formatAcceptanceSummary,
   inspectToolClosure,
   runAcceptanceHarness,
+  runRestartAcceptanceScenario,
+  type AcceptanceHostRuntime,
+  type AcceptancePhase,
+  type CapturedRequest,
 } from "./acceptance-harness.js";
 
 const TEST_UUID = "11111111-2222-4333-8444-555555555555";
 
-test("creates deterministic acceptance sentinels", () => {
-  const sentinels = createAcceptanceSentinels(TEST_UUID);
-
-  assert.equal(sentinels.uuid, TEST_UUID);
-  assert.equal(sentinels.evict, `EVICT_ME_${TEST_UUID}`);
-  assert.equal(sentinels.keep, `KEEP_ME_${TEST_UUID}`);
-
-  assert.throws(
-    () => createAcceptanceSentinels("invalid"),
-    /Invalid acceptance sentinel UUID/,
-  );
-});
-
-test("checks function and custom tool closure independently", () => {
-  const complete = inspectToolClosure({
-    input: [
-      {
-        type: "function_call",
-        call_id: "function-1",
-        name: "read_file",
-      },
-      {
-        type: "function_call_output",
-        call_id: "function-1",
-        output: "done",
-      },
-      {
-        type: "custom_tool_call",
-        call_id: "custom-1",
-        name: "custom",
-      },
-      {
-        type: "custom_tool_call_output",
-        call_id: "custom-1",
-        output: "done",
-      },
-    ],
-  });
-
-  assert.equal(complete.complete, true);
-  assert.deepEqual(complete.missingOutputs, []);
-  assert.deepEqual(complete.orphanOutputs, []);
-
-  const incomplete = inspectToolClosure({
-    input: [
-      {
-        type: "function_call",
-        call_id: "missing-output",
-      },
-      {
-        type: "custom_tool_call_output",
-        call_id: "orphan-output",
-      },
-    ],
-  });
-
-  assert.equal(incomplete.complete, false);
-  assert.deepEqual(incomplete.missingOutputs, [
-    "function_call:missing-output",
-  ]);
-  assert.deepEqual(incomplete.orphanOutputs, [
-    "custom_tool_call:orphan-output",
-  ]);
-});
-
-test("validates requests before and after restart", () => {
-  const sentinels = createAcceptanceSentinels(TEST_UUID);
-  const recorder = new MockUpstreamRecorder();
-
-  const validBody = {
-    input: [
-      {
-        type: "message",
-        role: "user",
-        content: sentinels.keep,
-      },
-      {
-        type: "function_call",
-        call_id: "call-1",
-        name: "read_file",
-      },
-      {
-        type: "function_call_output",
-        call_id: "call-1",
-        output: "done",
-      },
-    ],
+function capturedRequest(params: {
+  phase: AcceptancePhase;
+  sequence: number;
+  body: unknown;
+  status?: number;
+}): CapturedRequest {
+  return {
+    phase: params.phase,
+    sequence: params.sequence,
+    method: "POST",
+    path: "/v1/responses",
+    body: params.body,
+    rawBody: JSON.stringify(params.body),
+    contentType: "application/json",
+    responseStatus: params.status ?? 200,
   };
+}
 
-  recorder.record("before_restart", validBody);
-  recorder.record("after_restart", validBody);
-  recorder.record(
-    "after_restart",
-    {
-      input: [sentinels.evict],
-    },
-    { fallback: true },
-  );
-
-  const summary = runAcceptanceHarness({
-    sentinels,
-    requests: recorder.requests(),
-    originalCharacters: 1000,
-    rewrittenCharacters: 600,
-  });
-
-  assert.equal(summary.passed, true);
-  assert.equal(summary.requestCount, 3);
-  assert.equal(summary.savedCharacters, 400);
-  assert.equal(summary.fallbackCount, 1);
-  assert.equal(summary.phases[0].passed, true);
-  assert.equal(summary.phases[1].passed, true);
-
-  assert.equal(
-    formatAcceptanceSummary(summary),
-    "status=PASS request_count=3 saved_characters=400 fallback_count=1",
-  );
+test("creates random or deterministic acceptance sentinels", () => {
+  const deterministic = createAcceptanceSentinels(TEST_UUID);
+  assert.equal(deterministic.uuid, TEST_UUID);
+  assert.equal(deterministic.evict, `EVICT_ME_${TEST_UUID}`);
+  assert.equal(deterministic.keep, `KEEP_ME_${TEST_UUID}`);
+  assert.match(createAcceptanceSentinels().uuid, /^[0-9a-f-]{36}$/);
+  assert.throws(() => createAcceptanceSentinels("invalid"), /Invalid acceptance sentinel UUID/);
 });
 
-test("fails when an effective request keeps evicted context", () => {
+test("checks Responses, Anthropic, and Chat Completions tool closure", () => {
+  assert.equal(inspectToolClosure({
+    input: [
+      { type: "function_call", call_id: "function-1" },
+      { type: "function_call_output", call_id: "function-1" },
+      { type: "custom_tool_call", call_id: "custom-1" },
+      { type: "custom_tool_call_output", call_id: "custom-1" },
+    ],
+  }).complete, true);
+
+  assert.equal(inspectToolClosure({
+    messages: [
+      { role: "assistant", content: [{ type: "tool_use", id: "anthropic-1" }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "anthropic-1" }] },
+      { role: "assistant", tool_calls: [{ id: "chat-1", type: "function" }] },
+      { role: "tool", tool_call_id: "chat-1", content: "done" },
+    ],
+  }).complete, true);
+});
+
+test("rejects missing call ids, orphaned calls, and duplicate outputs", () => {
+  const missingCallId = inspectToolClosure({
+    input: [
+      { type: "function_call", call_id: "call-1" },
+      { type: "function_call_output", id: "call-1" },
+    ],
+  });
+  assert.equal(missingCallId.complete, false);
+  assert.deepEqual(missingCallId.missingOutputs, ["responses:function_call:call-1"]);
+  assert.deepEqual(missingCallId.invalidItems, ["responses.input[1].call_id"]);
+
+  const duplicate = inspectToolClosure({
+    messages: [
+      { role: "assistant", content: [{ type: "tool_use", id: "tool-1" }] },
+      { role: "user", content: [
+        { type: "tool_result", tool_use_id: "tool-1" },
+        { type: "tool_result", tool_use_id: "tool-1" },
+      ] },
+    ],
+  });
+  assert.equal(duplicate.complete, false);
+  assert.deepEqual(duplicate.duplicateOutputs, ["anthropic:tool-1"]);
+});
+
+test("captures raw requests through a real mock upstream", async () => {
+  const upstream = new MockUpstreamRecorder();
+  upstream.enqueueResponses([{ status: 418, body: { error: "expected" } }]);
+  await upstream.start();
+  try {
+    const body = { input: [{ type: "message", content: "raw-request" }] };
+    const response = await fetch(`${upstream.url}/v1/responses`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer must-not-be-recorded",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    assert.equal(response.status, 418);
+    const [captured] = upstream.requests();
+    assert.deepEqual(captured.body, body);
+    assert.equal(captured.rawBody, JSON.stringify(body));
+    assert.equal(captured.responseStatus, 418);
+    assert.equal("authorization" in captured, false);
+  } finally {
+    await upstream.close();
+  }
+});
+
+test("uses the final successful fallback request and does not report rewrite success", () => {
   const sentinels = createAcceptanceSentinels(TEST_UUID);
-  const recorder = new MockUpstreamRecorder();
-
-  recorder.record("before_restart", {
-    input: [sentinels.keep, sentinels.evict],
-  });
-
-  recorder.record("after_restart", {
-    input: [sentinels.keep],
-  });
-
+  const rewritten = { input: [sentinels.keep] };
+  const original = { input: [sentinels.keep, sentinels.evict] };
   const summary = runAcceptanceHarness({
     sentinels,
-    requests: recorder.requests(),
-    originalCharacters: 100,
-    rewrittenCharacters: 120,
+    requests: [
+      capturedRequest({ phase: "before_restart", sequence: 1, body: rewritten }),
+      capturedRequest({ phase: "after_restart", sequence: 2, body: rewritten, status: 400 }),
+      capturedRequest({ phase: "after_restart", sequence: 3, body: original }),
+    ],
+    originalRequests: {
+      before_restart: original,
+      after_restart: original,
+    },
   });
 
   assert.equal(summary.passed, false);
-  assert.equal(summary.savedCharacters, 0);
-  assert.equal(summary.phases[0].evictFound, true);
-  assert.equal(summary.phases[0].passed, false);
+  assert.equal(summary.fallbackCount, 1);
+  assert.equal(summary.fallbackSucceeded, true);
+  assert.equal(summary.phases[1].evictFound, true);
+  assert.equal(summary.phases[1].passed, false);
 });
 
-test("uses isolated temporary home and state directories", () => {
-  const environment = createTemporaryAcceptanceEnvironment(
-    "lightmem2-acceptance-test-",
+test("does not reuse an earlier success when the final upstream attempt fails", () => {
+  const sentinels = createAcceptanceSentinels(TEST_UUID);
+  const original = { input: [sentinels.keep, sentinels.evict] };
+  const rewritten = { input: [sentinels.keep] };
+  const summary = runAcceptanceHarness({
+    sentinels,
+    requests: [
+      capturedRequest({ phase: "before_restart", sequence: 1, body: rewritten }),
+      capturedRequest({ phase: "before_restart", sequence: 2, body: rewritten, status: 500 }),
+      capturedRequest({ phase: "after_restart", sequence: 3, body: rewritten }),
+    ],
+    originalRequests: { before_restart: original, after_restart: original },
+  });
+  assert.equal(summary.passed, false);
+  assert.deepEqual(summary.phases[0].toolClosure.invalidItems, ["no_successful_upstream_request"]);
+});
+
+test("does not count a non-original recovery retry as fallback", () => {
+  const sentinels = createAcceptanceSentinels(TEST_UUID);
+  const original = { input: [sentinels.keep, sentinels.evict] };
+  const rewritten = { input: [sentinels.keep] };
+  const retriedRewrite = { input: [sentinels.keep], prompt_cache_retention: null };
+  const summary = runAcceptanceHarness({
+    sentinels,
+    requests: [
+      capturedRequest({ phase: "before_restart", sequence: 1, body: rewritten, status: 400 }),
+      capturedRequest({ phase: "before_restart", sequence: 2, body: retriedRewrite }),
+      capturedRequest({ phase: "after_restart", sequence: 3, body: rewritten }),
+    ],
+    originalRequests: { before_restart: original, after_restart: original },
+  });
+  assert.equal(summary.passed, true);
+  assert.equal(summary.fallbackCount, 0);
+  assert.equal(summary.fallbackSucceeded, false);
+});
+
+test("derives saved characters from original and captured request bodies", () => {
+  const sentinels = createAcceptanceSentinels(TEST_UUID);
+  const original = { input: [sentinels.keep, sentinels.evict] };
+  const rewritten = { input: [sentinels.keep] };
+  const requests = [
+    capturedRequest({ phase: "before_restart", sequence: 1, body: rewritten }),
+    capturedRequest({ phase: "after_restart", sequence: 2, body: rewritten }),
+  ];
+  const expectedPerPhase = JSON.stringify(original).length - JSON.stringify(rewritten).length;
+  const summary = runAcceptanceHarness({
+    sentinels,
+    requests,
+    originalRequests: { before_restart: original, after_restart: original },
+  });
+  assert.equal(summary.passed, true);
+  assert.equal(summary.savedCharacters, expectedPerPhase * 2);
+  assert.equal(
+    formatAcceptanceSummary(summary),
+    `status=PASS request_count=2 saved_characters=${expectedPerPhase * 2} fallback_count=0 fallback_succeeded=no`,
   );
+});
 
+test("runs two distinct host lifetimes against one persistent state directory", async () => {
+  const starts: Array<{ phase: AcceptancePhase; stateDir: string }> = [];
+  const closes: AcceptancePhase[] = [];
+  const summary = await runRestartAcceptanceScenario({
+    sentinels: createAcceptanceSentinels(TEST_UUID),
+    async startHost(context): Promise<AcceptanceHostRuntime> {
+      starts.push({ phase: context.phase, stateDir: context.stateDir });
+      const markerPath = path.join(context.stateDir, "restart-marker.json");
+      if (context.phase === "before_restart") {
+        fs.writeFileSync(markerPath, JSON.stringify({ persisted: true }));
+      } else {
+        assert.deepEqual(JSON.parse(fs.readFileSync(markerPath, "utf8")), { persisted: true });
+      }
+      return {
+        async sendAcceptanceTurn({ phase, sentinels }) {
+          const original = { input: [sentinels.keep, sentinels.evict] };
+          const rewritten = {
+            input: [
+              sentinels.keep,
+              { type: "function_call", call_id: `${phase}-call` },
+              { type: "function_call_output", call_id: `${phase}-call` },
+            ],
+          };
+          const response = await fetch(`${context.upstreamUrl}/v1/responses`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(rewritten),
+          });
+          assert.equal(response.ok, true);
+          return original;
+        },
+        async close() {
+          closes.push(context.phase);
+        },
+      };
+    },
+  });
+
+  assert.equal(summary.passed, true);
+  assert.deepEqual(starts.map((entry) => entry.phase), ["before_restart", "after_restart"]);
+  assert.equal(starts[0].stateDir, starts[1].stateDir);
+  assert.deepEqual(closes, ["before_restart", "after_restart"]);
+});
+
+test("uses isolated config paths and does not inherit secrets", () => {
+  process.env.LIGHTMEM2_ACCEPTANCE_TEST_SECRET = "must-not-propagate";
+  const environment = createTemporaryAcceptanceEnvironment("lightmem2-acceptance-test-");
   try {
-    assert.equal(fs.existsSync(environment.rootDir), true);
-    assert.equal(fs.existsSync(environment.homeDir), true);
-    assert.equal(fs.existsSync(environment.stateDir), true);
-
+    assert.equal(environment.env.LIGHTMEM2_ACCEPTANCE_TEST_SECRET, undefined);
     assert.equal(environment.env.HOME, environment.homeDir);
-    assert.equal(environment.env.USERPROFILE, environment.homeDir);
-    assert.equal(
-      environment.env.OPENCLAW_STATE_DIR,
-      environment.stateDir,
-    );
-
-    assert.equal(
-      path.dirname(environment.homeDir),
-      environment.rootDir,
-    );
-    assert.equal(
-      path.dirname(environment.stateDir),
-      environment.rootDir,
-    );
+    assert.equal(environment.env.OPENCLAW_STATE_DIR, environment.openClawStateDir);
+    assert.match(environment.env.CODEX_CONFIG_PATH ?? "", new RegExp(`^${environment.rootDir}`));
+    assert.match(environment.env.CLAUDE_CODE_SETTINGS_PATH ?? "", new RegExp(`^${environment.rootDir}`));
+    assert.equal(fs.existsSync(environment.stateDir), true);
+    assert.equal(fs.existsSync(environment.codexHomeDir), true);
+    assert.equal(fs.existsSync(environment.claudeHomeDir), true);
   } finally {
+    delete process.env.LIGHTMEM2_ACCEPTANCE_TEST_SECRET;
     environment.cleanup();
   }
-
   assert.equal(fs.existsSync(environment.rootDir), false);
 });
