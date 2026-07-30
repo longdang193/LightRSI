@@ -15,6 +15,10 @@ import {
   readCodexProviderFromToml,
   readCodexRootModelProvider,
 } from "./config.js";
+import {
+  formatCodexRebaseCapabilityStatus,
+  readCodexRebaseCapabilityJournal,
+} from "./context-rewrite/rebase-capability.js";
 import { readDaemonStatus } from "./daemon.js";
 import { resolveCodexHookCommandForInstall, resolveCodexMcpServerSpecForInstall } from "./install.js";
 
@@ -50,6 +54,7 @@ export type CodexDoctorReport = {
   coreRuntimeHealthy: boolean;
   recoveryMcpHealthy: boolean;
   degradedMode: boolean;
+  rebaseCapabilityStatus?: string[];
 };
 
 const HOOK_EVENT_NAMES = [
@@ -79,6 +84,7 @@ async function checkHealth(baseUrl: string): Promise<boolean> {
 }
 
 export function formatCodexDoctorReport(report: CodexDoctorReport): string {
+  const rebaseCapabilityStatus = report.rebaseCapabilityStatus ?? [];
   const lines = [
     "TokenPilot Codex doctor:",
     `- tokenpilot config: ${report.tokenPilotConfigPath}`,
@@ -112,6 +118,7 @@ export function formatCodexDoctorReport(report: CodexDoctorReport): string {
     `- upstream provider: ${report.upstreamProvider ?? "(unset)"}`,
     `- upstream base URL: ${report.upstreamBaseUrl ?? "(unset)"}`,
     `- upstream loops into local proxy: ${report.upstreamLoopDetected ? "yes" : "no"}`,
+    `- CDR-05 rebase capability cache: ${rebaseCapabilityStatus.length > 0 ? rebaseCapabilityStatus.join(", ") : "(none)"}`,
   ];
   const fixes: string[] = [];
   if (!report.adapterEnabled) {
@@ -204,6 +211,10 @@ export async function inspectCodexDoctor(params: {
     expectedStateDir: params.config.stateDir,
     expectedStartupTimeoutSec: DEFAULT_TOKENPILOT_MCP_STARTUP_TIMEOUT_SEC,
   });
+  const capabilityJournal = await readCodexRebaseCapabilityJournal(params.config.stateDir);
+  const rebaseCapabilityStatus = capabilityJournal.capabilities
+    .map(formatCodexRebaseCapabilityStatus)
+    .sort();
   const coreRuntimeHealthy = params.config.enabled
     && Boolean(tokenpilotProvider)
     && providerIntercepted
@@ -242,5 +253,6 @@ export async function inspectCodexDoctor(params: {
     coreRuntimeHealthy,
     recoveryMcpHealthy,
     degradedMode: coreRuntimeHealthy && !recoveryMcpHealthy,
+    rebaseCapabilityStatus,
   };
 }

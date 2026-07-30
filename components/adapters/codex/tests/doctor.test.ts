@@ -8,6 +8,7 @@ import { createServer as createHttpServer } from "node:http";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { formatCodexDoctorReport, inspectCodexDoctor } from "../src/doctor.js";
+import { appendCodexRebaseCapability } from "../src/context-rewrite/index.js";
 
 async function reserveUnusedPort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -404,6 +405,44 @@ test("formatCodexDoctorReport includes remediation hints for drifted installs", 
   const text = formatCodexDoctorReport(report);
   assert.match(text, /Suggested fixes:/);
   assert.match(text, /rerun the Codex install command/i);
+});
+
+test("inspectCodexDoctor reports cached rebase capabilities", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-capability-"));
+  try {
+    const proxyPort = await reserveUnusedPort();
+    const stateDir = join(dir, "state");
+    const codexConfigPath = join(dir, "config.toml");
+    const hooksConfigPath = join(dir, "hooks.json");
+    const tokenPilotConfigPath = join(dir, "tokenpilot.json");
+
+    await writeFile(codexConfigPath, "model_provider = \"OpenAI\"\n", "utf8");
+    await writeFile(hooksConfigPath, JSON.stringify({ hooks: {} }, null, 2), "utf8");
+    await appendCodexRebaseCapability({
+      stateDir,
+      provider: "OpenAI",
+      model: "gpt-5.4-mini",
+      itemType: "web_search_call",
+      status: "unsupported",
+      reason: "schema_error",
+      observedAt: "2026-07-28T10:00:00.000Z",
+    });
+
+    const report = await inspectCodexDoctor({
+      config: normalizeTokenPilotCodexConfig({
+        stateDir,
+        proxyPort,
+      }),
+      configPath: codexConfigPath,
+      hooksConfigPath,
+      tokenPilotConfigPath,
+    });
+
+    assert.deepEqual(report.rebaseCapabilityStatus, ["OpenAI/gpt-5.4-mini web_search_call unsupported"]);
+    assert.match(formatCodexDoctorReport(report), /rebase capability cache: OpenAI\/gpt-5\.4-mini web_search_call unsupported/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("formatCodexDoctorReport shows degraded mode when core runtime is healthy but MCP recovery drifted", () => {
