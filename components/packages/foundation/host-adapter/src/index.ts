@@ -2,6 +2,7 @@ export * from "./model/host-message.js";
 export * from "./model/host-request.js";
 export * from "./model/host-response.js";
 export * from "./model/host-session.js";
+export * from "./context-rewrite/index.js";
 export * from "./contracts/payload-codec.js";
 export * from "./contracts/gateway-runtime.js";
 export * from "./contracts/session-resolver.js";
