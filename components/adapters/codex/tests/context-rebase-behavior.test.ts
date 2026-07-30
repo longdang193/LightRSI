@@ -291,6 +291,34 @@ test("CDR-01 allows a function call and its output to be evicted together", () =
   assert.doesNotMatch(JSON.stringify(result.payload.input), /call-1/);
 });
 
+test("CDR-01 rejects malformed, duplicate, and protocol-mismatched tool closure", () => {
+  const originalPayload = baseResponsesPayload();
+  const assertUnsafeCurrentInput = (currentInput: JsonObject[], reason: RegExp) => {
+    assert.throws(() => buildCodexRebaseRequest({
+      sessionId: "codex-session-1",
+      planId: "plan-malformed-tool-closure",
+      baseRevision: "history-rev-1",
+      originalPayload: { ...originalPayload, input: currentInput },
+      effectiveHistory: { ...effectiveHistoryFixture(), replayableItems: [] },
+      currentInput,
+      mutationPlan: { operations: [] },
+    }), reason);
+  };
+
+  assertUnsafeCurrentInput([
+    { type: "function_call", name: "run", arguments: "{}" },
+  ], /tool_call_id_missing:function_call/);
+  assertUnsafeCurrentInput([
+    { type: "function_call", call_id: "duplicate", name: "run", arguments: "{}" },
+    { type: "function_call", call_id: "duplicate", name: "run_again", arguments: "{}" },
+    { type: "function_call_output", call_id: "duplicate", output: "done" },
+  ], /tool_call_duplicate:duplicate/);
+  assertUnsafeCurrentInput([
+    { type: "function_call", call_id: "mismatch", name: "run", arguments: "{}" },
+    { type: "custom_tool_call_output", call_id: "mismatch", output: "done" },
+  ], /tool_closure_type_mismatch:mismatch/);
+});
+
 test("CDR-04 retries the original request once when rebase replay is rejected upstream", async () => {
   const originalPayload = baseResponsesPayload();
   const rebasedPayload: ResponsesPayload = {

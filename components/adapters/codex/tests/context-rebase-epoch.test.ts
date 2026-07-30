@@ -11,6 +11,7 @@ import {
   commitCodexRebaseEpoch,
   executeCodexRebaseWithFallback,
   failCodexRebaseEpoch,
+  failPendingCodexRebaseEpochsAfterRestart,
   readCodexRebaseEpochJournal,
   readLatestCodexRebaseEpoch,
   readPendingCodexRebaseEpochs,
@@ -69,7 +70,7 @@ test("CDR-03 Rebase Epoch writes pending records and commits only with a respons
   });
 });
 
-test("CDR-03 Rebase Epoch restores pending epochs after restart", async () => {
+test("CDR-03 Rebase Epoch marks restored pending epochs failed after restart", async () => {
   await withTempState(async (stateDir) => {
     await appendPendingCodexRebaseEpoch({
       stateDir,
@@ -87,6 +88,19 @@ test("CDR-03 Rebase Epoch restores pending epochs after restart", async () => {
     assert.equal(restored.length, 1);
     assert.equal(restored[0]?.epochId, "epoch-pending");
     assert.equal(restored[0]?.status, "pending");
+
+    const recovered = await failPendingCodexRebaseEpochsAfterRestart({
+      stateDir,
+      sessionId: "codex-session-restart",
+      updatedAt: "2026-07-30T10:00:00.000Z",
+    });
+    assert.equal(recovered.length, 1);
+    assert.equal(recovered[0]?.status, "failed");
+    assert.equal(recovered[0]?.failureReason, "process_restarted");
+    assert.deepEqual(await readPendingCodexRebaseEpochs({
+      stateDir,
+      sessionId: "codex-session-restart",
+    }), []);
   });
 });
 
@@ -200,6 +214,7 @@ test("CDR-03 Rebase Epoch isolates malformed rows without losing valid epochs", 
 
 test("CDR-03 Rebase Epoch integrates with fallback commit and rollback outcomes", async () => {
   await withTempState(async (stateDir) => {
+    let statusBeforeCommit: string | undefined;
     const committed = await executeCodexRebaseWithFallback({
       sessionId: "codex-session-fallback",
       planId: "plan-commit",
@@ -212,6 +227,13 @@ test("CDR-03 Rebase Epoch integrates with fallback commit and rollback outcomes"
         oldRevision: "rev-old",
         newRevision: "rev-new",
       },
+      async beforeCommit({ newResponseId }) {
+        assert.equal(newResponseId, "resp-new");
+        statusBeforeCommit = (await readLatestCodexRebaseEpoch({
+          stateDir,
+          sessionId: "codex-session-fallback",
+        }))?.status;
+      },
       async sendUpstream() {
         return {
           status: 200,
@@ -221,6 +243,7 @@ test("CDR-03 Rebase Epoch integrates with fallback commit and rollback outcomes"
       },
     });
     assert.equal(committed.outcome, "committed");
+    assert.equal(statusBeforeCommit, "pending");
     assert.equal(committed.epoch?.status, "committed");
     assert.equal(committed.epoch?.newResponseId, "resp-new");
 
@@ -248,6 +271,41 @@ test("CDR-03 Rebase Epoch integrates with fallback commit and rollback outcomes"
 
     const journal = await readCodexRebaseEpochJournal(stateDir, "codex-session-fallback");
     assert.deepEqual(journal.epochs.map((entry) => entry.status), ["committed", "rolled_back"]);
+  });
+});
+
+test("CDR-03 Rebase Epoch falls back when response journaling fails before commit", async () => {
+  await withTempState(async (stateDir) => {
+    const sentPayloads: JsonObject[] = [];
+    const result = await executeCodexRebaseWithFallback({
+      sessionId: "codex-session-journal-failure",
+      planId: "plan-journal-failure",
+      epochId: "epoch-journal-failure",
+      originalPayload: { previous_response_id: "resp-old", input: [{ role: "user", content: "current" }] },
+      rebasedPayload: { input: [{ role: "user", content: "rebased" }] },
+      epochStore: {
+        stateDir,
+        oldPreviousResponseId: "resp-old",
+        oldRevision: "rev-old",
+        newRevision: "rev-new",
+      },
+      async beforeCommit() {
+        throw new Error("journal unavailable");
+      },
+      async sendUpstream(payload) {
+        sentPayloads.push(payload);
+        return sentPayloads.length === 1
+          ? { status: 200, headers: {}, text: JSON.stringify({ id: "resp-rebased", output: [] }) }
+          : { status: 200, headers: {}, text: JSON.stringify({ id: "resp-original", output: [] }) };
+      },
+    });
+
+    assert.equal(result.outcome, "bypassed");
+    assert.equal(result.cooldown?.reason, "rebase_journal_error");
+    assert.equal(result.epoch?.status, "rolled_back");
+    assert.equal(result.epoch?.failureReason, "rebase_journal_error");
+    assert.equal(sentPayloads.length, 2);
+    assert.equal(sentPayloads[1]?.previous_response_id, "resp-old");
   });
 });
 

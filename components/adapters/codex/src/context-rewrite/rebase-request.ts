@@ -16,29 +16,53 @@ function evictedStableItemIds(plan: CodexMutationPlan): Set<string> {
   );
 }
 
-function itemCallRef(item: JsonObject): { callId?: string; side?: "call" | "output" } {
+type ToolCallRef = {
+  callId?: string;
+  kind?: "function" | "custom";
+  side?: "call" | "output";
+  type?: string;
+};
+
+function itemCallRef(item: JsonObject): ToolCallRef {
   const type = String(item.type ?? "").toLowerCase();
-  const callId = typeof item.call_id === "string" ? item.call_id : undefined;
-  if (!callId) return {};
-  if (type === "function_call" || type === "custom_tool_call") return { callId, side: "call" };
-  if (type === "function_call_output" || type === "custom_tool_call_output") {
-    return { callId, side: "output" };
-  }
+  const callId = typeof item.call_id === "string" && item.call_id.trim()
+    ? item.call_id.trim()
+    : undefined;
+  if (type === "function_call") return { callId, kind: "function", side: "call", type };
+  if (type === "function_call_output") return { callId, kind: "function", side: "output", type };
+  if (type === "custom_tool_call") return { callId, kind: "custom", side: "call", type };
+  if (type === "custom_tool_call_output") return { callId, kind: "custom", side: "output", type };
   return {};
 }
 
 function closureReasons(items: JsonObject[]): string[] {
-  const calls = new Set<string>();
-  const outputs = new Set<string>();
+  const refs = new Map<string, { calls: ToolCallRef[]; outputs: ToolCallRef[] }>();
+  const reasons: string[] = [];
   for (const item of items) {
     const ref = itemCallRef(item);
-    if (ref.side === "call" && ref.callId) calls.add(ref.callId);
-    if (ref.side === "output" && ref.callId) outputs.add(ref.callId);
+    if (!ref.side) continue;
+    if (!ref.callId) {
+      reasons.push(`tool_call_id_missing:${ref.type}`);
+      continue;
+    }
+    const entry = refs.get(ref.callId) ?? { calls: [], outputs: [] };
+    entry[ref.side === "call" ? "calls" : "outputs"].push(ref);
+    refs.set(ref.callId, entry);
   }
-  return Array.from(new Set([...calls, ...outputs]))
-    .filter((callId) => calls.has(callId) !== outputs.has(callId))
-    .sort()
-    .map((callId) => `tool_closure_incomplete:${callId}`);
+  for (const [callId, entry] of refs) {
+    if (entry.calls.length !== 1 || entry.outputs.length !== 1) {
+      if (entry.calls.length === 0 || entry.outputs.length === 0) {
+        reasons.push(`tool_closure_incomplete:${callId}`);
+      }
+      if (entry.calls.length > 1) reasons.push(`tool_call_duplicate:${callId}`);
+      if (entry.outputs.length > 1) reasons.push(`tool_output_duplicate:${callId}`);
+      continue;
+    }
+    if (entry.calls[0]?.kind !== entry.outputs[0]?.kind) {
+      reasons.push(`tool_closure_type_mismatch:${callId}`);
+    }
+  }
+  return Array.from(new Set(reasons)).sort();
 }
 
 export function validateCodexRebaseRequest(params: {

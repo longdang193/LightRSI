@@ -119,6 +119,10 @@ export async function executeCodexRebaseWithFallback(params: {
   originalPayload: JsonObject;
   rebasedPayload: JsonObject;
   sendUpstream: CodexUpstreamSender;
+  beforeCommit?: (params: {
+    response: CodexUpstreamResponse;
+    newResponseId: string;
+  }) => Promise<void>;
   accounting?: CodexRebaseAccounting;
   epochStore?: CodexRebaseEpochStoreParams;
   cooldownStore?: CodexRebaseCooldownStoreParams;
@@ -331,6 +335,13 @@ export async function executeCodexRebaseWithFallback(params: {
     const observation = rebaseResponseObservation(rebaseResponse);
     const newResponseId = observation.completed ? observation.responseId : undefined;
     if (newResponseId) {
+      if (params.beforeCommit) {
+        try {
+          await params.beforeCommit({ response: rebaseResponse, newResponseId });
+        } catch {
+          return sendOriginalWithFallbackOutcome("rebase_journal_error");
+        }
+      }
       if (params.epochStore) {
         try {
           epoch = await commitCodexRebaseEpoch({

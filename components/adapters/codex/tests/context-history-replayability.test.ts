@@ -50,6 +50,17 @@ test("CDH-05 Replayability classifies messages and tool call pairs as replayable
   }, "replayable", "tool_closure_required");
 });
 
+test("CDH-05 Replayability defers tool items without a usable call id", () => {
+  for (const item of [
+    { type: "function_call", name: "run_tests", arguments: "{}" },
+    { type: "function_call_output", call_id: "", output: "done" },
+    { type: "custom_tool_call", call_id: "   ", name: "edit", input: "payload" },
+    { type: "custom_tool_call_output", output: "done" },
+  ]) {
+    assertReplayability(item, "deferred", "tool_call_id_missing");
+  }
+});
+
 test("CDH-05 Replayability keeps exact encrypted reasoning payloads replayable", () => {
   const reasoning = {
     id: "rs-1",

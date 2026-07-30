@@ -70,6 +70,7 @@ import type {
 import {
   buildCodexRebaseRequest,
   executeCodexRebaseWithFallback,
+  failPendingCodexRebaseEpochsAfterRestart,
   withCodexRebaseReplayAccountingInput,
 } from "./context-rewrite/index.js";
 import type {
@@ -237,6 +238,39 @@ export async function startCodexResponsesProxy(params: {
   }));
   await mkdir(config.stateDir, { recursive: true });
   const upstream = await resolveUpstreamProvider(config, params.codexConfigPath ?? defaultCodexConfigPath());
+  const epochRecoveryBySession = new Map<string, Promise<void>>();
+
+  async function recoverSessionEpochsAfterRestart(sessionId: string): Promise<void> {
+    let recovery = epochRecoveryBySession.get(sessionId);
+    if (!recovery) {
+      recovery = failPendingCodexRebaseEpochsAfterRestart({
+        stateDir: config.stateDir,
+        sessionId,
+      }).then(async (failed) => {
+        if (failed.length > 0) {
+          await appendTrace(config.stateDir, {
+            stage: "context_rewrite_pending_epochs_recovered",
+            sessionId,
+            failedEpochIds: failed.map((entry) => entry.epochId),
+          });
+        }
+      }).catch(async (err) => {
+        epochRecoveryBySession.delete(sessionId);
+        try {
+          await appendTrace(config.stateDir, {
+            stage: "context_rewrite_pending_epoch_recovery_failed",
+            sessionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        } catch {
+          // Recovery remains best effort so normal proxying can continue.
+        }
+      });
+      epochRecoveryBySession.set(sessionId, recovery);
+    }
+    await recovery;
+  }
+
   const runtime = await startHostGatewayRuntimeServer({
     port: config.proxyPort,
     requestPath: "/v1/responses",
@@ -274,6 +308,7 @@ export async function startCodexResponsesProxy(params: {
         envelope = { ...envelope, model };
       }
       const sessionId = envelope.session.sessionId;
+      await recoverSessionEpochsAfterRestart(sessionId);
       if (inboundPromptCacheKey) {
         if (
           inboundPromptCacheKey !== sessionId
@@ -465,6 +500,98 @@ export async function startCodexResponsesProxy(params: {
         stateDir: config.stateDir,
       });
       let contextRewriteOutcome: string | undefined;
+      let contextHistoryJournalPersisted = false;
+
+      const appendStreamContextHistory = async (paramsForJournal: {
+        status: number;
+        rawStreamText: string;
+        committed: boolean;
+      }): Promise<void> => {
+        if (!requestJournalEntry) return;
+        const collected = collectCodexResponseItemsFromStream(paramsForJournal.rawStreamText);
+        const status = streamRequestStatus({
+          httpStatus: paramsForJournal.status,
+          collected,
+        });
+        const error = status === "failed" ? truncateJournalError(paramsForJournal.rawStreamText) : undefined;
+        await appendCodexResponseJournalEntry({
+          stateDir: config.stateDir,
+          sessionId,
+          requestId: requestJournalEntry.requestId,
+          rawStreamText: paramsForJournal.rawStreamText,
+          previousResponseId: paramsForJournal.committed ? null : undefined,
+          status,
+          error,
+        });
+        await appendCodexRequestJournalEntry({
+          stateDir: config.stateDir,
+          sessionId,
+          requestId: requestJournalEntry.requestId,
+          payload,
+          committedInputItems: paramsForJournal.committed && Array.isArray(payload.input)
+            ? payload.input as JsonObject[]
+            : undefined,
+          status,
+          error,
+        });
+      };
+
+      const appendNonStreamContextHistory = async (paramsForJournal: {
+        response: ReturnType<typeof parseJsonObject>;
+        responseText: string;
+        httpStatus: number;
+        committed: boolean;
+      }): Promise<void> => {
+        if (!requestJournalEntry) return;
+        const status = nonStreamRequestStatus({
+          httpStatus: paramsForJournal.httpStatus,
+          response: paramsForJournal.response,
+        });
+        const error = status === "failed" ? truncateJournalError(paramsForJournal.responseText) : undefined;
+        await appendCodexResponseJournalEntry({
+          stateDir: config.stateDir,
+          sessionId,
+          requestId: requestJournalEntry.requestId,
+          response: paramsForJournal.response,
+          previousResponseId: paramsForJournal.committed ? null : undefined,
+          status,
+          error,
+        });
+        await appendCodexRequestJournalEntry({
+          stateDir: config.stateDir,
+          sessionId,
+          requestId: requestJournalEntry.requestId,
+          payload,
+          committedInputItems: paramsForJournal.committed && Array.isArray(payload.input)
+            ? payload.input as JsonObject[]
+            : undefined,
+          status,
+          error,
+        });
+      };
+
+      const persistAcceptedRebaseResponse = async (paramsForCommit: {
+        response: { status: number; text: string };
+        newResponseId: string;
+      }): Promise<void> => {
+        if (payload.stream === true) {
+          await appendStreamContextHistory({
+            status: paramsForCommit.response.status,
+            rawStreamText: paramsForCommit.response.text,
+            committed: true,
+          });
+        } else {
+          await appendNonStreamContextHistory({
+            response: parseJsonObject(paramsForCommit.response.text),
+            responseText: paramsForCommit.response.text,
+            httpStatus: paramsForCommit.response.status,
+            committed: true,
+          });
+        }
+        await indexCodexResponseSession(config.stateDir, paramsForCommit.newResponseId, sessionId);
+        contextHistoryJournalPersisted = true;
+      };
+
       const sendRebasedOrCurrentPayload = () => rebaseRequest && requestJournalEntry && rebasePlanId
         ? executeCodexRebaseWithFallback({
           sessionId,
@@ -473,6 +600,7 @@ export async function startCodexResponsesProxy(params: {
           originalPayload: fallbackPayload,
           rebasedPayload: payload,
           sendUpstream,
+          beforeCommit: persistAcceptedRebaseResponse,
           accounting: rebaseAccounting,
           epochStore: {
             stateDir: config.stateDir,
@@ -491,6 +619,7 @@ export async function startCodexResponsesProxy(params: {
           },
         }).then((result) => {
           contextRewriteOutcome = result.outcome;
+          if (result.outcome !== "committed") contextHistoryJournalPersisted = false;
           return result.response;
         })
         : sendUpstream(payload);
@@ -518,28 +647,12 @@ export async function startCodexResponsesProxy(params: {
           usage: snapshot.usage ?? null,
           status: paramsForRecord.status,
         });
-        if (requestJournalEntry) {
-          const error = requestStatus === "failed" ? truncateJournalError(paramsForRecord.rawStreamText) : undefined;
+        if (requestJournalEntry && !contextHistoryJournalPersisted) {
           try {
-            await appendCodexResponseJournalEntry({
-              stateDir: config.stateDir,
-              sessionId,
-              requestId: requestJournalEntry.requestId,
+            await appendStreamContextHistory({
+              status: paramsForRecord.status,
               rawStreamText: paramsForRecord.rawStreamText,
-              previousResponseId: contextRewriteOutcome === "committed" ? null : undefined,
-              status: requestStatus,
-              error,
-            });
-            await appendCodexRequestJournalEntry({
-              stateDir: config.stateDir,
-              sessionId,
-              requestId: requestJournalEntry.requestId,
-              payload,
-              committedInputItems: contextRewriteOutcome === "committed" && Array.isArray(payload.input)
-                ? payload.input as JsonObject[]
-                : undefined,
-              status: requestStatus,
-              error,
+              committed: contextRewriteOutcome === "committed",
             });
           } catch (err) {
             await appendTrace(config.stateDir, {
@@ -678,32 +791,13 @@ export async function startCodexResponsesProxy(params: {
       } catch {
         // Some upstream error payloads may not match the expected Responses shape.
       }
-      if (requestJournalEntry) {
-        const status = nonStreamRequestStatus({
-          httpStatus: upstreamResp.status,
-          response: responseJson,
-        });
-        const error = status === "failed" ? truncateJournalError(upstreamResp.text) : undefined;
+      if (requestJournalEntry && !contextHistoryJournalPersisted) {
         try {
-          await appendCodexResponseJournalEntry({
-            stateDir: config.stateDir,
-            sessionId,
-            requestId: requestJournalEntry.requestId,
+          await appendNonStreamContextHistory({
             response: responseJson,
-            previousResponseId: contextRewriteOutcome === "committed" ? null : undefined,
-            status,
-            error,
-          });
-          await appendCodexRequestJournalEntry({
-            stateDir: config.stateDir,
-            sessionId,
-            requestId: requestJournalEntry.requestId,
-            payload,
-            committedInputItems: contextRewriteOutcome === "committed" && Array.isArray(payload.input)
-              ? payload.input as JsonObject[]
-              : undefined,
-            status,
-            error,
+            responseText: upstreamResp.text,
+            httpStatus: upstreamResp.status,
+            committed: contextRewriteOutcome === "committed",
           });
         } catch (err) {
           await appendTrace(config.stateDir, {

@@ -27,6 +27,7 @@ export {
   codexRebaseEpochJournalPath,
   commitCodexRebaseEpoch,
   failCodexRebaseEpoch,
+  failPendingCodexRebaseEpochsAfterRestart,
   readCodexRebaseEpochJournal,
   readLatestCodexRebaseEpoch,
   readPendingCodexRebaseEpochs,

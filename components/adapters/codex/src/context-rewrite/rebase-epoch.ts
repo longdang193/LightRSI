@@ -268,7 +268,27 @@ export async function readPendingCodexRebaseEpochs(params: {
   sessionId: string;
 }): Promise<CodexRebaseEpoch[]> {
   const journal = await readCodexRebaseEpochJournal(params.stateDir, params.sessionId);
+  throwIfReadFailed(journal);
   return journal.epochs.filter((entry) => entry.status === "pending");
+}
+
+export async function failPendingCodexRebaseEpochsAfterRestart(params: {
+  stateDir: string;
+  sessionId: string;
+  updatedAt?: string;
+}): Promise<CodexRebaseEpoch[]> {
+  const pending = await readPendingCodexRebaseEpochs(params);
+  const failed: CodexRebaseEpoch[] = [];
+  for (const entry of pending) {
+    failed.push(await failCodexRebaseEpoch({
+      stateDir: params.stateDir,
+      sessionId: params.sessionId,
+      epochId: entry.epochId,
+      failureReason: "process_restarted",
+      updatedAt: params.updatedAt,
+    }));
+  }
+  return failed;
 }
 
 export async function readLatestCodexRebaseEpoch(params: {

@@ -13,6 +13,10 @@ import {
 } from "../src/context-history/index.js";
 import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
+import {
+  appendPendingCodexRebaseEpoch,
+  readLatestCodexRebaseEpoch,
+} from "../src/context-rewrite/index.js";
 import { resolveCodexSessionIdByResponseId } from "../src/session-state.js";
 
 type JsonObject = Record<string, unknown>;
@@ -217,6 +221,57 @@ function inputText(payload: JsonObject | undefined): string {
   const input = Array.isArray(payload?.input) ? payload.input : [];
   return JSON.stringify(input);
 }
+
+test("CDR-03 proxy startup recovers a pending epoch before serving its session", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pending-restart-"));
+  const upstream = await startSequencedResponsesUpstream();
+  let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  try {
+    const sessionId = "codex-session-pending-restart";
+    await appendPendingCodexRebaseEpoch({
+      stateDir,
+      sessionId,
+      epochId: "epoch-before-restart",
+      planId: "plan-before-restart",
+      oldPreviousResponseId: "resp-old",
+      oldRevision: "rev-old",
+    });
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir,
+      proxyPort: await reserveFetchPort(),
+      upstreamProvider: "OpenAI",
+      upstream: {
+        baseUrl: upstream.baseUrl,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      modules: { stabilizer: false, reduction: false },
+      contextRewrite: { enabled: false },
+    } as any);
+    runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false) });
+
+    const response = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "resume after restart" }],
+      }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+
+    const recovered = await readLatestCodexRebaseEpoch({ stateDir, sessionId });
+    assert.equal(recovered?.status, "failed");
+    assert.equal(recovered?.failureReason, "process_restarted");
+  } finally {
+    await runtime?.close();
+    await upstream.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
 
 test("CDR-06 proxy pipeline rebases a non-stream request from effective history", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-"));
