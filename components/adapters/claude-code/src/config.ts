@@ -25,6 +25,11 @@ export type TokenPilotClaudeCodeConfig = {
     reduction: boolean;
     eviction: boolean;
   };
+  eviction: {
+    enabled: boolean;
+    minBlockChars: number;
+    failureMode: "bypass";
+  };
   reduction: {
     triggerMinChars: number;
     maxToolChars: number;
@@ -137,6 +142,7 @@ export function normalizeTokenPilotClaudeCodeConfig(
   const obj = asRecord(raw);
   const hooks = asRecord(obj.hooks);
   const modules = asRecord(obj.modules);
+  const eviction = asRecord(obj.eviction);
   const reduction = asRecord(obj.reduction);
   const passes = asRecord(reduction.passes);
   const configPath = options?.configPath ?? defaultTokenPilotClaudeCodeConfigPath();
@@ -158,6 +164,11 @@ export function normalizeTokenPilotClaudeCodeConfig(
       stabilizer: boolValue(modules.stabilizer, true),
       reduction: boolValue(modules.reduction, true),
       eviction: boolValue(modules.eviction, false),
+    },
+    eviction: {
+      enabled: boolValue(eviction.enabled, false),
+      minBlockChars: numberValue(eviction.minBlockChars, 4000, 256, 1_000_000),
+      failureMode: "bypass",
     },
     reduction: {
       triggerMinChars: numberValue(reduction.triggerMinChars, 2200, 256, 1_000_000),

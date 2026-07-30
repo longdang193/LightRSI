@@ -22,7 +22,10 @@ import { proxyBaseUrlForPort } from "./config.js";
 import type { TokenPilotClaudeCodeLogger } from "./logger.js";
 import { createClaudeMessagesPayloadCodec } from "./messages-codec.js";
 import { reduceClaudeRequestEnvelope, type ClaudeReductionSummary } from "./reduction.js";
-import { applyClaudeEviction } from "./eviction.js";
+import {
+  applyClaudeEviction,
+  type ClaudeEvictionApplySummary,
+} from "./eviction.js";
 import {
   appendClaudeCodeRecentTurnBinding,
   upsertClaudeCodeSessionSnapshot,
@@ -295,6 +298,40 @@ export async function startClaudeCodeGatewayRuntime(params: {
       const originalRequestText = typeof envelope.metadata?.inputText === "string"
         ? envelope.metadata.inputText
         : "";
+      const sessionId = await resolveObservedClaudeSessionId(config.stateDir, envelope.session.sessionId);
+      const evictionEnabled = config.modules.eviction && config.eviction.enabled;
+      let evictionSummary: ClaudeEvictionApplySummary = {
+        enabled: evictionEnabled,
+        changed: false,
+        evictedMessageCount: 0,
+        evictedToolResultCount: 0,
+        savedChars: 0,
+        evictedBlockIds: [],
+      };
+      let evictionBypassReason: string | undefined;
+      if (evictionEnabled) {
+        try {
+          const candidatePayload = structuredClone(payload);
+          evictionSummary = applyClaudeEviction({
+            payload: candidatePayload,
+            sessionId,
+            model: envelope.model,
+            config: {
+              enabled: true,
+              minBlockChars: config.eviction.minBlockChars,
+            },
+          });
+          if (evictionSummary.changed) {
+            payload = candidatePayload;
+            envelope = codec.decodeRequest(payload, {
+              headers: req.headers as Record<string, string | string[] | undefined>,
+            });
+          }
+        } catch {
+          evictionBypassReason = "analysis_or_apply_error";
+          logger.warn("context eviction bypassed category=analysis_or_apply_error");
+        }
+      }
       if (envelope.model.startsWith("tokenpilot/")) {
         envelope = {
           ...envelope,
@@ -306,7 +343,6 @@ export async function startClaudeCodeGatewayRuntime(params: {
         model: mapClaudeVisibleModelToUpstreamModel(config, envelope.model),
       };
       const authorization = typeof req.headers.authorization === "string" ? req.headers.authorization : undefined;
-      const sessionId = await resolveObservedClaudeSessionId(config.stateDir, envelope.session.sessionId);
       const model = envelope.model;
       const workspaceHint = extractWorkspaceHint(envelope);
       const prepared = await prepareObservedBeforeCall<ClaudeReductionSummary>({
@@ -371,12 +407,6 @@ export async function startClaudeCodeGatewayRuntime(params: {
       });
       const reductionSummary = prepared.reductionSummary;
       payload = codec.encodeRequest(prepared.envelope);
-      const evictionSummary = applyClaudeEviction({
-        payload,
-        sessionId,
-        model: prepared.envelope.model,
-        config: { enabled: config.modules.eviction, minBlockChars: config.reduction.triggerMinChars },
-      });
       const reducedRequestText = typeof prepared.envelope.metadata?.inputText === "string"
         ? prepared.envelope.metadata.inputText
         : "";
@@ -410,6 +440,12 @@ export async function startClaudeCodeGatewayRuntime(params: {
         reductionChangedMessages: reductionSummary?.changedMessages ?? 0,
         reductionSkippedReason: reductionSummary?.skippedReason ?? null,
         reductionPassEffects: reductionSummary?.passEffects ?? [],
+        evictionEnabled: evictionSummary.enabled,
+        evictionApplied: evictionSummary.changed,
+        evictionSavedChars: evictionSummary.savedChars,
+        evictionChangedMessages: evictionSummary.evictedMessageCount,
+        evictionChangedToolResults: evictionSummary.evictedToolResultCount,
+        evictionBypassReason: evictionBypassReason ?? null,
       });
 
       if (prepared.envelope.stream) {

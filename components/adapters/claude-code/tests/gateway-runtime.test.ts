@@ -1174,3 +1174,101 @@ test("gateway runtime caches unsupported prompt_cache_key for Anthropic-compatib
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("gateway eviction preserves tool closure and the active user turn", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-eviction-"));
+  const proxyPort = await reserveUnusedPort();
+  const seenPayloads: Array<Record<string, unknown>> = [];
+  const forwarder: HostGatewayForwarder = {
+    async request(params) {
+      seenPayloads.push(params.payload as Record<string, unknown>);
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        text: JSON.stringify({
+          id: "msg_eviction_1",
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+          usage: { input_tokens: 20, output_tokens: 4 },
+          stop_reason: "end_turn",
+        }),
+      };
+    },
+    async requestStream() {
+      throw new Error("stream path should not be used in this test");
+    },
+  };
+  const runtime = await startClaudeCodeGatewayRuntime({
+    config: normalizeTokenPilotClaudeCodeConfig({
+      stateDir: join(dir, "state"),
+      proxyPort,
+      modules: { stabilizer: false, reduction: false, eviction: true },
+      eviction: { enabled: true, minBlockChars: 256 },
+    }),
+    logger: createConsoleLogger(false),
+    forwarder,
+  });
+
+  try {
+    const response = await fetch(`${runtime.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-session-id": "sess-eviction-1",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        stream: false,
+        messages: [
+          { role: "user", content: [{ type: "text", text: "read the file" }] },
+          {
+            role: "assistant",
+            content: [{
+              type: "tool_use",
+              id: "toolu_eviction_1",
+              name: "Read",
+              input: { file_path: "/repo/large.txt" },
+            }],
+          },
+          {
+            role: "user",
+            content: [{
+              type: "tool_result",
+              tool_use_id: "toolu_eviction_1",
+              content: "EVICT_ME_" + "x".repeat(5000),
+            }],
+          },
+          { role: "assistant", content: [{ type: "text", text: "previous task complete" }] },
+          { role: "user", content: [{ type: "text", text: "KEEP_ME_current_user_turn" }] },
+        ],
+        max_tokens: 256,
+      }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(seenPayloads.length, 1);
+
+    const messages = seenPayloads[0]?.messages as Array<Record<string, unknown>>;
+    const toolUse = (messages[1]?.content as Array<Record<string, unknown>>)[0];
+    const toolResult = (messages[2]?.content as Array<Record<string, unknown>>)[0];
+    const activeUser = (messages.at(-1)?.content as Array<Record<string, unknown>>)[0];
+    assert.equal(toolUse?.id, "toolu_eviction_1");
+    assert.equal(toolResult?.type, "tool_result");
+    assert.equal(toolResult?.tool_use_id, "toolu_eviction_1");
+    assert.match(String(toolResult?.content), /^\[evicted:/);
+    assert.equal(activeUser?.text, "KEEP_ME_current_user_turn");
+
+    const trace = (await readFile(join(dir, "state", "event-trace.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const beforeCall = trace.find((entry) => entry.stage === "gateway_before_call");
+    assert.equal(beforeCall?.evictionEnabled, true);
+    assert.equal(beforeCall?.evictionApplied, true);
+    assert.equal(beforeCall?.evictionChangedToolResults, 1);
+    assert.ok(Number(beforeCall?.evictionSavedChars) > 0);
+  } finally {
+    await runtime.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
