@@ -352,6 +352,57 @@ test("CDR-01 Rebase Epoch bypasses when another epoch is already in flight", asy
   });
 });
 
+test("CDR-01 Rebase Epoch serializes concurrent attempts for the same session", async () => {
+  await withTempState(async (stateDir) => {
+    const sentInputs: string[] = [];
+    let releaseRebase: (() => void) | undefined;
+    const rebaseBlocked = new Promise<void>((resolve) => {
+      releaseRebase = resolve;
+    });
+    let firstRebaseStarted: (() => void) | undefined;
+    const firstRebaseObserved = new Promise<void>((resolve) => {
+      firstRebaseStarted = resolve;
+    });
+    const shared = {
+      sessionId: "codex-session-concurrent",
+      planId: "plan-concurrent",
+      epochId: "epoch-concurrent",
+      originalPayload: { input: [{ role: "user", content: "original" }] },
+      rebasedPayload: { input: [{ role: "user", content: "rebased" }] },
+      epochStore: {
+        stateDir,
+        oldPreviousResponseId: "resp-old",
+        oldRevision: "rev-old",
+        newRevision: "rev-new",
+      },
+      async sendUpstream(payload: JsonObject) {
+        const content = String((payload.input as JsonObject[] | undefined)?.[0]?.content ?? "");
+        sentInputs.push(content);
+        if (content === "rebased") {
+          firstRebaseStarted?.();
+          await rebaseBlocked;
+        }
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          text: JSON.stringify({ id: `resp-${content}`, status: "completed" }),
+        };
+      },
+    };
+
+    const first = executeCodexRebaseWithFallback(shared);
+    await firstRebaseObserved;
+    const second = executeCodexRebaseWithFallback(shared);
+    const secondResult = await second;
+    releaseRebase?.();
+    const firstResult = await first;
+
+    assert.equal(firstResult.outcome, "committed");
+    assert.equal(secondResult.outcome, "bypassed");
+    assert.deepEqual(sentInputs.sort(), ["original", "rebased"]);
+  });
+});
+
 test("CDR-03 Rebase Epoch records fallback extra request accounting", async () => {
   await withTempState(async (stateDir) => {
     let calls = 0;

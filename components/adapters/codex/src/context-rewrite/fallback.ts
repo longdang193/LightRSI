@@ -32,6 +32,8 @@ import {
   unsupportedCodexRebaseItemTypesFromResponse,
 } from "./rebase-capability.js";
 
+const activeRebaseSessions = new Set<string>();
+
 function isSuccessfulResponse(response: CodexUpstreamResponse): boolean {
   return response.status >= 200 && response.status < 300;
 }
@@ -97,8 +99,8 @@ function rebaseResponseObservation(response: CodexUpstreamResponse): {
 
   try {
     const parsed = JSON.parse(response.text) as unknown;
-    const status = responseStatusFromObject(parsed);
-    if (status === "failed" || status === "incomplete") {
+    const status = responseStatusFromObject(parsed)?.toLowerCase();
+    if (status && status !== "completed") {
       return { responseId: responseIdFromObject(parsed), completed: false, failureReason: `rebase_response_${status}` };
     }
     const responseId = responseIdFromObject(parsed);
@@ -307,108 +309,121 @@ export async function executeCodexRebaseWithFallback(params: {
     };
   }
 
-  if (params.epochStore) {
-    try {
-      const activeEpoch = (await readPendingCodexRebaseEpochs({
-        stateDir: params.epochStore.stateDir,
-        sessionId: params.sessionId,
-      })).find((entry) => entry.epochId !== params.epochId);
-      if (activeEpoch) {
-        return sendOriginalBypass();
-      }
-
-      epoch = await appendPendingCodexRebaseEpoch({
-        stateDir: params.epochStore.stateDir,
-        sessionId: params.sessionId,
-        planId: params.planId,
-        epochId: params.epochId,
-        oldPreviousResponseId: params.epochStore.oldPreviousResponseId,
-        oldRevision: params.epochStore.oldRevision,
-        accounting: params.accounting,
-      });
-    } catch {
-      return sendOriginalWithFallbackOutcome("epoch_store_error");
-    }
+  const rebaseSessionKey = params.epochStore
+    ? `${params.epochStore.stateDir}\0${params.sessionId}`
+    : undefined;
+  if (rebaseSessionKey && activeRebaseSessions.has(rebaseSessionKey)) {
+    return sendOriginalBypass();
   }
+  if (rebaseSessionKey) activeRebaseSessions.add(rebaseSessionKey);
+
   try {
-    rebaseResponse = await params.sendUpstream(cloneJson(params.rebasedPayload));
-    const observation = rebaseResponseObservation(rebaseResponse);
-    const newResponseId = observation.completed ? observation.responseId : undefined;
-    if (newResponseId) {
-      if (params.beforeCommit) {
-        try {
-          await params.beforeCommit({ response: rebaseResponse, newResponseId });
-        } catch {
-          return sendOriginalWithFallbackOutcome("rebase_journal_error");
+    if (params.epochStore) {
+      try {
+        const activeEpoch = (await readPendingCodexRebaseEpochs({
+          stateDir: params.epochStore.stateDir,
+          sessionId: params.sessionId,
+        })).find((entry) => entry.epochId !== params.epochId);
+        if (activeEpoch) {
+          return sendOriginalBypass();
         }
-      }
-      if (params.epochStore) {
-        try {
-          epoch = await commitCodexRebaseEpoch({
-            stateDir: params.epochStore.stateDir,
-            sessionId: params.sessionId,
-            epochId: params.epochId,
-            newResponseId,
-            newRevision: params.epochStore.newRevision,
-            accounting: params.accounting,
-          });
-        } catch {
-          return sendOriginalWithFallbackOutcome("epoch_store_error");
-        }
-      }
-      if (params.capabilityStore && rebaseItemTypes.length > 0) {
-        await safeRecordCapabilities({
-          itemTypes: rebaseItemTypes,
-          status: "supported",
-          reason: "rebase_committed",
-          responseStatus: rebaseResponse.status,
-        });
-        capability = {
-          provider: params.capabilityStore.provider,
-          model: params.capabilityStore.model,
-          itemTypes: rebaseItemTypes,
-          supportedItemTypes: rebaseItemTypes,
-          reason: "rebase_committed",
-        };
-      }
-      return {
-        response: rebaseResponse,
-        outcome: "committed",
-        newResponseId,
-        rebaseResponse,
-        epoch,
-        capability,
-      };
-    }
-    failureReason = observation.failureReason ?? (
-      isSuccessfulResponse(rebaseResponse)
-        ? "rebase_response_id_missing"
-        : "rebase_upstream_rejected"
-    );
-    if (params.capabilityStore) {
-      const unsupportedItemTypes = unsupportedCodexRebaseItemTypesFromResponse({
-        response: rebaseResponse,
-        itemTypes: rebaseItemTypes,
-      });
-      if (unsupportedItemTypes.length > 0) {
-        await safeRecordCapabilities({
-          itemTypes: unsupportedItemTypes,
-          status: "unsupported",
-          reason: "schema_error",
-          responseStatus: rebaseResponse.status,
-        });
-        capability = {
-          provider: params.capabilityStore.provider,
-          model: params.capabilityStore.model,
-          itemTypes: rebaseItemTypes,
-          unsupportedItemTypes,
-          reason: "schema_error",
-        };
-      }
-    }
-  } catch {
-    failureReason = "rebase_upstream_error";
-  }
 
-  return sendOriginalWithFallbackOutcome(failureReason);
+        epoch = await appendPendingCodexRebaseEpoch({
+          stateDir: params.epochStore.stateDir,
+          sessionId: params.sessionId,
+          planId: params.planId,
+          epochId: params.epochId,
+          oldPreviousResponseId: params.epochStore.oldPreviousResponseId,
+          oldRevision: params.epochStore.oldRevision,
+          accounting: params.accounting,
+        });
+      } catch {
+        return sendOriginalWithFallbackOutcome("epoch_store_error");
+      }
+    }
+
+    try {
+      rebaseResponse = await params.sendUpstream(cloneJson(params.rebasedPayload));
+      const observation = rebaseResponseObservation(rebaseResponse);
+      const newResponseId = observation.completed ? observation.responseId : undefined;
+      if (newResponseId) {
+        if (params.beforeCommit) {
+          try {
+            await params.beforeCommit({ response: rebaseResponse, newResponseId });
+          } catch {
+            return sendOriginalWithFallbackOutcome("rebase_journal_error");
+          }
+        }
+        if (params.epochStore) {
+          try {
+            epoch = await commitCodexRebaseEpoch({
+              stateDir: params.epochStore.stateDir,
+              sessionId: params.sessionId,
+              epochId: params.epochId,
+              newResponseId,
+              newRevision: params.epochStore.newRevision,
+              accounting: params.accounting,
+            });
+          } catch {
+            return sendOriginalWithFallbackOutcome("epoch_store_error");
+          }
+        }
+        if (params.capabilityStore && rebaseItemTypes.length > 0) {
+          await safeRecordCapabilities({
+            itemTypes: rebaseItemTypes,
+            status: "supported",
+            reason: "rebase_committed",
+            responseStatus: rebaseResponse.status,
+          });
+          capability = {
+            provider: params.capabilityStore.provider,
+            model: params.capabilityStore.model,
+            itemTypes: rebaseItemTypes,
+            supportedItemTypes: rebaseItemTypes,
+            reason: "rebase_committed",
+          };
+        }
+        return {
+          response: rebaseResponse,
+          outcome: "committed",
+          newResponseId,
+          rebaseResponse,
+          epoch,
+          capability,
+        };
+      }
+      failureReason = observation.failureReason ?? (
+        isSuccessfulResponse(rebaseResponse)
+          ? "rebase_response_id_missing"
+          : "rebase_upstream_rejected"
+      );
+      if (params.capabilityStore) {
+        const unsupportedItemTypes = unsupportedCodexRebaseItemTypesFromResponse({
+          response: rebaseResponse,
+          itemTypes: rebaseItemTypes,
+        });
+        if (unsupportedItemTypes.length > 0) {
+          await safeRecordCapabilities({
+            itemTypes: unsupportedItemTypes,
+            status: "unsupported",
+            reason: "schema_error",
+            responseStatus: rebaseResponse.status,
+          });
+          capability = {
+            provider: params.capabilityStore.provider,
+            model: params.capabilityStore.model,
+            itemTypes: rebaseItemTypes,
+            unsupportedItemTypes,
+            reason: "schema_error",
+          };
+        }
+      }
+    } catch {
+      failureReason = "rebase_upstream_error";
+    }
+
+    return sendOriginalWithFallbackOutcome(failureReason);
+  } finally {
+    if (rebaseSessionKey) activeRebaseSessions.delete(rebaseSessionKey);
+  }
 }

@@ -392,6 +392,38 @@ test("CDR-03 does not commit a 2xx rebase response without a response id", async
   assert.equal(result.cooldown?.reason, "rebase_response_id_missing");
 });
 
+test("CDR-03 does not commit non-terminal non-stream responses", async () => {
+  for (const status of ["queued", "in_progress", "cancelled"]) {
+    const sentPayloads: JsonObject[] = [];
+    const result = await executeCodexRebaseWithFallback({
+      sessionId: "codex-session-1",
+      planId: `plan-${status}`,
+      epochId: `epoch-${status}`,
+      originalPayload: baseResponsesPayload(),
+      rebasedPayload: { input: [] },
+      async sendUpstream(payload) {
+        sentPayloads.push(payload);
+        return sentPayloads.length === 1
+          ? {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            text: JSON.stringify({ id: `resp-${status}`, status }),
+          }
+          : {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            text: JSON.stringify({ id: "resp-original-fallback", status: "completed" }),
+          };
+      },
+    });
+
+    assert.equal(sentPayloads.length, 2);
+    assert.equal(result.outcome, "bypassed");
+    assert.equal(result.newResponseId, undefined);
+    assert.equal(result.cooldown?.reason, `rebase_response_${status}`);
+  }
+});
+
 test("CDR-03 commits a streaming rebase only after observing its response id", async () => {
   const result = await executeCodexRebaseWithFallback({
     sessionId: "codex-session-1",
