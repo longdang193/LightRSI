@@ -14,8 +14,16 @@ export type ContextItemIdentityInput = {
   nativeItemId?: string;
   callId?: string;
   content: unknown;
-  ordinal: number;
+  /** Occurrence among synthetic items with the same session and fingerprint. */
+  occurrence?: number;
+  /** @deprecated Use occurrence. This value is interpreted as an occurrence. */
+  ordinal?: number;
 };
+
+export type ContextItemIdentitySeed = Omit<
+  ContextItemIdentityInput,
+  "occurrence" | "ordinal"
+>;
 
 export type ContextItemFingerprintInput = Pick<
   ContextItemIdentityInput,
@@ -76,6 +84,25 @@ function optionalIdentityPart(value: string | undefined): string | undefined {
   return normalized || undefined;
 }
 
+function syntheticOccurrence(input: ContextItemIdentityInput): number {
+  if (
+    input.occurrence !== undefined
+    && input.ordinal !== undefined
+    && input.occurrence !== input.ordinal
+  ) {
+    throw new TypeError("occurrence and deprecated ordinal must match");
+  }
+  const occurrence = input.occurrence ?? input.ordinal;
+  if (
+    typeof occurrence !== "number"
+    || !Number.isSafeInteger(occurrence)
+    || occurrence < 0
+  ) {
+    throw new TypeError("occurrence must be a non-negative safe integer");
+  }
+  return occurrence;
+}
+
 function sha256(value: unknown): string {
   return createHash("sha256")
     .update(normalizeContextItemContent(value))
@@ -123,11 +150,8 @@ export function createContextItemIdentity(
     source = "call_id";
     identityValue = callId;
   } else {
-    if (!Number.isSafeInteger(input.ordinal) || input.ordinal < 0) {
-      throw new TypeError("ordinal must be a non-negative safe integer");
-    }
     source = "synthetic";
-    identityValue = input.ordinal;
+    identityValue = syntheticOccurrence(input);
   }
 
   const digest = sha256({
@@ -149,4 +173,30 @@ export function createStableContextItemId(
   input: ContextItemIdentityInput,
 ): string {
   return createContextItemIdentity(input).stableId;
+}
+
+/**
+ * Builds identities in transcript order while keeping synthetic IDs stable
+ * when unrelated items are inserted before them.
+ */
+export function createContextItemIdentities(
+  inputs: readonly ContextItemIdentitySeed[],
+): ContextItemIdentity[] {
+  const occurrencesByFingerprint = new Map<string, number>();
+  return inputs.map((input) => {
+    const fingerprint = createContextItemFingerprint(input);
+    if (optionalIdentityPart(input.nativeItemId) || optionalIdentityPart(input.callId)) {
+      return createContextItemIdentity(input);
+    }
+    const occurrenceKey = normalizeContextItemContent([
+      requiredIdentityPart(input.sessionId, "sessionId"),
+      fingerprint,
+    ]);
+    const occurrence = occurrencesByFingerprint.get(occurrenceKey) ?? 0;
+    occurrencesByFingerprint.set(occurrenceKey, occurrence + 1);
+    return createContextItemIdentity({
+      ...input,
+      occurrence,
+    });
+  });
 }

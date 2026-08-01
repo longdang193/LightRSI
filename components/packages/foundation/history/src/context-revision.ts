@@ -10,10 +10,11 @@ export type ContextRevisionItem = {
 };
 
 function requiredRevisionPart(value: string, name: string, index: number): string {
-  if (!value.trim()) {
+  const normalized = value.trim();
+  if (!normalized) {
     throw new TypeError(`context revision item ${index} ${name} must not be empty`);
   }
-  return value;
+  return normalized;
 }
 
 export function createContextRevision(
@@ -23,6 +24,10 @@ export function createContextRevision(
     stableId: requiredRevisionPart(item.stableId, "stableId", index),
     fingerprint: requiredRevisionPart(item.fingerprint, "fingerprint", index),
   }));
+  const stableIds = new Set(revisionItems.map((item) => item.stableId));
+  if (stableIds.size !== revisionItems.length) {
+    throw new TypeError("context revision items must have unique stableIds");
+  }
   const digest = createHash("sha256")
     .update(normalizeContextItemContent({
       algorithmVersion: CONTEXT_REVISION_ALGORITHM_VERSION,

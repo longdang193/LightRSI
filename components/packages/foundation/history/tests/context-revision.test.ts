@@ -63,3 +63,23 @@ test("empty item identity fields are rejected", () => {
     /fingerprint must not be empty/,
   );
 });
+
+test("revision identity fields are trimmed before hashing", () => {
+  assert.equal(
+    createContextRevision(items),
+    createContextRevision([
+      { stableId: " item-1 ", fingerprint: " fp-1 " },
+      { stableId: " item-2 ", fingerprint: " fp-2 " },
+    ]),
+  );
+});
+
+test("duplicate stable IDs are rejected", () => {
+  assert.throws(
+    () => createContextRevision([
+      { stableId: "item-1", fingerprint: "fp-1" },
+      { stableId: " item-1 ", fingerprint: "fp-2" },
+    ]),
+    /unique stableIds/,
+  );
+});
