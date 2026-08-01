@@ -125,3 +125,30 @@ test("does not rewrite orphaned, duplicate, or active tool results", () => {
   assert.equal(summary.changed, false);
   assert.deepEqual(payload.messages, original);
 });
+
+test("does not rewrite the active tool result when assistant prefill follows it", () => {
+  const payload = {
+    messages: [
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "active-call", name: "Read", input: { file_path: "active.txt" } }],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "active-call", content: big }],
+      },
+      { role: "assistant", content: [{ type: "text", text: "prefill" }] },
+    ],
+  };
+  const original = structuredClone(payload.messages);
+
+  const summary = applyClaudeEviction({
+    payload,
+    sessionId: "s1",
+    model: "claude-sonnet-4",
+    config: { enabled: true, minBlockChars: 256 },
+  });
+
+  assert.equal(summary.changed, false);
+  assert.deepEqual(payload.messages, original);
+});

@@ -140,10 +140,17 @@ function buildToolResultSegments(
   const { toolUses, validResultIds } = collectToolProtocol(messages);
   const segments: ContextSegment[] = [];
   const bindings = new Map<string, ToolResultBinding>();
+  let activeTurnStartIndex = messages.length - 1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (asRecord(messages[index])?.role === "user") {
+      activeTurnStartIndex = index;
+      break;
+    }
+  }
 
   for (const [messageIndex, message] of messages.entries()) {
-    // The final message is the active Claude turn, including tool continuation turns.
-    if (messageIndex === messages.length - 1) continue;
+    // Assistant prefill may follow the active user turn, so protect the last user message onward.
+    if (messageIndex >= activeTurnStartIndex) continue;
     const record = asRecord(message);
     if (!record || !Array.isArray(record.content)) continue;
     for (const [blockIndex, value] of record.content.entries()) {
