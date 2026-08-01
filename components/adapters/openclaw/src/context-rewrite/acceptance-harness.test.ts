@@ -88,6 +88,32 @@ test("rejects missing call ids, orphaned calls, and duplicate outputs", () => {
   assert.deepEqual(duplicate.duplicateOutputs, ["anthropic:tool-1"]);
 });
 
+test("rejects tool protocol items attached to invalid message roles", () => {
+  const anthropic = inspectToolClosure({
+    messages: [
+      { role: "user", content: [{ type: "tool_use", id: "tool-1" }] },
+      { role: "assistant", content: [{ type: "tool_result", tool_use_id: "tool-1" }] },
+    ],
+  });
+  assert.equal(anthropic.complete, false);
+  assert.deepEqual(anthropic.invalidItems, [
+    "messages[0].content[0].role",
+    "messages[1].content[0].role",
+  ]);
+
+  const chat = inspectToolClosure({
+    messages: [
+      { role: "user", tool_calls: [{ id: "chat-1", type: "function" }] },
+      { role: "assistant", tool_call_id: "chat-1", content: "done" },
+    ],
+  });
+  assert.equal(chat.complete, false);
+  assert.deepEqual(chat.invalidItems, [
+    "messages[0].tool_calls[0].role",
+    "messages[1].role",
+  ]);
+});
+
 test("captures raw requests through a real mock upstream", async () => {
   const upstream = new MockUpstreamRecorder();
   upstream.enqueueResponses([{ status: 418, body: { error: "expected" } }]);

@@ -211,9 +211,15 @@ function collectMessageToolRefs(
       for (const [blockIndex, blockValue] of value.content.entries()) {
         if (!isRecord(blockValue)) continue;
         if (blockValue.type === "tool_use") {
+          if (value.role !== "assistant") {
+            invalidItems.push(`messages[${messageIndex}].content[${blockIndex}].role`);
+          }
           const id = typeof blockValue.id === "string" && blockValue.id ? blockValue.id : undefined;
           addProtocolRef(calls, id && `anthropic:${id}`, invalidItems, `messages[${messageIndex}].content[${blockIndex}].id`);
         } else if (blockValue.type === "tool_result") {
+          if (value.role !== "user") {
+            invalidItems.push(`messages[${messageIndex}].content[${blockIndex}].role`);
+          }
           const id = typeof blockValue.tool_use_id === "string" && blockValue.tool_use_id
             ? blockValue.tool_use_id
             : undefined;
@@ -225,15 +231,26 @@ function collectMessageToolRefs(
     if (Array.isArray(value.tool_calls)) {
       for (const [callIndex, callValue] of value.tool_calls.entries()) {
         if (!isRecord(callValue)) continue;
+        if (value.role !== "assistant") {
+          invalidItems.push(`messages[${messageIndex}].tool_calls[${callIndex}].role`);
+        }
         const id = typeof callValue.id === "string" && callValue.id ? callValue.id : undefined;
         addProtocolRef(calls, id && `chat:${id}`, invalidItems, `messages[${messageIndex}].tool_calls[${callIndex}].id`);
       }
     }
-    if (value.role === "tool") {
-      const id = typeof value.tool_call_id === "string" && value.tool_call_id
-        ? value.tool_call_id
-        : undefined;
-      addProtocolRef(outputs, id && `chat:${id}`, invalidItems, `messages[${messageIndex}].tool_call_id`);
+    const toolCallId = typeof value.tool_call_id === "string" && value.tool_call_id
+      ? value.tool_call_id
+      : undefined;
+    if (toolCallId || value.role === "tool") {
+      if (value.role !== "tool") {
+        invalidItems.push(`messages[${messageIndex}].role`);
+      }
+      addProtocolRef(
+        outputs,
+        toolCallId && `chat:${toolCallId}`,
+        invalidItems,
+        `messages[${messageIndex}].tool_call_id`,
+      );
     }
   }
 }

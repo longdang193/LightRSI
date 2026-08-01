@@ -231,6 +231,18 @@ function assertValidFixture(fixture: GoldenFixture): void {
     );
     if (task.status === "active" || task.status === "unresolved" || task.current === true) {
       assert.equal(decision, "keep", `${fixture.id} ${task.id} is not safe to evict`);
+      for (const item of task.items) {
+        assert.equal(
+          decisionFor(
+            item.id,
+            fixture.expected.evict_item_ids,
+            fixture.expected.keep_item_ids,
+            `${fixture.id} ${item.id}`,
+          ),
+          "keep",
+          `${fixture.id} ${task.id} items are not safe to evict`,
+        );
+      }
     }
   }
 
@@ -270,6 +282,15 @@ test("cross-host golden validation rejects unsafe current task decisions", () =>
   const fixture = structuredClone(readFixture("active-turn.json"));
   fixture.expected.current_task_id = "task-old-completed-001";
   assert.throws(() => assertValidFixture(fixture), /must match the task marked current/);
+});
+
+test("cross-host golden validation rejects evicted items from active tasks", () => {
+  const fixture = structuredClone(readFixture("active-turn.json"));
+  fixture.expected.keep_item_ids = fixture.expected.keep_item_ids.filter(
+    (itemId) => itemId !== "item-current-user-001",
+  );
+  fixture.expected.evict_item_ids.push("item-current-user-001");
+  assert.throws(() => assertValidFixture(fixture), /items are not safe to evict/);
 });
 
 test("cross-host golden validation requires every discovered tool pair", () => {
