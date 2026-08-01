@@ -4,6 +4,7 @@ import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
   type ContextItemKind,
   type ContextItemRef,
+  type ContextMutationOperation,
   type ContextMutationPlan,
   type ContextRewriteResult,
   type ContextRewriteValidation,
@@ -28,7 +29,7 @@ export type OpenClawReferenceBackendDetails = {
   appliedTaskIds: string[];
   beforeMessageCount: number;
   afterMessageCount: number;
-  replacementMode: "pointer_stub" | "drop";
+  replacementMode: "pointer_stub" | "drop" | "mixed";
 };
 
 type OpenClawReferenceBackend = ModelContextRewriteBackend<
@@ -79,45 +80,83 @@ function normalizedType(value: unknown): string {
     .replaceAll("-", "_");
 }
 
-function firstToolCall(
+type ProtocolRef = {
+  callId: string;
+  kind: "call" | "result";
+};
+
+function messageProtocolRefs(
   message: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-  const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-  const direct = calls
-    .map(asRecord)
-    .find(
-      (call): call is Record<string, unknown> => call !== undefined,
-    );
+): ProtocolRef[] {
+  const refs: ProtocolRef[] = [];
+  const callTypes = new Set([
+    "toolcall",
+    "tool_call",
+    "tool_use",
+    "function_call",
+    "custom_tool_call",
+  ]);
+  const resultTypes = new Set([
+    "tool_result",
+    "tool_call_output",
+    "function_call_output",
+    "custom_tool_call_output",
+  ]);
+  const topLevelType = normalizedType(message.type);
 
-  if (direct) return direct;
+  if (callTypes.has(topLevelType)) {
+    const callId =
+      stringValue(message.id)
+      ?? stringValue(message.call_id)
+      ?? stringValue(message.tool_call_id);
+    if (callId) refs.push({ callId, kind: "call" });
+  }
 
-  return contentBlocks(message).find((block) =>
-    [
-      "toolcall",
-      "tool_call",
-      "tool_use",
-      "function_call",
-      "custom_tool_call",
-    ].includes(normalizedType(block.type)),
-  );
-}
+  for (const rawCall of Array.isArray(message.tool_calls)
+    ? message.tool_calls
+    : []) {
+    const call = asRecord(rawCall);
+    const callId = stringValue(call?.id) ?? stringValue(call?.call_id);
+    if (callId) refs.push({ callId, kind: "call" });
+  }
 
-function messageCallId(
-  message: Record<string, unknown>,
-): string | undefined {
-  return (
+  for (const block of contentBlocks(message)) {
+    const type = normalizedType(block.type);
+    if (callTypes.has(type)) {
+      const callId =
+        stringValue(block.id)
+        ?? stringValue(block.call_id)
+        ?? stringValue(block.tool_call_id);
+      if (callId) refs.push({ callId, kind: "call" });
+      continue;
+    }
+    if (resultTypes.has(type)) {
+      const callId =
+        stringValue(block.tool_use_id)
+        ?? stringValue(block.call_id)
+        ?? stringValue(block.tool_call_id)
+        ?? stringValue(block.id);
+      if (callId) refs.push({ callId, kind: "result" });
+    }
+  }
+
+  const directResultId =
     stringValue(message.tool_call_id)
-    ?? stringValue(message.toolCallId)
-    ?? stringValue(firstToolCall(message)?.id)
-    ?? stringValue(firstToolCall(message)?.call_id)
-    ?? contentBlocks(message)
-      .map(
-        (block) =>
-          stringValue(block.tool_use_id)
-          ?? stringValue(block.call_id),
-      )
-      .find((id): id is string => id !== undefined)
-  );
+    ?? stringValue(message.toolCallId);
+  const role = normalizedType(message.role);
+  if (
+    directResultId
+    && (
+      role === "tool"
+      || role === "toolresult"
+      || role === "tool_result"
+      || resultTypes.has(topLevelType)
+    )
+  ) {
+    refs.push({ callId: directResultId, kind: "result" });
+  }
+
+  return refs;
 }
 
 function messageTaskIds(
@@ -213,24 +252,51 @@ function explicitMessageId(
   );
 }
 
+function messageFingerprint(message: Record<string, unknown>): string {
+  return hash({
+    role: message.role,
+    type: message.type,
+    content: message.content,
+    name: message.name,
+    toolName: message.toolName ?? message.tool_name,
+    toolCallId: message.toolCallId ?? message.tool_call_id,
+    toolCalls: message.tool_calls,
+    arguments: message.arguments,
+    input: message.input,
+    output: message.output,
+    stopReason: message.stopReason ?? message.stop_reason,
+  });
+}
+
 function buildItems(
   request: OpenClawReferenceBackendRequest,
 ): ContextItemRef[] {
-  const occurrences = new Map<string, number>();
+  const fingerprintOccurrences = new Map<string, number>();
+  const stableIdOccurrences = new Map<string, number>();
 
   return request.state.messages.map((rawMessage) => {
     const message = asRecord(rawMessage) ?? {};
-    const fingerprint = hash(message);
+    const fingerprint = messageFingerprint(message);
     const kind = messageKind(message, request);
-    const occurrence = occurrences.get(fingerprint) ?? 0;
+    const occurrence = fingerprintOccurrences.get(fingerprint) ?? 0;
 
-    occurrences.set(fingerprint, occurrence + 1);
+    fingerprintOccurrences.set(fingerprint, occurrence + 1);
 
-    const stableId =
+    const stableIdBase =
       explicitMessageId(message)
       ?? `openclaw:${fingerprint.slice(0, 24)}:${occurrence}`;
+    const stableIdOccurrence = stableIdOccurrences.get(stableIdBase) ?? 0;
+    const stableId = stableIdOccurrence === 0
+      ? stableIdBase
+      : `${stableIdBase}:${stableIdOccurrence}`;
+    stableIdOccurrences.set(stableIdBase, stableIdOccurrence + 1);
     const role = stringValue(message.role);
-    const callId = messageCallId(message);
+    const callIds = [
+      ...new Set(
+        messageProtocolRefs(message).map((ref) => ref.callId),
+      ),
+    ];
+    const callId = callIds.length === 1 ? callIds[0] : undefined;
     const taskIds = messageTaskIds(message, request);
 
     return {
@@ -275,15 +341,121 @@ function snapshotFor(
     revision: revisionFor(request.state),
     items: buildItems(request),
     adapterMetadata: {
-      canonicalState: request.state,
+      canonicalState: structuredClone(request.state),
     },
   };
+}
+
+function normalizedUniqueStrings(values: string[] | undefined): string[] {
+  return [
+    ...new Set(
+      (values ?? [])
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function setsEqual(left: Set<string>, right: Set<string>): boolean {
+  return left.size === right.size
+    && [...left].every((value) => right.has(value));
+}
+
+function operationTaskId(
+  operation: ContextMutationOperation,
+): string | undefined {
+  const taskIds = normalizedUniqueStrings(operation.taskIds);
+  return taskIds.length === 1 ? taskIds[0] : undefined;
+}
+
+function protocolItemsByCallId(
+  snapshot: ModelContextSnapshot<OpenClawReferenceBackendMetadata>,
+): Map<string, { callItemIds: string[]; resultItemIds: string[] }> {
+  const protocol = new Map<
+    string,
+    { callItemIds: string[]; resultItemIds: string[] }
+  >();
+  const messages = snapshot.adapterMetadata?.canonicalState.messages ?? [];
+
+  messages.forEach((rawMessage, index) => {
+    const itemId = snapshot.items[index]?.stableId;
+    const message = asRecord(rawMessage);
+    if (!itemId || !message) return;
+
+    for (const ref of messageProtocolRefs(message)) {
+      const bucket = protocol.get(ref.callId) ?? {
+        callItemIds: [],
+        resultItemIds: [],
+      };
+      if (ref.kind === "call") {
+        bucket.callItemIds.push(itemId);
+      } else {
+        bucket.resultItemIds.push(itemId);
+      }
+      protocol.set(ref.callId, bucket);
+    }
+  });
+
+  return protocol;
+}
+
+function rewriteStayedWithinOperation(params: {
+  beforeSnapshot: ModelContextSnapshot<OpenClawReferenceBackendMetadata>;
+  afterRequest: OpenClawReferenceBackendRequest;
+  operation: ContextMutationOperation;
+  taskId: string;
+  replacementMode: "pointer_stub" | "drop";
+}): boolean {
+  const targetIds = new Set(params.operation.targetItemIds);
+  const protectedMessageCounts = new Map<string, number>();
+  const beforeMessages =
+    params.beforeSnapshot.adapterMetadata?.canonicalState.messages ?? [];
+
+  beforeMessages.forEach((message, index) => {
+    const itemId = params.beforeSnapshot.items[index]?.stableId;
+    if (!itemId || targetIds.has(itemId)) return;
+    const fingerprint = hash(message);
+    protectedMessageCounts.set(
+      fingerprint,
+      (protectedMessageCounts.get(fingerprint) ?? 0) + 1,
+    );
+  });
+
+  const unmatchedMessages: Record<string, unknown>[] = [];
+  for (const rawMessage of params.afterRequest.state.messages) {
+    const message = asRecord(rawMessage);
+    if (!message) return false;
+    const fingerprint = hash(message);
+    const remaining = protectedMessageCounts.get(fingerprint) ?? 0;
+    if (remaining > 0) {
+      protectedMessageCounts.set(fingerprint, remaining - 1);
+      continue;
+    }
+    unmatchedMessages.push(message);
+  }
+
+  if (
+    [...protectedMessageCounts.values()].some((remaining) => remaining > 0)
+  ) {
+    return false;
+  }
+
+  if (params.replacementMode === "drop") {
+    return unmatchedMessages.length === 0;
+  }
+
+  return unmatchedMessages.length === 1
+    && isPointerStub(unmatchedMessages[0]!)
+    && messageTaskIds(unmatchedMessages[0]!, params.afterRequest)
+      ?.includes(params.taskId) === true;
 }
 
 function unchangedResult(params: {
   snapshot: ModelContextSnapshot<OpenClawReferenceBackendMetadata>;
   plan: ContextMutationPlan;
   validation: ContextRewriteValidation;
+  fallbackUsed?: boolean;
 }): ContextRewriteResult<OpenClawReferenceBackendDetails> {
   return {
     schemaVersion: MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
@@ -297,7 +469,7 @@ function unchangedResult(params: {
     deferredOperationIds: params.validation.deferredOperationIds,
     removedItemIds: [],
     savedChars: 0,
-    fallbackUsed: false,
+    fallbackUsed: params.fallbackUsed === true,
   };
 }
 
@@ -320,33 +492,6 @@ export function createOpenClawReferenceBackend(
       const reasons: string[] = [];
       const deferredOperationIds: string[] = [];
       const applicableOperationIds: string[] = [];
-
-      const snapshotItemIds = new Set(
-        snapshot.items.map((item) => item.stableId),
-      );
-      const allTargetIds = new Set(
-        plan.operations.flatMap(
-          (operation) => operation.targetItemIds,
-        ),
-      );
-      const callIdsByTarget = new Map(
-        snapshot.items
-          .filter((item) => item.callId)
-          .map(
-            (item) =>
-              [item.stableId, item.callId!] as const,
-          ),
-      );
-      const itemIdsByCallId = new Map<string, string[]>();
-
-      for (const item of snapshot.items) {
-        if (!item.callId) continue;
-
-        itemIdsByCallId.set(item.callId, [
-          ...(itemIdsByCallId.get(item.callId) ?? []),
-          item.stableId,
-        ]);
-      }
 
       if (
         plan.schemaVersion
@@ -376,10 +521,60 @@ export function createOpenClawReferenceBackend(
         );
       }
 
+      const canonicalState =
+        snapshot.adapterMetadata?.canonicalState;
+      if (
+        !canonicalState
+        || canonicalState.sessionId !== snapshot.sessionId
+        || canonicalState.messages.length !== snapshot.items.length
+      ) {
+        fatalReasons.push(
+          "snapshot canonical metadata is missing or inconsistent",
+        );
+      }
+
+      const snapshotItemIds = new Set(
+        snapshot.items.map((item) => item.stableId),
+      );
+      if (snapshotItemIds.size !== snapshot.items.length) {
+        fatalReasons.push("snapshot item ids must be unique");
+      }
+
+      if (fatalReasons.length > 0) {
+        return {
+          valid: false,
+          applicableOperationIds: [],
+          deferredOperationIds: plan.operations.map(
+            (operation) => operation.id,
+          ),
+          reasons: fatalReasons,
+        };
+      }
+
+      const protocolByCallId = protocolItemsByCallId(snapshot);
+      const protocolRefsByItemId = new Map<string, ProtocolRef[]>();
+      canonicalState!.messages.forEach((rawMessage, index) => {
+        const itemId = snapshot.items[index]?.stableId;
+        const message = asRecord(rawMessage);
+        if (itemId && message) {
+          protocolRefsByItemId.set(
+            itemId,
+            messageProtocolRefs(message),
+          );
+        }
+      });
+
       const seenOperationIds = new Set<string>();
+      const claimedItemIds = new Set<string>();
+      const claimedTaskIds = new Set<string>();
 
       for (const operation of plan.operations) {
         let deferredReason: string | undefined;
+        const targetIds = normalizedUniqueStrings(
+          operation.targetItemIds,
+        );
+        const targetSet = new Set(targetIds);
+        const taskId = operationTaskId(operation);
 
         if (
           !operation.id
@@ -389,35 +584,93 @@ export function createOpenClawReferenceBackend(
             `duplicate or empty operation id: ${
               operation.id || "<empty>"
             }`;
-        } else if (operation.targetItemIds.length === 0) {
-          deferredReason =
-            `operation ${operation.id} has no targets`;
         } else if (
-          operation.targetItemIds.some(
+          targetIds.length === 0
+          || targetIds.length !== operation.targetItemIds.length
+        ) {
+          deferredReason =
+            `operation ${operation.id} has empty or duplicate targets`;
+        } else if (
+          targetIds.some(
             (id) => !snapshotItemIds.has(id),
           )
         ) {
           deferredReason =
             `operation ${operation.id} targets missing items`;
+        } else if (!taskId) {
+          deferredReason =
+            `operation ${operation.id} must target exactly one task`;
+        } else if (
+          Array.isArray(operation.replacementItems)
+          && operation.replacementItems.length > 0
+        ) {
+          deferredReason =
+            `operation ${operation.id} has unsupported native replacements`;
+        } else if (
+          claimedTaskIds.has(taskId)
+          || targetIds.some((id) => claimedItemIds.has(id))
+        ) {
+          deferredReason =
+            `operation ${operation.id} overlaps an earlier operation`;
         } else {
-          const affectedCallIds = new Set(
-            operation.targetItemIds
-              .map((id) => callIdsByTarget.get(id))
-              .filter(
-                (id): id is string => id !== undefined,
-              ),
+          const taskItems = snapshot.items.filter(
+            (item) => item.taskIds?.includes(taskId),
           );
-
-          const breaksToolClosure =
-            [...affectedCallIds].some((callId) =>
-              (itemIdsByCallId.get(callId) ?? []).some(
-                (id) => !allTargetIds.has(id),
-              ),
-            );
-
-          if (breaksToolClosure) {
+          const expectedTargetIds = new Set(
+            taskItems.map((item) => item.stableId),
+          );
+          if (
+            expectedTargetIds.size === 0
+            || !setsEqual(targetSet, expectedTargetIds)
+          ) {
             deferredReason =
-              `operation ${operation.id} would break tool closure`;
+              `operation ${operation.id} must target the complete task bundle`;
+          } else if (
+            taskItems.some(
+              (item) => normalizedUniqueStrings(item.taskIds).some(
+                (itemTaskId) => itemTaskId !== taskId,
+              ),
+            )
+          ) {
+            deferredReason =
+              `operation ${operation.id} targets messages shared by multiple tasks`;
+          } else {
+            const affectedCallIds = new Set<string>();
+            let malformedToolItem = false;
+            for (const itemId of targetIds) {
+              const item = snapshot.items.find(
+                (candidate) => candidate.stableId === itemId,
+              );
+              const refs = protocolRefsByItemId.get(itemId) ?? [];
+              if (
+                (item?.kind === "tool_call" || item?.kind === "tool_result")
+                && refs.length === 0
+              ) {
+                malformedToolItem = true;
+              }
+              for (const ref of refs) affectedCallIds.add(ref.callId);
+            }
+
+            const breaksToolClosure = malformedToolItem
+              || [...affectedCallIds].some((callId) => {
+                const protocol = protocolByCallId.get(callId);
+                if (
+                  !protocol
+                  || protocol.callItemIds.length !== 1
+                  || protocol.resultItemIds.length !== 1
+                ) {
+                  return true;
+                }
+                return [
+                  ...protocol.callItemIds,
+                  ...protocol.resultItemIds,
+                ].some((itemId) => !targetSet.has(itemId));
+              });
+
+            if (breaksToolClosure) {
+              deferredReason =
+                `operation ${operation.id} would break tool closure`;
+            }
           }
         }
 
@@ -428,20 +681,11 @@ export function createOpenClawReferenceBackend(
           reasons.push(deferredReason);
         } else {
           applicableOperationIds.push(operation.id);
+          claimedTaskIds.add(taskId!);
+          for (const targetId of targetIds) {
+            claimedItemIds.add(targetId);
+          }
         }
-      }
-
-      reasons.unshift(...fatalReasons);
-
-      if (fatalReasons.length > 0) {
-        return {
-          valid: false,
-          applicableOperationIds: [],
-          deferredOperationIds: plan.operations.map(
-            (operation) => operation.id,
-          ),
-          reasons,
-        };
       }
 
       return {
@@ -472,17 +716,157 @@ export function createOpenClawReferenceBackend(
         };
       }
 
+      let currentSnapshot: ModelContextSnapshot<OpenClawReferenceBackendMetadata>;
+      try {
+        currentSnapshot = snapshotFor(request.sessionId, request);
+      } catch {
+        return {
+          request,
+          result: unchangedResult({
+            snapshot,
+            plan,
+            validation: {
+              valid: false,
+              applicableOperationIds: [],
+              deferredOperationIds: plan.operations.map(
+                (operation) => operation.id,
+              ),
+              reasons: ["request session does not match snapshot"],
+            },
+          }),
+        };
+      }
+
+      if (currentSnapshot.revision !== snapshot.revision) {
+        return {
+          request,
+          result: unchangedResult({
+            snapshot,
+            plan,
+            validation: {
+              valid: false,
+              applicableOperationIds: [],
+              deferredOperationIds: plan.operations.map(
+                (operation) => operation.id,
+              ),
+              reasons: ["request revision does not match snapshot"],
+            },
+          }),
+        };
+      }
+
       const beforeChars = estimateMessagesChars(
         request.state.messages,
         request.helpers.contentToText,
       );
-
-      const rewritten = await rewrite(request);
-
-      const nextRequest: OpenClawReferenceBackendRequest = {
+      let nextRequest: OpenClawReferenceBackendRequest = {
         ...request,
-        state: rewritten.state,
+        state: structuredClone(request.state),
       };
+      const applicableSet = new Set(
+        validation.applicableOperationIds,
+      );
+      const appliedOperationIds: string[] = [];
+      const appliedTaskIds: string[] = [];
+      const deferredOperationIds = [
+        ...validation.deferredOperationIds,
+      ];
+      const appliedReplacementModes = new Set<"pointer_stub" | "drop">();
+
+      try {
+        for (const operation of plan.operations) {
+          if (!applicableSet.has(operation.id)) continue;
+
+          const taskId = operationTaskId(operation)!;
+          const replacementMode = operation.type === "remove"
+            ? "drop"
+            : "pointer_stub";
+          const operationSnapshot = snapshotFor(
+            request.sessionId,
+            nextRequest,
+          );
+          const rewritten = await rewrite({
+            ...nextRequest,
+            evictionEnabled: true,
+            evictionTaskIds: [taskId],
+            annotateTaskAnchors: false,
+            evictionReplacementMode: replacementMode,
+          });
+          const returnedTaskIds = normalizedUniqueStrings(
+            rewritten.appliedEvictionTaskIds,
+          );
+          const appliedExpectedTask =
+            returnedTaskIds.length === 1
+            && returnedTaskIds[0] === taskId;
+          const rewrittenRequest = {
+            ...nextRequest,
+            state: rewritten.state,
+          };
+
+          if (
+            rewritten.changed !== appliedExpectedTask
+            || (
+              appliedExpectedTask
+              && !rewriteStayedWithinOperation({
+                beforeSnapshot: operationSnapshot,
+                afterRequest: rewrittenRequest,
+                operation,
+                taskId,
+                replacementMode,
+              })
+            )
+          ) {
+            return {
+              request,
+              result: unchangedResult({
+                snapshot,
+                plan,
+                validation: {
+                  valid: false,
+                  applicableOperationIds: [],
+                  deferredOperationIds: plan.operations.map(
+                    (candidate) => candidate.id,
+                  ),
+                  reasons: [
+                    `canonical rewrite returned inconsistent evidence for ${operation.id}`,
+                  ],
+                },
+                fallbackUsed: true,
+              }),
+            };
+          }
+
+          if (!appliedExpectedTask) {
+            deferredOperationIds.push(operation.id);
+            continue;
+          }
+
+          nextRequest = {
+            ...rewrittenRequest,
+          };
+          appliedOperationIds.push(operation.id);
+          appliedTaskIds.push(taskId);
+          appliedReplacementModes.add(replacementMode);
+        }
+      } catch {
+        return {
+          request,
+          result: unchangedResult({
+            snapshot,
+            plan,
+            validation: {
+              valid: false,
+              applicableOperationIds: [],
+              deferredOperationIds: plan.operations.map(
+                (operation) => operation.id,
+              ),
+              reasons: ["canonical rewrite failed"],
+            },
+            fallbackUsed: true,
+          }),
+        };
+      }
+
       const nextSnapshot = snapshotFor(
         request.sessionId,
         nextRequest,
@@ -490,54 +874,19 @@ export function createOpenClawReferenceBackend(
       const nextItemIds = new Set(
         nextSnapshot.items.map((item) => item.stableId),
       );
-      const nextItemsById = new Map(
-        nextSnapshot.items.map(
-          (item) => [item.stableId, item],
-        ),
-      );
-      const previousItemsById = new Map(
-        snapshot.items.map(
-          (item) => [item.stableId, item],
-        ),
-      );
       const removedItemIds = snapshot.items
         .map((item) => item.stableId)
         .filter((id) => !nextItemIds.has(id));
-      const removedSet = new Set(removedItemIds);
-      const applicableSet = new Set(
-        validation.applicableOperationIds,
-      );
-
-      const appliedOperationIds = plan.operations
-        .filter((operation) => {
-          if (!applicableSet.has(operation.id)) {
-            return false;
-          }
-
-          return operation.targetItemIds.every((id) => {
-            if (removedSet.has(id)) return true;
-            if (operation.type !== "replace") return false;
-
-            return (
-              nextItemsById.get(id)?.fingerprint
-              !== previousItemsById.get(id)?.fingerprint
-            );
-          });
-        })
-        .map((operation) => operation.id);
-
-      const appliedSet = new Set(appliedOperationIds);
-      const deferredOperationIds = [
-        ...validation.deferredOperationIds,
-        ...validation.applicableOperationIds.filter(
-          (id) => !appliedSet.has(id),
-        ),
-      ];
-
       const afterChars = estimateMessagesChars(
-        rewritten.state.messages,
+        nextRequest.state.messages,
         request.helpers.contentToText,
       );
+      const replacementMode = appliedReplacementModes.size > 1
+        ? "mixed"
+        : [...appliedReplacementModes][0]
+          ?? (request.evictionReplacementMode === "drop"
+            ? "drop"
+            : "pointer_stub");
 
       return {
         request: nextRequest,
@@ -547,7 +896,7 @@ export function createOpenClawReferenceBackend(
           mode: "canonical",
           planId: plan.planId,
           applied: appliedOperationIds.length > 0,
-          changed: rewritten.changed,
+          changed: appliedOperationIds.length > 0,
           previousRevision: snapshot.revision,
           nextRevision: nextSnapshot.revision,
           appliedOperationIds,
@@ -559,16 +908,12 @@ export function createOpenClawReferenceBackend(
           ),
           fallbackUsed: false,
           details: {
-            appliedTaskIds:
-              rewritten.appliedEvictionTaskIds,
+            appliedTaskIds,
             beforeMessageCount:
               request.state.messages.length,
             afterMessageCount:
-              rewritten.state.messages.length,
-            replacementMode:
-              request.evictionReplacementMode === "drop"
-                ? "drop"
-                : "pointer_stub",
+              nextRequest.state.messages.length,
+            replacementMode,
           },
         },
       };
