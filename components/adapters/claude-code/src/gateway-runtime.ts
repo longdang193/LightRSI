@@ -47,6 +47,10 @@ export type ClaudeCodeGatewayRuntime = {
   close(): Promise<void>;
 };
 
+type ClaudeCodeGatewayRuntimeDependencies = {
+  cloneRequestPayload?: typeof structuredClone;
+};
+
 function isSyntheticClaudeSessionId(sessionId: string): boolean {
   return sessionId.startsWith("claude-synth-");
 }
@@ -195,6 +199,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
   logger: TokenPilotClaudeCodeLogger;
   forwarder?: HostGatewayForwarder;
   streamObserver?: HostGatewayStreamObserver;
+  dependencies?: ClaudeCodeGatewayRuntimeDependencies;
 }): Promise<ClaudeCodeGatewayRuntime> {
   initializeClaudeCodeTokenPilotPreset();
   const { config, logger } = params;
@@ -311,7 +316,9 @@ export async function startClaudeCodeGatewayRuntime(params: {
       let evictionBypassReason: string | undefined;
       if (evictionEnabled) {
         try {
-          const candidatePayload = structuredClone(payload);
+          const candidatePayload = (
+            params.dependencies?.cloneRequestPayload ?? structuredClone
+          )(payload);
           evictionSummary = applyClaudeEviction({
             payload: candidatePayload,
             sessionId,

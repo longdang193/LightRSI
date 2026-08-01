@@ -4,22 +4,20 @@ import path from "node:path";
 import test from "node:test";
 
 import {
-  reserveUnusedPort,
-  type HostGatewayForwarder,
-} from "@lightmem2/host-adapter";
-
-import { normalizeTokenPilotClaudeCodeConfig } from "../../../claude-code/src/config.js";
-import { startClaudeCodeGatewayRuntime } from "../../../claude-code/src/gateway-runtime.js";
-import { createConsoleLogger } from "../../../claude-code/src/logger.js";
-import {
   createAcceptanceSentinels,
   createTemporaryAcceptanceEnvironment,
   inspectToolClosure,
   MockUpstreamRecorder,
+  reserveUnusedPort,
   runRestartAcceptanceScenario,
   type AcceptanceHostRuntime,
   type AcceptanceSentinels,
-} from "./acceptance-harness.js";
+  type HostGatewayForwarder,
+} from "@lightmem2/host-adapter";
+
+import { normalizeTokenPilotClaudeCodeConfig } from "../src/config.js";
+import { startClaudeCodeGatewayRuntime } from "../src/gateway-runtime.js";
+import { createConsoleLogger } from "../src/logger.js";
 
 const TEST_UUID = "123e4567-e89b-42d3-a456-426614174000";
 
@@ -82,11 +80,26 @@ function createClaudeAcceptancePayload(sentinels: AcceptanceSentinels): Record<s
   };
 }
 
-test("GUA-06 independently accepts Claude eviction across five requests and a restart", async () => {
+test("GUA-06 accepts Claude request eviction across five requests and a process restart", async () => {
   const sentinels = createAcceptanceSentinels(TEST_UUID);
   const summary = await runRestartAcceptanceScenario({
     sentinels,
     async startHost(context): Promise<AcceptanceHostRuntime> {
+      if (context.phase === "after_restart") {
+        const persistedTrace = fs.readFileSync(
+          path.join(context.stateDir, "event-trace.jsonl"),
+          "utf8",
+        )
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as Record<string, unknown>);
+        assert.equal(
+          persistedTrace.filter(
+            (entry) => entry.stage === "gateway_before_call",
+          ).length,
+          3,
+        );
+      }
       const runtime = await startClaudeCodeGatewayRuntime({
         config: normalizeTokenPilotClaudeCodeConfig({
           stateDir: context.stateDir,
@@ -129,6 +142,12 @@ test("GUA-06 independently accepts Claude eviction across five requests and a re
   assert.equal(summary.phases.every((phase) => phase.keepFound), true);
   assert.equal(summary.phases.every((phase) => !phase.evictFound), true);
   assert.equal(summary.phases.every((phase) => phase.toolClosure.complete), true);
+  assert.equal(
+    summary.phases.every(
+      (phase) => phase.unsafeSuccessfulRequestSequences.length === 0,
+    ),
+    true,
+  );
   assert.ok(summary.savedCharacters > 0);
 });
 
@@ -138,7 +157,6 @@ test("GUA-06 independently accepts Claude rewrite failure bypass", async () => {
   const sentinels = createAcceptanceSentinels(TEST_UUID);
   const payload = createClaudeAcceptancePayload(sentinels);
   let runtime: Awaited<ReturnType<typeof startClaudeCodeGatewayRuntime>> | undefined;
-  const originalStructuredClone = globalThis.structuredClone;
 
   try {
     await upstream.start();
@@ -151,11 +169,12 @@ test("GUA-06 independently accepts Claude rewrite failure bypass", async () => {
       }),
       logger: createConsoleLogger(false),
       forwarder: createClaudeForwarder(upstream.url),
+      dependencies: {
+        cloneRequestPayload() {
+          throw new Error("synthetic GUA-06 rewrite failure");
+        },
+      },
     });
-
-    globalThis.structuredClone = (() => {
-      throw new Error("synthetic GUA-06 rewrite failure");
-    }) as typeof structuredClone;
 
     const response = await fetch(`${runtime.baseUrl}/v1/messages`, {
       method: "POST",
@@ -186,7 +205,6 @@ test("GUA-06 independently accepts Claude rewrite failure bypass", async () => {
     assert.equal(beforeCall?.evictionApplied, false);
     assert.equal(beforeCall?.evictionBypassReason, "analysis_or_apply_error");
   } finally {
-    globalThis.structuredClone = originalStructuredClone;
     await runtime?.close();
     await upstream.close();
     environment.cleanup();
