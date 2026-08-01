@@ -43,6 +43,7 @@ export interface AcceptancePhaseResult {
   phase: AcceptancePhase;
   requestCount: number;
   failedRequestCount: number;
+  unsafeSuccessfulRequestSequences: number[];
   fallbackCount: number;
   fallbackSucceeded: boolean;
   keepFound: boolean;
@@ -409,11 +410,22 @@ export function inspectAcceptancePhase(
   const fallbackCount = countFallbacks(phaseRequests, originalRequest);
   const fallbackSucceeded = fallbackCount > 0;
   const failedRequestCount = phaseRequests.filter((request) => !isSuccessfulStatus(request.responseStatus)).length;
+  const successfulRequests = phaseRequests.filter((request) =>
+    isSuccessfulStatus(request.responseStatus),
+  );
+  const unsafeSuccessfulRequestSequences = successfulRequests
+    .filter((request) => {
+      const keepFound = requestContains(request.body, sentinels.keep);
+      const evictFound = requestContains(request.body, sentinels.evict);
+      return !keepFound || evictFound || !inspectToolClosure(request.body).complete;
+    })
+    .map((request) => request.sequence);
   if (!effective) {
     return {
       phase,
       requestCount: phaseRequests.length,
       failedRequestCount,
+      unsafeSuccessfulRequestSequences,
       fallbackCount,
       fallbackSucceeded,
       keepFound: false,
@@ -434,18 +446,29 @@ export function inspectAcceptancePhase(
   const keepFound = requestContains(effective.body, sentinels.keep);
   const evictFound = requestContains(effective.body, sentinels.evict);
   const toolClosure = inspectToolClosure(effective.body);
-  const savedCharacters = Math.max(0, serializedLength(originalRequest) - Buffer.byteLength(effective.rawBody));
+  const savedCharacters = successfulRequests.reduce(
+    (total, request) => total + Math.max(
+      0,
+      serializedLength(originalRequest) - Buffer.byteLength(request.rawBody),
+    ),
+    0,
+  );
   return {
     phase,
     requestCount: phaseRequests.length,
     failedRequestCount,
+    unsafeSuccessfulRequestSequences,
     fallbackCount,
     fallbackSucceeded,
     keepFound,
     evictFound,
     savedCharacters,
     toolClosure,
-    passed: keepFound && !evictFound && toolClosure.complete && !fallbackSucceeded,
+    passed: keepFound
+      && !evictFound
+      && toolClosure.complete
+      && unsafeSuccessfulRequestSequences.length === 0
+      && !fallbackSucceeded,
   };
 }
 

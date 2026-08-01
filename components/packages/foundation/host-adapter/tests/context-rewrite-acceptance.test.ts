@@ -13,7 +13,7 @@ import {
   type AcceptanceHostRuntime,
   type AcceptancePhase,
   type CapturedRequest,
-} from "./acceptance-harness.js";
+} from "../src/testing/context-rewrite-acceptance.js";
 
 const TEST_UUID = "11111111-2222-4333-8444-555555555555";
 
@@ -180,6 +180,27 @@ test("does not reuse an earlier success when the final upstream attempt fails", 
   assert.deepEqual(summary.phases[0].toolClosure.invalidItems, ["no_successful_upstream_request"]);
 });
 
+test("rejects a phase when an earlier successful request kept eviction content", () => {
+  const sentinels = createAcceptanceSentinels(TEST_UUID);
+  const original = { input: [sentinels.keep, sentinels.evict] };
+  const rewritten = { input: [sentinels.keep] };
+  const summary = runAcceptanceHarness({
+    sentinels,
+    requests: [
+      capturedRequest({ phase: "before_restart", sequence: 1, body: original }),
+      capturedRequest({ phase: "before_restart", sequence: 2, body: rewritten }),
+      capturedRequest({ phase: "after_restart", sequence: 3, body: rewritten }),
+    ],
+    originalRequests: { before_restart: original, after_restart: original },
+  });
+
+  assert.equal(summary.passed, false);
+  assert.deepEqual(
+    summary.phases[0].unsafeSuccessfulRequestSequences,
+    [1],
+  );
+});
+
 test("does not count a non-original recovery retry as fallback", () => {
   const sentinels = createAcceptanceSentinels(TEST_UUID);
   const original = { input: [sentinels.keep, sentinels.evict] };
@@ -272,8 +293,18 @@ test("uses isolated config paths and does not inherit secrets", () => {
     assert.equal(environment.env.LIGHTMEM2_ACCEPTANCE_TEST_SECRET, undefined);
     assert.equal(environment.env.HOME, environment.homeDir);
     assert.equal(environment.env.OPENCLAW_STATE_DIR, environment.openClawStateDir);
-    assert.match(environment.env.CODEX_CONFIG_PATH ?? "", new RegExp(`^${environment.rootDir}`));
-    assert.match(environment.env.CLAUDE_CODE_SETTINGS_PATH ?? "", new RegExp(`^${environment.rootDir}`));
+    assert.equal(
+      (environment.env.CODEX_CONFIG_PATH ?? "").startsWith(
+        `${environment.rootDir}${path.sep}`,
+      ),
+      true,
+    );
+    assert.equal(
+      (environment.env.CLAUDE_CODE_SETTINGS_PATH ?? "").startsWith(
+        `${environment.rootDir}${path.sep}`,
+      ),
+      true,
+    );
     assert.equal(fs.existsSync(environment.stateDir), true);
     assert.equal(fs.existsSync(environment.codexHomeDir), true);
     assert.equal(fs.existsSync(environment.claudeHomeDir), true);

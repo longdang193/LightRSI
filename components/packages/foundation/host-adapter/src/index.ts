@@ -32,3 +32,4 @@ export * from "./state/cache-usage.js";
 export * from "./state/token-counter.js";
 export * from "./state/ux-store.js";
 export * from "./testing/host-e2e.js";
+export * from "./testing/context-rewrite-acceptance.js";
