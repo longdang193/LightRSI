@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import {
+  acquireCodexRebaseSessionLock,
   appendPendingCodexRebaseEpoch,
   CODEX_REBASE_EPOCH_SCHEMA,
   codexRebaseEpochJournalPath,
+  codexRebaseSessionLockPath,
   commitCodexRebaseEpoch,
   executeCodexRebaseWithFallback,
   failCodexRebaseEpoch,
@@ -67,6 +69,41 @@ test("CDR-03 Rebase Epoch writes pending records and commits only with a respons
     assert.equal(journal.entries.length, 2);
     assert.equal(journal.epochs.length, 1);
     assert.equal(journal.epochs[0]?.status, "committed");
+  });
+});
+
+test("CDR-01 Rebase Epoch session lock excludes concurrent owners and releases cleanly", async () => {
+  await withTempState(async (stateDir) => {
+    const first = await acquireCodexRebaseSessionLock({ stateDir, sessionId: "codex-session-lock" });
+    assert.ok(first);
+    assert.equal(
+      await acquireCodexRebaseSessionLock({ stateDir, sessionId: "codex-session-lock" }),
+      undefined,
+    );
+
+    await first.release();
+    const next = await acquireCodexRebaseSessionLock({ stateDir, sessionId: "codex-session-lock" });
+    assert.ok(next);
+    await next.release();
+  });
+});
+
+test("CDR-01 Rebase Epoch session lock recovers malformed stale lock directories", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-stale-lock";
+    const lockPath = codexRebaseSessionLockPath(stateDir, sessionId);
+    await mkdir(lockPath, { recursive: true });
+    await writeFile(join(lockPath, "owner.json"), "{malformed", "utf8");
+    const old = new Date(Date.now() - 10_000);
+    await utimes(lockPath, old, old);
+
+    const recovered = await acquireCodexRebaseSessionLock({
+      stateDir,
+      sessionId,
+      staleAfterMs: 1_000,
+    });
+    assert.ok(recovered);
+    await recovered.release();
   });
 });
 

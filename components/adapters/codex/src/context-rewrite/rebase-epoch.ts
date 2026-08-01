@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { hostname } from "node:os";
+import { dirname, join } from "node:path";
 import { appendJsonl } from "@lightmem2/host-adapter";
 import {
   CODEX_REBASE_EPOCH_SCHEMA,
@@ -16,12 +17,30 @@ export type CodexRebaseEpochJournalReadResult = {
   readError?: string;
 };
 
+export type CodexRebaseSessionLock = {
+  lockPath: string;
+  release(): Promise<void>;
+};
+
+type CodexRebaseLockOwner = {
+  token: string;
+  pid: number;
+  hostname: string;
+  createdAt: string;
+};
+
+const DEFAULT_REBASE_LOCK_STALE_MS = 30 * 60 * 1000;
+
 function encodedSessionId(sessionId: string): string {
   return encodeURIComponent(sessionId.trim() || "unknown-session");
 }
 
 export function codexRebaseEpochJournalPath(stateDir: string, sessionId: string): string {
   return join(stateDir, "context-rewrite", "codex", "sessions", encodedSessionId(sessionId), "rebase-epochs.jsonl");
+}
+
+export function codexRebaseSessionLockPath(stateDir: string, sessionId: string): string {
+  return join(stateDir, "context-rewrite", "codex", "sessions", encodedSessionId(sessionId), "rebase.lock");
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -42,6 +61,104 @@ function timestampMs(value: unknown): number | undefined {
   if (typeof value !== "string") return undefined;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (pid === process.pid) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return errorCode(error) === "EPERM";
+  }
+}
+
+function asLockOwner(value: unknown): CodexRebaseLockOwner | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const owner = value as Record<string, unknown>;
+  return typeof owner.token === "string" && owner.token.length > 0
+    && typeof owner.pid === "number" && Number.isInteger(owner.pid) && owner.pid > 0
+    && typeof owner.hostname === "string" && owner.hostname.length > 0
+    && timestampMs(owner.createdAt) !== undefined
+    ? owner as CodexRebaseLockOwner
+    : undefined;
+}
+
+async function readLockOwner(lockPath: string): Promise<CodexRebaseLockOwner | undefined> {
+  try {
+    return asLockOwner(JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")) as unknown);
+  } catch {
+    return undefined;
+  }
+}
+
+async function lockIsStale(params: {
+  lockPath: string;
+  staleAfterMs: number;
+  nowMs: number;
+}): Promise<boolean> {
+  const owner = await readLockOwner(params.lockPath);
+  if (owner) {
+    if (owner.hostname === hostname()) return !isProcessAlive(owner.pid);
+    return params.nowMs - (timestampMs(owner.createdAt) ?? params.nowMs) > params.staleAfterMs;
+  }
+  try {
+    const lockStat = await stat(params.lockPath);
+    return params.nowMs - lockStat.mtimeMs > params.staleAfterMs;
+  } catch {
+    return true;
+  }
+}
+
+export async function acquireCodexRebaseSessionLock(params: {
+  stateDir: string;
+  sessionId: string;
+  staleAfterMs?: number;
+  nowMs?: number;
+}): Promise<CodexRebaseSessionLock | undefined> {
+  const lockPath = codexRebaseSessionLockPath(params.stateDir, params.sessionId);
+  const staleAfterMs = Math.max(1_000, params.staleAfterMs ?? DEFAULT_REBASE_LOCK_STALE_MS);
+  const nowMs = params.nowMs ?? Date.now();
+  await mkdir(dirname(lockPath), { recursive: true });
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await mkdir(lockPath);
+    } catch (error) {
+      if (errorCode(error) !== "EEXIST") throw error;
+      if (!await lockIsStale({ lockPath, staleAfterMs, nowMs })) return undefined;
+      await rm(lockPath, { recursive: true, force: true });
+      continue;
+    }
+
+    const owner: CodexRebaseLockOwner = {
+      token: randomUUID(),
+      pid: process.pid,
+      hostname: hostname(),
+      createdAt: new Date(nowMs).toISOString(),
+    };
+    try {
+      await writeFile(join(lockPath, "owner.json"), JSON.stringify(owner), { encoding: "utf8", flag: "wx" });
+    } catch (error) {
+      await rm(lockPath, { recursive: true, force: true });
+      throw error;
+    }
+    return {
+      lockPath,
+      async release() {
+        try {
+          const current = await readLockOwner(lockPath);
+          if (current?.token === owner.token) {
+            await rm(lockPath, { recursive: true, force: true });
+          }
+        } catch {
+          // A stale lock is safer than deleting a lock that may have changed ownership.
+        }
+      },
+    };
+  }
+  return undefined;
 }
 
 function isCodexRebaseAccounting(value: unknown): value is CodexRebaseAccounting {

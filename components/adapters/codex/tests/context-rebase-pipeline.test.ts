@@ -14,6 +14,7 @@ import {
 import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
 import {
+  acquireCodexRebaseSessionLock,
   appendPendingCodexRebaseEpoch,
   readLatestCodexRebaseEpoch,
 } from "../src/context-rewrite/index.js";
@@ -267,6 +268,72 @@ test("CDR-03 proxy startup recovers a pending epoch before serving its session",
     assert.equal(recovered?.status, "failed");
     assert.equal(recovered?.failureReason, "process_restarted");
   } finally {
+    await runtime?.close();
+    await upstream.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("CDR-03 proxy restart recovery defers while another process owns the session lock", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-live-lock-"));
+  const upstream = await startSequencedResponsesUpstream();
+  let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  let sessionLock: Awaited<ReturnType<typeof acquireCodexRebaseSessionLock>> = undefined;
+  try {
+    const sessionId = "codex-session-live-lock";
+    await appendPendingCodexRebaseEpoch({
+      stateDir,
+      sessionId,
+      epochId: "epoch-live",
+      planId: "plan-live",
+      oldPreviousResponseId: "resp-old",
+      oldRevision: "rev-old",
+    });
+    sessionLock = await acquireCodexRebaseSessionLock({ stateDir, sessionId });
+    assert.ok(sessionLock);
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir,
+      proxyPort: await reserveFetchPort(),
+      upstreamProvider: "OpenAI",
+      upstream: {
+        baseUrl: upstream.baseUrl,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      modules: { stabilizer: false, reduction: false },
+      contextRewrite: { enabled: false },
+    } as any);
+    runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false) });
+    const requestBody = JSON.stringify({
+      model: "gpt-5.4-mini",
+      stream: false,
+      metadata: { tokenpilotSessionId: sessionId },
+      input: [{ role: "user", content: "resume safely" }],
+    });
+
+    const firstResponse = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: requestBody,
+    });
+    assert.equal(firstResponse.status, 200);
+    await firstResponse.text();
+    assert.equal((await readLatestCodexRebaseEpoch({ stateDir, sessionId }))?.status, "pending");
+
+    await sessionLock.release();
+    sessionLock = undefined;
+    const secondResponse = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: requestBody,
+    });
+    assert.equal(secondResponse.status, 200);
+    await secondResponse.text();
+    const recovered = await readLatestCodexRebaseEpoch({ stateDir, sessionId });
+    assert.equal(recovered?.status, "failed");
+    assert.equal(recovered?.failureReason, "process_restarted");
+  } finally {
+    await sessionLock?.release();
     await runtime?.close();
     await upstream.close();
     await rm(stateDir, { recursive: true, force: true });

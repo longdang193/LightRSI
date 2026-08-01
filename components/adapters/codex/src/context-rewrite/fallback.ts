@@ -14,11 +14,13 @@ import type {
   JsonObject,
 } from "./types.js";
 import {
+  acquireCodexRebaseSessionLock,
   appendPendingCodexRebaseEpoch,
   commitCodexRebaseEpoch,
   failCodexRebaseEpoch,
   readPendingCodexRebaseEpochs,
   rollbackCodexRebaseEpoch,
+  type CodexRebaseSessionLock,
 } from "./rebase-epoch.js";
 import {
   appendCodexRebaseCooldown,
@@ -316,16 +318,22 @@ export async function executeCodexRebaseWithFallback(params: {
     return sendOriginalBypass();
   }
   if (rebaseSessionKey) activeRebaseSessions.add(rebaseSessionKey);
+  let sessionLock: CodexRebaseSessionLock | undefined;
 
   try {
     if (params.epochStore) {
       try {
+        sessionLock = await acquireCodexRebaseSessionLock({
+          stateDir: params.epochStore.stateDir,
+          sessionId: params.sessionId,
+        });
+        if (!sessionLock) return await sendOriginalBypass();
         const activeEpoch = (await readPendingCodexRebaseEpochs({
           stateDir: params.epochStore.stateDir,
           sessionId: params.sessionId,
         })).find((entry) => entry.epochId !== params.epochId);
         if (activeEpoch) {
-          return sendOriginalBypass();
+          return await sendOriginalBypass();
         }
 
         epoch = await appendPendingCodexRebaseEpoch({
@@ -338,7 +346,7 @@ export async function executeCodexRebaseWithFallback(params: {
           accounting: params.accounting,
         });
       } catch {
-        return sendOriginalWithFallbackOutcome("epoch_store_error");
+        return await sendOriginalWithFallbackOutcome("epoch_store_error");
       }
     }
 
@@ -351,7 +359,7 @@ export async function executeCodexRebaseWithFallback(params: {
           try {
             await params.beforeCommit({ response: rebaseResponse, newResponseId });
           } catch {
-            return sendOriginalWithFallbackOutcome("rebase_journal_error");
+            return await sendOriginalWithFallbackOutcome("rebase_journal_error");
           }
         }
         if (params.epochStore) {
@@ -365,7 +373,7 @@ export async function executeCodexRebaseWithFallback(params: {
               accounting: params.accounting,
             });
           } catch {
-            return sendOriginalWithFallbackOutcome("epoch_store_error");
+            return await sendOriginalWithFallbackOutcome("epoch_store_error");
           }
         }
         if (params.capabilityStore && rebaseItemTypes.length > 0) {
@@ -422,8 +430,9 @@ export async function executeCodexRebaseWithFallback(params: {
       failureReason = "rebase_upstream_error";
     }
 
-    return sendOriginalWithFallbackOutcome(failureReason);
+    return await sendOriginalWithFallbackOutcome(failureReason);
   } finally {
+    await sessionLock?.release();
     if (rebaseSessionKey) activeRebaseSessions.delete(rebaseSessionKey);
   }
 }

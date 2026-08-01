@@ -23,8 +23,10 @@ export {
   readCodexRebaseCooldownJournal,
 } from "./rebase-cooldown.js";
 export {
+  acquireCodexRebaseSessionLock,
   appendPendingCodexRebaseEpoch,
   codexRebaseEpochJournalPath,
+  codexRebaseSessionLockPath,
   commitCodexRebaseEpoch,
   failCodexRebaseEpoch,
   failPendingCodexRebaseEpochsAfterRestart,

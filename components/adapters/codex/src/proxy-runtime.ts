@@ -68,6 +68,7 @@ import type {
   JsonObject,
 } from "./context-history/types.js";
 import {
+  acquireCodexRebaseSessionLock,
   buildCodexRebaseRequest,
   executeCodexRebaseWithFallback,
   failPendingCodexRebaseEpochsAfterRestart,
@@ -243,18 +244,36 @@ export async function startCodexResponsesProxy(params: {
   async function recoverSessionEpochsAfterRestart(sessionId: string): Promise<void> {
     let recovery = epochRecoveryBySession.get(sessionId);
     if (!recovery) {
-      recovery = failPendingCodexRebaseEpochsAfterRestart({
-        stateDir: config.stateDir,
-        sessionId,
-      }).then(async (failed) => {
-        if (failed.length > 0) {
+      recovery = (async () => {
+        const sessionLock = await acquireCodexRebaseSessionLock({
+          stateDir: config.stateDir,
+          sessionId,
+        });
+        if (!sessionLock) {
+          epochRecoveryBySession.delete(sessionId);
           await appendTrace(config.stateDir, {
-            stage: "context_rewrite_pending_epochs_recovered",
+            stage: "context_rewrite_pending_epoch_recovery_deferred",
             sessionId,
-            failedEpochIds: failed.map((entry) => entry.epochId),
+            reason: "session_lock_busy",
           });
+          return;
         }
-      }).catch(async (err) => {
+        try {
+          const failed = await failPendingCodexRebaseEpochsAfterRestart({
+            stateDir: config.stateDir,
+            sessionId,
+          });
+          if (failed.length > 0) {
+            await appendTrace(config.stateDir, {
+              stage: "context_rewrite_pending_epochs_recovered",
+              sessionId,
+              failedEpochIds: failed.map((entry) => entry.epochId),
+            });
+          }
+        } finally {
+          await sessionLock.release();
+        }
+      })().catch(async (err) => {
         epochRecoveryBySession.delete(sessionId);
         try {
           await appendTrace(config.stateDir, {
