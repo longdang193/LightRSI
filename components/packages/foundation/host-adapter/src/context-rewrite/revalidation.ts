@@ -1,7 +1,9 @@
-import type {
-  ContextMutationPlan,
-  ContextRewriteValidation,
-  ModelContextSnapshot,
+import {
+  MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
+  type ContextMutationOperation,
+  type ContextMutationPlan,
+  type ContextRewriteValidation,
+  type ModelContextSnapshot,
 } from "./contracts.js";
 
 export type ContextMutationRevalidationParams<
@@ -18,9 +20,50 @@ function uniqueOperationIds<TAdapterReplacementItem>(
   return [...new Set(plan.operations.map((operation) => operation.id))];
 }
 
+function isBlank(value: unknown): boolean {
+  return typeof value !== "string" || !value.trim();
+}
+
+function operationReason(
+  operation: ContextMutationOperation<unknown>,
+  reason: string,
+): string {
+  const operationId = typeof operation.id === "string"
+    ? operation.id.trim()
+    : "";
+  return `operation:${operationId || "<empty>"}:${reason}`;
+}
+
+function targetFingerprintsMatch(
+  operation: ContextMutationOperation<unknown>,
+  currentItems: Map<string, { fingerprint: string }>,
+): "missing" | "scope_mismatch" | "changed" | "matched" {
+  const fingerprints = operation.targetItemFingerprints;
+  if (!fingerprints) return "missing";
+
+  const expectedIds = Object.keys(fingerprints);
+  const targetIds = new Set(operation.targetItemIds);
+  if (
+    expectedIds.length !== targetIds.size
+    || expectedIds.some((targetId) => !targetIds.has(targetId))
+  ) {
+    return "scope_mismatch";
+  }
+
+  for (const targetId of targetIds) {
+    const expected = fingerprints[targetId];
+    if (typeof expected !== "string" || !expected.trim()) return "missing";
+    if (currentItems.get(targetId)?.fingerprint !== expected.trim()) {
+      return "changed";
+    }
+  }
+  return "matched";
+}
+
 /**
- * Revalidates each operation against the current snapshot. Revision drift is
- * safe when targets can still be located; only unsafe operations are deferred.
+ * Performs shared structural revalidation against the current snapshot. Host
+ * backends must still validate task ownership, protocol closure, and mutation
+ * semantics before applying an operation.
  */
 export function revalidateContextMutationPlan<
   TAdapterMetadata = never,
@@ -35,11 +78,42 @@ export function revalidateContextMutationPlan<
   const reasons: string[] = [];
   const operationIds = uniqueOperationIds(plan);
 
+  if (isBlank(plan.planId)) reasons.push("plan_id_empty");
+  if (isBlank(plan.hostId)) reasons.push("plan_host_id_empty");
+  if (isBlank(snapshot.hostId)) reasons.push("snapshot_host_id_empty");
+  if (isBlank(plan.sessionId)) reasons.push("plan_session_id_empty");
+  if (isBlank(snapshot.sessionId)) reasons.push("snapshot_session_id_empty");
+  if (isBlank(plan.baseRevision)) reasons.push("plan_base_revision_empty");
+  if (isBlank(snapshot.revision)) reasons.push("snapshot_revision_empty");
+  if (
+    plan.schemaVersion !== MODEL_CONTEXT_REWRITE_SCHEMA_VERSION
+  ) {
+    reasons.push("plan_schema_version_mismatch");
+  }
+  if (
+    snapshot.schemaVersion !== MODEL_CONTEXT_REWRITE_SCHEMA_VERSION
+  ) {
+    reasons.push("snapshot_schema_version_mismatch");
+  }
   if (plan.hostId !== snapshot.hostId) reasons.push("host_id_mismatch");
   if (plan.sessionId !== snapshot.sessionId) reasons.push("session_id_mismatch");
-  if (plan.baseRevision !== snapshot.revision) reasons.push("revision_mismatch");
+  const revisionMismatch = plan.baseRevision !== snapshot.revision;
+  if (revisionMismatch) reasons.push("revision_mismatch");
 
-  if (reasons.includes("host_id_mismatch") || reasons.includes("session_id_mismatch")) {
+  const fatalReasons = new Set([
+    "plan_id_empty",
+    "plan_host_id_empty",
+    "snapshot_host_id_empty",
+    "plan_session_id_empty",
+    "snapshot_session_id_empty",
+    "plan_base_revision_empty",
+    "snapshot_revision_empty",
+    "plan_schema_version_mismatch",
+    "snapshot_schema_version_mismatch",
+    "host_id_mismatch",
+    "session_id_mismatch",
+  ]);
+  if (reasons.some((reason) => fatalReasons.has(reason))) {
     return {
       valid: false,
       applicableOperationIds: [],
@@ -48,9 +122,15 @@ export function revalidateContextMutationPlan<
     };
   }
 
-  const itemCounts = new Map<string, number>();
+  const itemsByStableId = new Map<
+    string,
+    Array<{ fingerprint: string }>
+  >();
   for (const item of snapshot.items) {
-    itemCounts.set(item.stableId, (itemCounts.get(item.stableId) ?? 0) + 1);
+    itemsByStableId.set(item.stableId, [
+      ...(itemsByStableId.get(item.stableId) ?? []),
+      { fingerprint: item.fingerprint },
+    ]);
   }
 
   const operationIdCounts = new Map<string, number>();
@@ -68,28 +148,77 @@ export function revalidateContextMutationPlan<
       || deferredOperationIds.includes(operation.id)) {
       continue;
     }
-    if ((operationIdCounts.get(operation.id) ?? 0) > 1) {
+    if (typeof operation.id !== "string" || !operation.id.trim()) {
       deferredOperationIds.push(operation.id);
-      reasons.push(`operation:${operation.id}:duplicate_id`);
+      reasons.push(operationReason(operation, "id_empty"));
       continue;
     }
-    if (operation.targetItemIds.length === 0) {
+    if ((operationIdCounts.get(operation.id) ?? 0) > 1) {
       deferredOperationIds.push(operation.id);
-      reasons.push(`operation:${operation.id}:targets_empty`);
+      reasons.push(operationReason(operation, "duplicate_id"));
+      continue;
+    }
+    if (
+      operation.targetItemIds.length === 0
+      || operation.targetItemIds.some(
+        (targetItemId) =>
+          typeof targetItemId !== "string" || !targetItemId.trim(),
+      )
+    ) {
+      deferredOperationIds.push(operation.id);
+      reasons.push(operationReason(operation, "targets_empty"));
+      continue;
+    }
+    if (new Set(operation.targetItemIds).size !== operation.targetItemIds.length) {
+      deferredOperationIds.push(operation.id);
+      reasons.push(operationReason(operation, "targets_duplicate"));
       continue;
     }
 
     const targetCounts = operation.targetItemIds.map(
-      (targetItemId) => itemCounts.get(targetItemId) ?? 0,
+      (targetItemId) => itemsByStableId.get(targetItemId)?.length ?? 0,
     );
     if (targetCounts.some((count) => count === 0)) {
       deferredOperationIds.push(operation.id);
-      reasons.push(`operation:${operation.id}:target_missing`);
+      reasons.push(operationReason(operation, "target_missing"));
       continue;
     }
     if (targetCounts.some((count) => count > 1)) {
       deferredOperationIds.push(operation.id);
-      reasons.push(`operation:${operation.id}:target_ambiguous`);
+      reasons.push(operationReason(operation, "target_ambiguous"));
+      continue;
+    }
+    if (revisionMismatch || operation.targetItemFingerprints !== undefined) {
+      const currentItems = new Map(
+        operation.targetItemIds.map((targetItemId) => [
+          targetItemId,
+          itemsByStableId.get(targetItemId)![0]!,
+        ]),
+      );
+      const fingerprintMatch = targetFingerprintsMatch(
+        operation,
+        currentItems,
+      );
+      if (fingerprintMatch !== "matched") {
+        deferredOperationIds.push(operation.id);
+        reasons.push(operationReason(
+          operation,
+          fingerprintMatch === "missing"
+            ? "target_fingerprint_missing"
+            : fingerprintMatch === "scope_mismatch"
+              ? "target_fingerprint_scope_mismatch"
+              : "target_changed",
+        ));
+        continue;
+      }
+    }
+    if (
+      operation.targetItemIds.some(
+        (targetItemId) => !itemsByStableId.get(targetItemId)?.[0]?.fingerprint,
+      )
+    ) {
+      deferredOperationIds.push(operation.id);
+      reasons.push(operationReason(operation, "target_fingerprint_invalid"));
       continue;
     }
     applicableOperationIds.push(operation.id);

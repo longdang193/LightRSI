@@ -45,6 +45,8 @@ export type ContextMutationOperation<TAdapterReplacementItem = never> = {
   id: string;
   type: "remove" | "replace";
   targetItemIds: string[];
+  /** Exact target-to-fingerprint map used to prove targets survived revision drift. */
+  targetItemFingerprints?: Record<string, string>;
   replacementItems?: TAdapterReplacementItem[];
   taskIds?: string[];
   rationale: string;
