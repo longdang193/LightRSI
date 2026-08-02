@@ -18,6 +18,7 @@ function evictedStableItemIds(plan: CodexMutationPlan): Set<string> {
 
 type ToolCallRef = {
   callId?: string;
+  index?: number;
   kind?: "function" | "custom";
   side?: "call" | "output";
   type?: string;
@@ -38,8 +39,8 @@ function itemCallRef(item: JsonObject): ToolCallRef {
 function closureReasons(items: JsonObject[]): string[] {
   const refs = new Map<string, { calls: ToolCallRef[]; outputs: ToolCallRef[] }>();
   const reasons: string[] = [];
-  for (const item of items) {
-    const ref = itemCallRef(item);
+  for (const [index, item] of items.entries()) {
+    const ref = { ...itemCallRef(item), index };
     if (!ref.side) continue;
     if (!ref.callId) {
       reasons.push(`tool_call_id_missing:${ref.type}`);
@@ -60,6 +61,10 @@ function closureReasons(items: JsonObject[]): string[] {
     }
     if (entry.calls[0]?.kind !== entry.outputs[0]?.kind) {
       reasons.push(`tool_closure_type_mismatch:${callId}`);
+      continue;
+    }
+    if ((entry.outputs[0]?.index ?? -1) <= (entry.calls[0]?.index ?? -1)) {
+      reasons.push(`tool_output_before_call:${callId}`);
     }
   }
   return Array.from(new Set(reasons)).sort();

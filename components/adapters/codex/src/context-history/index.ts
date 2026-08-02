@@ -19,6 +19,11 @@ export type {
   CodexReplayabilityReason,
 } from "./replayability.js";
 export { buildCodexEffectiveHistory } from "./effective-history.js";
+export { validateCodexRolloutBootstrap } from "./rollout-bootstrap.js";
+export type {
+  CodexRolloutBootstrapRejectionReason,
+  CodexRolloutBootstrapValidation,
+} from "./rollout-bootstrap.js";
 export {
   parseCodexRollout,
   parseCodexRolloutFile,

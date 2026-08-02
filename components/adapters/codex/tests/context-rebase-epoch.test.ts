@@ -389,6 +389,52 @@ test("CDR-01 Rebase Epoch bypasses when another epoch is already in flight", asy
   });
 });
 
+test("CDR-01 Rebase Epoch allows different sessions to rebase concurrently", async () => {
+  await withTempState(async (stateDir) => {
+    let releaseBoth!: () => void;
+    const bothCanFinish = new Promise<void>((resolve) => {
+      releaseBoth = resolve;
+    });
+    let signalFirstStarted!: () => void;
+    let signalSecondStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      signalFirstStarted = resolve;
+    });
+    const secondStarted = new Promise<void>((resolve) => {
+      signalSecondStarted = resolve;
+    });
+
+    const run = (sessionId: string, epochId: string, signalStarted: () => void) =>
+      executeCodexRebaseWithFallback({
+        sessionId,
+        planId: `plan-${sessionId}`,
+        epochId,
+        originalPayload: { previous_response_id: `resp-old-${sessionId}`, input: [] },
+        rebasedPayload: { input: [{ role: "user", content: `rebased-${sessionId}` }] },
+        epochStore: {
+          stateDir,
+          oldPreviousResponseId: `resp-old-${sessionId}`,
+          oldRevision: `rev-old-${sessionId}`,
+        },
+        async sendUpstream() {
+          signalStarted();
+          await bothCanFinish;
+          return { status: 200, headers: {}, text: JSON.stringify({ id: `resp-new-${sessionId}`, output: [] }) };
+        },
+      });
+
+    const first = run("session-a", "epoch-a", signalFirstStarted);
+    const second = run("session-b", "epoch-b", signalSecondStarted);
+    await Promise.all([firstStarted, secondStarted]);
+    releaseBoth();
+
+    const results = await Promise.all([first, second]);
+    assert.deepEqual(results.map((result) => result.outcome), ["committed", "committed"]);
+    assert.equal((await readLatestCodexRebaseEpoch({ stateDir, sessionId: "session-a" }))?.status, "committed");
+    assert.equal((await readLatestCodexRebaseEpoch({ stateDir, sessionId: "session-b" }))?.status, "committed");
+  });
+});
+
 test("CDR-01 Rebase Epoch serializes concurrent attempts for the same session", async () => {
   await withTempState(async (stateDir) => {
     const sentInputs: string[] = [];

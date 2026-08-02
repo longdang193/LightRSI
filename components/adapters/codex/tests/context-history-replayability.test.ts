@@ -72,6 +72,18 @@ test("CDH-05 Replayability keeps exact encrypted reasoning payloads replayable",
   assert.equal(isCodexObservationOnlyItem(reasoning), false);
 });
 
+test("CDH-05 Replayability keeps exact encrypted compaction payloads replayable", () => {
+  const compaction = {
+    id: "cmp-1",
+    type: "compaction",
+    encrypted_content: "opaque-compaction-payload",
+    internal_chat_message_metadata_passthrough: { source: "codex" },
+  };
+
+  assertReplayability(compaction, "replayable", "exact_payload_required");
+  assert.equal(isCodexObservationOnlyItem(compaction), false);
+});
+
 test("CDH-05 Replayability defers reasoning without its exact encrypted payload", () => {
   const reasoning = {
     id: "rs-summary-only",
@@ -81,6 +93,16 @@ test("CDH-05 Replayability defers reasoning without its exact encrypted payload"
 
   assertReplayability(reasoning, "deferred", "exact_payload_missing");
   assert.equal(isCodexDeferredItem(reasoning), true);
+});
+
+test("CDH-05 Replayability defers compaction without its exact encrypted payload", () => {
+  const compaction = {
+    id: "cmp-missing-payload",
+    type: "compaction",
+  };
+
+  assertReplayability(compaction, "deferred", "exact_payload_missing");
+  assert.equal(isCodexDeferredItem(compaction), true);
 });
 
 test("CDH-05 Replayability defers unknown provider item types", () => {
