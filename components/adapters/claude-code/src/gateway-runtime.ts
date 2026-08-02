@@ -24,8 +24,13 @@ import { createClaudeMessagesPayloadCodec } from "./messages-codec.js";
 import { reduceClaudeRequestEnvelope, type ClaudeReductionSummary } from "./reduction.js";
 import {
   applyClaudeEviction,
+  analyzeClaudeEviction,
+  buildToolResultSegments,
   type ClaudeEvictionApplySummary,
 } from "./eviction.js";
+import { claudeContextRewriteBackend } from "./context-rewrite/backend.js";
+import { buildContextMutationPlan } from "@lightmem2/eviction";
+import { createHash as _createHash } from "node:crypto";
 import {
   appendClaudeCodeRecentTurnBinding,
   upsertClaudeCodeSessionSnapshot,
@@ -318,21 +323,66 @@ export async function startClaudeCodeGatewayRuntime(params: {
         try {
           const candidatePayload = (
             params.dependencies?.cloneRequestPayload ?? structuredClone
-          )(payload);
-          evictionSummary = applyClaudeEviction({
-            payload: candidatePayload,
+          )(payload) as { messages?: unknown[] };
+          const overlayMessages =
+            (candidatePayload.messages ?? []) as typeof envelope.messages;
+          const revision = _createHash("sha256")
+            .update(JSON.stringify(overlayMessages))
+            .digest("hex")
+            .slice(0, 32);
+
+          const analysis = analyzeClaudeEviction({
             sessionId,
             model: envelope.model,
-            config: {
-              enabled: true,
-              minBlockChars: config.eviction.minBlockChars,
-            },
+            messages: overlayMessages,
+            config: { enabled: true, minBlockChars: config.eviction.minBlockChars },
           });
-          if (evictionSummary.changed) {
-            payload = candidatePayload;
-            envelope = codec.decodeRequest(payload, {
-              headers: req.headers as Record<string, string | string[] | undefined>,
+
+          if (analysis.changed && analysis.selections.length > 0) {
+            const { bindings } = buildToolResultSegments(overlayMessages);
+            const segmentLocations = new Map(
+              [...bindings.entries()].map(([segmentId, binding]) => [
+                segmentId,
+                { messageIndex: binding.messageIndex, blockIndex: binding.blockIndex },
+              ]),
+            );
+
+            const overlayRequest = { sessionId, revision, messages: overlayMessages };
+            const snapshot = await claudeContextRewriteBackend.readSnapshot({
+              sessionId,
+              request: overlayRequest,
             });
+            const plan = buildContextMutationPlan({
+              hostId: "claude-code",
+              sessionId,
+              snapshot,
+              selections: analysis.selections.map((selection) => ({
+                segmentIds: selection.segmentIds,
+                chars: selection.chars,
+              })),
+              segmentLocations,
+            });
+            const { request: rewritten, result } = await claudeContextRewriteBackend.apply({
+              snapshot,
+              plan,
+              request: overlayRequest,
+            });
+
+            evictionSummary = {
+              ...evictionSummary,
+              changed: result.changed,
+              savedChars: result.savedChars,
+              evictedBlockIds: result.removedItemIds,
+              evictedToolResultCount: result.removedItemIds.length,
+              evictedMessageCount: result.removedItemIds.length,
+            };
+
+            if (result.changed) {
+              payload = { ...(payload as Record<string, unknown>), messages: rewritten.messages };
+              envelope = codec.decodeRequest(payload, {
+                headers: req.headers as Record<string, string | string[] | undefined>,
+              });
+            }
           }
         } catch {
           evictionBypassReason = "analysis_or_apply_error";
