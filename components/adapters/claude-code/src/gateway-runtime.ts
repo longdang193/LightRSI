@@ -166,6 +166,7 @@ async function recordClaudeGatewayTurn(params: {
   responseChars: number;
   assistantChars: number;
   reductionSavedChars: number;
+  evictionSavedChars: number;
   stablePrefixApplied: boolean;
   reductionApplied: boolean;
   stream: boolean;
@@ -182,6 +183,7 @@ async function recordClaudeGatewayTurn(params: {
     responseChars: params.responseChars,
     assistantChars: params.assistantChars,
     reductionSavedChars: params.reductionSavedChars,
+    evictionSavedChars: params.evictionSavedChars,
   });
   await appendClaudeCodeRecentTurnBinding(params.stateDir, {
     sessionId: params.sessionId,
@@ -192,6 +194,7 @@ async function recordClaudeGatewayTurn(params: {
     responseChars: params.responseChars,
     assistantChars: params.assistantChars,
     reductionSavedChars: params.reductionSavedChars,
+    evictionSavedChars: params.evictionSavedChars,
     stablePrefixApplied: params.stablePrefixApplied,
     reductionApplied: params.reductionApplied,
     stream: params.stream,
@@ -560,6 +563,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
             responseChars: rawStreamText.length,
             assistantChars: snapshot.assistantText.length,
             reductionSavedChars: reductionSummary?.savedChars ?? 0,
+            evictionSavedChars: evictionSummary?.savedChars ?? 0,
             stablePrefixApplied: prepared.diagnostics.stablePrefixApplied === true,
             reductionApplied: prepared.diagnostics.reductionApplied === true,
             stream: true,
@@ -643,6 +647,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
         responseChars: upstreamResp.text.length,
         assistantChars,
         reductionSavedChars: reductionSummary?.savedChars ?? 0,
+        evictionSavedChars: evictionSummary?.savedChars ?? 0,
         stablePrefixApplied: prepared.diagnostics.stablePrefixApplied === true,
         reductionApplied: prepared.diagnostics.reductionApplied === true,
         stream: false,
