@@ -106,3 +106,89 @@ test("apply leaves tool_use blocks alone to preserve the pair", async () => {
   const tu = (out.messages as any[])[0].content.find((b: any) => b.type === "tool_use");
   assert.equal(tu.id, "call-1");
 });
+
+test("apply preserves is_error when replacing an error tool result", async () => {
+  const req = sampleRequest();
+  (req.messages[1] as any).content[0].text = "old assistant note";
+  (req.messages[1] as any).content[0].is_error = true;
+  const s = await claudeContextRewriteBackend.readSnapshot({ sessionId: "s1", request: req });
+  const trItem = s.items.find((i) => i.kind === "tool_result" && i.callId === "call-1")!;
+  const { request: out, result } = await claudeContextRewriteBackend.apply({
+    snapshot: s,
+    plan: plan([trItem.stableId], { [trItem.stableId]: trItem.fingerprint }),
+    request: req,
+  });
+
+  assert.equal(result.changed, true);
+  const toolResult = (out.messages as any[])[1].content.find((block: any) => block.type === "tool_result");
+  assert.equal(toolResult.is_error, true);
+});
+
+test("apply rewrites an old string message but protects assistant prefill after the current turn", async () => {
+  const req = {
+    sessionId: "s1",
+    revision: "rev-1",
+    messages: [
+      { role: "assistant", content: "old assistant text" },
+      { role: "user", content: "current question" },
+      { role: "assistant", content: "prefill" },
+    ],
+  } as any;
+  const s = await claudeContextRewriteBackend.readSnapshot({ sessionId: "s1", request: req });
+  const oldItem = s.items[0]!;
+  const prefillItem = s.items[2]!;
+  const oldResult = await claudeContextRewriteBackend.apply({
+    snapshot: s,
+    plan: plan([oldItem.stableId], { [oldItem.stableId]: oldItem.fingerprint }),
+    request: req,
+  });
+  assert.equal(oldResult.result.changed, true);
+  assert.equal((oldResult.request.messages as any[])[0].content, "[evicted: earlier content removed]");
+
+  const prefillResult = await claudeContextRewriteBackend.apply({
+    snapshot: s,
+    plan: plan([prefillItem.stableId], { [prefillItem.stableId]: prefillItem.fingerprint }),
+    request: req,
+  });
+  assert.equal(prefillResult.result.changed, false);
+  assert.equal((prefillResult.request.messages as any[])[2].content, "prefill");
+});
+
+test("apply defers unsupported image blocks instead of converting them to text", async () => {
+  const req = {
+    sessionId: "s1",
+    revision: "rev-1",
+    messages: [
+      { role: "assistant", content: [{ type: "image", source: { type: "base64", data: "opaque" } }] },
+      { role: "user", content: "current" },
+    ],
+  } as any;
+  const s = await claudeContextRewriteBackend.readSnapshot({ sessionId: "s1", request: req });
+  const image = s.items[0]!;
+  const result = await claudeContextRewriteBackend.apply({
+    snapshot: s,
+    plan: plan([image.stableId], { [image.stableId]: image.fingerprint }),
+    request: req,
+  });
+  assert.equal(result.result.changed, false);
+  assert.deepEqual((result.request.messages as any[])[0].content[0], req.messages[0].content[0]);
+});
+
+test("apply defers an orphaned tool result", async () => {
+  const req = {
+    sessionId: "s1",
+    revision: "rev-1",
+    messages: [
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "missing-call", content: "body" }] },
+      { role: "user", content: "current" },
+    ],
+  } as any;
+  const s = await claudeContextRewriteBackend.readSnapshot({ sessionId: "s1", request: req });
+  const result = await claudeContextRewriteBackend.apply({
+    snapshot: s,
+    plan: plan([s.items[0]!.stableId], { [s.items[0]!.stableId]: s.items[0]!.fingerprint }),
+    request: req,
+  });
+  assert.equal(result.result.changed, false);
+  assert.match(result.result.deferredOperationIds.join(","), /op-1/);
+});

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
   type ContextMutationPlan,
@@ -80,6 +81,50 @@ function blockCharCount(block: Record<string, unknown>): number {
   return JSON.stringify(value ?? "").length;
 }
 
+function messagesRevision(messages: RuntimeMessage[]): string {
+  return `claude-rev-${createHash("sha256")
+    .update(JSON.stringify(messages))
+    .digest("hex")}`;
+}
+
+function isRewritableBlock(block: Record<string, unknown>): boolean {
+  return block.type === "tool_result" || block.type === "text";
+}
+
+function claudeToolClosureReasons(
+  snapshot: ModelContextSnapshot,
+  plan: ContextMutationPlan,
+): Map<string, string> {
+  const calls = new Map<string, number>();
+  const results = new Map<string, number>();
+  for (const item of snapshot.items) {
+    if (item.kind === "tool_call" && item.callId) {
+      calls.set(item.callId, (calls.get(item.callId) ?? 0) + 1);
+    }
+    if (item.kind === "tool_result" && item.callId) {
+      results.set(item.callId, (results.get(item.callId) ?? 0) + 1);
+    }
+  }
+
+  const itemById = new Map(snapshot.items.map((item) => [item.stableId, item]));
+  const reasons = new Map<string, string>();
+  for (const operation of plan.operations) {
+    for (const targetId of operation.targetItemIds) {
+      const item = itemById.get(targetId);
+      if (!item || (item.kind !== "tool_call" && item.kind !== "tool_result")) continue;
+      if (!item.callId) {
+        reasons.set(operation.id, `operation ${operation.id} has a tool item without call id`);
+        break;
+      }
+      if ((calls.get(item.callId) ?? 0) !== 1 || (results.get(item.callId) ?? 0) !== 1) {
+        reasons.set(operation.id, `operation ${operation.id} targets an incomplete tool pair`);
+        break;
+      }
+    }
+  }
+  return reasons;
+}
+
 // Rewrite a single block to its pointer stub. tool_result keeps its type and
 // tool_use_id so the tool-use/tool-result pair stays closed; only the content
 // is replaced. Other blocks become a short text stub.
@@ -89,6 +134,7 @@ function stubBlock(block: Record<string, unknown>): Record<string, unknown> {
       type: "tool_result",
       tool_use_id: block.tool_use_id,
       content: TOOL_RESULT_POINTER,
+      ...(block.is_error === true ? { is_error: true } : {}),
     };
   }
   return { type: "text", text: TEXT_POINTER };
@@ -117,23 +163,56 @@ export const claudeContextRewriteBackend: ModelContextRewriteBackend<ClaudeOverl
       };
     }
     // An operation is applicable only if every target item still exists in the
-    // snapshot and its fingerprint matches (proves the target survived any
-    // revision drift). Otherwise it is deferred, never fuzzily applied.
-    const itemById = new Map(snapshot.items.map((item) => [item.stableId, item]));
+    // snapshot, has an exact fingerprint claim, and survives protocol closure.
+    // Otherwise it is deferred, never fuzzily applied.
+    const itemById = new Map<string, typeof snapshot.items>();
+    for (const item of snapshot.items) {
+      itemById.set(item.stableId, [
+        ...(itemById.get(item.stableId) ?? []),
+        item,
+      ]);
+    }
     const applicableOperationIds: string[] = [];
     const deferredOperationIds: string[] = [];
+    const closureReasons = claudeToolClosureReasons(snapshot, plan);
+    const operationIdCounts = new Map<string, number>();
+    for (const op of plan.operations) {
+      operationIdCounts.set(op.id, (operationIdCounts.get(op.id) ?? 0) + 1);
+    }
     const reasons: string[] = [];
     for (const op of plan.operations) {
-      const targetsOk = op.targetItemIds.every((id) => {
-        const item = itemById.get(id);
+      if ((operationIdCounts.get(op.id) ?? 0) !== 1) {
+        if (!deferredOperationIds.includes(op.id)) deferredOperationIds.push(op.id);
+        if (!reasons.includes(`operation ${op.id} has a duplicate id`)) {
+          reasons.push(`operation ${op.id} has a duplicate id`);
+        }
+        continue;
+      }
+      if (op.targetItemIds.length === 0) {
+        if (!deferredOperationIds.includes(op.id)) deferredOperationIds.push(op.id);
+        reasons.push(`operation ${op.id} has no targets`);
+        continue;
+      }
+      if (closureReasons.has(op.id)) {
+        if (!deferredOperationIds.includes(op.id)) deferredOperationIds.push(op.id);
+        reasons.push(closureReasons.get(op.id)!);
+        continue;
+      }
+      const fingerprintKeys = Object.keys(op.targetItemFingerprints ?? {});
+      const fingerprintsInScope = op.targetItemFingerprints === undefined
+        || (fingerprintKeys.length === op.targetItemIds.length
+          && op.targetItemIds.every((id) => fingerprintKeys.includes(id)));
+      const targetsOk = fingerprintsInScope && op.targetItemIds.every((id) => {
+        const matchingItems = itemById.get(id) ?? [];
+        const item = matchingItems.length === 1 ? matchingItems[0] : undefined;
         if (!item) return false;
         const expected = op.targetItemFingerprints?.[id];
         return expected === undefined || expected === item.fingerprint;
       });
       if (targetsOk) {
-        applicableOperationIds.push(op.id);
+        if (!applicableOperationIds.includes(op.id)) applicableOperationIds.push(op.id);
       } else {
-        deferredOperationIds.push(op.id);
+        if (!deferredOperationIds.includes(op.id)) deferredOperationIds.push(op.id);
         reasons.push(`operation ${op.id} targets are missing or drifted`);
       }
     }
@@ -175,7 +254,14 @@ export const claudeContextRewriteBackend: ModelContextRewriteBackend<ClaudeOverl
         revision: request.revision,
         messages: request.messages,
       });
-      if (current.revision !== snapshot.revision) {
+      if (request.sessionId !== snapshot.sessionId) {
+        return { request, result: unchanged(false) };
+      }
+      const snapshotItems = new Map(snapshot.items.map((item) => [item.stableId, item.fingerprint]));
+      const currentItems = new Map(current.items.map((item) => [item.stableId, item.fingerprint]));
+      if (current.revision !== snapshot.revision
+        || snapshotItems.size !== currentItems.size
+        || [...snapshotItems].some(([id, fingerprint]) => currentItems.get(id) !== fingerprint)) {
         return { request, result: unchanged(false) };
       }
 
@@ -196,15 +282,23 @@ export const claudeContextRewriteBackend: ModelContextRewriteBackend<ClaudeOverl
           const parsed = parseStableId(itemId);
           if (!parsed) continue;
           const { msgIdx, blockIdx } = parsed;
-          // Never rewrite the current user turn.
-          if (msgIdx === protectedIdx) continue;
+          // Never rewrite the current user turn or assistant prefill after it.
+          if (protectedIdx < 0 || msgIdx >= protectedIdx) continue;
           const message = messages[msgIdx];
-          if (!message || typeof message.content === "string") continue;
+          if (!message) continue;
+          if (typeof message.content === "string") {
+            if (blockIdx !== 0 || message.role !== "assistant") continue;
+            const oldText = message.content;
+            message.content = TEXT_POINTER;
+            savedChars += Math.max(0, oldText.length - TEXT_POINTER.length);
+            removedItemIds.push(itemId);
+            opTouched = true;
+            continue;
+          }
+          if (!Array.isArray(message.content)) continue;
           const block = asBlockRecord(message.content[blockIdx]);
-          if (!block) continue;
+          if (!block || !isRewritableBlock(block)) continue;
           // tool_use is half of a pair; leave it so closure stays intact.
-          if (block.type === "tool_use") continue;
-
           const stub = stubBlock(block);
           savedChars += Math.max(0, blockCharCount(block) - blockCharCount(stub));
           message.content[blockIdx] = stub as never;
@@ -218,6 +312,7 @@ export const claudeContextRewriteBackend: ModelContextRewriteBackend<ClaudeOverl
 
       const changed = removedItemIds.length > 0;
       const nextRequest = changed ? { ...request, messages } : request;
+      const nextRevision = changed ? messagesRevision(messages) : snapshot.revision;
 
       const result: ContextRewriteResult = {
         schemaVersion: MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
@@ -226,7 +321,7 @@ export const claudeContextRewriteBackend: ModelContextRewriteBackend<ClaudeOverl
         applied: appliedOperationIds.length > 0,
         changed,
         previousRevision: snapshot.revision,
-        nextRevision: snapshot.revision,
+        nextRevision,
         appliedOperationIds,
         deferredOperationIds,
         removedItemIds,
