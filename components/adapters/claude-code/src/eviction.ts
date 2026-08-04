@@ -44,7 +44,7 @@ type ToolUseDescriptor = {
   dataKey?: string;
 };
 
-type ToolResultBinding = {
+export type ToolResultBinding = {
   segmentId: string;
   messageIndex: number;
   blockIndex: number;
@@ -134,7 +134,7 @@ function collectToolProtocol(
   return { toolUses, validResultIds };
 }
 
-function buildToolResultSegments(
+export function buildToolResultSegments(
   messages: unknown[],
 ): { segments: ContextSegment[]; bindings: Map<string, ToolResultBinding> } {
   const { toolUses, validResultIds } = collectToolProtocol(messages);

@@ -4,3 +4,4 @@ export * from "./planning/index.js";
 export * from "./task-state-estimator.js";
 export * from "./history-apply.js";
 export * from "./lifecycle-policy-context.js";
+export * from "./context-mutation-plan.js";
