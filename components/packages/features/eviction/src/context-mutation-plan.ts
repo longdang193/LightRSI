@@ -234,6 +234,8 @@ export function buildContextMutationPlanFromEviction<
     },
     deferredBlockIds,
     reasons,
+  };
+}
 
 // One evicted block, described independently of any host adapter. The caller
 // (a host adapter) resolves each segment to a concrete message/block location
@@ -254,9 +256,13 @@ function overlayStableId(sessionId: string, loc: SegmentLocation): string {
   return `${sessionId}:${loc.messageIndex}:${loc.blockIndex}`;
 }
 
-function planId(sessionId: string, revision: string, selections: EvictionPlanSelection[]): string {
+function planId(sessionId: string, revision: string, operationIds: string[]): string {
   return createHash("sha256")
-    .update(JSON.stringify({ sessionId, revision, selections }))
+    .update(JSON.stringify({
+      operationIds: [...operationIds].sort(),
+      revision,
+      sessionId,
+    }))
     .digest("hex")
     .slice(0, 24);
 }
@@ -274,41 +280,80 @@ export function buildContextMutationPlan(params: {
   sourceModuleId?: string;
   createdAt?: string;
 }): ContextMutationPlan {
+  if (params.snapshot.schemaVersion !== MODEL_CONTEXT_REWRITE_SCHEMA_VERSION
+    || !params.hostId.trim()
+    || !params.sessionId.trim()
+    || !params.snapshot.hostId.trim()
+    || !params.snapshot.sessionId.trim()
+    || params.snapshot.hostId !== params.hostId
+    || params.snapshot.sessionId !== params.sessionId
+    || !params.snapshot.revision.trim()) {
+    throw new TypeError("context mutation plan requires a matching non-empty snapshot identity");
+  }
+  if (new Set(params.snapshot.items.map((item) => item.stableId)).size !== params.snapshot.items.length) {
+    throw new TypeError("context mutation plan requires unique snapshot item ids");
+  }
+
   const fingerprintById = new Map(
     params.snapshot.items.map((item) => [item.stableId, item.fingerprint]),
   );
 
   const operations: ContextMutationOperation[] = [];
-  params.selections.forEach((selection, index) => {
+  const claimedTargetItemIds = new Set<string>();
+  params.selections.forEach((selection) => {
     const targetItemIds: string[] = [];
-    const targetItemFingerprints: Record<string, string> = {};
 
-    for (const segmentId of selection.segmentIds) {
+    for (const segmentId of uniqueNonEmptyStrings(selection.segmentIds)) {
       const loc = params.segmentLocations.get(segmentId);
       if (!loc) continue;
+      if (!Number.isInteger(loc.messageIndex) || loc.messageIndex < 0
+        || !Number.isInteger(loc.blockIndex) || loc.blockIndex < 0) continue;
       const stableId = overlayStableId(params.sessionId, loc);
       const fingerprint = fingerprintById.get(stableId);
       // Only target items that actually exist in the snapshot.
       if (fingerprint === undefined) continue;
+      if (claimedTargetItemIds.has(stableId)) continue;
       targetItemIds.push(stableId);
-      targetItemFingerprints[stableId] = fingerprint;
+      claimedTargetItemIds.add(stableId);
     }
 
     if (targetItemIds.length === 0) return;
 
+    const targetItemFingerprints = Object.fromEntries(
+      targetItemIds.map((stableId) => [stableId, fingerprintById.get(stableId)!]),
+    );
+    const estimatedSavedChars = typeof selection.chars === "number"
+      && Number.isFinite(selection.chars)
+      && selection.chars >= 0
+      ? selection.chars
+      : 0;
+    const rationale = typeof selection.rationale === "string" && selection.rationale.trim()
+      ? selection.rationale.trim()
+      : "signal-driven eviction";
+
     operations.push({
-      id: `op-${index}`,
+      id: digestId("ctxop", {
+        baseRevision: params.snapshot.revision,
+        rationale,
+        sessionId: params.sessionId,
+        targetItemFingerprints,
+        targetItemIds,
+      }),
       type: "replace",
       targetItemIds,
       targetItemFingerprints,
-      rationale: selection.rationale ?? "signal-driven eviction",
-      estimatedSavedChars: selection.chars,
+      rationale,
+      estimatedSavedChars,
     });
   });
 
   return {
     schemaVersion: MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
-    planId: planId(params.sessionId, params.snapshot.revision, params.selections),
+    planId: planId(
+      params.sessionId,
+      params.snapshot.revision,
+      operations.map((operation) => operation.id),
+    ),
     hostId: params.hostId,
     sessionId: params.sessionId,
     baseRevision: params.snapshot.revision,

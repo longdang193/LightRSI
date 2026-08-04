@@ -517,8 +517,7 @@ test("resolveCodexHookCommandForInstall finds the adapter root from the bundled 
   try {
     process.chdir(dirname(repoRoot));
     const command = await resolveCodexHookCommandForInstall(process.platform, bundledCliModuleDir);
-    const executable = command.startsWith("\"") ? JSON.parse(command) as string : command;
-    assert.match(executable, /adapters[\/\\]codex[\/\\]dist[\/\\](hooks-handler\.js|tokenpilot-codex-hook\.cmd)/);
+    assert.match(command, /adapters[\/\\]codex[\/\\]dist[\/\\](hooks-handler\.js|tokenpilot-codex-hook\.cmd)/);
   } finally {
     process.chdir(originalCwd);
   }

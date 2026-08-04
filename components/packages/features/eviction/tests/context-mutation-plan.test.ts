@@ -275,16 +275,15 @@ test("keeps independent operations and defers overlapping targets", () => {
   );
   assert.deepEqual(result.deferredBlockIds, ["block-2"]);
   assert.deepEqual(result.reasons, ["block:block-2:target_overlap"]);
-import test from "node:test";
-import assert from "node:assert/strict";
+});
 
 import { buildContextMutationPlan } from "../src/context-mutation-plan.js";
 
-const SCHEMA = 1;
+const OVERLAY_SCHEMA = 1;
 
-function snapshot() {
+function overlaySnapshot() {
   return {
-    schemaVersion: SCHEMA,
+    schemaVersion: OVERLAY_SCHEMA,
     hostId: "claude-code",
     sessionId: "s1",
     revision: "rev-1",
@@ -299,7 +298,7 @@ test("builds a replace operation targeting the overlay stable id with its finger
   const plan = buildContextMutationPlan({
     hostId: "claude-code",
     sessionId: "s1",
-    snapshot: snapshot(),
+    snapshot: overlaySnapshot(),
     selections: [{ segmentIds: ["seg-1"], chars: 800 }],
     segmentLocations: new Map([["seg-1", { messageIndex: 1, blockIndex: 0 }]]),
   });
@@ -319,7 +318,7 @@ test("skips segments that do not resolve to a snapshot item", () => {
   const plan = buildContextMutationPlan({
     hostId: "claude-code",
     sessionId: "s1",
-    snapshot: snapshot(),
+    snapshot: overlaySnapshot(),
     // location points at message 9 which is not in the snapshot
     selections: [{ segmentIds: ["seg-x"], chars: 100 }],
     segmentLocations: new Map([["seg-x", { messageIndex: 9, blockIndex: 0 }]]),
@@ -332,7 +331,7 @@ test("skips a segment with no known location but keeps others", () => {
   const plan = buildContextMutationPlan({
     hostId: "claude-code",
     sessionId: "s1",
-    snapshot: snapshot(),
+    snapshot: overlaySnapshot(),
     selections: [{ segmentIds: ["seg-1", "seg-missing"], chars: 800 }],
     segmentLocations: new Map([["seg-1", { messageIndex: 1, blockIndex: 0 }]]),
   });
@@ -344,11 +343,54 @@ test("plan id is deterministic for the same inputs", () => {
   const args = {
     hostId: "claude-code",
     sessionId: "s1",
-    snapshot: snapshot(),
+    snapshot: overlaySnapshot(),
     selections: [{ segmentIds: ["seg-1"], chars: 800 }],
     segmentLocations: new Map([["seg-1", { messageIndex: 1, blockIndex: 0 }]]),
   };
   const a = buildContextMutationPlan(args);
   const b = buildContextMutationPlan(args);
   assert.equal(a.planId, b.planId);
+});
+
+test("deduplicates overlapping segment locations across selections", () => {
+  const plan = buildContextMutationPlan({
+    hostId: "claude-code",
+    sessionId: "s1",
+    snapshot: overlaySnapshot(),
+    selections: [
+      { segmentIds: ["seg-1"], chars: 800 },
+      { segmentIds: ["seg-1"], chars: 400 },
+    ],
+    segmentLocations: new Map([[
+      "seg-1",
+      { messageIndex: 1, blockIndex: 0 },
+    ]]),
+  });
+
+  assert.equal(plan.operations.length, 1);
+  assert.deepEqual(plan.operations[0]?.targetItemIds, ["s1:1:0"]);
+});
+
+test("plan identity depends on effective operations, not unresolved selections", () => {
+  const base = {
+    hostId: "claude-code",
+    sessionId: "s1",
+    snapshot: overlaySnapshot(),
+    segmentLocations: new Map([[
+      "seg-1",
+      { messageIndex: 1, blockIndex: 0 },
+    ]]),
+  };
+  const resolved = buildContextMutationPlan({
+    ...base,
+    selections: [{ segmentIds: ["seg-1"], chars: 800 }],
+  });
+  const withUnresolved = buildContextMutationPlan({
+    ...base,
+    selections: [
+      { segmentIds: ["missing"], chars: 100 },
+      { segmentIds: ["seg-1"], chars: 800 },
+    ],
+  });
+  assert.equal(withUnresolved.planId, resolved.planId);
 });
