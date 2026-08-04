@@ -242,3 +242,87 @@ test("validates only candidates that survived structural revalidation", () => {
     reasons: [],
   });
 });
+
+test("defers active-only task targets", () => {
+  const validation = validateContextMutationProtocolClosure({
+    snapshot: snapshot([
+      item("active-message", "assistant", { taskIds: ["active-task"] }),
+    ]),
+    plan: plan([remove("remove-active", ["active-message"], ["active-task"])]),
+    activeTaskIds: ["active-task"],
+    evictableTaskIds: [],
+  });
+
+  assert.deepEqual(validation.applicableOperationIds, []);
+  assert.deepEqual(validation.deferredOperationIds, ["remove-active"]);
+  assert.deepEqual(validation.reasons, [
+    "operation:remove-active:active_task_targeted",
+  ]);
+});
+
+test("rejects duplicate operation ids, missing targets, and ambiguous item ids", () => {
+  const validation = validateContextMutationProtocolClosure({
+    snapshot: snapshot([
+      item("duplicate", "assistant", { taskIds: ["evictable-task"] }),
+      item("duplicate", "user", { taskIds: ["evictable-task"] }),
+    ]),
+    plan: plan([
+      remove("duplicate-op", ["duplicate"]),
+      remove("duplicate-op", ["missing"]),
+      remove("ambiguous-op", ["duplicate"]),
+      remove("missing-op", ["missing"]),
+    ]),
+    activeTaskIds: [],
+    evictableTaskIds: ["evictable-task"],
+  });
+
+  assert.equal(validation.valid, true);
+  assert.deepEqual(validation.applicableOperationIds, []);
+  assert.deepEqual(validation.deferredOperationIds, [
+    "duplicate-op",
+    "ambiguous-op",
+    "missing-op",
+  ]);
+  assert.deepEqual(validation.reasons, [
+    "operation:duplicate-op:duplicate_id",
+    "operation:ambiguous-op:target_ambiguous",
+    "operation:missing-op:target_missing",
+  ]);
+});
+
+test("rejects an explicitly unknown candidate operation", () => {
+  const validation = validateContextMutationProtocolClosure({
+    snapshot: snapshot([
+      item("message", "assistant", { taskIds: ["evictable-task"] }),
+    ]),
+    plan: plan([remove("known", ["message"])]),
+    activeTaskIds: [],
+    evictableTaskIds: ["evictable-task"],
+    candidateOperationIds: ["unknown"],
+  });
+
+  assert.deepEqual(validation.applicableOperationIds, []);
+  assert.deepEqual(validation.deferredOperationIds, ["unknown"]);
+  assert.deepEqual(validation.reasons, [
+    "candidate:unknown:missing",
+  ]);
+});
+
+test("rejects a tool pair whose call and result belong to different tasks", () => {
+  const validation = validateContextMutationProtocolClosure({
+    snapshot: snapshot([
+      item("call", "tool_call", { callId: "call-1", taskIds: ["task-a"] }),
+      item("result", "tool_result", { callId: "call-1", taskIds: ["task-b"] }),
+      item("message", "assistant", { taskIds: ["task-a"] }),
+    ]),
+    plan: plan([remove("remove-message", ["message"], ["task-a"])]),
+    activeTaskIds: [],
+    evictableTaskIds: ["task-a", "task-b"],
+  });
+
+  assert.deepEqual(validation.applicableOperationIds, []);
+  assert.deepEqual(validation.deferredOperationIds, ["remove-message"]);
+  assert.deepEqual(validation.reasons, [
+    "operation:remove-message:protocol_task_mismatch",
+  ]);
+});
