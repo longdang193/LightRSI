@@ -317,6 +317,10 @@ test("CDR-01 rejects malformed, duplicate, and protocol-mismatched tool closure"
     { type: "function_call", call_id: "mismatch", name: "run", arguments: "{}" },
     { type: "custom_tool_call_output", call_id: "mismatch", output: "done" },
   ], /tool_closure_type_mismatch:mismatch/);
+  assertUnsafeCurrentInput([
+    { type: "function_call_output", call_id: "reversed", output: "done" },
+    { type: "function_call", call_id: "reversed", name: "run", arguments: "{}" },
+  ], /tool_output_before_call:reversed/);
 });
 
 test("CDR-04 retries the original request once when rebase replay is rejected upstream", async () => {

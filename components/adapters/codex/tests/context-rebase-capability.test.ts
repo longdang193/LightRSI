@@ -168,6 +168,77 @@ test("CDR-05 Provider Capability Cache learns 400 schema item rejection and skip
   });
 });
 
+test("CDR-05 Provider Capability Cache falls back and remembers encrypted compaction rejection", async () => {
+  await withTempState(async (stateDir) => {
+    const originalPayload = {
+      model: "gpt-5.6-sol",
+      previous_response_id: "resp-old",
+      input: [{ role: "user", content: "current" }],
+    };
+    const rebasedPayload = {
+      model: "gpt-5.6-sol",
+      input: [
+        { type: "compaction", encrypted_content: "provider-bound-payload" },
+        { role: "user", content: "current" },
+      ],
+    };
+    const firstPayloads: JsonObject[] = [];
+    const first = await executeCodexRebaseWithFallback({
+      sessionId: "codex-session-compaction-capability",
+      planId: "plan-compaction-capability",
+      epochId: "epoch-compaction-capability",
+      originalPayload,
+      rebasedPayload,
+      capabilityStore: {
+        stateDir,
+        provider: "OpenAI",
+        model: "gpt-5.6-sol",
+      },
+      async sendUpstream(payload) {
+        firstPayloads.push(payload);
+        return firstPayloads.length === 1
+          ? {
+            status: 400,
+            headers: { "content-type": "application/json" },
+            text: JSON.stringify({
+              error: {
+                code: "invalid_encrypted_content",
+                message: "Unsupported compaction encrypted content",
+              },
+            }),
+          }
+          : { status: 200, headers: {}, text: JSON.stringify({ id: "resp-original", output: [] }) };
+      },
+    });
+
+    assert.equal(first.outcome, "bypassed");
+    assert.deepEqual(first.capability?.unsupportedItemTypes, ["compaction"]);
+    assert.deepEqual(firstPayloads, [rebasedPayload, originalPayload]);
+
+    const secondPayloads: JsonObject[] = [];
+    const second = await executeCodexRebaseWithFallback({
+      sessionId: "codex-session-compaction-capability",
+      planId: "plan-compaction-capability-next",
+      epochId: "epoch-compaction-capability-next",
+      originalPayload,
+      rebasedPayload,
+      capabilityStore: {
+        stateDir,
+        provider: "OpenAI",
+        model: "gpt-5.6-sol",
+      },
+      async sendUpstream(payload) {
+        secondPayloads.push(payload);
+        return { status: 200, headers: {}, text: JSON.stringify({ id: "resp-original-next", output: [] }) };
+      },
+    });
+
+    assert.equal(second.outcome, "bypassed");
+    assert.deepEqual(second.capability?.skippedItemTypes, ["compaction"]);
+    assert.deepEqual(secondPayloads, [originalPayload]);
+  });
+});
+
 test("CDR-05 Provider Capability Cache skips unsupported rebases before opening an epoch", async () => {
   await withTempState(async (stateDir) => {
     await appendCodexRebaseCapability({
