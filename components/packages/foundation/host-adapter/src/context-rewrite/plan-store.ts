@@ -99,53 +99,107 @@ function isNonBlankString(value: unknown): value is string {
   return typeof value === "string" && Boolean(value.trim());
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+function canonicalStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.some((item) => !isNonBlankString(item))) {
+    return undefined;
+  }
+  if (new Set(value).size !== value.length) return undefined;
+  return [...value];
 }
 
-function isOptionalStringArray(value: unknown): value is string[] | undefined {
-  return value === undefined || isStringArray(value);
-}
-
-function isFingerprintMap(value: unknown): value is Record<string, string> {
-  return isRecord(value)
-    && Object.entries(value).every(
-      ([key, fingerprint]) => Boolean(key.trim()) && isNonBlankString(fingerprint),
-    );
-}
-
-function isPersistableOperation(
+function canonicalOptionalStringArray(
   value: unknown,
-): value is ContextMutationOperation {
-  if (!isRecord(value)) return false;
-  return typeof value.id === "string"
-    && (value.type === "remove" || value.type === "replace")
-    && isStringArray(value.targetItemIds)
-    && (
-      value.targetItemFingerprints === undefined
-      || isFingerprintMap(value.targetItemFingerprints)
-    )
-    && !("replacementItems" in value)
-    && isOptionalStringArray(value.taskIds)
-    && typeof value.rationale === "string"
-    && typeof value.estimatedSavedChars === "number"
-    && Number.isFinite(value.estimatedSavedChars)
-    && value.estimatedSavedChars >= 0
-    && isOptionalStringArray(value.archiveRefs);
+): string[] | undefined | null {
+  if (value === undefined) return undefined;
+  return canonicalStringArray(value) ?? null;
 }
 
-function isPersistablePlan(value: unknown): value is ContextMutationPlan {
-  if (!isRecord(value)) return false;
-  return value.schemaVersion === MODEL_CONTEXT_REWRITE_SCHEMA_VERSION
-    && isNonBlankString(value.planId)
-    && isNonBlankString(value.hostId)
-    && isNonBlankString(value.sessionId)
-    && isNonBlankString(value.baseRevision)
-    && isNonBlankString(value.sourceModuleId)
-    && (value.sourcePresetId === undefined || typeof value.sourcePresetId === "string")
-    && Array.isArray(value.operations)
-    && value.operations.every(isPersistableOperation)
-    && isNonBlankString(value.createdAt);
+function canonicalPersistableOperation(
+  value: unknown,
+): ContextMutationOperation | undefined {
+  if (!isRecord(value)
+    || !isNonBlankString(value.id)
+    || (value.type !== "remove" && value.type !== "replace")
+    || "replacementItems" in value
+    || !isNonBlankString(value.rationale)
+    || typeof value.estimatedSavedChars !== "number"
+    || !Number.isFinite(value.estimatedSavedChars)
+    || value.estimatedSavedChars < 0) {
+    return undefined;
+  }
+
+  const targetItemIds = canonicalStringArray(value.targetItemIds);
+  if (!targetItemIds || targetItemIds.length === 0) return undefined;
+  const taskIds = canonicalOptionalStringArray(value.taskIds);
+  const archiveRefs = canonicalOptionalStringArray(value.archiveRefs);
+  if (taskIds === null || archiveRefs === null) return undefined;
+
+  let targetItemFingerprints: Record<string, string> | undefined;
+  if (value.targetItemFingerprints !== undefined) {
+    const fingerprints = value.targetItemFingerprints;
+    if (!isRecord(fingerprints)
+      || Object.keys(fingerprints).length !== targetItemIds.length) {
+      return undefined;
+    }
+    const entries = targetItemIds.map((targetItemId) => [
+      targetItemId,
+      fingerprints[targetItemId],
+    ] as const);
+    if (entries.some(([, fingerprint]) => !isNonBlankString(fingerprint))) {
+      return undefined;
+    }
+    targetItemFingerprints = Object.fromEntries(entries) as Record<string, string>;
+  }
+
+  return {
+    id: value.id,
+    type: value.type,
+    targetItemIds,
+    ...(targetItemFingerprints ? { targetItemFingerprints } : {}),
+    ...(taskIds ? { taskIds } : {}),
+    rationale: value.rationale,
+    estimatedSavedChars: value.estimatedSavedChars,
+    ...(archiveRefs ? { archiveRefs } : {}),
+  };
+}
+
+function canonicalPersistablePlan(value: unknown): ContextMutationPlan | undefined {
+  if (!isRecord(value)
+    || value.schemaVersion !== MODEL_CONTEXT_REWRITE_SCHEMA_VERSION
+    || !isNonBlankString(value.planId)
+    || !isNonBlankString(value.hostId)
+    || !isNonBlankString(value.sessionId)
+    || !isNonBlankString(value.baseRevision)
+    || !isNonBlankString(value.sourceModuleId)
+    || (value.sourcePresetId !== undefined && !isNonBlankString(value.sourcePresetId))
+    || !Array.isArray(value.operations)
+    || value.operations.length === 0
+    || !isIsoTimestamp(value.createdAt)) {
+    return undefined;
+  }
+
+  const operations = value.operations.map(canonicalPersistableOperation);
+  if (operations.some((operation) => operation === undefined)) return undefined;
+  const operationIds = operations.map((operation) => operation!.id);
+  if (new Set(operationIds).size !== operationIds.length) return undefined;
+
+  return {
+    schemaVersion: MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
+    planId: value.planId,
+    hostId: value.hostId,
+    sessionId: value.sessionId,
+    baseRevision: value.baseRevision,
+    sourceModuleId: value.sourceModuleId,
+    ...(value.sourcePresetId !== undefined
+      ? { sourcePresetId: value.sourcePresetId }
+      : {}),
+    operations: operations as ContextMutationOperation[],
+    createdAt: value.createdAt,
+  };
+}
+
+function plansEqual(left: ContextMutationPlan, right: ContextMutationPlan): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -161,6 +215,11 @@ function timestampMs(value: unknown): number | undefined {
   if (typeof value !== "string") return undefined;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  const parsed = timestampMs(value);
+  return parsed !== undefined && new Date(parsed).toISOString() === value;
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -277,6 +336,7 @@ async function acquireSessionLock(params: {
   options?: ContextMutationPlanStoreLockOptions;
 }): Promise<PlanStoreSessionLock | undefined> {
   const lockPath = contextMutationPlanLockPath(params.stateDir, params.sessionId);
+  const recoveryPath = `${lockPath}.recovery`;
   const timeoutMs = Math.max(0, params.options?.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
   const retryMs = Math.max(1, params.options?.lockRetryMs ?? DEFAULT_LOCK_RETRY_MS);
   const staleAfterMs = Math.max(1_000, params.options?.lockStaleMs ?? DEFAULT_LOCK_STALE_MS);
@@ -285,11 +345,37 @@ async function acquireSessionLock(params: {
 
   while (true) {
     try {
+      await stat(recoveryPath);
+      if (Date.now() >= deadline) return undefined;
+      await delay(retryMs);
+      continue;
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") throw error;
+    }
+    try {
       await mkdir(lockPath);
     } catch (error) {
       if (errorCode(error) !== "EEXIST") throw error;
       if (await lockIsStale({ lockPath, staleAfterMs, nowMs: Date.now() })) {
-        await rm(lockPath, { recursive: true, force: true });
+        try {
+          await mkdir(recoveryPath);
+        } catch (recoveryError) {
+          if (errorCode(recoveryError) !== "EEXIST") throw recoveryError;
+          if (Date.now() >= deadline) return undefined;
+          await delay(retryMs);
+          continue;
+        }
+        try {
+          if (await lockIsStale({
+            lockPath,
+            staleAfterMs,
+            nowMs: Date.now(),
+          })) {
+            await rm(lockPath, { recursive: true, force: true });
+          }
+        } finally {
+          await rm(recoveryPath, { recursive: true, force: true });
+        }
         continue;
       }
       if (Date.now() >= deadline) return undefined;
@@ -360,19 +446,23 @@ async function readStoredPlanFile(params: {
   ) {
     return { kind: "unsupported_schema" };
   }
+  const plan = canonicalPersistablePlan(rawPlan);
   if (
     parsed.schemaVersion !== CONTEXT_MUTATION_PLAN_STORE_SCHEMA_VERSION
-    || !isNonBlankString(parsed.storedAt)
-    || timestampMs(parsed.storedAt) === undefined
-    || !isPersistablePlan(rawPlan)
-    || rawPlan.sessionId !== params.sessionId
-    || basename(params.path) !== `plan-${sha256(rawPlan.planId)}.json`
+    || !isIsoTimestamp(parsed.storedAt)
+    || !plan
+    || plan.sessionId !== params.sessionId
+    || basename(params.path) !== `plan-${sha256(plan.planId)}.json`
   ) {
     return { kind: "corrupt" };
   }
   return {
     kind: "ok",
-    entry: parsed as StoredContextMutationPlan,
+    entry: {
+      schemaVersion: CONTEXT_MUTATION_PLAN_STORE_SCHEMA_VERSION,
+      storedAt: parsed.storedAt,
+      plan,
+    },
   };
 }
 
@@ -466,26 +556,30 @@ export async function saveActiveContextMutationPlan(params: {
 }): Promise<ContextMutationPlanStoreWriteResult> {
   const stateDirError = requireNonBlank(params.stateDir, "state_dir");
   if (stateDirError) return bypassedWrite(stateDirError);
-  if (!isPersistablePlan(params.plan)) return bypassedWrite("invalid_plan");
+  const plan = canonicalPersistablePlan(params.plan);
+  if (!plan) return bypassedWrite("invalid_plan");
   const storedAt = params.storedAt ?? new Date().toISOString();
-  if (timestampMs(storedAt) === undefined) return bypassedWrite("stored_at_invalid");
+  if (!isIsoTimestamp(storedAt)) return bypassedWrite("stored_at_invalid");
 
   let lock: PlanStoreSessionLock | undefined;
   try {
     lock = await acquireSessionLock({
       stateDir: params.stateDir,
-      sessionId: params.plan.sessionId,
+      sessionId: plan.sessionId,
       options: params.lock,
     });
     if (!lock) return bypassedWrite("session_lock_unavailable");
 
     const existing = await locatePlanUnlocked({
       stateDir: params.stateDir,
-      sessionId: params.plan.sessionId,
-      planId: params.plan.planId,
+      sessionId: plan.sessionId,
+      planId: plan.planId,
     });
     if (existing.kind === "bypassed") return bypassedWrite(...existing.reasons);
     if (existing.kind === "found") {
+      if (!plansEqual(existing.located.entry.plan, plan)) {
+        return bypassedWrite("plan_id_conflict");
+      }
       return {
         outcome: "unchanged",
         status: existing.located.status,
@@ -496,14 +590,14 @@ export async function saveActiveContextMutationPlan(params: {
 
     const path = contextMutationPlanFilePath(
       params.stateDir,
-      params.plan.sessionId,
+      plan.sessionId,
       "active",
-      params.plan.planId,
+      plan.planId,
     );
     await writeJsonFileAtomic(path, {
       schemaVersion: CONTEXT_MUTATION_PLAN_STORE_SCHEMA_VERSION,
       storedAt,
-      plan: params.plan,
+      plan,
     } satisfies StoredContextMutationPlan);
     return {
       outcome: "stored",
@@ -708,20 +802,21 @@ export async function loadContextMutationPlans(params: {
       };
     }
     const loaded = await loadStatusUnlocked(params);
-    if (loaded.bypassed || params.status !== "active") return loaded;
+    if (loaded.bypassed) return loaded;
 
     for (const plan of loaded.plans) {
-      for (const terminalStatus of ["applied", "failed"] as const) {
-        const terminal = await readStoredPlanFile({
+      for (const otherStatus of PLAN_STATUSES) {
+        if (otherStatus === params.status) continue;
+        const conflicting = await readStoredPlanFile({
           path: contextMutationPlanFilePath(
             params.stateDir,
             params.sessionId,
-            terminalStatus,
+            otherStatus,
             plan.planId,
           ),
           sessionId: params.sessionId,
         });
-        if (terminal.kind === "ok") {
+        if (conflicting.kind === "ok") {
           return {
             plans: [],
             bypassed: true,
@@ -729,17 +824,17 @@ export async function loadContextMutationPlans(params: {
             quarantinedFileCount: loaded.quarantinedFileCount,
           };
         }
-        if (terminal.kind === "corrupt") {
+        if (conflicting.kind === "corrupt") {
           const quarantined = await quarantinePlanFile({
             path: contextMutationPlanFilePath(
               params.stateDir,
               params.sessionId,
-              terminalStatus,
+              otherStatus,
               plan.planId,
             ),
             stateDir: params.stateDir,
             sessionId: params.sessionId,
-            status: terminalStatus,
+            status: otherStatus,
           });
           return {
             plans: [],
@@ -753,14 +848,14 @@ export async function loadContextMutationPlans(params: {
               loaded.quarantinedFileCount + (quarantined ? 1 : 0),
           };
         }
-        if (terminal.kind !== "missing") {
+        if (conflicting.kind !== "missing") {
           return {
             plans: [],
             bypassed: true,
             reasons: [
-              terminal.kind === "unsupported_schema"
+              conflicting.kind === "unsupported_schema"
                 ? "unsupported_schema"
-                : "terminal_plan_read_failed",
+                : "conflicting_plan_read_failed",
             ],
             quarantinedFileCount: loaded.quarantinedFileCount,
           };

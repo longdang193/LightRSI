@@ -98,6 +98,95 @@ test("active plans persist idempotently and recover after restart", async () => 
   }
 });
 
+test("same plan id rejects different content instead of treating it as idempotent", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-id-conflict-"));
+  try {
+    const plan = createPlan("plan-conflict");
+    await saveActiveContextMutationPlan({ stateDir, plan });
+    const conflict = await saveActiveContextMutationPlan({
+      stateDir,
+      plan: {
+        ...plan,
+        operations: plan.operations.map((operation) => ({
+          ...operation,
+          rationale: "different decision",
+        })),
+      },
+    });
+
+    assert.equal(conflict.outcome, "bypassed");
+    assert.deepEqual(conflict.reasons, ["plan_id_conflict"]);
+    const loaded = await loadActiveContextMutationPlans({
+      stateDir,
+      sessionId: plan.sessionId,
+    });
+    assert.equal(loaded.plans[0]?.operations[0]?.rationale, "evicted completed task");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("persistence strips unknown plan and operation fields", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-canonical-"));
+  try {
+    const plan = createPlan("plan-canonical");
+    const unsafePlan = {
+      ...plan,
+      rawHostPayload: { authorization: "Bearer secret" },
+      operations: plan.operations.map((operation) => ({
+        ...operation,
+        adapterMetadata: { apiKey: "secret" },
+      })),
+    } as ContextMutationPlan;
+    const stored = await saveActiveContextMutationPlan({ stateDir, plan: unsafePlan });
+    assert.equal(stored.outcome, "stored");
+
+    const path = contextMutationPlanFilePath(
+      stateDir,
+      plan.sessionId,
+      "active",
+      plan.planId,
+    );
+    const persisted = JSON.parse(await readFile(path, "utf8")) as {
+      plan: Record<string, unknown> & { operations: Record<string, unknown>[] };
+    };
+    assert.equal("rawHostPayload" in persisted.plan, false);
+    assert.equal("adapterMetadata" in persisted.plan.operations[0]!, false);
+
+    const loaded = await loadActiveContextMutationPlans({
+      stateDir,
+      sessionId: plan.sessionId,
+    });
+    assert.equal("rawHostPayload" in (loaded.plans[0] as object), false);
+    assert.equal("adapterMetadata" in (loaded.plans[0]!.operations[0] as object), false);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("fingerprint maps preserve special item ids as data keys", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-special-key-"));
+  try {
+    const plan = createPlan("plan-special-key");
+    plan.operations[0]!.targetItemIds = ["__proto__"];
+    plan.operations[0]!.targetItemFingerprints = Object.fromEntries([
+      ["__proto__", "fingerprint-special"],
+    ]);
+    const stored = await saveActiveContextMutationPlan({ stateDir, plan });
+    assert.equal(stored.outcome, "stored");
+
+    const loaded = await loadActiveContextMutationPlans({
+      stateDir,
+      sessionId: plan.sessionId,
+    });
+    const fingerprints = loaded.plans[0]?.operations[0]?.targetItemFingerprints;
+    assert.deepEqual(Object.keys(fingerprints ?? {}), ["__proto__"]);
+    assert.equal(fingerprints?.["__proto__"], "fingerprint-special");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("active plans move atomically into separate terminal states", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-status-"));
   try {
@@ -149,6 +238,41 @@ test("active plans move atomically into separate terminal states", async () => {
     assert.deepEqual(active.plans, []);
     assert.deepEqual(appliedPlans.plans.map((plan) => plan.planId), ["plan-applied"]);
     assert.deepEqual(failedPlans.plans.map((plan) => plan.planId), ["plan-failed"]);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("every status loader detects a plan stored in multiple statuses", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-status-conflict-"));
+  try {
+    const plan = createPlan("plan-status-conflict");
+    await saveActiveContextMutationPlan({ stateDir, plan });
+    const activePath = contextMutationPlanFilePath(
+      stateDir,
+      plan.sessionId,
+      "active",
+      plan.planId,
+    );
+    const failedPath = contextMutationPlanFilePath(
+      stateDir,
+      plan.sessionId,
+      "failed",
+      plan.planId,
+    );
+    await mkdir(dirname(failedPath), { recursive: true });
+    await writeFile(failedPath, await readFile(activePath, "utf8"), "utf8");
+
+    for (const status of ["active", "failed"] as const) {
+      const loaded = await loadContextMutationPlans({
+        stateDir,
+        sessionId: plan.sessionId,
+        status,
+      });
+      assert.equal(loaded.bypassed, true);
+      assert.deepEqual(loaded.plans, []);
+      assert.deepEqual(loaded.reasons, ["plan_status_conflict"]);
+    }
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }
@@ -329,6 +453,40 @@ test("stale session lock is recovered while a live lock causes bypass", async ()
   }
 });
 
+test("concurrent stale-lock recovery does not remove a new lock owner", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-stale-race-"));
+  try {
+    const sessionId = "session-stale-race";
+    const lockPath = contextMutationPlanLockPath(stateDir, sessionId);
+    await mkdir(lockPath, { recursive: true });
+    await writeFile(join(lockPath, "owner.json"), JSON.stringify({
+      token: "stale-owner",
+      pid: 2_147_483_647,
+      hostname: hostname(),
+      createdAt: "2026-08-01T00:00:00.000Z",
+    }), "utf8");
+
+    const plans = Array.from({ length: 8 }, (_, index) =>
+      createPlan(`plan-stale-race-${index}`, sessionId));
+    const results = await Promise.all(plans.map((plan) =>
+      saveActiveContextMutationPlan({
+        stateDir,
+        plan,
+        lock: { lockTimeoutMs: 5_000, lockRetryMs: 2 },
+      })));
+    assert.equal(results.every((result) => result.outcome === "stored"), true);
+
+    const loaded = await loadActiveContextMutationPlans({ stateDir, sessionId });
+    assert.equal(loaded.bypassed, false);
+    assert.deepEqual(
+      loaded.plans.map((plan) => plan.planId),
+      plans.map((plan) => plan.planId),
+    );
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("adapter-owned replacement payloads are rejected before persistence", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-payload-"));
   try {
@@ -353,6 +511,57 @@ test("adapter-owned replacement payloads are rejected before persistence", async
       "active",
       plan.planId,
     )));
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("malformed operation identity and fingerprint scope are rejected", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-invalid-"));
+  try {
+    const base = createPlan("plan-invalid");
+    const invalidOperations: ContextMutationPlan["operations"][] = [
+      [{ ...base.operations[0]!, id: " " }],
+      [{ ...base.operations[0]!, targetItemIds: [] }],
+      [{ ...base.operations[0]!, targetItemIds: ["item", "item"] }],
+      [{
+        ...base.operations[0]!,
+        targetItemIds: ["item-a"],
+        targetItemFingerprints: { "item-b": "fingerprint" },
+      }],
+      [base.operations[0]!, { ...base.operations[0]! }],
+    ];
+
+    for (const [index, operations] of invalidOperations.entries()) {
+      const plan = {
+        ...base,
+        planId: `plan-invalid-${index}`,
+        operations,
+      };
+      const result = await saveActiveContextMutationPlan({ stateDir, plan });
+      assert.equal(result.outcome, "bypassed");
+      assert.deepEqual(result.reasons, ["invalid_plan"]);
+    }
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("plan and store timestamps must use canonical ISO format", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-date-"));
+  try {
+    const plan = createPlan("plan-date");
+    const invalidPlan = await saveActiveContextMutationPlan({
+      stateDir,
+      plan: { ...plan, createdAt: "August 2, 2026" },
+    });
+    const invalidStoredAt = await saveActiveContextMutationPlan({
+      stateDir,
+      plan,
+      storedAt: "August 2, 2026",
+    });
+    assert.deepEqual(invalidPlan.reasons, ["invalid_plan"]);
+    assert.deepEqual(invalidStoredAt.reasons, ["stored_at_invalid"]);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }
