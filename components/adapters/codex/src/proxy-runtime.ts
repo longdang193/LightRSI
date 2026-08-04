@@ -386,13 +386,11 @@ export async function startCodexResponsesProxy(params: {
               if (!snapshot?.transcriptPath) return null;
               const rollout = await parseCodexRollout(snapshot.transcriptPath);
               if (!rollout) return null;
-              const expectedCodexSessionId = inboundPromptCacheKey
-                && !inboundPromptCacheKey.startsWith("lightmem2-codex-")
-                ? inboundPromptCacheKey
-                : snapshot.codexSessionId;
               const validation = validateCodexRolloutBootstrap({
                 rollout,
-                expectedCodexSessionId,
+                // prompt_cache_key is an upstream cache namespace, not the
+                // Codex host session identity used by rollout metadata.
+                expectedCodexSessionId: snapshot.codexSessionId,
                 snapshotCodexSessionId: snapshot.codexSessionId,
                 sourceModel: snapshot.latestModel,
                 sourceUpstreamProvider: snapshot.latestUpstreamProvider,
