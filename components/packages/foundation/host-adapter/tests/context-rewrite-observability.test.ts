@@ -117,6 +117,79 @@ test("normalizes optional fields and drops invalid accounting values", () => {
   assert.equal(event.fallbackUsed, false);
 });
 
+test("redacts credential-shaped values in identifiers and reason codes", () => {
+  const secret = "sk-test-012345678901234567890123456789";
+  const event = createContextRewriteEvent({
+    ...baseInput("context_rewrite_failed"),
+    sessionId: secret,
+    planId: secret,
+    operationIds: [secret],
+    itemIds: [secret],
+    taskIds: [secret],
+    reasonCodes: [secret, "revision_mismatch"],
+    errorCategory: secret,
+  });
+  const serialized = JSON.stringify(event);
+
+  assert.equal(serialized.includes(secret), false);
+  assert.match(event.sessionId, /^redacted:sha256:[a-f0-9]{24}$/);
+  assert.match(event.planId ?? "", /^redacted:sha256:[a-f0-9]{24}$/);
+  assert.match(event.reasonCodes?.[0] ?? "", /^redacted:sha256:[a-f0-9]{24}$/);
+  assert.equal(event.reasonCodes?.[1], "revision_mismatch");
+  assert.match(event.errorCategory ?? "", /^redacted:sha256:[a-f0-9]{24}$/);
+
+  for (const credential of [
+    "ghp_012345678901234567890123456789012345",
+    "github_pat_012345678901234567890123456789012345",
+    "AKIAIOSFODNN7EXAMPLE",
+    "Bearer abcdefghijklmnopqrstuvwxyz0123456789",
+    "api_key=01234567890123456789",
+  ]) {
+    const credentialEvent = createContextRewriteEvent({
+      ...baseInput("context_rewrite_failed"),
+      reasonCodes: [credential],
+    });
+    assert.equal(JSON.stringify(credentialEvent).includes(credential), false);
+    assert.match(
+      credentialEvent.reasonCodes?.[0] ?? "",
+      /^redacted:sha256:[a-f0-9]{24}$/,
+    );
+  }
+});
+
+test("rejects an invalid rewrite mode instead of silently omitting it", () => {
+  assert.throws(
+    () => createContextRewriteEvent({
+      ...baseInput("context_rewrite_planned"),
+      mode: "unsupported-mode",
+    } as unknown as ContextRewriteEventInput),
+    /unsupported context rewrite mode/,
+  );
+});
+
+test("ignores malformed optional array entries at the observability boundary", () => {
+  const event = createContextRewriteEvent({
+    ...baseInput("context_rewrite_planned"),
+    operationIds: ["op-1", 42] as unknown as string[],
+    reasonCodes: ["ok", null] as unknown as string[],
+    contentSamples: ["safe", 42] as unknown as string[],
+  });
+
+  assert.deepEqual(event.operationIds, ["op-1"]);
+  assert.deepEqual(event.reasonCodes, ["ok"]);
+  assert.equal(event.contentSummaries?.length, 1);
+
+  const malformed = createContextRewriteEvent({
+    ...baseInput("context_rewrite_planned"),
+    operationIds: "op-1" as unknown as string[],
+    reasonCodes: null as unknown as string[],
+    contentSamples: "raw" as unknown as string[],
+  });
+  assert.equal(malformed.operationIds, undefined);
+  assert.equal(malformed.reasonCodes, undefined);
+  assert.equal(malformed.contentSummaries, undefined);
+});
+
 test("rejects unsupported event names and invalid timestamps", () => {
   assert.throws(
     () => createContextRewriteEvent({

@@ -70,6 +70,14 @@ export type ContextRewriteEvent = {
 };
 
 const SAFE_CODE_PATTERN = /^[a-z0-9][a-z0-9_.:-]{0,159}$/i;
+const SENSITIVE_VALUE_PATTERNS = [
+  /\bsk-(?:proj-)?[a-z0-9_-]{16,}\b/i,
+  /\bgh[pousr]_[a-z0-9_]{16,}\b/i,
+  /\bgithub_pat_[a-z0-9_]{16,}\b/i,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bBearer\s+[a-z0-9._~+/=-]{16,}\b/i,
+  /\b(?:api[_-]?key|access[_-]?key|secret|token|authorization)\s*[:=]\s*[^\s,;]{16,}/i,
+];
 const CONTEXT_REWRITE_EVENT_NAME_SET = new Set<string>(
   CONTEXT_REWRITE_EVENT_NAMES,
 );
@@ -84,8 +92,8 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function requiredId(value: string, name: string): string {
-  const normalized = value.trim();
+function requiredId(value: unknown, name: string): string {
+  const normalized = safeIdentifier(value);
   if (!normalized) throw new TypeError(`${name} must not be empty`);
   return normalized;
 }
@@ -100,11 +108,16 @@ function eventName(value: string): ContextRewriteEventName {
 function rewriteMode(
   value: ModelContextRewriteMode | undefined,
 ): ModelContextRewriteMode | undefined {
-  return value && CONTEXT_REWRITE_MODE_SET.has(value) ? value : undefined;
+  if (value === undefined) return undefined;
+  if (CONTEXT_REWRITE_MODE_SET.has(value)) return value;
+  throw new TypeError("unsupported context rewrite mode");
 }
 
 function eventTimestamp(value: string | undefined): string {
-  if (!value?.trim()) return new Date().toISOString();
+  if (value === undefined) return new Date().toISOString();
+  if (typeof value !== "string" || !value.trim()) {
+    throw new TypeError("at must be a valid timestamp");
+  }
   const parsed = new Date(value.trim());
   if (!Number.isFinite(parsed.getTime())) {
     throw new TypeError("at must be a valid timestamp");
@@ -112,27 +125,47 @@ function eventTimestamp(value: string | undefined): string {
   return parsed.toISOString();
 }
 
-function optionalId(value: string | undefined): string | undefined {
-  const normalized = value?.trim();
+function optionalId(value: unknown): string | undefined {
+  const normalized = safeIdentifier(value);
   return normalized || undefined;
 }
 
 function uniqueIds(values: readonly string[] | undefined): string[] | undefined {
+  const entries = Array.isArray(values) ? values : [];
   const result = [...new Set(
-    (values ?? []).map((value) => value.trim()).filter(Boolean),
+    entries
+      .filter((value): value is string => typeof value === "string")
+      .map(safeIdentifier)
+      .filter(Boolean),
   )];
   return result.length > 0 ? result : undefined;
 }
 
-function safeCode(value: string): string {
+function containsSensitiveValue(value: string): boolean {
+  return SENSITIVE_VALUE_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+function safeIdentifier(value: unknown): string {
+  if (typeof value !== "string") return "";
   const normalized = value.trim();
-  if (SAFE_CODE_PATTERN.test(normalized)) return normalized;
+  if (!normalized) return "";
+  if (SAFE_CODE_PATTERN.test(normalized) && !containsSensitiveValue(normalized)) {
+    return normalized;
+  }
   return `redacted:sha256:${sha256(normalized).slice(0, 24)}`;
 }
 
+function safeCode(value: unknown): string {
+  return safeIdentifier(value);
+}
+
 function safeCodes(values: readonly string[] | undefined): string[] | undefined {
+  const entries = Array.isArray(values) ? values : [];
   const result = [...new Set(
-    (values ?? []).map(safeCode),
+    entries
+      .filter((value): value is string => typeof value === "string")
+      .map(safeCode)
+      .filter(Boolean),
   )];
   return result.length > 0 ? result : undefined;
 }
@@ -174,9 +207,12 @@ export function createContextRewriteEvent(
     : undefined;
   const estimatedSavedChars = nonNegativeCount(input.estimatedSavedChars);
   const savedChars = nonNegativeCount(input.savedChars);
-  const contentSummaries = input.contentSamples?.map(
-    summarizeContextRewriteContent,
-  );
+  const contentSamples = Array.isArray(input.contentSamples)
+    ? input.contentSamples
+    : [];
+  const contentSummaries = contentSamples
+    .filter((content): content is string => typeof content === "string")
+    .map(summarizeContextRewriteContent);
 
   return {
     schemaVersion: MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
