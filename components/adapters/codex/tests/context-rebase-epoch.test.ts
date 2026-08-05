@@ -107,6 +107,23 @@ test("CDR-01 Rebase Epoch session lock recovers malformed stale lock directories
   });
 });
 
+test("CDR-01 Rebase Epoch serializes stale-lock recovery claims", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-stale-race";
+    const lockPath = codexRebaseSessionLockPath(stateDir, sessionId);
+    await mkdir(lockPath, { recursive: true });
+    await writeFile(join(lockPath, "owner.json"), "{malformed", "utf8");
+    const old = new Date(Date.now() - 10_000);
+    await utimes(lockPath, old, old);
+
+    const locks = await Promise.all(Array.from({ length: 8 }, () =>
+      acquireCodexRebaseSessionLock({ stateDir, sessionId, staleAfterMs: 1_000 })));
+    const acquired = locks.filter((lock): lock is NonNullable<typeof lock> => Boolean(lock));
+    assert.equal(acquired.length, 1);
+    await Promise.all(acquired.map((lock) => lock.release()));
+  });
+});
+
 test("CDR-03 Rebase Epoch marks restored pending epochs failed after restart", async () => {
   await withTempState(async (stateDir) => {
     await appendPendingCodexRebaseEpoch({
@@ -200,6 +217,32 @@ test("CDR-03 Rebase Epoch marks failed epochs and keeps terminal records immutab
   });
 });
 
+test("CDR-03 Rebase Epoch rejects conflicting reuse of the same terminal state", async () => {
+  await withTempState(async (stateDir) => {
+    await appendPendingCodexRebaseEpoch({
+      stateDir,
+      sessionId: "codex-session-terminal-conflict",
+      epochId: "epoch-terminal-conflict",
+      planId: "plan-terminal-conflict",
+      oldPreviousResponseId: "resp-old",
+      oldRevision: "rev-old",
+    });
+    await commitCodexRebaseEpoch({
+      stateDir,
+      sessionId: "codex-session-terminal-conflict",
+      epochId: "epoch-terminal-conflict",
+      newResponseId: "resp-new",
+    });
+
+    await assert.rejects(() => commitCodexRebaseEpoch({
+      stateDir,
+      sessionId: "codex-session-terminal-conflict",
+      epochId: "epoch-terminal-conflict",
+      newResponseId: "resp-other",
+    }), /response id conflict/);
+  });
+});
+
 test("CDR-03 Rebase Epoch isolates malformed rows without losing valid epochs", async () => {
   await withTempState(async (stateDir) => {
     await appendPendingCodexRebaseEpoch({
@@ -246,6 +289,20 @@ test("CDR-03 Rebase Epoch isolates malformed rows without losing valid epochs", 
     assert.equal(journal.entries.length, 1);
     assert.equal(journal.epochs.length, 1);
     assert.equal(journal.malformedLineCount, 4);
+  });
+});
+
+test("CDR-03 Rebase Epoch fails closed when the journal cannot be read", async () => {
+  await withTempState(async (stateDir) => {
+    const journalPath = codexRebaseEpochJournalPath(stateDir, "codex-session-read-error");
+    await mkdir(journalPath, { recursive: true });
+    await assert.rejects(
+      () => readLatestCodexRebaseEpoch({
+        stateDir,
+        sessionId: "codex-session-read-error",
+      }),
+      /Unable to read Codex rebase epoch journal/,
+    );
   });
 });
 
@@ -386,6 +443,52 @@ test("CDR-01 Rebase Epoch bypasses when another epoch is already in flight", asy
         .map((entry) => entry.epochId),
       ["epoch-existing"],
     );
+  });
+});
+
+test("CDR-01 Rebase Epoch allows different sessions to rebase concurrently", async () => {
+  await withTempState(async (stateDir) => {
+    let releaseBoth!: () => void;
+    const bothCanFinish = new Promise<void>((resolve) => {
+      releaseBoth = resolve;
+    });
+    let signalFirstStarted!: () => void;
+    let signalSecondStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      signalFirstStarted = resolve;
+    });
+    const secondStarted = new Promise<void>((resolve) => {
+      signalSecondStarted = resolve;
+    });
+
+    const run = (sessionId: string, epochId: string, signalStarted: () => void) =>
+      executeCodexRebaseWithFallback({
+        sessionId,
+        planId: `plan-${sessionId}`,
+        epochId,
+        originalPayload: { previous_response_id: `resp-old-${sessionId}`, input: [] },
+        rebasedPayload: { input: [{ role: "user", content: `rebased-${sessionId}` }] },
+        epochStore: {
+          stateDir,
+          oldPreviousResponseId: `resp-old-${sessionId}`,
+          oldRevision: `rev-old-${sessionId}`,
+        },
+        async sendUpstream() {
+          signalStarted();
+          await bothCanFinish;
+          return { status: 200, headers: {}, text: JSON.stringify({ id: `resp-new-${sessionId}`, output: [] }) };
+        },
+      });
+
+    const first = run("session-a", "epoch-a", signalFirstStarted);
+    const second = run("session-b", "epoch-b", signalSecondStarted);
+    await Promise.all([firstStarted, secondStarted]);
+    releaseBoth();
+
+    const results = await Promise.all([first, second]);
+    assert.deepEqual(results.map((result) => result.outcome), ["committed", "committed"]);
+    assert.equal((await readLatestCodexRebaseEpoch({ stateDir, sessionId: "session-a" }))?.status, "committed");
+    assert.equal((await readLatestCodexRebaseEpoch({ stateDir, sessionId: "session-b" }))?.status, "committed");
   });
 });
 

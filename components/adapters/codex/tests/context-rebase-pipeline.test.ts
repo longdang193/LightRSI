@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer as createHttpServer } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import {
   buildCodexEffectiveHistory,
   loadCodexContextHistoryJournal,
+  parseCodexRollout,
 } from "../src/context-history/index.js";
 import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
@@ -18,7 +19,12 @@ import {
   appendPendingCodexRebaseEpoch,
   readLatestCodexRebaseEpoch,
 } from "../src/context-rewrite/index.js";
-import { resolveCodexSessionIdByResponseId } from "../src/session-state.js";
+import {
+  loadCodexSessionSnapshot,
+  resolveCodexSessionAlias,
+  resolveCodexSessionIdByResponseId,
+  upsertCodexSessionSnapshot,
+} from "../src/session-state.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -408,6 +414,123 @@ test("CDR-06 proxy pipeline rebases a non-stream request from effective history"
     assert.equal("previous_response_id" in (upstream.requests[1] ?? {}), false);
     assert.doesNotMatch(inputText(upstream.requests[1]), /OLD_SENTINEL_PIPELINE/);
     assert.match(inputText(upstream.requests[1]), /CURRENT_SENTINEL_PIPELINE/);
+  } finally {
+    await runtime?.close();
+    await upstream.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("CDR-06 proxy bootstraps a rebase from the hook-persisted Codex rollout", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rollout-bootstrap-"));
+  const upstream = await startSequencedResponsesUpstream();
+  let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  try {
+    const codexSessionId = "019f-rollout-bootstrap-session";
+    const rolloutPath = join(stateDir, "rollout.jsonl");
+    const rolloutRecords = [
+      {
+        timestamp: "2026-08-02T00:00:00.000Z",
+        type: "session_meta",
+        payload: { id: codexSessionId, cwd: "/workspace/example", model_provider: "tokenpilot" },
+      },
+      {
+        timestamp: "2026-08-02T00:00:01.000Z",
+        type: "compacted",
+        payload: {
+          replacement_history: [
+            {
+              id: "msg-rollout-old",
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: "OLD_ROLLOUT_SENTINEL" }],
+            },
+            {
+              id: "cmp-rollout-1",
+              type: "compaction",
+              encrypted_content: "opaque-compaction-payload",
+              internal_chat_message_metadata_passthrough: { source: "codex" },
+            },
+            {
+              id: "msg-rollout-keep",
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: "KEEP_ROLLOUT_SENTINEL" }],
+            },
+          ],
+        },
+      },
+    ];
+    await writeFile(
+      rolloutPath,
+      `${rolloutRecords.map((record) => JSON.stringify(record)).join("\n")}\n`,
+      "utf8",
+    );
+    await upsertCodexSessionSnapshot(stateDir, codexSessionId, {
+      codexSessionId,
+      transcriptPath: rolloutPath,
+      latestModel: "gpt-5.4-mini",
+      latestUpstreamProvider: "OpenAI",
+    }, { markLatest: false });
+
+    const parsedRollout = await parseCodexRollout(rolloutPath);
+    assert.ok(parsedRollout);
+    assert.equal(parsedRollout.history.incomplete, false);
+    const oldItem = parsedRollout.history.replayableItems.find(
+      (entry) => JSON.stringify(entry.item).includes("OLD_ROLLOUT_SENTINEL"),
+    );
+    assert.ok(oldItem);
+
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir,
+      proxyPort: await reserveFetchPort(),
+      upstreamProvider: "OpenAI",
+      upstream: {
+        baseUrl: upstream.baseUrl,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      modules: { stabilizer: false, reduction: false },
+      contextRewrite: {
+        enabled: true,
+        mode: "response_chain_rebase",
+        failureMode: "bypass",
+        retryOriginalRequest: true,
+        mutationPlan: {
+          operations: [{ type: "evict", stableItemId: oldItem.stableItemId }],
+        },
+      },
+    } as any);
+    runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false) });
+
+    const response = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        previous_response_id: "resp-before-proxy-journal",
+        prompt_cache_key: codexSessionId,
+        input: [{ role: "user", content: "CURRENT_ROLLOUT_SENTINEL" }],
+      }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+
+    assert.equal(upstream.requests.length, 1);
+    const rebasedPayload = upstream.requests[0];
+    assert.equal("previous_response_id" in (rebasedPayload ?? {}), false);
+    assert.doesNotMatch(inputText(rebasedPayload), /OLD_ROLLOUT_SENTINEL/);
+    assert.match(inputText(rebasedPayload), /KEEP_ROLLOUT_SENTINEL/);
+    assert.match(inputText(rebasedPayload), /CURRENT_ROLLOUT_SENTINEL/);
+    assert.match(inputText(rebasedPayload), /\"type\":\"compaction\"/);
+
+    const synthesizedSessionId = await resolveCodexSessionAlias(stateDir, codexSessionId);
+    assert.ok(synthesizedSessionId);
+    assert.equal(
+      (await loadCodexSessionSnapshot(stateDir, synthesizedSessionId))?.transcriptPath,
+      rolloutPath,
+    );
   } finally {
     await runtime?.close();
     await upstream.close();

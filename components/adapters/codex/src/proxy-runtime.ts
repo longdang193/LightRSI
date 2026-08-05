@@ -48,6 +48,7 @@ import {
   indexCodexPromptCacheKeySession,
   indexCodexResponseSession,
   mergeCodexSessionSnapshot,
+  loadCodexSessionSnapshot,
   resolveCodexSessionIdByPromptCacheKey,
   resolveCodexSessionIdByResponseId,
   upsertCodexSessionSnapshot,
@@ -61,6 +62,8 @@ import {
   appendCodexResponseJournalEntry,
   buildCodexEffectiveHistory,
   collectCodexResponseItemsFromStream,
+  parseCodexRollout,
+  validateCodexRolloutBootstrap,
 } from "./context-history/index.js";
 import type {
   CodexJournalStatus,
@@ -239,6 +242,7 @@ export async function startCodexResponsesProxy(params: {
   }));
   await mkdir(config.stateDir, { recursive: true });
   const upstream = await resolveUpstreamProvider(config, params.codexConfigPath ?? defaultCodexConfigPath());
+  const upstreamProviderName = upstream.name ?? config.upstreamProvider ?? "OpenAI";
   const epochRecoveryBySession = new Map<string, Promise<void>>();
 
   async function recoverSessionEpochsAfterRestart(sessionId: string): Promise<void> {
@@ -297,7 +301,7 @@ export async function startCodexResponsesProxy(params: {
     healthPayload: {
       ok: true,
       adapter: "tokenpilot-codex",
-      upstream: upstream.name ?? config.upstreamProvider ?? "OpenAI",
+      upstream: upstreamProviderName,
       stateDir: config.stateDir,
     },
     async handleRequest({ req, res, body }) {
@@ -377,6 +381,32 @@ export async function startCodexResponsesProxy(params: {
             sessionId,
             headResponseId: String(originalPayload.previous_response_id),
             currentRequestId: requestJournalEntry.requestId,
+            async rolloutParserBootstrap() {
+              const snapshot = await loadCodexSessionSnapshot(config.stateDir, sessionId);
+              if (!snapshot?.transcriptPath) return null;
+              const rollout = await parseCodexRollout(snapshot.transcriptPath);
+              if (!rollout) return null;
+              const validation = validateCodexRolloutBootstrap({
+                rollout,
+                // prompt_cache_key is an upstream cache namespace, not the
+                // Codex host session identity used by rollout metadata.
+                expectedCodexSessionId: snapshot.codexSessionId,
+                snapshotCodexSessionId: snapshot.codexSessionId,
+                sourceModel: snapshot.latestModel,
+                sourceUpstreamProvider: snapshot.latestUpstreamProvider,
+                currentModel: model,
+                currentCodexProvider: config.providerName,
+                currentUpstreamProvider: upstreamProviderName,
+              });
+              if (validation.rejectionReason) {
+                await appendTrace(config.stateDir, {
+                  stage: "context_history_rollout_bootstrap_rejected",
+                  sessionId,
+                  reason: validation.rejectionReason,
+                });
+              }
+              return validation.history;
+            },
           });
           rebaseRequest = buildCodexRebaseRequest({
             sessionId,
@@ -633,7 +663,7 @@ export async function startCodexResponsesProxy(params: {
           },
           capabilityStore: {
             stateDir: config.stateDir,
-            provider: upstream.name ?? config.upstreamProvider ?? "OpenAI",
+            provider: upstreamProviderName,
             model,
           },
         }).then((result) => {
@@ -702,6 +732,7 @@ export async function startCodexResponsesProxy(params: {
           latestResponseId: snapshot.responseId,
           previousResponseId: snapshot.previousResponseId,
           latestModel: model,
+          latestUpstreamProvider: upstreamProviderName,
           disclosedReadPaths: reductionSummary?.disclosedReadPaths,
         });
         if (typeof snapshot.responseId === "string" && snapshot.responseId) {
@@ -839,6 +870,7 @@ export async function startCodexResponsesProxy(params: {
         latestResponseId: responseId,
         previousResponseId,
         latestModel: model,
+        latestUpstreamProvider: upstreamProviderName,
         disclosedReadPaths: reductionSummary?.disclosedReadPaths,
       });
       if (typeof responseId === "string" && responseId) {

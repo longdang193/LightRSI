@@ -204,6 +204,13 @@ test("GUA-06 independently accepts Claude rewrite failure bypass", async () => {
     const beforeCall = trace.find((entry) => entry.stage === "gateway_before_call");
     assert.equal(beforeCall?.evictionApplied, false);
     assert.equal(beforeCall?.evictionBypassReason, "analysis_or_apply_error");
+    // CLA-06 isolation: the bypass trace records only the error CLASS, never the
+    // raw exception text — the injected error message must not leak anywhere.
+    const rawTrace = fs.readFileSync(
+      path.join(environment.stateDir, "event-trace.jsonl"),
+      "utf8",
+    );
+    assert.equal(rawTrace.includes("synthetic GUA-06"), false);
   } finally {
     await runtime?.close();
     await upstream.close();

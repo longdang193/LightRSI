@@ -36,7 +36,7 @@ export function codexReplayabilityForItem(item: JsonObject): CodexItemReplayabil
       ? { mode: "replayable", reason: "tool_closure_required" }
       : { mode: "deferred", reason: "tool_call_id_missing" };
   }
-  if (type === "reasoning") {
+  if (type === "reasoning" || type === "compaction") {
     return typeof item.encrypted_content === "string" && item.encrypted_content.length > 0
       ? { mode: "replayable", reason: "exact_payload_required" }
       : { mode: "deferred", reason: "exact_payload_missing" };

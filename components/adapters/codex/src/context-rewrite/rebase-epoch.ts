@@ -63,6 +63,15 @@ function timestampMs(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function isIsoTimestamp(value: unknown): value is string {
+  const parsed = timestampMs(value);
+  return parsed !== undefined && new Date(parsed).toISOString() === value;
+}
+
+function isNonBlankString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function isProcessAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   if (pid === process.pid) return true;
@@ -118,17 +127,40 @@ export async function acquireCodexRebaseSessionLock(params: {
   nowMs?: number;
 }): Promise<CodexRebaseSessionLock | undefined> {
   const lockPath = codexRebaseSessionLockPath(params.stateDir, params.sessionId);
+  const recoveryPath = `${lockPath}.recovery`;
   const staleAfterMs = Math.max(1_000, params.staleAfterMs ?? DEFAULT_REBASE_LOCK_STALE_MS);
   const nowMs = params.nowMs ?? Date.now();
   await mkdir(dirname(lockPath), { recursive: true });
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
+      await stat(recoveryPath);
+      return undefined;
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") throw error;
+    }
+    try {
       await mkdir(lockPath);
     } catch (error) {
       if (errorCode(error) !== "EEXIST") throw error;
       if (!await lockIsStale({ lockPath, staleAfterMs, nowMs })) return undefined;
-      await rm(lockPath, { recursive: true, force: true });
+      try {
+        await mkdir(recoveryPath);
+      } catch (recoveryError) {
+        if (errorCode(recoveryError) !== "EEXIST") throw recoveryError;
+        return undefined;
+      }
+      try {
+        if (await lockIsStale({
+          lockPath,
+          staleAfterMs,
+          nowMs: Date.now(),
+        })) {
+          await rm(lockPath, { recursive: true, force: true });
+        }
+      } finally {
+        await rm(recoveryPath, { recursive: true, force: true });
+      }
       continue;
     }
 
@@ -161,40 +193,77 @@ export async function acquireCodexRebaseSessionLock(params: {
   return undefined;
 }
 
-function isCodexRebaseAccounting(value: unknown): value is CodexRebaseAccounting {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+function canonicalCodexRebaseAccounting(value: unknown): CodexRebaseAccounting | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const entry = value as Record<string, unknown>;
-  return isNonNegativeNumber(entry.plannedSavedChars)
-    && isNonNegativeNumber(entry.plannedSavedTokens)
-    && isNonNegativeNumber(entry.actuallyRemovedChars)
-    && isNonNegativeNumber(entry.actuallyRemovedTokens)
-    && isNonNegativeNumber(entry.rebaseReplayCostChars)
-    && isNonNegativeNumber(entry.rebaseReplayCostTokens)
-    && isNonNegativeNumber(entry.subsequentSavedCharsPerTurn)
-    && isNonNegativeNumber(entry.subsequentSavedTokensPerTurn)
-    && isNonNegativeNumber(entry.estimatorCostChars)
-    && isNonNegativeNumber(entry.estimatorCostTokens)
-    && isNonNegativeNumber(entry.fallbackExtraRequestCount)
-    && isNonNegativeNumber(entry.cacheColdMissCount)
-    && (entry.breakEvenTurn === undefined || isNonNegativeNumber(entry.breakEvenTurn));
+  if (!isNonNegativeNumber(entry.plannedSavedChars)
+    || !isNonNegativeNumber(entry.plannedSavedTokens)
+    || !isNonNegativeNumber(entry.actuallyRemovedChars)
+    || !isNonNegativeNumber(entry.actuallyRemovedTokens)
+    || !isNonNegativeNumber(entry.rebaseReplayCostChars)
+    || !isNonNegativeNumber(entry.rebaseReplayCostTokens)
+    || !isNonNegativeNumber(entry.subsequentSavedCharsPerTurn)
+    || !isNonNegativeNumber(entry.subsequentSavedTokensPerTurn)
+    || !isNonNegativeNumber(entry.estimatorCostChars)
+    || !isNonNegativeNumber(entry.estimatorCostTokens)
+    || !isNonNegativeNumber(entry.fallbackExtraRequestCount)
+    || !isNonNegativeNumber(entry.cacheColdMissCount)
+    || (entry.breakEvenTurn !== undefined && !isNonNegativeNumber(entry.breakEvenTurn))) {
+    return undefined;
+  }
+  return {
+    plannedSavedChars: entry.plannedSavedChars,
+    plannedSavedTokens: entry.plannedSavedTokens,
+    actuallyRemovedChars: entry.actuallyRemovedChars,
+    actuallyRemovedTokens: entry.actuallyRemovedTokens,
+    rebaseReplayCostChars: entry.rebaseReplayCostChars,
+    rebaseReplayCostTokens: entry.rebaseReplayCostTokens,
+    subsequentSavedCharsPerTurn: entry.subsequentSavedCharsPerTurn,
+    subsequentSavedTokensPerTurn: entry.subsequentSavedTokensPerTurn,
+    estimatorCostChars: entry.estimatorCostChars,
+    estimatorCostTokens: entry.estimatorCostTokens,
+    fallbackExtraRequestCount: entry.fallbackExtraRequestCount,
+    cacheColdMissCount: entry.cacheColdMissCount,
+    ...(entry.breakEvenTurn !== undefined ? { breakEvenTurn: entry.breakEvenTurn } : {}),
+  };
 }
 
-function isCodexRebaseEpoch(value: unknown): value is CodexRebaseEpoch {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+function canonicalCodexRebaseEpoch(value: unknown): CodexRebaseEpoch | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const entry = value as Record<string, unknown>;
-  return entry.schema === CODEX_REBASE_EPOCH_SCHEMA
-    && typeof entry.epochId === "string"
-    && typeof entry.sessionId === "string"
-    && typeof entry.planId === "string"
-    && typeof entry.oldPreviousResponseId === "string"
-    && typeof entry.oldRevision === "string"
-    && isStatus(entry.status)
-    && timestampMs(entry.createdAt) !== undefined
-    && timestampMs(entry.updatedAt) !== undefined
-    && (entry.newResponseId === undefined || typeof entry.newResponseId === "string")
-    && (entry.newRevision === undefined || typeof entry.newRevision === "string")
-    && (entry.failureReason === undefined || typeof entry.failureReason === "string")
-    && (entry.accounting === undefined || isCodexRebaseAccounting(entry.accounting));
+  if (entry.schema !== CODEX_REBASE_EPOCH_SCHEMA
+    || !isNonBlankString(entry.epochId)
+    || !isNonBlankString(entry.sessionId)
+    || !isNonBlankString(entry.planId)
+    || !isNonBlankString(entry.oldPreviousResponseId)
+    || !isNonBlankString(entry.oldRevision)
+    || !isStatus(entry.status)
+    || !isIsoTimestamp(entry.createdAt)
+    || !isIsoTimestamp(entry.updatedAt)
+    || (entry.newResponseId !== undefined && !isNonBlankString(entry.newResponseId))
+    || (entry.newRevision !== undefined && !isNonBlankString(entry.newRevision))
+    || (entry.failureReason !== undefined && !isNonBlankString(entry.failureReason))) {
+    return undefined;
+  }
+  const accounting = entry.accounting === undefined
+    ? undefined
+    : canonicalCodexRebaseAccounting(entry.accounting);
+  if (entry.accounting !== undefined && !accounting) return undefined;
+  return {
+    schema: CODEX_REBASE_EPOCH_SCHEMA,
+    epochId: entry.epochId,
+    sessionId: entry.sessionId,
+    planId: entry.planId,
+    oldPreviousResponseId: entry.oldPreviousResponseId,
+    ...(entry.newResponseId !== undefined ? { newResponseId: entry.newResponseId } : {}),
+    oldRevision: entry.oldRevision,
+    ...(entry.newRevision !== undefined ? { newRevision: entry.newRevision } : {}),
+    status: entry.status,
+    ...(entry.failureReason !== undefined ? { failureReason: entry.failureReason } : {}),
+    ...(accounting ? { accounting } : {}),
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+  };
 }
 
 function collapseLatestEpochs(entries: CodexRebaseEpoch[]): CodexRebaseEpoch[] {
@@ -246,7 +315,8 @@ export async function readCodexRebaseEpochJournal(
   for (const line of raw.split(/\r?\n/).filter(Boolean)) {
     try {
       const parsed = JSON.parse(line) as unknown;
-      if (isCodexRebaseEpoch(parsed) && parsed.sessionId === sessionId) entries.push(parsed);
+      const entry = canonicalCodexRebaseEpoch(parsed);
+      if (entry && entry.sessionId === sessionId) entries.push(entry);
       else malformedLineCount += 1;
     } catch {
       malformedLineCount += 1;
@@ -283,11 +353,21 @@ export async function appendPendingCodexRebaseEpoch(params: {
     ) {
       throw new Error(`Codex rebase epoch mismatch: ${epochId}`);
     }
+    if (params.accounting && JSON.stringify(existing.accounting) !== JSON.stringify(params.accounting)) {
+      throw new Error(`Codex rebase epoch accounting mismatch: ${epochId}`);
+    }
     return existing;
   }
 
   const createdAt = params.createdAt ?? new Date().toISOString();
-  if (timestampMs(createdAt) === undefined) throw new Error("Codex rebase epoch requires a valid create time");
+  if (!isIsoTimestamp(createdAt)
+    || !isNonBlankString(params.sessionId)
+    || !isNonBlankString(params.planId)
+    || !isNonBlankString(params.epochId)
+    || !isNonBlankString(params.oldPreviousResponseId)
+    || !isNonBlankString(params.oldRevision)) {
+    throw new Error("Codex rebase epoch requires valid identity and create time");
+  }
   const entry: CodexRebaseEpoch = {
     schema: CODEX_REBASE_EPOCH_SCHEMA,
     epochId,
@@ -319,9 +399,24 @@ async function transitionCodexRebaseEpoch(params: {
   throwIfReadFailed(current);
   const existing = latestEpochById(current.entries, params.epochId);
   if (!existing) throw new Error(`Unknown Codex rebase epoch: ${params.epochId}`);
-  if (existing.status !== "pending") return existing;
+  if (existing.status !== "pending") {
+    if (existing.status !== params.status) return existing;
+    if (params.newResponseId !== undefined && params.newResponseId !== existing.newResponseId) {
+      throw new Error(`Codex rebase epoch response id conflict: ${params.epochId}`);
+    }
+    if (params.newRevision !== undefined && params.newRevision !== existing.newRevision) {
+      throw new Error(`Codex rebase epoch revision conflict: ${params.epochId}`);
+    }
+    if (params.failureReason !== undefined && params.failureReason !== existing.failureReason) {
+      throw new Error(`Codex rebase epoch failure conflict: ${params.epochId}`);
+    }
+    if (params.accounting && JSON.stringify(params.accounting) !== JSON.stringify(existing.accounting)) {
+      throw new Error(`Codex rebase epoch accounting conflict: ${params.epochId}`);
+    }
+    return existing;
+  }
   const updatedAt = params.updatedAt ?? new Date().toISOString();
-  if (timestampMs(updatedAt) === undefined) throw new Error("Codex rebase epoch requires a valid update time");
+  if (!isIsoTimestamp(updatedAt)) throw new Error("Codex rebase epoch requires a valid update time");
 
   const entry: CodexRebaseEpoch = {
     ...existing,
@@ -413,5 +508,6 @@ export async function readLatestCodexRebaseEpoch(params: {
   sessionId: string;
 }): Promise<CodexRebaseEpoch | undefined> {
   const journal = await readCodexRebaseEpochJournal(params.stateDir, params.sessionId);
+  throwIfReadFailed(journal);
   return latestEpoch(journal.epochs);
 }
