@@ -1,5 +1,8 @@
-import { appendJsonl } from "@lightmem2/host-adapter";
-import { codexContextHistoryJournalPath, readCodexContextHistoryJournalEntries } from "./journal-store.js";
+import { readCodexContextHistoryJournal } from "./journal-store.js";
+import {
+  appendCodexContextHistoryJournalEntryLocked,
+  withCodexContextHistoryJournalLock,
+} from "./journal-append.js";
 import { cloneJson, hashJson, normalizeStatus, sanitizeValue } from "./shared.js";
 import {
   CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA,
@@ -29,7 +32,7 @@ function requestIdFromPayload(params: {
 }
 
 function latestRequestEntry(
-  entries: Awaited<ReturnType<typeof readCodexContextHistoryJournalEntries>>,
+  entries: Awaited<ReturnType<typeof readCodexContextHistoryJournal>>["entries"],
   requestId: string,
 ): CodexRequestJournalEntry | undefined {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
@@ -45,7 +48,7 @@ function canAdvanceStatus(current: CodexJournalStatus, next: CodexJournalStatus)
   return next !== "pending";
 }
 
-export async function appendCodexRequestJournalEntry(params: {
+async function appendCodexRequestJournalEntryLocked(params: {
   stateDir: string;
   sessionId: string;
   payload: JsonObject;
@@ -57,7 +60,11 @@ export async function appendCodexRequestJournalEntry(params: {
   observedAt?: string;
 }): Promise<CodexRequestJournalEntry> {
   const requestId = params.requestId ?? requestIdFromPayload(params);
-  const current = await readCodexContextHistoryJournalEntries(params.stateDir, params.sessionId);
+  const journal = await readCodexContextHistoryJournal(params.stateDir, params.sessionId);
+  if (journal.readError || journal.malformedLineCount > 0) {
+    throw new Error(`Refusing to update invalid Codex context-history journal for session ${params.sessionId}`);
+  }
+  const current = journal.entries;
   const existing = latestRequestEntry(current, requestId);
   const nextStatus = normalizeStatus(params.status, existing?.status ?? "pending");
   if (existing && !canAdvanceStatus(existing.status, nextStatus)) return existing;
@@ -89,6 +96,23 @@ export async function appendCodexRequestJournalEntry(params: {
     error: params.error,
     observedAt: params.observedAt ?? new Date().toISOString(),
   };
-  await appendJsonl(codexContextHistoryJournalPath(params.stateDir, params.sessionId), entry);
+  await appendCodexContextHistoryJournalEntryLocked(params.stateDir, params.sessionId, entry);
   return entry;
+}
+
+export async function appendCodexRequestJournalEntry(params: {
+  stateDir: string;
+  sessionId: string;
+  payload: JsonObject;
+  committedInputItems?: JsonObject[];
+  requestId?: string;
+  turnOrdinal?: number;
+  status?: CodexJournalStatus;
+  error?: string;
+  observedAt?: string;
+}): Promise<CodexRequestJournalEntry> {
+  return withCodexContextHistoryJournalLock(
+    { stateDir: params.stateDir, sessionId: params.sessionId },
+    () => appendCodexRequestJournalEntryLocked(params),
+  );
 }

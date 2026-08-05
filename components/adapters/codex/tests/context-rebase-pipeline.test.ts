@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer as createHttpServer } from "node:http";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { reserveUnusedPort } from "@lightmem2/host-adapter";
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import {
   buildCodexEffectiveHistory,
+  codexContextHistoryJournalPath,
   loadCodexContextHistoryJournal,
   parseCodexRollout,
 } from "../src/context-history/index.js";
@@ -584,6 +585,59 @@ test("CDH-02 proxy journal respects failed non-stream response bodies", async ()
     const journal = await loadCodexContextHistoryJournal(stateDir, sessionId);
     assert.equal(journal.filter((entry) => entry.kind === "request").at(-1)?.status, "failed");
     assert.equal(journal.find((entry) => entry.kind === "response")?.status, "failed");
+  } finally {
+    await runtime?.close();
+    await upstream.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("CDH-01 proxy bypasses context-history journaling when the journal cannot be read", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-journal-bypass-"));
+  const upstream = await startSequencedResponsesUpstream();
+  let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  try {
+    const sessionId = "codex-session-journal-bypass";
+    await mkdir(codexContextHistoryJournalPath(stateDir, sessionId), { recursive: true });
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir,
+      proxyPort: await reserveFetchPort(),
+      upstreamProvider: "OpenAI",
+      upstream: {
+        baseUrl: upstream.baseUrl,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      modules: {
+        stabilizer: false,
+        reduction: false,
+      },
+      contextRewrite: {
+        enabled: true,
+        mode: "response_chain_rebase",
+        failureMode: "bypass",
+        retryOriginalRequest: true,
+      },
+    } as any);
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+    });
+
+    const response = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "JOURNAL_FAILURE_BYPASS_SENTINEL" }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(upstream.requests.length, 1);
+    assert.match(JSON.stringify(upstream.requests[0]), /JOURNAL_FAILURE_BYPASS_SENTINEL/);
   } finally {
     await runtime?.close();
     await upstream.close();

@@ -137,6 +137,35 @@ Once installed, Codex can use the real internal recovery tool named
 `memory_fault_recover` through the registered MCP server. Recovery hints in
 trimmed payloads are no longer just protocol text.
 
+### Offline context-rebase smoke
+
+The response-chain rebase path has a credential-free smoke command for local
+development and CI:
+
+```bash
+npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
+  --mode=mock \
+  --output-dir=/path/to/sanitized-evidence
+```
+
+It starts a temporary loopback Responses upstream and verifies encrypted
+reasoning replay, function call/output closure, sentinel eviction and
+retention, five turns on the new response chain, proxy restart, one-attempt
+fallback with cooldown, all eight stabilizer/reduction/rewrite combinations,
+and estimated rebase accounting including the break-even turn.
+
+The command never reads an API key. Its evidence is explicitly marked
+`mode: mock` and omits raw prompts, headers, response IDs, and encrypted
+reasoning payloads. It does not replace real-provider validation or
+provider-observed usage and break-even evidence.
+
+Context-history journal writers use a session-scoped cross-process lock. A
+successful append is one complete JSONL record followed by `sync`; concurrent
+request and response writers cannot interleave their records. If an external
+crash leaves a malformed tail, later reads and writes fail closed so the proxy
+bypasses rewriting instead of guessing history. This does not claim
+power-loss-level transactional append semantics.
+
 If install finishes in degraded MCP mode, Codex stable-prefix and reduction remain usable; only the real `memory_fault_recover` tool path is unavailable until MCP startup succeeds.
 
 If doctor still reports `proxy healthy: no` after hooks are trusted and a new session has started, use the daemon fallback:
@@ -263,6 +292,7 @@ Primary package scripts:
 npm --prefix components/adapters/codex run build
 npm --prefix components/adapters/codex run typecheck
 npm --prefix components/adapters/codex test
+npm --prefix components/adapters/codex run smoke:context-rebase:codex -- --mode=mock
 npm --prefix components/adapters/codex run install:codex
 npm --prefix components/adapters/codex run doctor:codex
 ```
