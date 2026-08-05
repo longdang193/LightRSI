@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import {
   appendCodexRequestJournalEntry,
   appendCodexResponseJournalEntry,
   codexContextHistoryJournalPath,
+  codexContextHistoryJournalLockPath,
   loadCodexContextHistoryJournal,
   readCodexContextHistoryJournal,
 } from "../src/context-history/index.js";
@@ -19,8 +22,63 @@ async function withTempState(
   try {
     await fn(stateDir);
   } finally {
-    await rm(stateDir, { recursive: true, force: true });
+    await rm(stateDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
+}
+
+async function runJournalWriterProcess(params: {
+  stateDir: string;
+  sessionId: string;
+  prefix: string;
+  count: number;
+}): Promise<void> {
+  const moduleUrl = pathToFileURL(resolve(__dirname, "../src/context-history/index.ts")).href;
+  const script = `
+    const contextHistoryModule = await import(${JSON.stringify(moduleUrl)});
+    const appendCodexRequestJournalEntry = contextHistoryModule.appendCodexRequestJournalEntry
+      ?? contextHistoryModule.default?.appendCodexRequestJournalEntry;
+    if (typeof appendCodexRequestJournalEntry !== "function") {
+      throw new Error("appendCodexRequestJournalEntry export is unavailable");
+    }
+    const [stateDir, sessionId, prefix, countText] = process.argv.slice(1);
+    const count = Number(countText);
+    for (let index = 0; index < count; index += 1) {
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: prefix + "-" + index,
+        payload: { input: [{ role: "user", content: prefix + "-" + index }] },
+        status: "completed",
+      });
+    }
+  `;
+
+  await new Promise<void>((resolveChild, rejectChild) => {
+    const child = spawn(process.execPath, [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      script,
+      params.stateDir,
+      params.sessionId,
+      params.prefix,
+      String(params.count),
+    ], {
+      cwd: resolve(__dirname, ".."),
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once("error", rejectChild);
+    child.once("close", (code) => {
+      if (code === 0) resolveChild();
+      else rejectChild(new Error(`journal writer exited ${code}: ${stderr}`));
+    });
+  });
 }
 
 test("CDH-01 request journal stores sanitized input metadata and deduplicates request retries", async () => {
@@ -163,6 +221,175 @@ test("CDH-01 isolates malformed JSONL records without discarding valid history",
     assert.equal(journal.entries.length, 1);
     assert.equal(journal.malformedLineCount, 2);
     assert.equal(journal.readError, undefined);
+  });
+});
+
+test("CDH-01 serializes concurrent retries inside one request read-modify-append boundary", async () => {
+  await withTempState(async (stateDir) => {
+    const writes = Array.from({ length: 24 }, (_, index) => appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "codex-session-concurrent-retry",
+      requestId: "request-same",
+      payload: { input: [{ role: "user", content: "same request" }] },
+      status: "completed",
+      observedAt: `2026-08-04T10:00:${String(index).padStart(2, "0")}.000Z`,
+    }));
+
+    const entries = await Promise.all(writes);
+    const journal = await readCodexContextHistoryJournal(stateDir, "codex-session-concurrent-retry");
+
+    assert.equal(journal.malformedLineCount, 0);
+    assert.equal(journal.entries.length, 1);
+    assert.equal(new Set(entries.map((entry) => entry.requestId)).size, 1);
+    assert.equal(journal.entries[0]?.kind, "request");
+  });
+});
+
+test("CDH-01 serializes concurrent request and response journal records", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-concurrent-mixed";
+    const count = 16;
+    await Promise.all([
+      ...Array.from({ length: count }, (_, index) => appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${index}`,
+        payload: { input: [{ role: "user", content: `request ${index}` }] },
+        status: "completed",
+      })),
+      ...Array.from({ length: count }, (_, index) => appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${index}`,
+        response: {
+          id: `response-${index}`,
+          output: [{ id: `message-${index}`, type: "message", role: "assistant", content: [] }],
+        },
+        status: "completed",
+      })),
+    ]);
+
+    const path = codexContextHistoryJournalPath(stateDir, sessionId);
+    const rawLines = (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean);
+    const journal = await readCodexContextHistoryJournal(stateDir, sessionId);
+    const requests = journal.entries.filter((entry) => entry.kind === "request");
+
+    assert.equal(rawLines.length, count * 2);
+    assert.doesNotThrow(() => rawLines.forEach((line) => JSON.parse(line)));
+    assert.equal(journal.malformedLineCount, 0);
+    assert.equal(journal.entries.length, count * 2);
+    assert.equal(new Set(requests.map((entry) => entry.requestId)).size, count);
+    assert.equal(
+      new Set(requests.map((entry) => entry.turnOrdinal)).size,
+      count,
+      JSON.stringify(requests.map((entry) => ({ requestId: entry.requestId, turnOrdinal: entry.turnOrdinal }))),
+    );
+  });
+});
+
+test("CDH-01 serializes context-history appends across writer processes", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-cross-process";
+    const processCount = 3;
+    const recordsPerProcess = 6;
+    await Promise.all(Array.from({ length: processCount }, (_, index) => runJournalWriterProcess({
+      stateDir,
+      sessionId,
+      prefix: `writer-${index}`,
+      count: recordsPerProcess,
+    })));
+
+    const journal = await readCodexContextHistoryJournal(stateDir, sessionId);
+    const requests = journal.entries.filter((entry) => entry.kind === "request");
+
+    assert.equal(journal.readError, undefined);
+    assert.equal(journal.malformedLineCount, 0);
+    assert.equal(requests.length, processCount * recordsPerProcess);
+    assert.equal(new Set(requests.map((entry) => entry.requestId)).size, requests.length);
+    assert.equal(new Set(requests.map((entry) => entry.turnOrdinal)).size, requests.length);
+  });
+});
+
+test("CDH-01 stale journal lock recovery uses a claim before concurrent appends", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-stale-journal-lock";
+    const lockPath = codexContextHistoryJournalLockPath(stateDir, sessionId);
+    await mkdir(dirname(lockPath), { recursive: true });
+    await writeFile(lockPath, JSON.stringify({
+      token: "dead-owner",
+      pid: 2_147_483_647,
+      hostname: hostname(),
+      createdAt: "2026-08-04T00:00:00.000Z",
+    }), "utf8");
+
+    await Promise.all(Array.from({ length: 8 }, (_, index) => appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: `request-${index}`,
+      payload: { input: [{ role: "user", content: `request ${index}` }] },
+      status: "completed",
+    })));
+
+    const journal = await readCodexContextHistoryJournal(stateDir, sessionId);
+    assert.equal(journal.malformedLineCount, 0);
+    assert.equal(journal.entries.length, 8);
+    await assert.rejects(stat(lockPath), { code: "ENOENT" });
+  });
+});
+
+test("CDH-01 refuses to append after a malformed tail and preserves prior bytes", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-malformed-tail";
+    const path = codexContextHistoryJournalPath(stateDir, sessionId);
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "valid" }] },
+      status: "completed",
+    });
+    await appendFile(path, "{\"truncated\":", "utf8");
+    const before = await readFile(path, "utf8");
+
+    await assert.rejects(
+      appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: "request-2",
+        response: { id: "response-2", output: [] },
+        status: "completed",
+      }),
+      /Refusing to append to invalid Codex context-history journal/,
+    );
+
+    assert.equal(await readFile(path, "utf8"), before);
+    const journal = await readCodexContextHistoryJournal(stateDir, sessionId);
+    assert.equal(journal.entries.length, 1);
+    assert.equal(journal.malformedLineCount, 1);
+  });
+});
+
+test("CDH-01 fails closed when the context-history journal cannot be read", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-read-error";
+    const path = codexContextHistoryJournalPath(stateDir, sessionId);
+    await mkdir(path, { recursive: true });
+
+    await assert.rejects(
+      appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: "request-1",
+        payload: { input: [{ role: "user", content: "must bypass" }] },
+        status: "completed",
+      }),
+      /Refusing to update invalid Codex context-history journal/,
+    );
+
+    const journal = await readCodexContextHistoryJournal(stateDir, sessionId);
+    assert.equal(journal.entries.length, 0);
+    assert.equal(journal.malformedLineCount, 0);
+    assert.ok(journal.readError);
   });
 });
 

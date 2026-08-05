@@ -5,6 +5,11 @@ export {
   readCodexContextHistoryJournal,
 } from "./journal-store.js";
 export type { CodexContextHistoryJournalReadResult } from "./journal-store.js";
+export {
+  acquireCodexContextHistoryJournalLock,
+  codexContextHistoryJournalLockPath,
+} from "./journal-append.js";
+export type { CodexContextHistoryJournalLock } from "./journal-append.js";
 export { appendCodexRequestJournalEntry } from "./request-journal.js";
 export { appendCodexResponseJournalEntry } from "./response-journal.js";
 export { collectCodexResponseItemsFromStream } from "./sse-item-collector.js";
