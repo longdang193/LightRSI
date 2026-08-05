@@ -136,6 +136,9 @@ const FETCH_FORBIDDEN_PORTS = new Set([
   1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666,
   6667, 6668, 6669, 6697, 10080,
 ]);
+const SAFE_MODEL_LABEL_PATTERN = /^[a-z0-9][a-z0-9._:/-]{0,127}$/i;
+const SAFE_VERSION_LABEL_PATTERN = /^[a-z0-9][a-z0-9._+-]{0,79}$/i;
+const CREDENTIAL_SHAPED_PATTERN = /(?:\bsk-(?:proj-)?[a-z0-9_-]{16,}\b|\bgh[pousr]_[a-z0-9_]{16,}\b|\bgithub_pat_[a-z0-9_]{16,}\b|\bAKIA[0-9A-Z]{16}\b)/i;
 
 const silentLogger: TokenPilotCodexLogger = {
   debug() {},
@@ -146,6 +149,23 @@ const silentLogger: TokenPilotCodexLogger = {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function smokeModelLabel(value: string | undefined): string {
+  const model = value?.trim() || "gpt-5.4-mini";
+  if (!SAFE_MODEL_LABEL_PATTERN.test(model) || CREDENTIAL_SHAPED_PATTERN.test(model)) {
+    throw new TypeError("Codex rebase smoke model must be a non-sensitive model label");
+  }
+  return model;
+}
+
+function codexCliVersionLabel(value: string | undefined): string {
+  const version = value?.trim();
+  return version
+    && SAFE_VERSION_LABEL_PATTERN.test(version)
+    && !CREDENTIAL_SHAPED_PATTERN.test(version)
+    ? version
+    : "not-observed";
 }
 
 function jsonItems(value: unknown): JsonObject[] {
@@ -713,7 +733,7 @@ async function writeEvidence(
 export async function runCodexRebaseMockSmoke(
   options: RunCodexRebaseMockSmokeOptions = {},
 ): Promise<CodexRebaseSmokeRunResult> {
-  const model = options.model?.trim() || "gpt-5.4-mini";
+  const model = smokeModelLabel(options.model);
   const startedAt = new Date().toISOString();
   // Proxy startup configures a process-global state resolver, so smoke
   // scenarios intentionally run serially even though their state dirs differ.
@@ -728,7 +748,7 @@ export async function runCodexRebaseMockSmoke(
     endpoint: "loopback-temporary",
     runtime: {
       node: process.version,
-      codexCli: process.env.CODEX_CLI_VERSION?.trim() || "not-observed",
+      codexCli: codexCliVersionLabel(process.env.CODEX_CLI_VERSION),
     },
     startedAt,
     finishedAt: new Date().toISOString(),

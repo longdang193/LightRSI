@@ -11,13 +11,16 @@ import {
 
 test("CDR-06 offline smoke emits sanitized five-turn, restart, and fallback evidence", async () => {
   const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-smoke-test-"));
+  const originalCodexCliVersion = process.env.CODEX_CLI_VERSION;
   try {
+    process.env.CODEX_CLI_VERSION = "sk-test-012345678901234567890123456789";
     const result = await runCodexRebaseMockSmoke({ outputDir, model: "offline-smoke-model" });
     const evidence = result.evidence;
     const artifactText = await readFile(result.artifactPath, "utf8");
 
     assert.equal(evidence.schema, CODEX_REBASE_SMOKE_EVIDENCE_SCHEMA);
     assert.equal(evidence.mode, "mock");
+    assert.equal(evidence.runtime.codexCli, "not-observed");
     assert.equal(evidence.happyPath.rebaseRequestFound, true);
     assert.equal(evidence.happyPath.oldPreviousResponseIdRemoved, true);
     assert.deepEqual(evidence.happyPath.sentinel, {
@@ -87,6 +90,26 @@ test("CDR-06 offline smoke emits sanitized five-turn, restart, and fallback evid
     assert.equal(JSON.parse(artifactText).schema, CODEX_REBASE_SMOKE_EVIDENCE_SCHEMA);
     assert.doesNotMatch(artifactText, /EVICT_ME_|KEEP_ME_|synthetic-encrypted-reasoning-/);
     assert.doesNotMatch(artifactText, /previous_response_id|authorization|bearer/i);
+  } finally {
+    if (originalCodexCliVersion === undefined) delete process.env.CODEX_CLI_VERSION;
+    else process.env.CODEX_CLI_VERSION = originalCodexCliVersion;
+    await rm(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("CDR-06 offline smoke rejects credential-shaped model labels before execution", async () => {
+  const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-smoke-label-"));
+  try {
+    await assert.rejects(
+      runCodexRebaseMockSmoke({
+        outputDir,
+        model: "sk-test-012345678901234567890123456789",
+      }),
+      /non-sensitive model label/,
+    );
+    await assert.rejects(readFile(join(outputDir, "codex-context-rebase-mock-smoke.json"), "utf8"), {
+      code: "ENOENT",
+    });
   } finally {
     await rm(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
