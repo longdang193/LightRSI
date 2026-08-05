@@ -576,7 +576,7 @@ export async function startCodexResponsesProxy(params: {
           stateDir: config.stateDir,
           sessionId,
           requestId: requestJournalEntry.requestId,
-          payload,
+          payload: originalPayload,
           committedInputItems: paramsForJournal.committed && Array.isArray(payload.input)
             ? payload.input as JsonObject[]
             : undefined,
@@ -610,7 +610,7 @@ export async function startCodexResponsesProxy(params: {
           stateDir: config.stateDir,
           sessionId,
           requestId: requestJournalEntry.requestId,
-          payload,
+          payload: originalPayload,
           committedInputItems: paramsForJournal.committed && Array.isArray(payload.input)
             ? payload.input as JsonObject[]
             : undefined,

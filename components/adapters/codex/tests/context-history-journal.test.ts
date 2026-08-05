@@ -176,6 +176,32 @@ test("CDH-01 request journal deduplicates retries after sanitizing volatile inpu
   });
 });
 
+test("CDH-01 rejects explicit request id reuse with a different request identity", async () => {
+  await withTempState(async (stateDir) => {
+    const params = {
+      stateDir,
+      sessionId: "codex-session-request-conflict",
+      requestId: "request-shared",
+      status: "completed" as const,
+    };
+    await appendCodexRequestJournalEntry({
+      ...params,
+      payload: { model: "gpt-5.4-mini", input: [{ role: "user", content: "first" }] },
+    });
+
+    await assert.rejects(
+      appendCodexRequestJournalEntry({
+        ...params,
+        payload: { model: "gpt-5.4-mini", input: [{ role: "user", content: "different" }] },
+      }),
+      /request journal identity conflict/,
+    );
+    const journal = await readCodexContextHistoryJournal(stateDir, params.sessionId);
+    assert.equal(journal.entries.length, 1);
+    assert.match(JSON.stringify(journal.entries[0]), /first/);
+  });
+});
+
 test("CDH-01 request journal advances pending requests to a terminal state", async () => {
   await withTempState(async (stateDir) => {
     const params = {
@@ -221,6 +247,61 @@ test("CDH-01 isolates malformed JSONL records without discarding valid history",
     assert.equal(journal.entries.length, 1);
     assert.equal(journal.malformedLineCount, 2);
     assert.equal(journal.readError, undefined);
+  });
+});
+
+test("CDH-01 canonical reader rejects cross-session and structurally invalid records", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-canonical-reader";
+    const path = codexContextHistoryJournalPath(stateDir, sessionId);
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-valid",
+      payload: { input: [{ role: "user", content: "valid" }] },
+      status: "completed",
+      observedAt: "2026-08-05T00:00:00.000Z",
+    });
+    const base = {
+      schema: "lightmem2.codex.context-history.request/v1",
+      kind: "request",
+      requestId: "request-invalid",
+      sessionId,
+      turnOrdinal: 2,
+      stream: false,
+      inputItems: [{ role: "user", content: "invalid" }],
+      status: "completed",
+      observedAt: "2026-08-05T00:00:01.000Z",
+    };
+    await appendFile(path, [
+      JSON.stringify({ ...base, sessionId: "another-session" }),
+      JSON.stringify({ ...base, turnOrdinal: -1 }),
+      JSON.stringify({ ...base, observedAt: "not-a-time" }),
+      JSON.stringify({
+        schema: "lightmem2.codex.context-history.response/v1",
+        kind: "response",
+        sessionId,
+        stream: false,
+        outputItems: [],
+        outputItemRefs: [],
+        status: "completed",
+        observedAt: "2026-08-05T00:00:02.000Z",
+      }),
+      "",
+    ].join("\n"), "utf8");
+
+    const journal = await readCodexContextHistoryJournal(stateDir, sessionId);
+    assert.equal(journal.entries.length, 1);
+    assert.equal(journal.malformedLineCount, 4);
+    await assert.rejects(
+      appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: "request-after-corruption",
+        payload: { input: [{ role: "user", content: "must not append" }] },
+      }),
+      /invalid Codex context-history journal/,
+    );
   });
 });
 
@@ -334,6 +415,7 @@ test("CDH-01 stale journal lock recovery uses a claim before concurrent appends"
     assert.equal(journal.malformedLineCount, 0);
     assert.equal(journal.entries.length, 8);
     await assert.rejects(stat(lockPath), { code: "ENOENT" });
+    await assert.rejects(stat(`${lockPath}.recovery`), { code: "ENOENT" });
   });
 });
 
@@ -429,6 +511,27 @@ test("CDH-02 response journal stores full non-stream output items and native ref
       entry.outputItemRefs.map((ref) => ref.callId).filter(Boolean),
       ["call-1", "custom-1"],
     );
+  });
+});
+
+test("CDH-02 completed responses without an id are persisted as incomplete", async () => {
+  await withTempState(async (stateDir) => {
+    const entry = await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-response-id-missing",
+      requestId: "request-1",
+      response: { status: "completed", output: [] },
+      status: "completed",
+      observedAt: "2026-08-05T00:00:00.000Z",
+    });
+    const journal = await readCodexContextHistoryJournal(
+      stateDir,
+      "codex-session-response-id-missing",
+    );
+
+    assert.equal(entry.status, "incomplete");
+    assert.equal(journal.malformedLineCount, 0);
+    assert.equal(journal.entries[0]?.status, "incomplete");
   });
 });
 

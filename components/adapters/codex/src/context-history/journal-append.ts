@@ -51,6 +51,16 @@ async function removeLockPath(path: string): Promise<void> {
   });
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
+    throw error;
+  }
+}
+
 function timestampMs(value: unknown): number | undefined {
   if (typeof value !== "string") return undefined;
   const parsed = Date.parse(value);
@@ -127,31 +137,61 @@ async function tryAcquireJournalLock(params: {
   staleAfterMs: number;
 }): Promise<CodexContextHistoryJournalLock | undefined> {
   const lockPath = codexContextHistoryJournalLockPath(params.stateDir, params.sessionId);
+  const recoveryPath = `${lockPath}.recovery`;
   await mkdir(dirname(lockPath), { recursive: true });
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (await pathExists(recoveryPath)) return undefined;
     let lockHandle: Awaited<ReturnType<typeof open>>;
     try {
       lockHandle = await open(lockPath, "wx");
     } catch (error) {
       if (isTransientWindowsLockError(error)) return undefined;
       if (errorCode(error) !== "EEXIST") throw error;
+      if (await pathExists(recoveryPath)) return undefined;
       if (!await lockIsStale({
         lockPath,
         staleAfterMs: params.staleAfterMs,
         nowMs: Date.now(),
       })) return undefined;
 
+      let recoveryHandle: Awaited<ReturnType<typeof open>>;
+      try {
+        recoveryHandle = await open(recoveryPath, "wx");
+      } catch (recoveryError) {
+        if (isTransientWindowsLockError(recoveryError)
+          || errorCode(recoveryError) === "EEXIST") return undefined;
+        throw recoveryError;
+      }
+      try {
+        await recoveryHandle.writeFile(randomUUID(), "utf8");
+        await recoveryHandle.sync();
+      } finally {
+        await recoveryHandle.close();
+      }
+
       const claimedStaleLockPath = `${lockPath}.stale-${randomUUID()}`;
       try {
-        await rename(lockPath, claimedStaleLockPath);
-      } catch (claimError) {
-        if (isTransientWindowsLockError(claimError)) return undefined;
-        const claimErrorCode = errorCode(claimError);
-        if (claimErrorCode === "ENOENT" || claimErrorCode === "EEXIST") return undefined;
-        throw claimError;
+        if (await lockIsStale({
+          lockPath,
+          staleAfterMs: params.staleAfterMs,
+          nowMs: Date.now(),
+        })) {
+          try {
+            await rename(lockPath, claimedStaleLockPath);
+            await removeLockPath(claimedStaleLockPath);
+          } catch (claimError) {
+            if (!isTransientWindowsLockError(claimError)) {
+              const claimErrorCode = errorCode(claimError);
+              if (claimErrorCode !== "ENOENT" && claimErrorCode !== "EEXIST") {
+                throw claimError;
+              }
+            }
+          }
+        }
+      } finally {
+        await removeLockPath(recoveryPath);
       }
-      await removeLockPath(claimedStaleLockPath);
       continue;
     }
 
