@@ -1,0 +1,77 @@
+{
+  "schema": "lightmem2.cross-host-targets/v1",
+  "id": "three-host-targets",
+  "description": "OpenClaw, Claude Code, and Codex must select the same logical task and item targets from the shared golden fixtures.",
+  "cases": [
+    {
+      "fixture": "completed-task.json",
+      "hosts": {
+        "openclaw": {
+          "target_task_ids": [
+            "task-completed-001"
+          ],
+          "target_item_ids": [
+            "item-completed-user-001",
+            "item-completed-assistant-001"
+          ]
+        },
+        "claude-code": {
+          "target_task_ids": [
+            "task-completed-001"
+          ],
+          "target_item_ids": [
+            "item-completed-user-001",
+            "item-completed-assistant-001"
+          ]
+        },
+        "codex": {
+          "target_task_ids": [
+            "task-completed-001"
+          ],
+          "target_item_ids": [
+            "item-completed-user-001",
+            "item-completed-assistant-001"
+          ]
+        }
+      }
+    },
+    {
+      "fixture": "tool-closure.json",
+      "hosts": {
+        "openclaw": {
+          "target_task_ids": [
+            "task-tool-completed-001"
+          ],
+          "target_item_ids": [
+            "item-tool-user-evict-001",
+            "item-tool-call-evict-001",
+            "item-tool-result-evict-001",
+            "item-tool-assistant-evict-001"
+          ]
+        },
+        "claude-code": {
+          "target_task_ids": [
+            "task-tool-completed-001"
+          ],
+          "target_item_ids": [
+            "item-tool-user-evict-001",
+            "item-tool-call-evict-001",
+            "item-tool-result-evict-001",
+            "item-tool-assistant-evict-001"
+          ]
+        },
+        "codex": {
+          "target_task_ids": [
+            "task-tool-completed-001"
+          ],
+          "target_item_ids": [
+            "item-tool-user-evict-001",
+            "item-tool-call-evict-001",
+            "item-tool-result-evict-001",
+            "item-tool-assistant-evict-001"
+          ]
+        }
+      }
+    }
+  ]
+} 
