@@ -1,5 +1,4 @@
-import { appendJsonl } from "@lightmem2/host-adapter";
-import { codexContextHistoryJournalPath } from "./journal-store.js";
+import { appendCodexContextHistoryJournalEntry } from "./journal-append.js";
 import { collectCodexResponseItemsFromStream } from "./sse-item-collector.js";
 import { cloneJson, normalizeStatus, sanitizeValue } from "./shared.js";
 import {
@@ -88,6 +87,6 @@ export async function appendCodexResponseJournalEntry(params: {
     error: params.error,
     observedAt: params.observedAt ?? new Date().toISOString(),
   };
-  await appendJsonl(codexContextHistoryJournalPath(params.stateDir, params.sessionId), entry);
+  await appendCodexContextHistoryJournalEntry(params.stateDir, params.sessionId, entry);
   return entry;
 }
