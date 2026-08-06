@@ -33,6 +33,7 @@ import {
   type ClaudeEvictionApplySummary,
 } from "./eviction.js";
 import { claudeContextRewriteBackend, relocateContextMutationPlan } from "./context-rewrite/backend.js";
+import { saveLatestClaudeSnapshot } from "./context-rewrite/snapshot-store.js";
 import { buildContextMutationPlan } from "@lightmem2/eviction";
 import { createHash as _createHash } from "node:crypto";
 import {
@@ -368,6 +369,10 @@ export async function startClaudeCodeGatewayRuntime(params: {
               sessionId,
               request: overlayRequest,
             });
+            // Persist the latest complete snapshot (+ item fingerprints) for this
+            // session so the overlay has a durable, restart-surviving view of the
+            // current turn (§4.5 claude-context). Fail-open, never blocks the request.
+            await saveLatestClaudeSnapshot(config.stateDir, sessionId, snapshot);
             const loaded = await loadActiveContextMutationPlans({
               stateDir: config.stateDir,
               sessionId,
