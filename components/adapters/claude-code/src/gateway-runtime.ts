@@ -49,6 +49,7 @@ import { createClaudeCodeGatewayForwarder, resolveClaudeCodeUpstream } from "./u
 import { appendClaudeCodeCacheAuditRecord, buildClaudeCodeCacheAuditSnapshot } from "./cache-audit.js";
 import { buildAnthropicGatewayModelList, mapClaudeVisibleModelToUpstreamModel } from "./provider-profile.js";
 import { resolveLatestClaudeCodeSessionId } from "./session-state.js";
+import { lookupRealSessionId, recordSessionMapping } from "./context-rewrite/session-map.js";
 import { initializeClaudeCodeTokenPilotPreset } from "./preset.js";
 
 export type ClaudeCodeGatewayRuntime = {
@@ -68,8 +69,15 @@ async function resolveObservedClaudeSessionId(stateDir: string, sessionId: strin
   if (!isSyntheticClaudeSessionId(sessionId)) {
     return sessionId;
   }
+  // Persisted synth->real binding takes priority so the overlay keeps a stable
+  // anchor across requests and restarts, even if the "latest" session changes.
+  const persisted = await lookupRealSessionId(stateDir, sessionId);
+  if (persisted) {
+    return persisted;
+  }
   const latestSessionId = await resolveLatestClaudeCodeSessionId(stateDir);
   if (latestSessionId && !isSyntheticClaudeSessionId(latestSessionId)) {
+    await recordSessionMapping(stateDir, sessionId, latestSessionId);
     return latestSessionId;
   }
   return sessionId;
