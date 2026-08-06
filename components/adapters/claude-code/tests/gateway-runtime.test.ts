@@ -1272,3 +1272,120 @@ test("gateway eviction preserves tool closure and the active user turn", async (
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("gateway relocates a persisted plan onto shifted history across turns", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-reloc-"));
+  const proxyPort = await reserveUnusedPort();
+  const seenPayloads: Array<Record<string, unknown>> = [];
+  const forwarder: HostGatewayForwarder = {
+    async request(params) {
+      seenPayloads.push(params.payload as Record<string, unknown>);
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        text: JSON.stringify({
+          id: "msg_reloc",
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+          usage: { input_tokens: 20, output_tokens: 4 },
+          stop_reason: "end_turn",
+        }),
+      };
+    },
+    async requestStream() {
+      throw new Error("stream path should not be used in this test");
+    },
+  };
+  const runtime = await startClaudeCodeGatewayRuntime({
+    config: normalizeTokenPilotClaudeCodeConfig({
+      stateDir: join(dir, "state"),
+      proxyPort,
+      modules: { stabilizer: false, reduction: false, eviction: true },
+      eviction: { enabled: true, minBlockChars: 256 },
+    }),
+    logger: createConsoleLogger(false),
+    forwarder,
+  });
+
+  // The same completed tool_use/tool_result pair appears in both turns; only its
+  // position (and therefore stableId + revision) shifts when a new earlier turn
+  // is prepended in turn 2. The evicted content is identical so its fingerprint
+  // is stable — relocation must re-anchor the persisted plan onto the new index.
+  const bigToolResult = "EVICT_ME_" + "x".repeat(5000);
+  const toolPair = [
+    {
+      role: "assistant",
+      content: [{
+        type: "tool_use",
+        id: "toolu_reloc_1",
+        name: "Read",
+        input: { file_path: "/repo/large.txt" },
+      }],
+    },
+    {
+      role: "user",
+      content: [{
+        type: "tool_result",
+        tool_use_id: "toolu_reloc_1",
+        content: bigToolResult,
+      }],
+    },
+    { role: "assistant", content: [{ type: "text", text: "previous task complete" }] },
+  ];
+
+  async function sendTurn(messages: unknown[]): Promise<void> {
+    const response = await fetch(`${runtime.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "sess-reloc-e2e" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", stream: false, messages, max_tokens: 256 }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+  }
+
+  try {
+    // Turn 1: tool_result at msgIdx 2.
+    await sendTurn([
+      { role: "user", content: [{ type: "text", text: "read the file" }] },
+      ...toolPair,
+      { role: "user", content: [{ type: "text", text: "KEEP_ME_turn1" }] },
+    ]);
+
+    // Turn 2: prepend a completed earlier exchange so the SAME tool_result now
+    // sits two indices later (msgIdx shifts, revision changes).
+    await sendTurn([
+      { role: "user", content: [{ type: "text", text: "an earlier request" }] },
+      { role: "assistant", content: [{ type: "text", text: "earlier request handled" }] },
+      { role: "user", content: [{ type: "text", text: "read the file" }] },
+      ...toolPair,
+      { role: "user", content: [{ type: "text", text: "KEEP_ME_turn2" }] },
+    ]);
+
+    assert.equal(seenPayloads.length, 2);
+
+    // Turn 2 forwarded payload: the shifted tool_result must still be evicted.
+    const turn2 = seenPayloads[1]?.messages as Array<Record<string, unknown>>;
+    const evictedInTurn2 = turn2.some((message) => {
+      const content = message?.content;
+      if (!Array.isArray(content)) return false;
+      return content.some((block) => {
+        const record = block as Record<string, unknown>;
+        return record.type === "tool_result"
+          && record.tool_use_id === "toolu_reloc_1"
+          && /^\[evicted:/.test(String(record.content));
+      });
+    });
+    assert.equal(evictedInTurn2, true);
+
+    // The original large body must NOT reach upstream in turn 2.
+    assert.equal(JSON.stringify(seenPayloads[1]).includes(bigToolResult), false);
+
+    // The current user turn is always preserved.
+    const turn2Active = (turn2.at(-1)?.content as Array<Record<string, unknown>>)[0];
+    assert.equal(turn2Active?.text, "KEEP_ME_turn2");
+  } finally {
+    await runtime.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
