@@ -11,6 +11,7 @@ import {
   reserveUnusedPort,
   runRestartAcceptanceScenario,
   contextMutationPlanSessionRoot,
+  contextMutationPlanStatusDir,
   type AcceptanceHostRuntime,
   type AcceptanceSentinels,
   type HostGatewayForwarder,
@@ -221,6 +222,57 @@ test("GUA-06 independently accepts Claude rewrite failure bypass", async () => {
       "utf8",
     );
     assert.equal(rawTrace.includes("synthetic GUA-06"), false);
+  } finally {
+    await runtime?.close();
+    await upstream.close();
+    environment.cleanup();
+  }
+});
+
+test("GUA-06 bypasses Claude rewrite when the persisted plan store is corrupt", async () => {
+  const environment = createTemporaryAcceptanceEnvironment("lightmem2-gua06-claude-plan-store-");
+  const upstream = new MockUpstreamRecorder();
+  const sentinels = createAcceptanceSentinels(TEST_UUID);
+  const payload = createClaudeAcceptancePayload(sentinels);
+  const sessionId = "sess-gua06-claude-plan-store";
+  let runtime: Awaited<ReturnType<typeof startClaudeCodeGatewayRuntime>> | undefined;
+
+  try {
+    const activeDir = contextMutationPlanStatusDir(environment.stateDir, sessionId, "active");
+    fs.mkdirSync(activeDir, { recursive: true });
+    fs.writeFileSync(path.join(activeDir, "corrupt-plan.json"), "{ not json", "utf8");
+    await upstream.start();
+    runtime = await startClaudeCodeGatewayRuntime({
+      config: normalizeTokenPilotClaudeCodeConfig({
+        stateDir: environment.stateDir,
+        proxyPort: await reserveUnusedPort(),
+        modules: { stabilizer: false, reduction: false, eviction: true },
+        eviction: { enabled: true, minBlockChars: 256 },
+      }),
+      logger: createConsoleLogger(false),
+      forwarder: createClaudeForwarder(upstream.url),
+    });
+
+    const response = await fetch(`${runtime.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-session-id": sessionId,
+      },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+
+    const requests = upstream.requests();
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].rawBody.includes(sentinels.evict), true);
+    assert.equal(requests[0].rawBody.includes("[evicted:"), false);
+    const trace = fs.readFileSync(
+      path.join(environment.stateDir, "event-trace.jsonl"),
+      "utf8",
+    );
+    assert.match(trace, /analysis_or_apply_error/);
   } finally {
     await runtime?.close();
     await upstream.close();

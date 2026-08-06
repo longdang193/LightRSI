@@ -335,6 +335,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
       };
       let evictionBypassReason: string | undefined;
       let activePlanId: string | undefined;
+      let activePlanStatus: "active" | "applied" | undefined;
       if (evictionEnabled) {
         try {
           const candidatePayload = (
@@ -372,12 +373,16 @@ export async function startClaudeCodeGatewayRuntime(params: {
               stateDir: config.stateDir,
               sessionId,
             });
+            if (loaded.bypassed) {
+              throw new Error(`context mutation plan store unavailable: ${loaded.reasons.join(",")}`);
+            }
             const persistedPlan = loaded.plans.find(
               (candidate) => candidate.baseRevision === snapshot.revision,
             );
             let plan;
             if (persistedPlan) {
               plan = persistedPlan;
+              activePlanStatus = "active";
             } else {
               plan = buildContextMutationPlan({
                 hostId: "claude-code",
@@ -389,20 +394,30 @@ export async function startClaudeCodeGatewayRuntime(params: {
                 })),
                 segmentLocations,
               });
-              await saveActiveContextMutationPlan({ stateDir: config.stateDir, plan });
+              const stored = await saveActiveContextMutationPlan({
+                stateDir: config.stateDir,
+                plan,
+              });
+              if (stored.bypassed || (stored.status !== "active" && stored.status !== "applied")) {
+                throw new Error(`context mutation plan could not be persisted: ${stored.reasons.join(",")}`);
+              }
+              activePlanStatus = stored.status;
             }
+            activePlanId = plan.planId;
             const { request: rewritten, result } = await claudeContextRewriteBackend.apply({
               snapshot,
               plan,
               request: overlayRequest,
             });
-            activePlanId = plan.planId;
-            if (result.changed) {
-              await markContextMutationPlanApplied({
+            if (result.changed && activePlanStatus === "active") {
+              const applied = await markContextMutationPlanApplied({
                 stateDir: config.stateDir,
                 sessionId,
                 planId: plan.planId,
               });
+              if (applied.bypassed) {
+                throw new Error(`context mutation plan commit failed: ${applied.reasons.join(",")}`);
+              }
             }
 
             evictionSummary = {
@@ -424,7 +439,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
         } catch {
           evictionBypassReason = "analysis_or_apply_error";
           logger.warn("context eviction bypassed category=analysis_or_apply_error");
-          if (activePlanId) {
+          if (activePlanId && activePlanStatus === "active") {
             await markContextMutationPlanFailed({
               stateDir: config.stateDir,
               sessionId,
