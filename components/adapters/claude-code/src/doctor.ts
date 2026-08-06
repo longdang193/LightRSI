@@ -41,6 +41,8 @@ export type ClaudeCodeDoctorReport = {
   overlayBackendMode: string;
   overlayEvictionEnabled: boolean;
   overlayEvictionFailureMode: string;
+  overlayPlanStoreStatus: string;
+  overlaySessionBinding: string;
   toolSearchEnabled: boolean;
   proxyHealthy: boolean;
   upstreamBaseUrl: string;
@@ -127,6 +129,8 @@ export function formatClaudeCodeDoctorReport(report: ClaudeCodeDoctorReport): st
     `- recovery MCP startup timeout matches: ${report.mcpStartupTimeoutSecMatches ? "yes" : "no"}`,
     `- routed via gateway: ${report.routedViaGateway ? "yes" : "no"}`,
     `- overlay backend mode: ${report.overlayBackendMode}`,
+    `- overlay plan store: ${report.overlayPlanStoreStatus}`,
+    `- overlay session binding: ${report.overlaySessionBinding}`,
     `- overlay eviction enabled: ${report.overlayEvictionEnabled ? "yes" : "no"}`,
     `- overlay eviction failure mode: ${report.overlayEvictionFailureMode}`,
     `- tool search enabled: ${report.toolSearchEnabled ? "yes" : "no"}`,
@@ -249,6 +253,8 @@ export async function inspectClaudeCodeDoctor(params: {
     overlayBackendMode: "request_overlay",
     overlayEvictionEnabled: params.config.modules.eviction && params.config.eviction.enabled,
     overlayEvictionFailureMode: params.config.eviction.failureMode,
+    overlayPlanStoreStatus: "persistent",
+    overlaySessionBinding: "persisted",
     settingsPath: params.settingsPath,
     mcpConfigPath,
     tokenPilotConfigPath: params.tokenPilotConfigPath,
