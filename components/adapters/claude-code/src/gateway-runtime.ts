@@ -12,6 +12,10 @@ import {
   sendJsonResponse,
   startHostGatewayRuntimeServer,
   setForwardResponseHeaders,
+  loadActiveContextMutationPlans,
+  saveActiveContextMutationPlan,
+  markContextMutationPlanApplied,
+  markContextMutationPlanFailed,
 } from "@lightmem2/host-adapter";
 import {
   prepareObservedBeforeCall,
@@ -45,6 +49,7 @@ import { createClaudeCodeGatewayForwarder, resolveClaudeCodeUpstream } from "./u
 import { appendClaudeCodeCacheAuditRecord, buildClaudeCodeCacheAuditSnapshot } from "./cache-audit.js";
 import { buildAnthropicGatewayModelList, mapClaudeVisibleModelToUpstreamModel } from "./provider-profile.js";
 import { resolveLatestClaudeCodeSessionId } from "./session-state.js";
+import { lookupRealSessionId, recordSessionMapping } from "./context-rewrite/session-map.js";
 import { initializeClaudeCodeTokenPilotPreset } from "./preset.js";
 
 export type ClaudeCodeGatewayRuntime = {
@@ -64,8 +69,15 @@ async function resolveObservedClaudeSessionId(stateDir: string, sessionId: strin
   if (!isSyntheticClaudeSessionId(sessionId)) {
     return sessionId;
   }
+  // Persisted synth->real binding takes priority so the overlay keeps a stable
+  // anchor across requests and restarts, even if the "latest" session changes.
+  const persisted = await lookupRealSessionId(stateDir, sessionId);
+  if (persisted) {
+    return persisted;
+  }
   const latestSessionId = await resolveLatestClaudeCodeSessionId(stateDir);
   if (latestSessionId && !isSyntheticClaudeSessionId(latestSessionId)) {
+    await recordSessionMapping(stateDir, sessionId, latestSessionId);
     return latestSessionId;
   }
   return sessionId;
@@ -322,6 +334,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
         evictedBlockIds: [],
       };
       let evictionBypassReason: string | undefined;
+      let activePlanId: string | undefined;
       if (evictionEnabled) {
         try {
           const candidatePayload = (
@@ -355,21 +368,42 @@ export async function startClaudeCodeGatewayRuntime(params: {
               sessionId,
               request: overlayRequest,
             });
-            const plan = buildContextMutationPlan({
-              hostId: "claude-code",
+            const loaded = await loadActiveContextMutationPlans({
+              stateDir: config.stateDir,
               sessionId,
-              snapshot,
-              selections: analysis.selections.map((selection) => ({
-                segmentIds: selection.segmentIds,
-                chars: selection.chars,
-              })),
-              segmentLocations,
             });
+            const persistedPlan = loaded.plans.find(
+              (candidate) => candidate.baseRevision === snapshot.revision,
+            );
+            let plan;
+            if (persistedPlan) {
+              plan = persistedPlan;
+            } else {
+              plan = buildContextMutationPlan({
+                hostId: "claude-code",
+                sessionId,
+                snapshot,
+                selections: analysis.selections.map((selection) => ({
+                  segmentIds: selection.segmentIds,
+                  chars: selection.chars,
+                })),
+                segmentLocations,
+              });
+              await saveActiveContextMutationPlan({ stateDir: config.stateDir, plan });
+            }
             const { request: rewritten, result } = await claudeContextRewriteBackend.apply({
               snapshot,
               plan,
               request: overlayRequest,
             });
+            activePlanId = plan.planId;
+            if (result.changed) {
+              await markContextMutationPlanApplied({
+                stateDir: config.stateDir,
+                sessionId,
+                planId: plan.planId,
+              });
+            }
 
             evictionSummary = {
               ...evictionSummary,
@@ -390,6 +424,13 @@ export async function startClaudeCodeGatewayRuntime(params: {
         } catch {
           evictionBypassReason = "analysis_or_apply_error";
           logger.warn("context eviction bypassed category=analysis_or_apply_error");
+          if (activePlanId) {
+            await markContextMutationPlanFailed({
+              stateDir: config.stateDir,
+              sessionId,
+              planId: activePlanId,
+            }).catch(() => undefined);
+          }
         }
       }
       if (envelope.model.startsWith("tokenpilot/")) {

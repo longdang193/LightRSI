@@ -334,6 +334,8 @@ test("formatClaudeCodeDoctorReport shows degraded mode when core runtime is heal
     overlayBackendMode: "request_overlay",
     overlayEvictionEnabled: false,
     overlayEvictionFailureMode: "bypass",
+    overlayPlanStoreStatus: "persistent",
+    overlaySessionBinding: "persisted",
   });
 
   assert.match(text, /core runtime healthy: yes/);
@@ -378,6 +380,8 @@ test("formatClaudeCodeDoctorReport explains first-run SessionStart remediation w
     overlayBackendMode: "request_overlay",
     overlayEvictionEnabled: false,
     overlayEvictionFailureMode: "bypass",
+    overlayPlanStoreStatus: "persistent",
+    overlaySessionBinding: "persisted",
   });
   assert.match(text, /start a new Claude Code session so SessionStart can boot the local TokenPilot gateway/);
   assert.match(text, /tokenpilot-claude-code start/);
