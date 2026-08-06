@@ -71,8 +71,12 @@ import type {
   JsonObject,
 } from "./context-history/types.js";
 import {
+  CODEX_REBASE_API_VERSION,
+  CODEX_REBASE_ITEM_SCHEMA_VERSION,
+  CODEX_REBASE_WIRE_MODE,
   acquireCodexRebaseSessionLock,
   buildCodexRebaseRequest,
+  codexRebaseEndpointIdentity,
   executeCodexRebaseWithFallback,
   failPendingCodexRebaseEpochsAfterRestart,
   withCodexRebaseReplayAccountingInput,
@@ -665,6 +669,11 @@ export async function startCodexResponsesProxy(params: {
             stateDir: config.stateDir,
             provider: upstreamProviderName,
             model,
+            wireMode: CODEX_REBASE_WIRE_MODE,
+            apiVersion: CODEX_REBASE_API_VERSION,
+            endpointId: codexRebaseEndpointIdentity(upstream.baseUrl),
+            itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
+            probeMode: config.contextRewrite.providerCompatibilityProbe,
           },
         }).then((result) => {
           contextRewriteOutcome = result.outcome;

@@ -8,7 +8,11 @@ import {
   appendCodexRebaseCapability,
   appendCodexRebaseCooldown,
   appendPendingCodexRebaseEpoch,
+  CODEX_REBASE_API_VERSION,
+  CODEX_REBASE_ITEM_SCHEMA_VERSION,
+  CODEX_REBASE_WIRE_MODE,
   commitCodexRebaseEpoch,
+  codexRebaseEndpointIdentity,
   codexRebaseEpochJournalPath,
 } from "../src/context-rewrite/index.js";
 import { appendCodexRecentTurnBinding, upsertCodexSessionSnapshot } from "../src/session-state.js";
@@ -62,10 +66,16 @@ test("CDR-07 Codex session report renders rebase state", async () => {
       stateDir: dir,
       provider: "OpenAI",
       model: "gpt-test",
+      wireMode: CODEX_REBASE_WIRE_MODE,
+      apiVersion: CODEX_REBASE_API_VERSION,
+      endpointId: codexRebaseEndpointIdentity("https://api.openai.example/v1"),
       itemType: "web_search_call",
-      status: "unsupported",
+      itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
+      status: "verified_unsupported",
+      evidence: "mock_fixture",
       reason: "schema_error",
       observedAt: "2026-07-28T10:00:02.000Z",
+      expiresAt: "2999-01-01T00:00:00.000Z",
     });
 
     const report = await renderCodexSessionReport(dir, "sess-rebase-report");
@@ -73,7 +83,7 @@ test("CDR-07 Codex session report renders rebase state", async () => {
     assert.match(report, /rebase epochs: committed=1, rolled_back=0, failed=0, pending=0/i);
     assert.match(report, /latest rebase epoch: committed epoch-report old=resp-old new=resp-new/i);
     assert.match(report, /rebase cooldowns: active=1\/1 latest=rebase_upstream_rejected/i);
-    assert.match(report, /rebase capability cache: OpenAI\/gpt-test web_search_call unsupported/i);
+    assert.match(report, /web_search_call@responses-item\/v1 verified_unsupported evidence=mock\/fixture/i);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

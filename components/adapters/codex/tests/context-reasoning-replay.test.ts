@@ -13,6 +13,10 @@ import {
 import {
   appendCodexRebaseCapability,
   buildCodexRebaseRequest,
+  CODEX_REBASE_API_VERSION,
+  CODEX_REBASE_ITEM_SCHEMA_VERSION,
+  CODEX_REBASE_WIRE_MODE,
+  codexRebaseEndpointIdentity,
   executeCodexRebaseWithFallback,
 } from "../src/context-rewrite/index.js";
 
@@ -272,8 +276,13 @@ test("CDR-05 known unsupported reasoning replay bypasses before opening a rebase
       stateDir,
       provider: "OpenAI",
       model: fixture.model,
+      wireMode: CODEX_REBASE_WIRE_MODE,
+      apiVersion: CODEX_REBASE_API_VERSION,
+      endpointId: codexRebaseEndpointIdentity("https://api.openai.example/v1"),
       itemType: "reasoning",
-      status: "unsupported",
+      itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
+      status: "verified_unsupported",
+      evidence: "real_provider",
       reason: "schema_error",
     });
     const originalPayload: JsonObject = {
@@ -292,7 +301,15 @@ test("CDR-05 known unsupported reasoning replay bypasses before opening a rebase
       epochId: "epoch-reasoning-known-unsupported",
       originalPayload,
       rebasedPayload,
-      capabilityStore: { stateDir, provider: "OpenAI", model: fixture.model },
+      capabilityStore: {
+        stateDir,
+        provider: "OpenAI",
+        model: fixture.model,
+        wireMode: CODEX_REBASE_WIRE_MODE,
+        apiVersion: CODEX_REBASE_API_VERSION,
+        endpointId: codexRebaseEndpointIdentity("https://api.openai.example/v1"),
+        itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
+      },
       async sendUpstream(payload) {
         sentPayloads.push(payload);
         return { status: 200, headers: {}, text: JSON.stringify({ id: "resp-original", output: [] }) };
@@ -300,7 +317,8 @@ test("CDR-05 known unsupported reasoning replay bypasses before opening a rebase
     });
 
     assert.equal(result.outcome, "bypassed");
-    assert.deepEqual(result.capability?.skippedItemTypes, ["reasoning"]);
+    assert.deepEqual(result.capability?.unsupportedItemTypes, ["reasoning"]);
+    assert.deepEqual(result.capability?.skippedItemTypes, ["reasoning", "message"]);
     assert.deepEqual(sentPayloads, [originalPayload]);
   });
 });

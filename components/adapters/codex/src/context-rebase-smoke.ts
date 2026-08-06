@@ -306,6 +306,7 @@ function buildSmokeConfig(params: {
     },
     contextRewrite: {
       enabled: params.rewriteEnabled ?? true,
+      providerCompatibilityProbe: "mock_fixture",
       mode: "response_chain_rebase",
       failureMode: "bypass",
       retryOriginalRequest: true,

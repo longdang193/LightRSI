@@ -55,6 +55,8 @@ export type CodexDoctorReport = {
   recoveryMcpHealthy: boolean;
   degradedMode: boolean;
   rebaseCapabilityStatus?: string[];
+  rebaseCapabilityTrusted?: boolean;
+  rebaseCapabilityIssue?: string;
 };
 
 const HOOK_EVENT_NAMES = [
@@ -85,6 +87,11 @@ async function checkHealth(baseUrl: string): Promise<boolean> {
 
 export function formatCodexDoctorReport(report: CodexDoctorReport): string {
   const rebaseCapabilityStatus = report.rebaseCapabilityStatus ?? [];
+  const rebaseCapabilitySummary = report.rebaseCapabilityTrusted === false
+    ? `untrusted (${report.rebaseCapabilityIssue ?? "read or validation error"}); runtime will bypass rebase`
+    : rebaseCapabilityStatus.length > 0
+      ? rebaseCapabilityStatus.join(", ")
+      : "(none)";
   const lines = [
     "TokenPilot Codex doctor:",
     `- tokenpilot config: ${report.tokenPilotConfigPath}`,
@@ -118,7 +125,7 @@ export function formatCodexDoctorReport(report: CodexDoctorReport): string {
     `- upstream provider: ${report.upstreamProvider ?? "(unset)"}`,
     `- upstream base URL: ${report.upstreamBaseUrl ?? "(unset)"}`,
     `- upstream loops into local proxy: ${report.upstreamLoopDetected ? "yes" : "no"}`,
-    `- CDR-05 rebase capability cache: ${rebaseCapabilityStatus.length > 0 ? rebaseCapabilityStatus.join(", ") : "(none)"}`,
+    `- CDR-05 rebase capability cache: ${rebaseCapabilitySummary}`,
   ];
   const fixes: string[] = [];
   if (!report.adapterEnabled) {
@@ -212,9 +219,15 @@ export async function inspectCodexDoctor(params: {
     expectedStartupTimeoutSec: DEFAULT_TOKENPILOT_MCP_STARTUP_TIMEOUT_SEC,
   });
   const capabilityJournal = await readCodexRebaseCapabilityJournal(params.config.stateDir);
-  const rebaseCapabilityStatus = capabilityJournal.capabilities
-    .map(formatCodexRebaseCapabilityStatus)
-    .sort();
+  const rebaseCapabilityTrusted = !capabilityJournal.readError
+    && capabilityJournal.malformedLineCount === 0;
+  const rebaseCapabilityStatus = rebaseCapabilityTrusted
+    ? capabilityJournal.capabilities.map((entry) => formatCodexRebaseCapabilityStatus(entry)).sort()
+    : [];
+  const rebaseCapabilityIssue = capabilityJournal.readError
+    ?? (capabilityJournal.malformedLineCount > 0
+      ? `${capabilityJournal.malformedLineCount} malformed row(s)`
+      : undefined);
   const coreRuntimeHealthy = params.config.enabled
     && Boolean(tokenpilotProvider)
     && providerIntercepted
@@ -254,5 +267,7 @@ export async function inspectCodexDoctor(params: {
     recoveryMcpHealthy,
     degradedMode: coreRuntimeHealthy && !recoveryMcpHealthy,
     rebaseCapabilityStatus,
+    rebaseCapabilityTrusted,
+    rebaseCapabilityIssue,
   };
 }
