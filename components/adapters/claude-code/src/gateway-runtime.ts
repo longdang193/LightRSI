@@ -34,6 +34,7 @@ import {
 } from "./eviction.js";
 import { claudeContextRewriteBackend, relocateContextMutationPlan } from "./context-rewrite/backend.js";
 import { saveLatestClaudeSnapshot } from "./context-rewrite/snapshot-store.js";
+import { appendOverlayHistory } from "./context-rewrite/overlay-history.js";
 import { buildContextMutationPlan } from "@lightmem2/eviction";
 import { createHash as _createHash } from "node:crypto";
 import {
@@ -428,6 +429,16 @@ export async function startClaudeCodeGatewayRuntime(params: {
                 stateDir: config.stateDir,
                 sessionId,
                 planId: plan.planId,
+              });
+              // Record this turn's overlay in the append-only audit log (§4.5).
+              await appendOverlayHistory(config.stateDir, {
+                sessionId,
+                planId: plan.planId,
+                previousRevision: result.previousRevision,
+                nextRevision: result.nextRevision,
+                removedItemIds: result.removedItemIds,
+                savedChars: result.savedChars,
+                relocated: replayedFromStore,
               });
             }
 
