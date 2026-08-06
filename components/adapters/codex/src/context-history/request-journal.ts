@@ -1,6 +1,7 @@
 import { readCodexContextHistoryJournal } from "./journal-store.js";
 import {
   appendCodexContextHistoryJournalEntryLocked,
+  recoverCodexContextHistoryJournalTailLocked,
   withCodexContextHistoryJournalLock,
 } from "./journal-append.js";
 import {
@@ -94,6 +95,7 @@ async function appendCodexRequestJournalEntryLocked(params: {
     throw new TypeError("Codex request journal turnOrdinal must be a positive integer");
   }
   const observedAt = normalizeObservedAt(params.observedAt);
+  await recoverCodexContextHistoryJournalTailLocked(params.stateDir, params.sessionId);
   const journal = await readCodexContextHistoryJournal(params.stateDir, params.sessionId);
   if (journal.readError || journal.malformedLineCount > 0) {
     throw new Error(`Refusing to update invalid Codex context-history journal for session ${params.sessionId}`);
