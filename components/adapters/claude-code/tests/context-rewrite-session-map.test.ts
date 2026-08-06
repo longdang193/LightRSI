@@ -53,3 +53,28 @@ test("lookupRealSessionId returns undefined for unknown synth id", async () => {
   const stateDir = await tempStateDir();
   assert.equal(await lookupRealSessionId(stateDir, "claude-synth-none"), undefined);
 });
+
+test("concurrent bindings preserve every synthetic session mapping", async () => {
+  const stateDir = await tempStateDir();
+  const entries = Array.from({ length: 40 }, (_, index) => [
+    `claude-synth-${index}`,
+    `real-${index}`,
+  ] as const);
+
+  await Promise.all(entries.map(([syntheticId, realSessionId]) => (
+    recordSessionMapping(stateDir, syntheticId, realSessionId)
+  )));
+
+  const map = await readSessionMap(stateDir);
+  assert.equal(Object.keys(map).length, entries.length);
+  for (const [syntheticId, realSessionId] of entries) {
+    assert.equal(map[syntheticId], realSessionId);
+  }
+});
+
+test("invalid mapping records are ignored", async () => {
+  const stateDir = await tempStateDir();
+  await recordSessionMapping(stateDir, "", "real-empty-key");
+  await recordSessionMapping(stateDir, "claude-synth-empty-value", "   ");
+  assert.deepEqual(await readSessionMap(stateDir), {});
+});

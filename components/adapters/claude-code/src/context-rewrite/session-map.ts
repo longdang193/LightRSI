@@ -9,6 +9,30 @@ type SessionMapFile = {
   mappings: Record<string, string>;
 };
 
+const sessionMapWriteTails = new Map<string, Promise<void>>();
+
+async function withSessionMapWriteLock<T>(
+  stateDir: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const path = sessionMapPath(stateDir);
+  const previous = sessionMapWriteTails.get(path) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  sessionMapWriteTails.set(path, current);
+  await previous;
+  try {
+    return await action();
+  } finally {
+    release();
+    if (sessionMapWriteTails.get(path) === current) {
+      sessionMapWriteTails.delete(path);
+    }
+  }
+}
+
 function sessionMapPath(stateDir: string): string {
   return join(stateDir, "context-rewrite", "session-map.json");
 }
@@ -16,12 +40,19 @@ function sessionMapPath(stateDir: string): string {
 function isValidMapFile(value: unknown): value is SessionMapFile {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  return (
+  if (
     record.schemaVersion === SESSION_MAP_SCHEMA_VERSION &&
     typeof record.mappings === "object" &&
     record.mappings !== null &&
     !Array.isArray(record.mappings)
-  );
+  ) {
+    return Object.entries(record.mappings).every(([key, realSessionId]) => (
+      key.trim().length > 0
+      && typeof realSessionId === "string"
+      && realSessionId.trim().length > 0
+    ));
+  }
+  return false;
 }
 
 /**
@@ -50,8 +81,10 @@ export async function lookupRealSessionId(
   syntheticId: string,
 ): Promise<string | undefined> {
   const map = await readSessionMap(stateDir);
-  const real = map[syntheticId];
-  return typeof real === "string" && real.length > 0 ? real : undefined;
+  const real = Object.prototype.hasOwnProperty.call(map, syntheticId)
+    ? map[syntheticId]
+    : undefined;
+  return typeof real === "string" && real.trim().length > 0 ? real : undefined;
 }
 
 /**
@@ -65,15 +98,18 @@ export async function recordSessionMapping(
   syntheticId: string,
   realSessionId: string,
 ): Promise<void> {
-  try {
-    const map = await readSessionMap(stateDir);
-    if (map[syntheticId]) return;
-    map[syntheticId] = realSessionId;
-    await writeJsonFileAtomic(sessionMapPath(stateDir), {
-      schemaVersion: SESSION_MAP_SCHEMA_VERSION,
-      mappings: map,
-    });
-  } catch {
-    // fail-open: a persistence error must not affect request handling
-  }
+  if (!syntheticId.trim() || !realSessionId.trim()) return;
+  await withSessionMapWriteLock(stateDir, async () => {
+    try {
+      const map = await readSessionMap(stateDir);
+      if (Object.prototype.hasOwnProperty.call(map, syntheticId)) return;
+      map[syntheticId] = realSessionId;
+      await writeJsonFileAtomic(sessionMapPath(stateDir), {
+        schemaVersion: SESSION_MAP_SCHEMA_VERSION,
+        mappings: map,
+      });
+    } catch {
+      // fail-open: a persistence error must not affect request handling
+    }
+  });
 }
