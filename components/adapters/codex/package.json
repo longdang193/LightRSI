@@ -37,6 +37,7 @@
     "smoke:context-rebase:codex": "node --import tsx scripts/context-rebase-smoke.ts",
     "install:codex": "node --import tsx scripts/install-codex.ts",
     "pack:release": "bash ./scripts/pack_release.sh",
+    "pack:release:portable": "node ./scripts/pack-release.mjs",
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run build"
