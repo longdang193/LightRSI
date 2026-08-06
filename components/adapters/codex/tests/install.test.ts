@@ -50,6 +50,51 @@ function installCodexTokenPilot(
   });
 }
 
+function parseGeneratedShellCommand(command: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let quoted = false;
+  let started = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index] ?? "";
+    if (quoted) {
+      if (character === "\\") {
+        const escaped = command[index + 1];
+        if (escaped === "\\" || escaped === "\"") {
+          current += escaped;
+          index += 1;
+        } else {
+          current += character;
+        }
+      } else if (character === "\"") {
+        quoted = false;
+      } else {
+        current += character;
+      }
+      continue;
+    }
+
+    if (character === "\"") {
+      quoted = true;
+      started = true;
+    } else if (/\s/u.test(character)) {
+      if (started) {
+        args.push(current);
+        current = "";
+        started = false;
+      }
+    } else {
+      current += character;
+      started = true;
+    }
+  }
+
+  assert.equal(quoted, false, "generated shell command contains an unterminated quote");
+  if (started) args.push(current);
+  return args;
+}
+
 test("installCodexTokenPilot writes provider, MCP, and hooks with expected commands", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-"));
   const originalHome = process.env.HOME;
@@ -513,11 +558,20 @@ test("installCodexTokenPilot stops an existing daemon before resolving the proxy
 test("resolveCodexHookCommandForInstall finds the adapter root from the bundled CLI tree", async () => {
   const repoRoot = resolve(__dirname, "..", "..", "..", "..");
   const bundledCliModuleDir = join(repoRoot, "components", "products", "cli", "dist");
+  const adapterDistDir = join(repoRoot, "components", "adapters", "codex", "dist");
   const originalCwd = process.cwd();
   try {
     process.chdir(dirname(repoRoot));
-    const command = await resolveCodexHookCommandForInstall(process.platform, bundledCliModuleDir);
-    assert.match(command, /adapters[\/\\]codex[\/\\]dist[\/\\](hooks-handler\.js|tokenpilot-codex-hook\.cmd)/);
+    const windowsCommand = await resolveCodexHookCommandForInstall("win32", bundledCliModuleDir);
+    assert.deepEqual(parseGeneratedShellCommand(windowsCommand), [
+      join(adapterDistDir, "tokenpilot-codex-hook.cmd"),
+    ]);
+
+    const posixCommand = await resolveCodexHookCommandForInstall("linux", bundledCliModuleDir);
+    assert.deepEqual(parseGeneratedShellCommand(posixCommand), [
+      process.execPath,
+      join(adapterDistDir, "hooks-handler.js"),
+    ]);
   } finally {
     process.chdir(originalCwd);
   }
