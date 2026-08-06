@@ -32,7 +32,7 @@ import {
   buildToolResultSegments,
   type ClaudeEvictionApplySummary,
 } from "./eviction.js";
-import { claudeContextRewriteBackend } from "./context-rewrite/backend.js";
+import { claudeContextRewriteBackend, relocateContextMutationPlan } from "./context-rewrite/backend.js";
 import { buildContextMutationPlan } from "@lightmem2/eviction";
 import { createHash as _createHash } from "node:crypto";
 import {
@@ -372,13 +372,31 @@ export async function startClaudeCodeGatewayRuntime(params: {
               stateDir: config.stateDir,
               sessionId,
             });
-            const persistedPlan = loaded.plans.find(
-              (candidate) => candidate.baseRevision === snapshot.revision,
-            );
-            let plan;
-            if (persistedPlan) {
-              plan = persistedPlan;
-            } else {
+            // Relocate any active plan onto the CURRENT snapshot: a later turn
+            // may have shifted item positions (new stableIds + revision) while
+            // the underlying content is unchanged, so an exact-revision match
+            // would miss it. relocate re-anchors operations by fingerprint and
+            // defers anything ambiguous or gone.
+            let plan: ReturnType<typeof buildContextMutationPlan> | undefined;
+            let replayedFromStore = false;
+            for (const candidate of loaded.plans) {
+              const { plan: relocatedPlan, relocated } = relocateContextMutationPlan({
+                snapshot,
+                plan: candidate,
+              });
+              if (relocated) {
+                // Re-persist the relocated plan so its stored form tracks the
+                // current revision (supervisor-confirmed behavior).
+                await saveActiveContextMutationPlan({
+                  stateDir: config.stateDir,
+                  plan: relocatedPlan,
+                });
+                plan = relocatedPlan;
+                replayedFromStore = true;
+                break;
+              }
+            }
+            if (!replayedFromStore) {
               plan = buildContextMutationPlan({
                 hostId: "claude-code",
                 sessionId,
@@ -390,6 +408,9 @@ export async function startClaudeCodeGatewayRuntime(params: {
                 segmentLocations,
               });
               await saveActiveContextMutationPlan({ stateDir: config.stateDir, plan });
+            }
+            if (!plan) {
+              throw new Error("context mutation plan unavailable");
             }
             const { request: rewritten, result } = await claudeContextRewriteBackend.apply({
               snapshot,

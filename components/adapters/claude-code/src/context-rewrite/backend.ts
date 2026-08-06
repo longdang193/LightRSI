@@ -334,3 +334,70 @@ export const claudeContextRewriteBackend: ModelContextRewriteBackend<ClaudeOverl
     }
   },
 };
+
+/**
+ * Relocate a persisted plan onto a new snapshot when a later turn has shifted
+ * item positions (so stableIds and the revision changed) but the underlying
+ * content is unchanged. For each operation, every target is re-anchored by its
+ * content fingerprint: exactly one snapshot item with that fingerprint -> the
+ * operation is re-targeted to that item's new stableId; zero or multiple
+ * matches -> the operation is dropped (deferred), never fuzzily relocated.
+ * The returned plan carries the new snapshot.revision as its baseRevision so
+ * the standard validate/apply path accepts it.
+ */
+export function relocateContextMutationPlan(params: {
+  snapshot: ModelContextSnapshot;
+  plan: ContextMutationPlan;
+}): { plan: ContextMutationPlan; relocated: boolean } {
+  const { snapshot, plan } = params;
+
+  const stableIdsByFingerprint = new Map<string, string[]>();
+  for (const item of snapshot.items) {
+    stableIdsByFingerprint.set(item.fingerprint, [
+      ...(stableIdsByFingerprint.get(item.fingerprint) ?? []),
+      item.stableId,
+    ]);
+  }
+
+  const relocatedOperations: ContextMutationPlan["operations"] = [];
+  for (const op of plan.operations) {
+    const fingerprints = op.targetItemFingerprints ?? {};
+    const nextTargetIds: string[] = [];
+    const nextFingerprints: Record<string, string> = {};
+    let relocatable = op.targetItemIds.length > 0;
+
+    for (const oldId of op.targetItemIds) {
+      const fingerprint = fingerprints[oldId];
+      if (fingerprint === undefined) {
+        relocatable = false;
+        break;
+      }
+      const matches = stableIdsByFingerprint.get(fingerprint) ?? [];
+      // Conservative: only a unique fingerprint match is safe to relocate.
+      if (matches.length !== 1) {
+        relocatable = false;
+        break;
+      }
+      nextTargetIds.push(matches[0]);
+      nextFingerprints[matches[0]] = fingerprint;
+    }
+
+    if (relocatable) {
+      relocatedOperations.push({
+        ...op,
+        targetItemIds: nextTargetIds,
+        targetItemFingerprints: nextFingerprints,
+      });
+    }
+    // Non-relocatable operations are dropped: deferred, never fuzzily applied.
+  }
+
+  return {
+    plan: {
+      ...plan,
+      baseRevision: snapshot.revision,
+      operations: relocatedOperations,
+    },
+    relocated: relocatedOperations.length > 0,
+  };
+}
