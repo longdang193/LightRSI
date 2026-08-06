@@ -12,6 +12,10 @@ import {
   sendJsonResponse,
   startHostGatewayRuntimeServer,
   setForwardResponseHeaders,
+  loadActiveContextMutationPlans,
+  saveActiveContextMutationPlan,
+  markContextMutationPlanApplied,
+  markContextMutationPlanFailed,
 } from "@lightmem2/host-adapter";
 import {
   prepareObservedBeforeCall,
@@ -322,6 +326,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
         evictedBlockIds: [],
       };
       let evictionBypassReason: string | undefined;
+      let activePlanId: string | undefined;
       if (evictionEnabled) {
         try {
           const candidatePayload = (
@@ -355,21 +360,42 @@ export async function startClaudeCodeGatewayRuntime(params: {
               sessionId,
               request: overlayRequest,
             });
-            const plan = buildContextMutationPlan({
-              hostId: "claude-code",
+            const loaded = await loadActiveContextMutationPlans({
+              stateDir: config.stateDir,
               sessionId,
-              snapshot,
-              selections: analysis.selections.map((selection) => ({
-                segmentIds: selection.segmentIds,
-                chars: selection.chars,
-              })),
-              segmentLocations,
             });
+            const persistedPlan = loaded.plans.find(
+              (candidate) => candidate.baseRevision === snapshot.revision,
+            );
+            let plan;
+            if (persistedPlan) {
+              plan = persistedPlan;
+            } else {
+              plan = buildContextMutationPlan({
+                hostId: "claude-code",
+                sessionId,
+                snapshot,
+                selections: analysis.selections.map((selection) => ({
+                  segmentIds: selection.segmentIds,
+                  chars: selection.chars,
+                })),
+                segmentLocations,
+              });
+              await saveActiveContextMutationPlan({ stateDir: config.stateDir, plan });
+            }
             const { request: rewritten, result } = await claudeContextRewriteBackend.apply({
               snapshot,
               plan,
               request: overlayRequest,
             });
+            activePlanId = plan.planId;
+            if (result.changed) {
+              await markContextMutationPlanApplied({
+                stateDir: config.stateDir,
+                sessionId,
+                planId: plan.planId,
+              });
+            }
 
             evictionSummary = {
               ...evictionSummary,
@@ -390,6 +416,13 @@ export async function startClaudeCodeGatewayRuntime(params: {
         } catch {
           evictionBypassReason = "analysis_or_apply_error";
           logger.warn("context eviction bypassed category=analysis_or_apply_error");
+          if (activePlanId) {
+            await markContextMutationPlanFailed({
+              stateDir: config.stateDir,
+              sessionId,
+              planId: activePlanId,
+            }).catch(() => undefined);
+          }
         }
       }
       if (envelope.model.startsWith("tokenpilot/")) {

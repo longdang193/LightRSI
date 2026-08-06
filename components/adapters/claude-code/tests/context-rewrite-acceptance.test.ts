@@ -10,6 +10,7 @@ import {
   MockUpstreamRecorder,
   reserveUnusedPort,
   runRestartAcceptanceScenario,
+  contextMutationPlanSessionRoot,
   type AcceptanceHostRuntime,
   type AcceptanceSentinels,
   type HostGatewayForwarder,
@@ -99,6 +100,15 @@ test("GUA-06 accepts Claude request eviction across five requests and a process 
           ).length,
           3,
         );
+
+        // Persistence: the plan store must have written the active/applied plan
+        // to disk before the restart, so the post-restart runtime replays it
+        // rather than recomputing (doc §13.2 restart acceptance / §7.3).
+        const planStoreRoot = contextMutationPlanSessionRoot(
+          context.stateDir,
+          "sess-gua06-claude",
+        );
+        assert.equal(fs.existsSync(planStoreRoot), true);
       }
       const runtime = await startClaudeCodeGatewayRuntime({
         config: normalizeTokenPilotClaudeCodeConfig({
