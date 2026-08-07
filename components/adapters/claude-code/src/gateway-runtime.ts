@@ -33,6 +33,7 @@ import {
   type ClaudeEvictionApplySummary,
 } from "./eviction.js";
 import { claudeContextRewriteBackend, relocateContextMutationPlan } from "./context-rewrite/backend.js";
+import { applyArchivePlan } from "./context-rewrite/archive.js";
 import { saveLatestClaudeSnapshot } from "./context-rewrite/snapshot-store.js";
 import { appendOverlayHistory } from "./context-rewrite/overlay-history.js";
 import { buildContextMutationPlan } from "@lightmem2/eviction";
@@ -418,6 +419,19 @@ export async function startClaudeCodeGatewayRuntime(params: {
             if (!plan) {
               throw new Error("context mutation plan unavailable");
             }
+            // Archive stage (before apply): each tool_result the plan would evict
+            // is archived first. On success we record the opaque archiveRef on the
+            // op so apply writes a recovery_ref into the stub. On failure we drop
+            // that item from the op targets so apply will NOT stub it — the
+            // original stays in the forwarded request. Never stub without a
+            // successful archive, or the content is deleted unrecoverably.
+            await applyArchivePlan({
+              stateDir: config.stateDir,
+              sessionId,
+              snapshot,
+              plan,
+              request: overlayRequest,
+            });
             const { request: rewritten, result } = await claudeContextRewriteBackend.apply({
               snapshot,
               plan,

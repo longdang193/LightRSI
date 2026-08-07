@@ -1255,7 +1255,7 @@ test("gateway eviction preserves tool closure and the active user turn", async (
     assert.equal(toolUse?.id, "toolu_eviction_1");
     assert.equal(toolResult?.type, "tool_result");
     assert.equal(toolResult?.tool_use_id, "toolu_eviction_1");
-    assert.match(String(toolResult?.content), /^\[evicted:/);
+    assert.match(String(toolResult?.content), /^\[(evicted:|Tool payload trimmed)/);
     assert.equal(activeUser?.text, "KEEP_ME_current_user_turn");
 
     const trace = (await readFile(join(dir, "state", "event-trace.jsonl"), "utf8"))
@@ -1373,7 +1373,7 @@ test("gateway relocates a persisted plan onto shifted history across turns", asy
         const record = block as Record<string, unknown>;
         return record.type === "tool_result"
           && record.tool_use_id === "toolu_reloc_1"
-          && /^\[evicted:/.test(String(record.content));
+          && /^\[(evicted:|Tool payload trimmed)/.test(String(record.content));
       });
     });
     assert.equal(evictedInTurn2, true);

@@ -79,3 +79,66 @@ export async function recoverClaudeToolResult(
   const entry = await readArchive(archivePath);
   return entry?.originalText;
 }
+
+import type { ContextMutationPlan } from "@lightmem2/host-adapter";
+import type { ModelContextSnapshot } from "@lightmem2/host-adapter";
+import { collectEvictableToolResults } from "./backend.js";
+import { claudeContextRewriteBackend } from "./backend.js";
+
+export type ArchiveFn = (params: {
+  stateDir: string;
+  sessionId: string;
+  stableItemId: string;
+  toolUseId: string;
+  originalText: string;
+}) => Promise<{ archiveRef: string }>;
+
+/**
+ * Archive every tool_result the plan would evict, BEFORE apply runs, and record
+ * the outcome on the plan's operations:
+ *  - success: push the opaque archiveRef onto that op's archiveRefs, so apply
+ *    writes a recovery_ref into the stub.
+ *  - failure: remove that item from the op's targetItemIds so apply will NOT
+ *    stub it — the original content stays in the forwarded request.
+ * Never let a tool_result be stubbed without a successful archive, or the
+ * content would be deleted with no way to recover it.
+ *
+ * archiveFn is injectable so tests can simulate archive failure; it defaults to
+ * the real archiveClaudeToolResult.
+ */
+export async function applyArchivePlan(params: {
+  stateDir: string;
+  sessionId: string;
+  snapshot: ModelContextSnapshot;
+  plan: ContextMutationPlan;
+  request: Parameters<typeof collectEvictableToolResults>[0]["request"];
+  archiveFn?: ArchiveFn;
+}): Promise<void> {
+  const archiveFn: ArchiveFn = params.archiveFn ?? archiveClaudeToolResult;
+  const validation = await claudeContextRewriteBackend.validate({
+    snapshot: params.snapshot,
+    plan: params.plan,
+  });
+  const evictable = collectEvictableToolResults({
+    snapshot: params.snapshot,
+    plan: params.plan,
+    request: params.request,
+    applicableOperationIds: validation.applicableOperationIds,
+  });
+  for (const item of evictable) {
+    const op = params.plan.operations.find((candidate) => candidate.id === item.opId);
+    if (!op) continue;
+    try {
+      const archived = await archiveFn({
+        stateDir: params.stateDir,
+        sessionId: params.sessionId,
+        stableItemId: item.itemId,
+        toolUseId: item.toolUseId,
+        originalText: item.originalText,
+      });
+      op.archiveRefs = [...(op.archiveRefs ?? []), archived.archiveRef];
+    } catch {
+      op.targetItemIds = op.targetItemIds.filter((id) => id !== item.itemId);
+    }
+  }
+}
