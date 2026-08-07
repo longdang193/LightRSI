@@ -133,3 +133,30 @@ export function buildRawSemanticTurnRecord(params: {
     toolResults,
   };
 }
+
+import type { RawSemanticSnapshot } from "@lightmem2/history";
+
+/**
+ * Assemble a RawSemanticSnapshot from per-turn records by concatenating their
+ * message/toolCall/toolResult arrays in turn order. lastTurnSeq is the highest
+ * turnSeq present. The snapshot is what buildDeltaViewFromRawSemanticSnapshot
+ * consumes to produce a DeltaView for a turn range.
+ */
+export function buildRawSemanticSnapshot(params: {
+  sessionId: string;
+  turns: import("@lightmem2/history").RawSemanticTurnRecord[];
+}): RawSemanticSnapshot {
+  const { sessionId, turns } = params;
+  const ordered = [...turns].sort((a, b) => a.turnSeq - b.turnSeq);
+  let lastTurnSeq = 0;
+  const messages: RawSemanticSnapshot["messages"] = [];
+  const toolCalls: RawSemanticSnapshot["toolCalls"] = [];
+  const toolResults: RawSemanticSnapshot["toolResults"] = [];
+  for (const turn of ordered) {
+    lastTurnSeq = Math.max(lastTurnSeq, turn.turnSeq);
+    messages.push(...turn.messages);
+    toolCalls.push(...turn.toolCalls);
+    toolResults.push(...turn.toolResults);
+  }
+  return { sessionId, lastTurnSeq, messages, toolCalls, toolResults };
+}
