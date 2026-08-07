@@ -8,11 +8,16 @@ export {
 } from "./rebase-request.js";
 export {
   appendCodexRebaseCapability,
+  classifyCodexRebaseCapabilityRejection,
+  codexRebaseEndpointIdentity,
   codexRebaseCapabilityJournalPath,
+  codexRebasePayloadDigest,
+  codexRebasePayloadItems,
   codexRebasePayloadItemTypes,
   formatCodexRebaseCapabilityStatus,
   readCodexRebaseCapabilityJournal,
   readUnsupportedCodexRebaseItemTypes,
+  resolveCodexProviderReplayCompatibility,
   unsupportedCodexRebaseItemTypesFromResponse,
 } from "./rebase-capability.js";
 export {

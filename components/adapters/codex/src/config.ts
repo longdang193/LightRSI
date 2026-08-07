@@ -197,6 +197,10 @@ export function normalizeTokenPilotCodexConfig(
       failureMode: "bypass",
       retryOriginalRequest: boolValue(contextRewrite.retryOriginalRequest, true),
       cooldownMs: numberValue(contextRewrite.cooldownMs, 300_000, 0, 86_400_000),
+      providerCompatibilityProbe: contextRewrite.providerCompatibilityProbe === "mock_fixture"
+        || contextRewrite.providerCompatibilityProbe === "real_provider"
+        ? contextRewrite.providerCompatibilityProbe
+        : "disabled",
       mutationPlan: sanitizeCodexMutationPlan(contextRewrite.mutationPlan),
     },
     reduction: {

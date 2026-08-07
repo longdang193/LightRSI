@@ -1,4 +1,4 @@
-import { readCodexContextHistoryJournal } from "./journal-store.js";
+import { readCodexContextHistoryJournalRecoveringTail } from "./journal-append.js";
 import { codexReplayabilityForItem } from "./replayability.js";
 import { cloneJson, hashJson } from "./shared.js";
 import type {
@@ -343,7 +343,7 @@ export async function buildCodexEffectiveHistory(params: {
   currentRequestId?: string;
   rolloutParserBootstrap?: () => Promise<CodexEffectiveHistory | null>;
 }): Promise<CodexEffectiveHistory> {
-  const journalRead = await readCodexContextHistoryJournal(params.stateDir, params.sessionId);
+  const journalRead = await readCodexContextHistoryJournalRecoveringTail(params.stateDir, params.sessionId);
   const requests = latestRequests(journalRead.entries);
   const responses = latestResponsesById(journalRead.entries);
   const committedChain = buildCommittedChain({

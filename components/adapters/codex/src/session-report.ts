@@ -120,9 +120,11 @@ async function buildCodexRebaseReportLines(
   const latest = latestEpoch(epochs);
   const currentCooldowns = activeCooldowns(cooldowns);
   const cooldown = latestCooldown(cooldowns);
-  const capabilityStatus = capabilities
-    .map(formatCodexRebaseCapabilityStatus)
-    .sort();
+  const capabilityJournalTrusted = !capabilityJournal.readError
+    && capabilityJournal.malformedLineCount === 0;
+  const capabilityStatus = capabilityJournalTrusted
+    ? capabilities.map((entry) => formatCodexRebaseCapabilityStatus(entry)).sort()
+    : [];
   const malformedRows =
     epochJournal.malformedLineCount
     + cooldownJournal.malformedLineCount
@@ -153,6 +155,8 @@ async function buildCodexRebaseReportLines(
   }
   if (capabilityStatus.length > 0) {
     lines.push(`- CDR-05 rebase capability cache: ${capabilityStatus.join(", ")}`);
+  } else if (!capabilityJournalTrusted) {
+    lines.push("- CDR-05 rebase capability cache: untrusted; runtime will bypass rebase");
   }
   if (malformedRows > 0) {
     lines.push(`- rebase journal malformed rows: ${malformedRows}`);

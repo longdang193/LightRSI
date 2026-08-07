@@ -71,8 +71,12 @@ import type {
   JsonObject,
 } from "./context-history/types.js";
 import {
+  CODEX_REBASE_API_VERSION,
+  CODEX_REBASE_ITEM_SCHEMA_VERSION,
+  CODEX_REBASE_WIRE_MODE,
   acquireCodexRebaseSessionLock,
   buildCodexRebaseRequest,
+  codexRebaseEndpointIdentity,
   executeCodexRebaseWithFallback,
   failPendingCodexRebaseEpochsAfterRestart,
   withCodexRebaseReplayAccountingInput,
@@ -228,6 +232,7 @@ export async function startCodexResponsesProxy(params: {
   config: TokenPilotCodexConfig;
   logger: TokenPilotCodexLogger;
   codexConfigPath?: string;
+  allowMockFixtureEvidence?: boolean;
 }): Promise<CodexProxyRuntime> {
   initializeCodexTokenPilotPreset();
   const { config, logger } = params;
@@ -576,7 +581,7 @@ export async function startCodexResponsesProxy(params: {
           stateDir: config.stateDir,
           sessionId,
           requestId: requestJournalEntry.requestId,
-          payload,
+          payload: originalPayload,
           committedInputItems: paramsForJournal.committed && Array.isArray(payload.input)
             ? payload.input as JsonObject[]
             : undefined,
@@ -610,7 +615,7 @@ export async function startCodexResponsesProxy(params: {
           stateDir: config.stateDir,
           sessionId,
           requestId: requestJournalEntry.requestId,
-          payload,
+          payload: originalPayload,
           committedInputItems: paramsForJournal.committed && Array.isArray(payload.input)
             ? payload.input as JsonObject[]
             : undefined,
@@ -665,6 +670,15 @@ export async function startCodexResponsesProxy(params: {
             stateDir: config.stateDir,
             provider: upstreamProviderName,
             model,
+            wireMode: CODEX_REBASE_WIRE_MODE,
+            apiVersion: CODEX_REBASE_API_VERSION,
+            endpointId: codexRebaseEndpointIdentity(upstream.baseUrl),
+            itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
+            probeMode: config.contextRewrite.providerCompatibilityProbe,
+            acceptedEvidence: params.allowMockFixtureEvidence
+              ? ["real_provider", "mock_fixture"]
+              : ["real_provider"],
+            evidenceSource: params.allowMockFixtureEvidence ? "mock_fixture" : "real_provider",
           },
         }).then((result) => {
           contextRewriteOutcome = result.outcome;

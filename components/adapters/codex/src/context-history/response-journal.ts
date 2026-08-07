@@ -1,7 +1,11 @@
-import { appendJsonl } from "@lightmem2/host-adapter";
-import { codexContextHistoryJournalPath } from "./journal-store.js";
+import { appendCodexContextHistoryJournalEntry } from "./journal-append.js";
 import { collectCodexResponseItemsFromStream } from "./sse-item-collector.js";
-import { cloneJson, normalizeStatus, sanitizeValue } from "./shared.js";
+import {
+  cloneJson,
+  normalizeObservedAt,
+  normalizeStatus,
+  sanitizeValue,
+} from "./shared.js";
 import {
   CODEX_CONTEXT_HISTORY_RESPONSE_SCHEMA,
   type CodexJournalStatus,
@@ -54,6 +58,10 @@ export async function appendCodexResponseJournalEntry(params: {
   error?: string;
   observedAt?: string;
 }): Promise<CodexResponseJournalEntry> {
+  if (!params.sessionId.trim()
+    || (params.requestId !== undefined && !params.requestId.trim())) {
+    throw new TypeError("Codex response journal requires non-empty session and request ids");
+  }
   const streamCollected = typeof params.rawStreamText === "string"
     ? collectCodexResponseItemsFromStream(params.rawStreamText)
     : undefined;
@@ -63,12 +71,20 @@ export async function appendCodexResponseJournalEntry(params: {
     : Array.isArray(response.output)
       ? cloneJson(sanitizeValue(response.output)) as JsonObject[]
       : [];
+  const responseId = streamCollected?.responseId
+    ?? (typeof response.id === "string" && response.id.trim() ? response.id : undefined);
+  const computedStatus = responseStatus({
+    status: params.status,
+    responseStatus: responseBodyStatus(response),
+    streamStatus: streamCollected?.status,
+    malformedEventCount: streamCollected?.malformedEventCount,
+  });
   const entry: CodexResponseJournalEntry = {
     schema: CODEX_CONTEXT_HISTORY_RESPONSE_SCHEMA,
     kind: "response",
     requestId: params.requestId,
     sessionId: params.sessionId,
-    responseId: streamCollected?.responseId ?? (typeof response.id === "string" ? response.id : undefined),
+    responseId,
     previousResponseId: params.previousResponseId !== undefined
       ? params.previousResponseId
       : streamCollected?.previousResponseId
@@ -79,15 +95,10 @@ export async function appendCodexResponseJournalEntry(params: {
     eventTypeCounts: streamCollected?.eventTypeCounts,
     malformedEventCount: streamCollected?.malformedEventCount,
     malformedEventTypeCounts: streamCollected?.malformedEventTypeCounts,
-    status: responseStatus({
-      status: params.status,
-      responseStatus: responseBodyStatus(response),
-      streamStatus: streamCollected?.status,
-      malformedEventCount: streamCollected?.malformedEventCount,
-    }),
+    status: computedStatus === "completed" && !responseId ? "incomplete" : computedStatus,
     error: params.error,
-    observedAt: params.observedAt ?? new Date().toISOString(),
+    observedAt: normalizeObservedAt(params.observedAt),
   };
-  await appendJsonl(codexContextHistoryJournalPath(params.stateDir, params.sessionId), entry);
+  await appendCodexContextHistoryJournalEntry(params.stateDir, params.sessionId, entry);
   return entry;
 }

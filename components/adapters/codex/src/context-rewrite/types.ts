@@ -16,6 +16,7 @@ export type CodexContextRewriteConfig = {
   failureMode: "bypass";
   retryOriginalRequest: boolean;
   cooldownMs: number;
+  providerCompatibilityProbe: "disabled" | "mock_fixture" | "real_provider";
 };
 
 export type CodexMutationPlan = {
@@ -71,6 +72,7 @@ export type CodexRebaseEpoch = {
   status: CodexRebaseEpochStatus;
   failureReason?: string;
   accounting?: CodexRebaseAccounting;
+  journalCommittedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -122,20 +124,59 @@ export type CodexRebaseCooldownStoreParams = {
   now?: string;
 };
 
-export const CODEX_REBASE_CAPABILITY_SCHEMA = "lightmem2.codex.rebase-capability/v1";
+export const CODEX_REBASE_CAPABILITY_SCHEMA = "lightmem2.codex.rebase-capability/v2";
+export const CODEX_REBASE_CAPABILITY_LEGACY_SCHEMA = "lightmem2.codex.rebase-capability/v1";
+export const CODEX_REBASE_CAPABILITY_DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+export const CODEX_REBASE_WIRE_MODE = "responses";
+export const CODEX_REBASE_API_VERSION = "responses/v1";
+export const CODEX_REBASE_ITEM_SCHEMA_VERSION = "responses-item/v1";
 
-export type CodexRebaseCapabilityStatus = "supported" | "unsupported";
+export type CodexRebaseCapabilityStatus =
+  | "verified_supported"
+  | "verified_unsupported"
+  | "payload_rejected";
+
+export type CodexRebaseCapabilityEvidence = "mock_fixture" | "real_provider";
+
+export type CodexProviderReplayCompatibilityStatus =
+  | "verified_supported"
+  | "verified_unsupported"
+  | "unknown_probe_required"
+  | "payload_rejected";
 
 export type CodexRebaseCapability = {
   schema: typeof CODEX_REBASE_CAPABILITY_SCHEMA;
   provider: string;
   model: string;
+  wireMode: string;
+  apiVersion: string;
+  endpointId: string;
   itemType: string;
+  itemSchemaVersion: string;
   status: CodexRebaseCapabilityStatus;
+  evidence: CodexRebaseCapabilityEvidence;
+  payloadDigest?: string;
   reason?: string;
   responseStatus?: number;
   errorCode?: string;
   observedAt: string;
+  expiresAt: string;
+};
+
+export type CodexProviderReplayCompatibilityDecision = {
+  provider: string;
+  model: string;
+  wireMode: string;
+  apiVersion: string;
+  endpointId: string;
+  itemType: string;
+  itemSchemaVersion: string;
+  status: CodexProviderReplayCompatibilityStatus;
+  evidence?: CodexRebaseCapabilityEvidence;
+  payloadDigest?: string;
+  reason: string;
+  observedAt?: string;
+  expiresAt?: string;
 };
 
 export type CodexRebaseCapabilityNotice = {
@@ -145,6 +186,8 @@ export type CodexRebaseCapabilityNotice = {
   skippedItemTypes?: string[];
   supportedItemTypes?: string[];
   unsupportedItemTypes?: string[];
+  payloadRejectedItemTypes?: string[];
+  decisions?: CodexProviderReplayCompatibilityDecision[];
   reason?: string;
 };
 
@@ -152,6 +195,14 @@ export type CodexRebaseCapabilityStoreParams = {
   stateDir: string;
   provider: string;
   model: string;
+  wireMode: string;
+  apiVersion: string;
+  endpointId: string;
+  itemSchemaVersion: string;
+  probeMode?: "disabled" | CodexRebaseCapabilityEvidence;
+  acceptedEvidence?: CodexRebaseCapabilityEvidence[];
+  evidenceSource?: CodexRebaseCapabilityEvidence;
+  ttlMs?: number;
   now?: string;
 };
 
