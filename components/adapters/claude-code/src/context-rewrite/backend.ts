@@ -128,12 +128,35 @@ function claudeToolClosureReasons(
 // Rewrite a single block to its pointer stub. tool_result keeps its type and
 // tool_use_id so the tool-use/tool-result pair stays closed; only the content
 // is replaced. Other blocks become a short text stub.
-function stubBlock(block: Record<string, unknown>): Record<string, unknown> {
+function toolResultContentDigest(block: Record<string, unknown>): string | undefined {
+  const content = block.content;
+  if (typeof content !== "string") return undefined;
+  return createHash("sha256").update(content).digest("hex").slice(0, 16);
+}
+
+// Given an op's archiveRefs (opaque "archive://claude/<digest>" entries), find
+// the recovery dataKey for a specific block by matching the block's own content
+// digest. Matching by digest (not array order) guarantees the recovery_ref is
+// bound to the correct item.
+function recoveryRefForBlock(
+  block: Record<string, unknown>,
+  archiveRefs: string[] | undefined,
+): string | undefined {
+  if (!archiveRefs || archiveRefs.length === 0) return undefined;
+  const digest = toolResultContentDigest(block);
+  if (!digest) return undefined;
+  const match = archiveRefs.find((ref) => ref === "archive://claude/" + digest);
+  return match ? "claude_tool_result:" + digest : undefined;
+}
+
+function stubBlock(block: Record<string, unknown>, recoveryRef?: string): Record<string, unknown> {
   if (block.type === "tool_result") {
     return {
       type: "tool_result",
       tool_use_id: block.tool_use_id,
-      content: TOOL_RESULT_POINTER,
+      content: recoveryRef
+        ? "[Tool payload trimmed; recovery_ref=" + recoveryRef + "]"
+        : TOOL_RESULT_POINTER,
       ...(block.is_error === true ? { is_error: true } : {}),
     };
   }
@@ -299,7 +322,8 @@ export const claudeContextRewriteBackend: ModelContextRewriteBackend<ClaudeOverl
           const block = asBlockRecord(message.content[blockIdx]);
           if (!block || !isRewritableBlock(block)) continue;
           // tool_use is half of a pair; leave it so closure stays intact.
-          const stub = stubBlock(block);
+          const recoveryRef = recoveryRefForBlock(block, op.archiveRefs);
+          const stub = stubBlock(block, recoveryRef);
           savedChars += Math.max(0, blockCharCount(block) - blockCharCount(stub));
           message.content[blockIdx] = stub as never;
           removedItemIds.push(itemId);
