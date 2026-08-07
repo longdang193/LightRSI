@@ -17,6 +17,11 @@ export type CodexContextHistoryJournalReadResult = {
   readError?: string;
 };
 
+export type CodexContextHistoryJournalLineParseResult =
+  | { status: "valid"; entry: CodexContextHistoryJournalEntry }
+  | { status: "invalid_json" }
+  | { status: "invalid_record" };
+
 function encodedSessionId(sessionId: string): string {
   return encodeURIComponent(sessionId.trim() || "unknown-session");
 }
@@ -213,6 +218,36 @@ function canonicalContextHistoryJournalEntry(
   return undefined;
 }
 
+export function parseCodexContextHistoryJournalLine(
+  line: string,
+  expectedSessionId: string,
+): CodexContextHistoryJournalLineParseResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line) as unknown;
+  } catch {
+    return { status: "invalid_json" };
+  }
+  const entry = canonicalContextHistoryJournalEntry(parsed, expectedSessionId);
+  return entry
+    ? { status: "valid", entry }
+    : { status: "invalid_record" };
+}
+
+export function parseCodexContextHistoryJournalText(
+  raw: string,
+  sessionId: string,
+): CodexContextHistoryJournalReadResult {
+  const entries: CodexContextHistoryJournalEntry[] = [];
+  let malformedLineCount = 0;
+  for (const line of raw.split(/\r?\n/).filter(Boolean)) {
+    const parsed = parseCodexContextHistoryJournalLine(line, sessionId);
+    if (parsed.status === "valid") entries.push(parsed.entry);
+    else malformedLineCount += 1;
+  }
+  return { entries, malformedLineCount };
+}
+
 function errorCode(error: unknown): string | undefined {
   return error && typeof error === "object" && "code" in error && typeof error.code === "string"
     ? error.code
@@ -237,19 +272,7 @@ export async function readCodexContextHistoryJournal(
     };
   }
 
-  const entries: CodexContextHistoryJournalEntry[] = [];
-  let malformedLineCount = 0;
-  for (const line of raw.split(/\r?\n/).filter(Boolean)) {
-    try {
-      const parsed = JSON.parse(line) as unknown;
-      const entry = canonicalContextHistoryJournalEntry(parsed, sessionId);
-      if (entry) entries.push(entry);
-      else malformedLineCount += 1;
-    } catch {
-      malformedLineCount += 1;
-    }
-  }
-  return { entries, malformedLineCount };
+  return parseCodexContextHistoryJournalText(raw, sessionId);
 }
 
 export async function readCodexContextHistoryJournalEntries(

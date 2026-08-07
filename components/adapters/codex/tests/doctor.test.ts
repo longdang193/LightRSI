@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
@@ -8,7 +8,14 @@ import { createServer as createHttpServer } from "node:http";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { formatCodexDoctorReport, inspectCodexDoctor } from "../src/doctor.js";
-import { appendCodexRebaseCapability } from "../src/context-rewrite/index.js";
+import {
+  appendCodexRebaseCapability,
+  CODEX_REBASE_API_VERSION,
+  CODEX_REBASE_ITEM_SCHEMA_VERSION,
+  CODEX_REBASE_WIRE_MODE,
+  codexRebaseCapabilityJournalPath,
+  codexRebaseEndpointIdentity,
+} from "../src/context-rewrite/index.js";
 
 async function reserveUnusedPort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -422,10 +429,31 @@ test("inspectCodexDoctor reports cached rebase capabilities", async () => {
       stateDir,
       provider: "OpenAI",
       model: "gpt-5.4-mini",
+      wireMode: CODEX_REBASE_WIRE_MODE,
+      apiVersion: CODEX_REBASE_API_VERSION,
+      endpointId: codexRebaseEndpointIdentity("https://api.openai.example/v1"),
       itemType: "web_search_call",
-      status: "unsupported",
+      itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
+      status: "verified_unsupported",
+      evidence: "mock_fixture",
       reason: "schema_error",
       observedAt: "2026-07-28T10:00:00.000Z",
+      expiresAt: "2999-01-01T00:00:00.000Z",
+    });
+    await appendCodexRebaseCapability({
+      stateDir,
+      provider: "OpenAI",
+      model: "gpt-5.4-mini",
+      wireMode: CODEX_REBASE_WIRE_MODE,
+      apiVersion: CODEX_REBASE_API_VERSION,
+      endpointId: codexRebaseEndpointIdentity("https://api.openai.example/v1"),
+      itemType: "reasoning",
+      itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
+      status: "verified_supported",
+      evidence: "real_provider",
+      reason: "provider_smoke_committed",
+      observedAt: "2026-07-28T10:01:00.000Z",
+      expiresAt: "2999-01-01T00:00:00.000Z",
     });
 
     const report = await inspectCodexDoctor({
@@ -438,8 +466,23 @@ test("inspectCodexDoctor reports cached rebase capabilities", async () => {
       tokenPilotConfigPath,
     });
 
-    assert.deepEqual(report.rebaseCapabilityStatus, ["OpenAI/gpt-5.4-mini web_search_call unsupported"]);
-    assert.match(formatCodexDoctorReport(report), /rebase capability cache: OpenAI\/gpt-5\.4-mini web_search_call unsupported/);
+    assert.deepEqual(report.rebaseCapabilityStatus, [
+      "OpenAI/gpt-5.4-mini responses responses/v1 reasoning@responses-item/v1 verified_supported evidence=real-provider state=active",
+      "OpenAI/gpt-5.4-mini responses responses/v1 web_search_call@responses-item/v1 verified_unsupported evidence=mock/fixture state=active",
+    ]);
+    const formatted = formatCodexDoctorReport(report);
+    assert.match(formatted, /reasoning@responses-item\/v1 verified_supported evidence=real-provider/);
+    assert.match(formatted, /web_search_call@responses-item\/v1 verified_unsupported evidence=mock\/fixture/);
+
+    await appendFile(codexRebaseCapabilityJournalPath(stateDir), "not-json\n", "utf8");
+    const untrustedReport = await inspectCodexDoctor({
+      config: normalizeTokenPilotCodexConfig({ stateDir, proxyPort }),
+      configPath: codexConfigPath,
+      hooksConfigPath,
+      tokenPilotConfigPath,
+    });
+    assert.equal(untrustedReport.rebaseCapabilityTrusted, false);
+    assert.match(formatCodexDoctorReport(untrustedReport), /capability cache: untrusted .*runtime will bypass rebase/i);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

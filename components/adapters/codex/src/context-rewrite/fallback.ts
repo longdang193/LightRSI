@@ -29,9 +29,9 @@ import {
 } from "./rebase-cooldown.js";
 import {
   appendCodexRebaseCapability,
-  codexRebasePayloadItemTypes,
-  readUnsupportedCodexRebaseItemTypes,
-  unsupportedCodexRebaseItemTypesFromResponse,
+  classifyCodexRebaseCapabilityRejection,
+  codexRebasePayloadItems,
+  resolveCodexProviderReplayCompatibility,
 } from "./rebase-capability.js";
 
 const activeRebaseSessions = new Set<string>();
@@ -137,9 +137,10 @@ export async function executeCodexRebaseWithFallback(params: {
   let cooldown: CodexRebaseCooldownNotice | undefined;
   let capability: CodexRebaseCapabilityNotice | undefined;
   let failureReason = "rebase_upstream_error";
-  const rebaseItemTypes = params.capabilityStore
-    ? codexRebasePayloadItemTypes(params.rebasedPayload)
+  const rebaseItems = params.capabilityStore
+    ? codexRebasePayloadItems(params.rebasedPayload)
     : [];
+  const rebaseItemTypes = rebaseItems.map((entry) => entry.itemType);
 
   async function sendOriginalBypass(
     notice?: CodexRebaseCapabilityNotice,
@@ -152,25 +153,53 @@ export async function executeCodexRebaseWithFallback(params: {
     };
   }
 
-  if (params.capabilityStore && rebaseItemTypes.length > 0) {
+  if (params.capabilityStore && rebaseItems.length > 0) {
     try {
-      const skippedItemTypes = await readUnsupportedCodexRebaseItemTypes({
-        stateDir: params.capabilityStore.stateDir,
-        provider: params.capabilityStore.provider,
-        model: params.capabilityStore.model,
-        itemTypes: rebaseItemTypes,
+      const probeMode = params.capabilityStore.probeMode ?? "disabled";
+      const compatibilityResult = await resolveCodexProviderReplayCompatibility({
+        ...params.capabilityStore,
+        items: rebaseItems,
+        acceptedEvidence: probeMode === "mock_fixture"
+          ? ["real_provider", "mock_fixture"]
+          : ["real_provider"],
       });
-      if (skippedItemTypes.length > 0) {
+      const rejected = compatibilityResult.decisions.filter((entry) => (
+        entry.status === "verified_unsupported" || entry.status === "payload_rejected"
+      ));
+      const unknown = compatibilityResult.decisions.filter((entry) => entry.status === "unknown_probe_required");
+      const probeEnabled = probeMode === "mock_fixture" || probeMode === "real_provider";
+      if (!compatibilityResult.journalTrusted || rejected.length > 0 || (unknown.length > 0 && !probeEnabled)) {
+        const skippedItemTypes = Array.from(new Set(
+          [...rejected, ...unknown].map((entry) => entry.itemType),
+        ));
+        const payloadRejectedItemTypes = rejected
+          .filter((entry) => entry.status === "payload_rejected")
+          .map((entry) => entry.itemType);
         return sendOriginalBypass({
           provider: params.capabilityStore.provider,
           model: params.capabilityStore.model,
           itemTypes: rebaseItemTypes,
           skippedItemTypes,
-          reason: "capability_unsupported",
+          unsupportedItemTypes: rejected
+            .filter((entry) => entry.status === "verified_unsupported")
+            .map((entry) => entry.itemType),
+          payloadRejectedItemTypes,
+          decisions: compatibilityResult.decisions,
+          reason: !compatibilityResult.journalTrusted
+            ? "capability_journal_untrusted"
+            : rejected.length > 0
+              ? "provider_replay_rejected"
+              : "provider_replay_probe_required",
         });
       }
     } catch {
-      // Capability cache is advisory; an unreadable cache must not interrupt proxying.
+      return sendOriginalBypass({
+        provider: params.capabilityStore.provider,
+        model: params.capabilityStore.model,
+        itemTypes: rebaseItemTypes,
+        skippedItemTypes: rebaseItemTypes,
+        reason: "capability_check_error",
+      });
     }
   }
 
@@ -219,30 +248,43 @@ export async function executeCodexRebaseWithFallback(params: {
   }
 
   async function recordCapabilities(paramsForRecord: {
-    itemTypes: string[];
-    status: "supported" | "unsupported";
+    items: Array<{ itemType: string; payloadDigest?: string }>;
+    status: "verified_supported" | "verified_unsupported" | "payload_rejected";
     reason: string;
     responseStatus?: number;
+    errorCode?: string;
   }): Promise<void> {
     const store = params.capabilityStore;
     if (!store) return;
-    await Promise.all(paramsForRecord.itemTypes.map((itemType) => appendCodexRebaseCapability({
-      stateDir: store.stateDir,
-      provider: store.provider,
-      model: store.model,
-      itemType,
-      status: paramsForRecord.status,
-      reason: paramsForRecord.reason,
-      responseStatus: paramsForRecord.responseStatus,
-      observedAt: store.now,
-    })));
+    const evidence = store.probeMode === "mock_fixture" ? "mock_fixture" : "real_provider";
+    for (const item of paramsForRecord.items) {
+      await appendCodexRebaseCapability({
+        stateDir: store.stateDir,
+        provider: store.provider,
+        model: store.model,
+        wireMode: store.wireMode,
+        apiVersion: store.apiVersion,
+        endpointId: store.endpointId,
+        itemType: item.itemType,
+        itemSchemaVersion: store.itemSchemaVersion,
+        status: paramsForRecord.status,
+        evidence,
+        payloadDigest: paramsForRecord.status === "payload_rejected" ? item.payloadDigest : undefined,
+        reason: paramsForRecord.reason,
+        responseStatus: paramsForRecord.responseStatus,
+        errorCode: paramsForRecord.errorCode,
+        observedAt: store.now,
+        ttlMs: store.ttlMs,
+      });
+    }
   }
 
   async function safeRecordCapabilities(paramsForRecord: {
-    itemTypes: string[];
-    status: "supported" | "unsupported";
+    items: Array<{ itemType: string; payloadDigest?: string }>;
+    status: "verified_supported" | "verified_unsupported" | "payload_rejected";
     reason: string;
     responseStatus?: number;
+    errorCode?: string;
   }): Promise<void> {
     try {
       await recordCapabilities(paramsForRecord);
@@ -378,8 +420,8 @@ export async function executeCodexRebaseWithFallback(params: {
         }
         if (params.capabilityStore && rebaseItemTypes.length > 0) {
           await safeRecordCapabilities({
-            itemTypes: rebaseItemTypes,
-            status: "supported",
+            items: rebaseItems,
+            status: "verified_supported",
             reason: "rebase_committed",
             responseStatus: rebaseResponse.status,
           });
@@ -406,23 +448,41 @@ export async function executeCodexRebaseWithFallback(params: {
           : "rebase_upstream_rejected"
       );
       if (params.capabilityStore) {
-        const unsupportedItemTypes = unsupportedCodexRebaseItemTypesFromResponse({
+        const classification = classifyCodexRebaseCapabilityRejection({
           response: rebaseResponse,
-          itemTypes: rebaseItemTypes,
+          items: rebaseItems,
         });
-        if (unsupportedItemTypes.length > 0) {
+        if (classification.kind === "item_unsupported") {
+          const unsupportedItemTypes = classification.itemTypes;
           await safeRecordCapabilities({
-            itemTypes: unsupportedItemTypes,
-            status: "unsupported",
-            reason: "schema_error",
+            items: unsupportedItemTypes.map((itemType) => ({ itemType })),
+            status: "verified_unsupported",
+            reason: "item_schema_unsupported",
             responseStatus: rebaseResponse.status,
+            errorCode: classification.errorCode,
           });
           capability = {
             provider: params.capabilityStore.provider,
             model: params.capabilityStore.model,
             itemTypes: rebaseItemTypes,
             unsupportedItemTypes,
-            reason: "schema_error",
+            reason: "item_schema_unsupported",
+          };
+        } else if (classification.kind === "payload_rejected") {
+          const rejectedItems = rebaseItems.filter((entry) => classification.itemTypes.includes(entry.itemType));
+          await safeRecordCapabilities({
+            items: rejectedItems,
+            status: "payload_rejected",
+            reason: "encrypted_payload_rejected",
+            responseStatus: rebaseResponse.status,
+            errorCode: classification.errorCode,
+          });
+          capability = {
+            provider: params.capabilityStore.provider,
+            model: params.capabilityStore.model,
+            itemTypes: rebaseItemTypes,
+            payloadRejectedItemTypes: classification.itemTypes,
+            reason: "encrypted_payload_rejected",
           };
         }
       }

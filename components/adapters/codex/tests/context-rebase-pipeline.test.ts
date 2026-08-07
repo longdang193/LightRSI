@@ -368,6 +368,7 @@ test("CDR-06 proxy pipeline rebases a non-stream request from effective history"
       },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -494,6 +495,7 @@ test("CDR-06 proxy bootstraps a rebase from the hook-persisted Codex rollout", a
       modules: { stabilizer: false, reduction: false },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -614,6 +616,7 @@ test("CDH-01 proxy bypasses context-history journaling when the journal cannot b
       },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -666,6 +669,7 @@ test("CDR-01 proxy pipeline defers stale mutation plans", async () => {
       },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -741,6 +745,7 @@ test("CDR-06 proxy pipeline falls back and cools down rejected rebases", async (
       },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -857,6 +862,7 @@ test("CDR-04 fallback keeps non-rebase before-call reductions", async () => {
       },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -943,6 +949,7 @@ test("CDR-06 proxy pipeline falls back and cools down rejected stream rebases", 
       },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -1115,6 +1122,7 @@ test("CDR-06 proxy pipeline journals current input before reduction", async () =
       },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -1182,6 +1190,7 @@ test("CDR-06 committed rebase history starts from the new response chain root", 
       },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -1269,6 +1278,7 @@ test("CDR-06 mock smoke keeps five turns on the new response chain", async () =>
       },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -1375,6 +1385,7 @@ test("CDR-06 proxy restart keeps the committed rebase response chain", async () 
       },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -1448,6 +1459,7 @@ test("CDR-06 proxy restart keeps the committed rebase response chain", async () 
       },
       contextRewrite: {
         enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,

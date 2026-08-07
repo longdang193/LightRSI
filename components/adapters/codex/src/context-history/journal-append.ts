@@ -1,12 +1,16 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
+import { TextDecoder } from "node:util";
 
 import {
   codexContextHistoryJournalPath,
+  parseCodexContextHistoryJournalLine,
+  parseCodexContextHistoryJournalText,
   readCodexContextHistoryJournal,
 } from "./journal-store.js";
+import type { CodexContextHistoryJournalReadResult } from "./journal-store.js";
 
 type CodexContextHistoryJournalLockOwner = {
   token: string;
@@ -20,11 +24,24 @@ export type CodexContextHistoryJournalLock = {
   release(): Promise<void>;
 };
 
+export type CodexContextHistoryJournalTailRecoveryResult = {
+  status: "not_needed" | "truncated" | "newline_appended" | "blocked";
+  reason?:
+    | "malformed_trailing_record"
+    | "complete_record_missing_newline"
+    | "invalid_trailing_record"
+    | "invalid_prefix"
+    | "read_error";
+  recoveredByteCount: number;
+  tailSha256?: string;
+};
+
 const DEFAULT_LOCK_STALE_MS = 30 * 60 * 1000;
 const DEFAULT_LOCK_TIMEOUT_MS = 30_000;
 const DEFAULT_LOCK_RETRY_MS = 10;
 const LOCK_REMOVE_MAX_RETRIES = 5;
 const LOCK_REMOVE_RETRY_MS = 20;
+const FATAL_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 function errorCode(error: unknown): string | undefined {
   return error && typeof error === "object" && "code" in error && typeof error.code === "string"
@@ -274,6 +291,155 @@ export async function withCodexContextHistoryJournalLock<T>(params: {
   }
 }
 
+function sha256Bytes(value: Uint8Array): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function decodeUtf8(value: Uint8Array): string | undefined {
+  try {
+    return FATAL_UTF8_DECODER.decode(value);
+  } catch {
+    return undefined;
+  }
+}
+
+async function syncTruncate(path: string, size: number): Promise<void> {
+  const handle = await open(path, "r+");
+  try {
+    await handle.truncate(size);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function syncAppendNewline(path: string): Promise<void> {
+  const handle = await open(path, "a");
+  try {
+    await handle.appendFile("\n", "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function journalTailState(
+  path: string,
+): Promise<"missing" | "terminated" | "unterminated" | "read_error"> {
+  let handle: Awaited<ReturnType<typeof open>>;
+  try {
+    handle = await open(path, "r");
+  } catch (error) {
+    return errorCode(error) === "ENOENT" ? "missing" : "read_error";
+  }
+  try {
+    const fileStat = await handle.stat();
+    if (!fileStat.isFile()) return "read_error";
+    if (fileStat.size === 0) return "terminated";
+    const lastByte = Buffer.allocUnsafe(1);
+    const read = await handle.read(lastByte, 0, 1, fileStat.size - 1);
+    if (read.bytesRead !== 1) return "read_error";
+    return lastByte[0] === 0x0a ? "terminated" : "unterminated";
+  } catch {
+    return "read_error";
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function recoverCodexContextHistoryJournalTailLocked(
+  stateDir: string,
+  sessionId: string,
+): Promise<CodexContextHistoryJournalTailRecoveryResult> {
+  // Writers always terminate canonical JSONL records with LF. Under the same
+  // session lock, an unterminated suffix is recoverable only when every prior
+  // line is canonical and the suffix is either an incomplete JSON/UTF-8 value
+  // or one complete canonical record that only lost its final LF.
+  const path = codexContextHistoryJournalPath(stateDir, sessionId);
+  const tailState = await journalTailState(path);
+  if (tailState === "missing" || tailState === "terminated") {
+    return { status: "not_needed", recoveredByteCount: 0 };
+  }
+  if (tailState === "read_error") {
+    return { status: "blocked", reason: "read_error", recoveredByteCount: 0 };
+  }
+  let raw: Buffer;
+  try {
+    raw = await readFile(path);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return { status: "not_needed", recoveredByteCount: 0 };
+    return { status: "blocked", reason: "read_error", recoveredByteCount: 0 };
+  }
+  if (raw.length === 0 || raw.at(-1) === 0x0a) {
+    return { status: "not_needed", recoveredByteCount: 0 };
+  }
+
+  const lastNewline = raw.lastIndexOf(0x0a);
+  const prefixLength = lastNewline + 1;
+  const prefix = raw.subarray(0, prefixLength);
+  const tail = raw.subarray(prefixLength);
+  const tailSha256 = sha256Bytes(tail);
+  const prefixText = decodeUtf8(prefix);
+  if (prefixText === undefined
+    || parseCodexContextHistoryJournalText(prefixText, sessionId).malformedLineCount > 0) {
+    return {
+      status: "blocked",
+      reason: "invalid_prefix",
+      recoveredByteCount: 0,
+      tailSha256,
+    };
+  }
+
+  const tailText = decodeUtf8(tail);
+  if (tailText !== undefined) {
+    const parsedTail = parseCodexContextHistoryJournalLine(tailText, sessionId);
+    if (parsedTail.status === "valid") {
+      await syncAppendNewline(path);
+      return {
+        status: "newline_appended",
+        reason: "complete_record_missing_newline",
+        recoveredByteCount: 0,
+        tailSha256,
+      };
+    }
+    if (parsedTail.status === "invalid_record") {
+      return {
+        status: "blocked",
+        reason: "invalid_trailing_record",
+        recoveredByteCount: 0,
+        tailSha256,
+      };
+    }
+  }
+
+  await syncTruncate(path, prefixLength);
+  return {
+    status: "truncated",
+    reason: "malformed_trailing_record",
+    recoveredByteCount: tail.length,
+    tailSha256,
+  };
+}
+
+export async function recoverCodexContextHistoryJournalTail(
+  stateDir: string,
+  sessionId: string,
+): Promise<CodexContextHistoryJournalTailRecoveryResult> {
+  return withCodexContextHistoryJournalLock({ stateDir, sessionId }, () => (
+    recoverCodexContextHistoryJournalTailLocked(stateDir, sessionId)
+  ));
+}
+
+export async function readCodexContextHistoryJournalRecoveringTail(
+  stateDir: string,
+  sessionId: string,
+): Promise<CodexContextHistoryJournalReadResult> {
+  return withCodexContextHistoryJournalLock({ stateDir, sessionId }, async () => {
+    await recoverCodexContextHistoryJournalTailLocked(stateDir, sessionId);
+    return readCodexContextHistoryJournal(stateDir, sessionId);
+  });
+}
+
 export async function appendCodexContextHistoryJournalEntryLocked(
   stateDir: string,
   sessionId: string,
@@ -281,6 +447,7 @@ export async function appendCodexContextHistoryJournalEntryLocked(
 ): Promise<void> {
   const path = codexContextHistoryJournalPath(stateDir, sessionId);
   await mkdir(dirname(path), { recursive: true });
+  await recoverCodexContextHistoryJournalTailLocked(stateDir, sessionId);
   const current = await readCodexContextHistoryJournal(stateDir, sessionId);
   if (current.readError || current.malformedLineCount > 0) {
     throw new Error(`Refusing to append to invalid Codex context-history journal for session ${sessionId}`);

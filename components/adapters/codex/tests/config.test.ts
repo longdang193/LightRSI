@@ -38,6 +38,7 @@ test("normalizeTokenPilotCodexConfig trims and clamps values", () => {
 test("normalizeTokenPilotCodexConfig preserves context rewrite plan revisions", () => {
   const config = normalizeTokenPilotCodexConfig({
     contextRewrite: {
+      providerCompatibilityProbe: "mock_fixture",
       mutationPlan: {
         baseRevision: "rev-base",
         operations: [{ type: "evict", stableItemId: "item-1" }],
@@ -46,7 +47,15 @@ test("normalizeTokenPilotCodexConfig preserves context rewrite plan revisions", 
   });
 
   assert.equal(config.contextRewrite.mutationPlan?.baseRevision, "rev-base");
+  assert.equal(config.contextRewrite.providerCompatibilityProbe, "mock_fixture");
   assert.deepEqual(config.contextRewrite.mutationPlan?.operations, [
     { type: "evict", stableItemId: "item-1" },
   ]);
+});
+
+test("normalizeTokenPilotCodexConfig disables provider compatibility probing by default", () => {
+  assert.equal(
+    normalizeTokenPilotCodexConfig({}).contextRewrite.providerCompatibilityProbe,
+    "disabled",
+  );
 });
