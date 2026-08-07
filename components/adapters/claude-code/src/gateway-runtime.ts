@@ -25,6 +25,7 @@ import type { TokenPilotClaudeCodeConfig } from "./config.js";
 import { proxyBaseUrlForPort } from "./config.js";
 import type { TokenPilotClaudeCodeLogger } from "./logger.js";
 import { createClaudeMessagesPayloadCodec } from "./messages-codec.js";
+import { encodeRequestOrBypass } from "./context-rewrite/encode-bypass.js";
 import { reduceClaudeRequestEnvelope, type ClaudeReductionSummary } from "./reduction.js";
 import {
   applyClaudeEviction,
@@ -32,7 +33,10 @@ import {
   buildToolResultSegments,
   type ClaudeEvictionApplySummary,
 } from "./eviction.js";
-import { claudeContextRewriteBackend } from "./context-rewrite/backend.js";
+import { claudeContextRewriteBackend, relocateContextMutationPlan } from "./context-rewrite/backend.js";
+import { applyArchivePlan } from "./context-rewrite/archive.js";
+import { saveLatestClaudeSnapshot } from "./context-rewrite/snapshot-store.js";
+import { appendOverlayHistory } from "./context-rewrite/overlay-history.js";
 import { buildContextMutationPlan } from "@lightmem2/eviction";
 import { createHash as _createHash } from "node:crypto";
 import {
@@ -369,10 +373,39 @@ export async function startClaudeCodeGatewayRuntime(params: {
               sessionId,
               request: overlayRequest,
             });
+            // Persist the latest complete snapshot (+ item fingerprints) for this
+            // session so the overlay has a durable, restart-surviving view of the
+            // current turn (§4.5 claude-context). Fail-open, never blocks the request.
+            await saveLatestClaudeSnapshot(config.stateDir, sessionId, snapshot);
             const loaded = await loadActiveContextMutationPlans({
               stateDir: config.stateDir,
               sessionId,
             });
+            // Relocate any active plan onto the CURRENT snapshot: a later turn
+            // may have shifted item positions (new stableIds + revision) while
+            // the underlying content is unchanged, so an exact-revision match
+            // would miss it. relocate re-anchors operations by fingerprint and
+            // defers anything ambiguous or gone.
+            let plan: ReturnType<typeof buildContextMutationPlan> | undefined;
+            let replayedFromStore = false;
+            for (const candidate of loaded.plans) {
+              const { plan: relocatedPlan, relocated } = relocateContextMutationPlan({
+                snapshot,
+                plan: candidate,
+              });
+              if (relocated) {
+                // Re-persist the relocated plan so its stored form tracks the
+                // current revision (supervisor-confirmed behavior).
+                await saveActiveContextMutationPlan({
+                  stateDir: config.stateDir,
+                  plan: relocatedPlan,
+                });
+                plan = relocatedPlan;
+                replayedFromStore = true;
+                break;
+              }
+            }
+            if (!replayedFromStore) {
             if (loaded.bypassed) {
               throw new Error(`context mutation plan store unavailable: ${loaded.reasons.join(",")}`);
             }
@@ -403,6 +436,22 @@ export async function startClaudeCodeGatewayRuntime(params: {
               }
               activePlanStatus = stored.status;
             }
+            if (!plan) {
+              throw new Error("context mutation plan unavailable");
+            }
+            // Archive stage (before apply): each tool_result the plan would evict
+            // is archived first. On success we record the opaque archiveRef on the
+            // op so apply writes a recovery_ref into the stub. On failure we drop
+            // that item from the op targets so apply will NOT stub it — the
+            // original stays in the forwarded request. Never stub without a
+            // successful archive, or the content is deleted unrecoverably.
+            await applyArchivePlan({
+              stateDir: config.stateDir,
+              sessionId,
+              snapshot,
+              plan,
+              request: overlayRequest,
+            });
             activePlanId = plan.planId;
             const { request: rewritten, result } = await claudeContextRewriteBackend.apply({
               snapshot,
@@ -414,6 +463,16 @@ export async function startClaudeCodeGatewayRuntime(params: {
                 stateDir: config.stateDir,
                 sessionId,
                 planId: plan.planId,
+              });
+              // Record this turn's overlay in the append-only audit log (§4.5).
+              await appendOverlayHistory(config.stateDir, {
+                sessionId,
+                planId: plan.planId,
+                previousRevision: result.previousRevision,
+                nextRevision: result.nextRevision,
+                removedItemIds: result.removedItemIds,
+                savedChars: result.savedChars,
+                relocated: replayedFromStore,
               });
               if (applied.bypassed) {
                 throw new Error(`context mutation plan commit failed: ${applied.reasons.join(",")}`);
@@ -522,7 +581,14 @@ export async function startClaudeCodeGatewayRuntime(params: {
         },
       });
       const reductionSummary = prepared.reductionSummary;
-      payload = codec.encodeRequest(prepared.envelope);
+      {
+        const encoded = encodeRequestOrBypass({ codec, envelope: prepared.envelope, rawBody: body });
+        payload = encoded.payload as Record<string, unknown>;
+        if (encoded.bypassed) {
+          evictionBypassReason = "encode_error";
+          logger.warn("context overlay bypassed category=encode_error");
+        }
+      }
       const reducedRequestText = typeof prepared.envelope.metadata?.inputText === "string"
         ? prepared.envelope.metadata.inputText
         : "";

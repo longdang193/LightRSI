@@ -128,12 +128,35 @@ function claudeToolClosureReasons(
 // Rewrite a single block to its pointer stub. tool_result keeps its type and
 // tool_use_id so the tool-use/tool-result pair stays closed; only the content
 // is replaced. Other blocks become a short text stub.
-function stubBlock(block: Record<string, unknown>): Record<string, unknown> {
+function toolResultContentDigest(block: Record<string, unknown>): string | undefined {
+  const content = block.content;
+  if (typeof content !== "string") return undefined;
+  return createHash("sha256").update(content).digest("hex").slice(0, 16);
+}
+
+// Given an op's archiveRefs (opaque "archive://claude/<digest>" entries), find
+// the recovery dataKey for a specific block by matching the block's own content
+// digest. Matching by digest (not array order) guarantees the recovery_ref is
+// bound to the correct item.
+function recoveryRefForBlock(
+  block: Record<string, unknown>,
+  archiveRefs: string[] | undefined,
+): string | undefined {
+  if (!archiveRefs || archiveRefs.length === 0) return undefined;
+  const digest = toolResultContentDigest(block);
+  if (!digest) return undefined;
+  const match = archiveRefs.find((ref) => ref === "archive://claude/" + digest);
+  return match ? "claude_tool_result:" + digest : undefined;
+}
+
+function stubBlock(block: Record<string, unknown>, recoveryRef?: string): Record<string, unknown> {
   if (block.type === "tool_result") {
     return {
       type: "tool_result",
       tool_use_id: block.tool_use_id,
-      content: TOOL_RESULT_POINTER,
+      content: recoveryRef
+        ? "[Tool payload trimmed; recovery_ref=" + recoveryRef + "]"
+        : TOOL_RESULT_POINTER,
       ...(block.is_error === true ? { is_error: true } : {}),
     };
   }
@@ -299,7 +322,8 @@ export const claudeContextRewriteBackend: ModelContextRewriteBackend<ClaudeOverl
           const block = asBlockRecord(message.content[blockIdx]);
           if (!block || !isRewritableBlock(block)) continue;
           // tool_use is half of a pair; leave it so closure stays intact.
-          const stub = stubBlock(block);
+          const recoveryRef = recoveryRefForBlock(block, op.archiveRefs);
+          const stub = stubBlock(block, recoveryRef);
           savedChars += Math.max(0, blockCharCount(block) - blockCharCount(stub));
           message.content[blockIdx] = stub as never;
           removedItemIds.push(itemId);
@@ -334,3 +358,127 @@ export const claudeContextRewriteBackend: ModelContextRewriteBackend<ClaudeOverl
     }
   },
 };
+
+/**
+ * Relocate a persisted plan onto a new snapshot when a later turn has shifted
+ * item positions (so stableIds and the revision changed) but the underlying
+ * content is unchanged. For each operation, every target is re-anchored by its
+ * content fingerprint: exactly one snapshot item with that fingerprint -> the
+ * operation is re-targeted to that item's new stableId; zero or multiple
+ * matches -> the operation is dropped (deferred), never fuzzily relocated.
+ * The returned plan carries the new snapshot.revision as its baseRevision so
+ * the standard validate/apply path accepts it.
+ */
+export function relocateContextMutationPlan(params: {
+  snapshot: ModelContextSnapshot;
+  plan: ContextMutationPlan;
+}): { plan: ContextMutationPlan; relocated: boolean } {
+  const { snapshot, plan } = params;
+
+  const stableIdsByFingerprint = new Map<string, string[]>();
+  for (const item of snapshot.items) {
+    stableIdsByFingerprint.set(item.fingerprint, [
+      ...(stableIdsByFingerprint.get(item.fingerprint) ?? []),
+      item.stableId,
+    ]);
+  }
+
+  const relocatedOperations: ContextMutationPlan["operations"] = [];
+  for (const op of plan.operations) {
+    const fingerprints = op.targetItemFingerprints ?? {};
+    const nextTargetIds: string[] = [];
+    const nextFingerprints: Record<string, string> = {};
+    let relocatable = op.targetItemIds.length > 0;
+
+    for (const oldId of op.targetItemIds) {
+      const fingerprint = fingerprints[oldId];
+      if (fingerprint === undefined) {
+        relocatable = false;
+        break;
+      }
+      const matches = stableIdsByFingerprint.get(fingerprint) ?? [];
+      // Conservative: only a unique fingerprint match is safe to relocate.
+      if (matches.length !== 1) {
+        relocatable = false;
+        break;
+      }
+      nextTargetIds.push(matches[0]);
+      nextFingerprints[matches[0]] = fingerprint;
+    }
+
+    if (relocatable) {
+      relocatedOperations.push({
+        ...op,
+        targetItemIds: nextTargetIds,
+        targetItemFingerprints: nextFingerprints,
+      });
+    }
+    // Non-relocatable operations are dropped: deferred, never fuzzily applied.
+  }
+
+  return {
+    plan: {
+      ...plan,
+      baseRevision: snapshot.revision,
+      operations: relocatedOperations,
+    },
+    relocated: relocatedOperations.length > 0,
+  };
+}
+
+export type EvictableToolResult = {
+  opId: string;
+  itemId: string;
+  toolUseId: string;
+  msgIdx: number;
+  blockIdx: number;
+  originalText: string;
+};
+
+/**
+ * Collect the tool_result items a plan would evict from the current request,
+ * together with their original text — WITHOUT mutating anything. The gateway
+ * uses this to archive each tool_result before apply runs; apply then evicts
+ * the same items. Sharing one locator keeps "what gets archived" and "what gets
+ * evicted" from drifting apart. Only tool_result blocks are collected (text
+ * blocks are not archived). Mirrors apply's locating rules, including the
+ * protected-turn guard, so it never selects the active user turn or a prefill.
+ */
+export function collectEvictableToolResults(params: {
+  snapshot: ModelContextSnapshot;
+  plan: ContextMutationPlan;
+  request: ClaudeOverlayRequest;
+  applicableOperationIds: string[];
+}): EvictableToolResult[] {
+  const { plan, request, applicableOperationIds } = params;
+  const applicable = new Set(applicableOperationIds);
+  const messages = request.messages;
+  const protectedIdx = lastUserMessageIndex(messages);
+  const collected: EvictableToolResult[] = [];
+
+  for (const op of plan.operations) {
+    if (!applicable.has(op.id)) continue;
+    for (const itemId of op.targetItemIds) {
+      const parsed = parseStableId(itemId);
+      if (!parsed) continue;
+      const { msgIdx, blockIdx } = parsed;
+      if (protectedIdx < 0 || msgIdx >= protectedIdx) continue;
+      const message = messages[msgIdx];
+      if (!message || !Array.isArray(message.content)) continue;
+      const block = asBlockRecord(message.content[blockIdx]);
+      if (!block || block.type !== "tool_result") continue;
+      const content = block.content;
+      if (typeof content !== "string") continue;
+      const toolUseId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+      collected.push({
+        opId: op.id,
+        itemId,
+        toolUseId,
+        msgIdx,
+        blockIdx,
+        originalText: content,
+      });
+    }
+  }
+  return collected;
+}
