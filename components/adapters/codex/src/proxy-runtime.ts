@@ -232,6 +232,7 @@ export async function startCodexResponsesProxy(params: {
   config: TokenPilotCodexConfig;
   logger: TokenPilotCodexLogger;
   codexConfigPath?: string;
+  allowMockFixtureEvidence?: boolean;
 }): Promise<CodexProxyRuntime> {
   initializeCodexTokenPilotPreset();
   const { config, logger } = params;
@@ -674,6 +675,10 @@ export async function startCodexResponsesProxy(params: {
             endpointId: codexRebaseEndpointIdentity(upstream.baseUrl),
             itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
             probeMode: config.contextRewrite.providerCompatibilityProbe,
+            acceptedEvidence: params.allowMockFixtureEvidence
+              ? ["real_provider", "mock_fixture"]
+              : ["real_provider"],
+            evidenceSource: params.allowMockFixtureEvidence ? "mock_fixture" : "real_provider",
           },
         }).then((result) => {
           contextRewriteOutcome = result.outcome;

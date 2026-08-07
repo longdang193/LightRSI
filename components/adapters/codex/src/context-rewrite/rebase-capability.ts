@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { appendJsonl } from "@lightmem2/host-adapter";
+import { mkdir, open, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   CODEX_REBASE_API_VERSION,
   CODEX_REBASE_CAPABILITY_DEFAULT_TTL_MS,
@@ -16,6 +15,7 @@ import {
   type CodexUpstreamResponse,
   type JsonObject,
 } from "./types.js";
+import { acquireCodexRebaseSessionLock } from "./rebase-epoch.js";
 
 export type CodexRebaseCapabilityJournalReadResult = {
   entries: CodexRebaseCapability[];
@@ -41,6 +41,11 @@ export type CodexRebaseRejectionClassification = {
   itemTypes: string[];
   errorCode?: string;
 };
+
+const CAPABILITY_JOURNAL_LOCK_SESSION_ID = "__provider-capabilities-journal__";
+const CAPABILITY_JOURNAL_LOCK_TIMEOUT_MS = 5_000;
+const CAPABILITY_JOURNAL_LOCK_RETRY_MS = 10;
+const FATAL_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 type CapabilityDimensions = Pick<
   CodexRebaseCapability,
@@ -196,25 +201,33 @@ export function codexRebaseCapabilityJournalPath(stateDir: string): string {
   return join(stateDir, "context-rewrite", "codex", "provider-capabilities.jsonl");
 }
 
-export async function readCodexRebaseCapabilityJournal(
-  stateDir: string,
-): Promise<CodexRebaseCapabilityJournalReadResult> {
-  let raw: string;
-  try {
-    raw = await readFile(codexRebaseCapabilityJournalPath(stateDir), "utf8");
-  } catch (error) {
-    if (errorCode(error) === "ENOENT") {
-      return { entries: [], capabilities: [], malformedLineCount: 0, staleLineCount: 0 };
-    }
-    return {
-      entries: [],
-      capabilities: [],
-      malformedLineCount: 0,
-      staleLineCount: 0,
-      readError: error instanceof Error ? error.message : String(error),
-    };
-  }
+function wait(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
 
+async function withCapabilityJournalLock<T>(
+  stateDir: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const deadline = Date.now() + CAPABILITY_JOURNAL_LOCK_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const lock = await acquireCodexRebaseSessionLock({
+      stateDir,
+      sessionId: CAPABILITY_JOURNAL_LOCK_SESSION_ID,
+    });
+    if (lock) {
+      try {
+        return await action();
+      } finally {
+        await lock.release();
+      }
+    }
+    await wait(Math.min(CAPABILITY_JOURNAL_LOCK_RETRY_MS, Math.max(1, deadline - Date.now())));
+  }
+  throw new Error("Timed out acquiring Codex provider capability journal lock");
+}
+
+function parseCapabilityJournalText(raw: string): CodexRebaseCapabilityJournalReadResult {
   const entries: CodexRebaseCapability[] = [];
   let malformedLineCount = 0;
   let staleLineCount = 0;
@@ -240,6 +253,121 @@ export async function readCodexRebaseCapabilityJournal(
     malformedLineCount,
     staleLineCount,
   };
+}
+
+async function syncTruncate(path: string, size: number): Promise<void> {
+  const handle = await open(path, "r+");
+  try {
+    await handle.truncate(size);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function syncAppendNewline(path: string): Promise<void> {
+  const handle = await open(path, "a");
+  try {
+    await handle.appendFile("\n", "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+function isIncompleteJsonError(error: unknown): boolean {
+  return error instanceof SyntaxError
+    && /(?:unexpected end of json input|unterminated string in json)/iu.test(error.message);
+}
+
+async function recoverCapabilityJournalTailLocked(stateDir: string): Promise<void> {
+  const path = codexRebaseCapabilityJournalPath(stateDir);
+  let raw: Buffer;
+  try {
+    raw = await readFile(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    return;
+  }
+  if (raw.length === 0 || raw.at(-1) === 0x0a) return;
+
+  const lastNewline = raw.lastIndexOf(0x0a);
+  const prefixLength = lastNewline + 1;
+  let prefixText: string;
+  try {
+    prefixText = FATAL_UTF8_DECODER.decode(raw.subarray(0, prefixLength));
+  } catch {
+    return;
+  }
+  const prefixResult = parseCapabilityJournalText(prefixText);
+  if (prefixResult.malformedLineCount > 0) return;
+
+  const tail = raw.subarray(prefixLength);
+  let tailText: string;
+  try {
+    tailText = FATAL_UTF8_DECODER.decode(tail);
+  } catch {
+    await syncTruncate(path, prefixLength);
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(tailText) as unknown;
+    const object = asObject(parsed);
+    const isLegacy = object?.schema === CODEX_REBASE_CAPABILITY_LEGACY_SCHEMA;
+    if (isLegacy || parseCodexRebaseCapability(parsed)) {
+      await syncAppendNewline(path);
+      return;
+    }
+    // A complete but non-canonical record is not safe to guess or rewrite.
+    return;
+  } catch (error) {
+    // A syntactically incomplete final JSON value is the recoverable crash case.
+    if (!isIncompleteJsonError(error)) return;
+    await syncTruncate(path, prefixLength);
+  }
+}
+
+async function readCodexRebaseCapabilityJournalUnlocked(
+  stateDir: string,
+): Promise<CodexRebaseCapabilityJournalReadResult> {
+  let raw: string;
+  try {
+    raw = await readFile(codexRebaseCapabilityJournalPath(stateDir), "utf8");
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") {
+      return { entries: [], capabilities: [], malformedLineCount: 0, staleLineCount: 0 };
+    }
+    return {
+      entries: [],
+      capabilities: [],
+      malformedLineCount: 0,
+      staleLineCount: 0,
+      readError: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  return parseCapabilityJournalText(raw);
+}
+
+export async function readCodexRebaseCapabilityJournal(
+  stateDir: string,
+): Promise<CodexRebaseCapabilityJournalReadResult> {
+  return withCapabilityJournalLock(stateDir, async () => {
+    await recoverCapabilityJournalTailLocked(stateDir);
+    return readCodexRebaseCapabilityJournalUnlocked(stateDir);
+  });
+}
+
+async function appendSyncedCapabilityEntry(path: string, entry: CodexRebaseCapability): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const handle = await open(path, "a");
+  try {
+    await handle.appendFile(`${JSON.stringify(entry)}\n`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function appendCodexRebaseCapability(params: CapabilityDimensions & {
@@ -285,7 +413,11 @@ export async function appendCodexRebaseCapability(params: CapabilityDimensions &
     observedAt,
     expiresAt,
   };
-  await appendJsonl(codexRebaseCapabilityJournalPath(params.stateDir), entry);
+  await withCapabilityJournalLock(params.stateDir, () => (
+    recoverCapabilityJournalTailLocked(params.stateDir).then(() => (
+      appendSyncedCapabilityEntry(codexRebaseCapabilityJournalPath(params.stateDir), entry)
+    ))
+  ));
   return entry;
 }
 

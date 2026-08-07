@@ -201,7 +201,17 @@ test("provider smoke emits sanitized real-chain, capability v2, matrix, and usag
 });
 
 test("provider smoke rejects credential-shaped evidence labels and raw provider errors", async () => {
-  assert.equal(sanitizedEvidenceLabel("sk-sensitive-model-label"), "not-observed");
+  const credentialShapedFixtures = [
+    ["sk", "sensitive-model-label"].join("-"),
+    ["AKIA", "1234567890ABCDEF"].join(""),
+    ["ghp", "123456789012345678901234567890123456"].join("_"),
+    ["github", "pat", "123456789012345678901234567890123456"].join("_"),
+    ["xoxb", "1234567890", "1234567890", "abcdefghijklmnop"].join("-"),
+    ["tvly", "dev", "22fIaq", "lFQoPTRTrJhbIJxRIEiQVLwL99"].join("-"),
+  ];
+  for (const fixture of credentialShapedFixtures) {
+    assert.equal(sanitizedEvidenceLabel(fixture), "not-observed");
+  }
   assert.equal(sanitizedEvidenceLabel("gpt-safe-model"), "gpt-safe-model");
   const provider = await startProviderFixture({ rejectWithSecret: true });
   const previousKey = process.env.OPENAI_API_KEY;

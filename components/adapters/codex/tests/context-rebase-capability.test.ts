@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -48,6 +48,8 @@ function capabilityStore(
     apiVersion: CODEX_REBASE_API_VERSION,
     endpointId: codexRebaseEndpointIdentity("https://api.openai.example/v1"),
     itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
+    acceptedEvidence: ["real_provider", "mock_fixture"],
+    evidenceSource: "mock_fixture",
     ...options,
   };
 }
@@ -269,6 +271,92 @@ test("CDR-05 unknown compatibility bypasses before opening an epoch", async () =
   });
 });
 
+test("CDR-05 mock capability evidence is ignored unless the harness explicitly accepts it", async () => {
+  await withTempState(async (stateDir) => {
+    await appendCapability({
+      stateDir,
+      itemType: "message",
+      status: "verified_supported",
+      evidence: "mock_fixture",
+    });
+    const originalPayload = {
+      model: "gpt-5.4-mini",
+      previous_response_id: "resp-old",
+      input: [{ role: "user", content: "current" }],
+    };
+    const rebasedPayload = {
+      model: "gpt-5.4-mini",
+      input: [{ role: "user", content: "current" }],
+    };
+    const sentPayloads: JsonObject[] = [];
+    const result = await executeCodexRebaseWithFallback({
+      sessionId: "codex-session-real-runtime",
+      planId: "plan-real-runtime",
+      epochId: "epoch-real-runtime",
+      originalPayload,
+      rebasedPayload,
+      capabilityStore: capabilityStore(stateDir, undefined, {
+        probeMode: "disabled",
+        acceptedEvidence: ["real_provider"],
+        evidenceSource: "real_provider",
+      }),
+      async sendUpstream(payload) {
+        sentPayloads.push(payload);
+        return { status: 200, headers: {}, text: JSON.stringify({ id: "resp-original", output: [] }) };
+      },
+    });
+    assert.equal(result.outcome, "bypassed");
+    assert.equal(result.capability?.reason, "provider_replay_probe_required");
+    assert.deepEqual(sentPayloads, [originalPayload]);
+  });
+});
+
+test("CDR-05 concurrent capability observations remain complete and parseable", async () => {
+  await withTempState(async (stateDir) => {
+    await Promise.all(Array.from({ length: 24 }, (_, index) => appendCapability({
+      stateDir,
+      itemType: `message-${index}`,
+      status: "verified_supported",
+      observedAt: `2026-08-07T00:00:${String(index).padStart(2, "0")}.000Z`,
+    })));
+    const journal = await readCodexRebaseCapabilityJournal(stateDir);
+    assert.equal(journal.readError, undefined);
+    assert.equal(journal.malformedLineCount, 0);
+    assert.equal(journal.entries.length, 24);
+    assert.equal(journal.capabilities.length, 24);
+  });
+});
+
+test("CDR-05 capability journal recovers a truncated final JSON record", async () => {
+  await withTempState(async (stateDir) => {
+    const capability = await appendCapability({
+      stateDir,
+      itemType: "message",
+      status: "verified_supported",
+    });
+    const path = codexRebaseCapabilityJournalPath(stateDir);
+    const raw = await readFile(path, "utf8");
+    await appendFile(path, JSON.stringify({ ...capability, itemType: "reasoning" }).slice(0, 24), "utf8");
+
+    const recovered = await readCodexRebaseCapabilityJournal(stateDir);
+    assert.equal(recovered.malformedLineCount, 0);
+    assert.equal(recovered.entries.length, 1);
+    assert.equal((await readFile(path, "utf8")), raw);
+  });
+});
+
+test("CDR-05 a malformed non-JSON tail remains untrusted instead of being discarded", async () => {
+  await withTempState(async (stateDir) => {
+    await mkdir(dirname(codexRebaseCapabilityJournalPath(stateDir)), { recursive: true });
+    const path = codexRebaseCapabilityJournalPath(stateDir);
+    await appendFile(path, "not-json", "utf8");
+
+    const journal = await readCodexRebaseCapabilityJournal(stateDir);
+    assert.equal(journal.malformedLineCount, 1);
+    assert.equal(await readFile(path, "utf8"), "not-json");
+  });
+});
+
 test("CDR-05 an untrusted capability journal bypasses before opening an epoch", async () => {
   await withTempState(async (stateDir) => {
     await mkdir(dirname(codexRebaseCapabilityJournalPath(stateDir)), { recursive: true });
@@ -299,7 +387,10 @@ test("CDR-05 explicit item schema rejection records only the named item and skip
   await withTempState(async (stateDir) => {
     const originalPayload = { model: "gpt-5.4-mini", previous_response_id: "resp-old", input: [{ role: "user", content: "current" }] };
     const rebasedPayload = { model: "gpt-5.4-mini", input: [{ type: "web_search_call", query: "not replayable" }, { role: "user", content: "current" }] };
-    const store = capabilityStore(stateDir, undefined, { probeMode: "mock_fixture" });
+    const store = capabilityStore(stateDir, undefined, {
+      probeMode: "mock_fixture",
+      evidenceSource: undefined,
+    });
     const firstPayloads: JsonObject[] = [];
     const first = await executeCodexRebaseWithFallback({
       sessionId: "codex-session-capability",
@@ -322,6 +413,7 @@ test("CDR-05 explicit item schema rejection records only the named item and skip
     assert.equal(first.outcome, "bypassed");
     assert.deepEqual(first.capability?.unsupportedItemTypes, ["web_search_call"]);
     assert.deepEqual(firstPayloads, [rebasedPayload, originalPayload]);
+    assert.equal((await readCodexRebaseCapabilityJournal(stateDir)).entries.at(-1)?.evidence, "mock_fixture");
 
     const secondPayloads: JsonObject[] = [];
     const second = await executeCodexRebaseWithFallback({

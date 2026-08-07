@@ -8,6 +8,7 @@ import { normalizeTokenPilotCodexConfig } from "./config.js";
 import {
   buildCodexEffectiveHistory,
   loadCodexContextHistoryJournal,
+  type CodexContextHistoryJournalEntry,
   type JsonObject,
 } from "./context-history/index.js";
 import type { TokenPilotCodexLogger } from "./logger.js";
@@ -188,7 +189,7 @@ function sha256(value: string): string {
 }
 
 function credentialShaped(value: string): boolean {
-  return /(?:\b(?:bearer|api[_-]?key|access[_-]?token|secret)\b|sk-[a-z0-9_-]{12,}|[?&](?:key|token|signature)=)/iu.test(value);
+  return /(?:\b(?:bearer|api[_-]?key|access[_-]?token|secret|authorization)\b|sk-[a-z0-9_-]{12,}|(?:github_pat_|gh[pousr]_)[a-z0-9_]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|(?:xapp-|xox[baprsuv]-)[a-z0-9-]{10,}|tvly-[a-z0-9-]{12,}|[?&](?:key|token|signature)=)/iu.test(value);
 }
 
 export function sanitizedEvidenceLabel(value: string | undefined): string {
@@ -196,6 +197,39 @@ export function sanitizedEvidenceLabel(value: string | undefined): string {
   return trimmed && trimmed.length <= 160 && !credentialShaped(trimmed)
     ? trimmed
     : "not-observed";
+}
+
+function responseChainLinksValid(params: {
+  journal: CodexContextHistoryJournalEntry[];
+  rootResponseId: string;
+  expectedPreviousIds: string[];
+  terminalResponseId: string;
+}): boolean {
+  const requests = new Map<string, Extract<CodexContextHistoryJournalEntry, { kind: "request" }>>();
+  const responses = new Map<string, Extract<CodexContextHistoryJournalEntry, { kind: "response" }>>();
+  for (const entry of params.journal) {
+    if (entry.kind === "request" && entry.status === "completed") requests.set(entry.requestId, entry);
+    if (entry.kind === "response" && entry.responseId && entry.status === "completed") {
+      responses.set(entry.responseId, entry);
+    }
+  }
+
+  let previousResponseId = params.rootResponseId;
+  for (const expectedPreviousId of params.expectedPreviousIds) {
+    if (expectedPreviousId !== previousResponseId) return false;
+    const matchingRequests = Array.from(requests.values()).filter((entry) => (
+      entry.previousResponseId === expectedPreviousId
+    ));
+    if (matchingRequests.length !== 1) return false;
+    const request = matchingRequests[0]!;
+    const matchingResponses = Array.from(responses.values()).filter((entry) => (
+      entry.requestId === request.requestId
+      && entry.previousResponseId === expectedPreviousId
+    ));
+    if (matchingResponses.length !== 1) return false;
+    previousResponseId = matchingResponses[0]!.responseId!;
+  }
+  return previousResponseId === params.terminalResponseId;
 }
 
 function jsonItems(value: unknown): JsonObject[] {
@@ -301,7 +335,13 @@ function sanitizedProviderFailure(response: Response, text: string, phase: strin
   try {
     const parsed = JSON.parse(text) as { error?: { code?: unknown; type?: unknown; message?: unknown } };
     const rawCode = parsed.error?.code ?? parsed.error?.type;
-    if (typeof rawCode === "string" && /^[a-zA-Z0-9_.-]{1,80}$/u.test(rawCode)) code = rawCode;
+    if (
+      typeof rawCode === "string"
+      && /^[a-zA-Z0-9_.-]{1,80}$/u.test(rawCode)
+      && !credentialShaped(rawCode)
+    ) {
+      code = rawCode;
+    }
     const message = typeof parsed.error?.message === "string" ? parsed.error.message : "";
     if (/previous_response_id/iu.test(message)) category = "chain-reference";
     else if (/tool_choice/iu.test(message)) category = "tool-choice";
@@ -690,12 +730,12 @@ async function runRebaseConversation(params: {
 
     const epoch = await readLatestCodexRebaseEpoch({ stateDir, sessionId });
     const journal = await loadCodexContextHistoryJournal(stateDir, sessionId);
-    const committedRootResponse = journal.find((entry) => (
+    const committedRootResponse = journal.filter((entry) => (
       entry.kind === "response"
       && entry.responseId === newRootResponseId
       && entry.status === "completed"
       && entry.previousResponseId === null
-    ));
+    )).at(-1);
     const committedRootRequest = committedRootResponse?.requestId
       ? journal.find((entry) => (
         entry.kind === "request"
@@ -719,11 +759,12 @@ async function runRebaseConversation(params: {
       headResponseId: previousResponseId,
     });
     const finalHistoryText = JSON.stringify(finalHistory.replayableItems);
-    const continuationRequestLinks = expectedPreviousIds.map((expected) => journal.some((entry) => (
-      entry.kind === "request"
-      && entry.status === "completed"
-      && entry.previousResponseId === expected
-    )));
+    const linksValid = responseChainLinksValid({
+      journal,
+      rootResponseId: newRootResponseId,
+      expectedPreviousIds,
+      terminalResponseId: previousResponseId,
+    });
     const terminalSessionMappingMatches =
       await resolveCodexSessionIdByResponseId(stateDir, previousResponseId) === sessionId;
     const capabilityJournal = await readCodexRebaseCapabilityJournal(stateDir);
@@ -753,7 +794,8 @@ async function runRebaseConversation(params: {
       compatibilityMatrix: compatibilityMatrix(realProviderVerifiedItemTypes),
       rebase: {
         committed: epoch?.status === "committed",
-        oldChainReferenceRemoved: Boolean(committedRootResponse),
+        oldChainReferenceRemoved: Boolean(committedRootResponse)
+          && newRootResponseId !== setup.previousResponseId,
         currentInputOccurrences: replayText.split(currentInput).length - 1,
         sentinel: {
           evictedAbsent: !replayText.includes(`EVICT_ME_${params.marker}`)
@@ -775,11 +817,12 @@ async function runRebaseConversation(params: {
           journalCommittedBeforeEpoch:
             epoch?.status === "committed"
             && epoch.newResponseId === newRootResponseId
+            && typeof epoch.journalCommittedAt === "string"
             && Boolean(committedRootResponse)
             && Boolean(committedRootRequest)
-            && Date.parse(committedRootResponse?.observedAt ?? "") <= Date.parse(epoch.updatedAt),
+            && Date.parse(epoch.journalCommittedAt) <= Date.parse(epoch.updatedAt),
           continuationTurns: params.continuationTurns,
-          linksValid: continuationRequestLinks.every(Boolean),
+          linksValid,
           restartPreserved,
           finalHistoryComplete: !finalHistory.incomplete,
         },

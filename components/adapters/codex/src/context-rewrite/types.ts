@@ -72,6 +72,7 @@ export type CodexRebaseEpoch = {
   status: CodexRebaseEpochStatus;
   failureReason?: string;
   accounting?: CodexRebaseAccounting;
+  journalCommittedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -199,6 +200,8 @@ export type CodexRebaseCapabilityStoreParams = {
   endpointId: string;
   itemSchemaVersion: string;
   probeMode?: "disabled" | CodexRebaseCapabilityEvidence;
+  acceptedEvidence?: CodexRebaseCapabilityEvidence[];
+  evidenceSource?: CodexRebaseCapabilityEvidence;
   ttlMs?: number;
   now?: string;
 };

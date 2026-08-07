@@ -392,7 +392,11 @@ async function runHappyPath(model: string): Promise<CodexRebaseSmokeEvidence["ha
       proxyPort: await reserveFetchPort(),
       upstreamBaseUrl: upstream.baseUrl,
     });
-    runtime = await startCodexResponsesProxy({ config, logger: silentLogger });
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: silentLogger,
+      allowMockFixtureEvidence: true,
+    });
 
     const first = await postResponse(runtime, {
       model,
@@ -454,7 +458,11 @@ async function runHappyPath(model: string): Promise<CodexRebaseSmokeEvidence["ha
           proxyPort: await reserveFetchPort(),
           upstreamBaseUrl: upstream.baseUrl,
         });
-        runtime = await startCodexResponsesProxy({ config: restartedConfig, logger: silentLogger });
+        runtime = await startCodexResponsesProxy({
+          config: restartedConfig,
+          logger: silentLogger,
+          allowMockFixtureEvidence: true,
+        });
         restartPreserved = await resolveCodexSessionIdByResponseId(stateDir, headBeforeRestart) === sessionId;
       }
       const expectedPreviousResponseId = previousResponseId;
@@ -562,7 +570,11 @@ async function runFallbackPath(model: string): Promise<CodexRebaseSmokeEvidence[
       proxyPort: await reserveFetchPort(),
       upstreamBaseUrl: upstream.baseUrl,
     });
-    runtime = await startCodexResponsesProxy({ config, logger: silentLogger });
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: silentLogger,
+      allowMockFixtureEvidence: true,
+    });
     const first = await postResponse(runtime, {
       model,
       stream: false,
@@ -635,7 +647,11 @@ async function runModuleCombination(params: {
       },
       rewriteEnabled: params.rewrite,
     });
-    runtime = await startCodexResponsesProxy({ config, logger: silentLogger });
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: silentLogger,
+      allowMockFixtureEvidence: true,
+    });
     const callId = `matrix-call-${randomUUID()}`;
     const first = await postResponse(runtime, {
       model: params.model,

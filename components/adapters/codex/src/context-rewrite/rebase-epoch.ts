@@ -240,6 +240,7 @@ function canonicalCodexRebaseEpoch(value: unknown): CodexRebaseEpoch | undefined
     || !isStatus(entry.status)
     || !isIsoTimestamp(entry.createdAt)
     || !isIsoTimestamp(entry.updatedAt)
+    || (entry.journalCommittedAt !== undefined && !isIsoTimestamp(entry.journalCommittedAt))
     || (entry.newResponseId !== undefined && !isNonBlankString(entry.newResponseId))
     || (entry.newRevision !== undefined && !isNonBlankString(entry.newRevision))
     || (entry.failureReason !== undefined && !isNonBlankString(entry.failureReason))) {
@@ -261,6 +262,7 @@ function canonicalCodexRebaseEpoch(value: unknown): CodexRebaseEpoch | undefined
     status: entry.status,
     ...(entry.failureReason !== undefined ? { failureReason: entry.failureReason } : {}),
     ...(accounting ? { accounting } : {}),
+    ...(entry.journalCommittedAt !== undefined ? { journalCommittedAt: entry.journalCommittedAt } : {}),
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
   };
@@ -393,6 +395,7 @@ async function transitionCodexRebaseEpoch(params: {
   newRevision?: string;
   failureReason?: string;
   accounting?: CodexRebaseAccounting;
+  journalCommittedAt?: string;
   updatedAt?: string;
 }): Promise<CodexRebaseEpoch> {
   const current = await readCodexRebaseEpochJournal(params.stateDir, params.sessionId);
@@ -425,6 +428,7 @@ async function transitionCodexRebaseEpoch(params: {
     newRevision: params.newRevision,
     failureReason: params.failureReason,
     accounting: params.accounting ?? existing.accounting,
+    journalCommittedAt: params.journalCommittedAt ?? existing.journalCommittedAt,
     updatedAt,
   };
   await appendJsonl(codexRebaseEpochJournalPath(params.stateDir, params.sessionId), entry);
@@ -438,6 +442,7 @@ export async function commitCodexRebaseEpoch(params: {
   newResponseId: string;
   newRevision?: string;
   accounting?: CodexRebaseAccounting;
+  journalCommittedAt?: string;
   updatedAt?: string;
 }): Promise<CodexRebaseEpoch> {
   if (!params.newResponseId) throw new Error("Codex rebase epoch commit requires a response id");

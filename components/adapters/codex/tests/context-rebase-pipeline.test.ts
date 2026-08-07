@@ -256,7 +256,11 @@ test("CDR-03 proxy startup recovers a pending epoch before serving its session",
       modules: { stabilizer: false, reduction: false },
       contextRewrite: { enabled: false },
     } as any);
-    runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false) });
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
+    });
 
     const response = await fetch(`${runtime.baseUrl}/responses`, {
       method: "POST",
@@ -310,7 +314,11 @@ test("CDR-03 proxy restart recovery defers while another process owns the sessio
       modules: { stabilizer: false, reduction: false },
       contextRewrite: { enabled: false },
     } as any);
-    runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false) });
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
+    });
     const requestBody = JSON.stringify({
       model: "gpt-5.4-mini",
       stream: false,
@@ -379,6 +387,7 @@ test("CDR-06 proxy pipeline rebases a non-stream request from effective history"
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const first = await fetch(`${runtime.baseUrl}/responses`, {
@@ -504,7 +513,11 @@ test("CDR-06 proxy bootstraps a rebase from the hook-persisted Codex rollout", a
         },
       },
     } as any);
-    runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false) });
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
+    });
 
     const response = await fetch(`${runtime.baseUrl}/responses`, {
       method: "POST",
@@ -570,6 +583,7 @@ test("CDH-02 proxy journal respects failed non-stream response bodies", async ()
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const response = await fetch(`${runtime.baseUrl}/responses`, {
@@ -625,6 +639,7 @@ test("CDH-01 proxy bypasses context-history journaling when the journal cannot b
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const response = await fetch(`${runtime.baseUrl}/responses`, {
@@ -680,6 +695,7 @@ test("CDR-01 proxy pipeline defers stale mutation plans", async () => {
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const first = await fetch(`${runtime.baseUrl}/responses`, {
@@ -756,6 +772,7 @@ test("CDR-06 proxy pipeline falls back and cools down rejected rebases", async (
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const first = await fetch(`${runtime.baseUrl}/responses`, {
@@ -873,6 +890,7 @@ test("CDR-04 fallback keeps non-rebase before-call reductions", async () => {
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const first = await fetch(`${runtime.baseUrl}/responses`, {
@@ -960,6 +978,7 @@ test("CDR-06 proxy pipeline falls back and cools down rejected stream rebases", 
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const first = await fetch(`${runtime.baseUrl}/responses`, {
@@ -1048,6 +1067,7 @@ test("CDH-02 proxy journal and trace keep interrupted 2xx streams incomplete", a
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const response = await fetch(`${runtime.baseUrl}/responses`, {
@@ -1132,6 +1152,7 @@ test("CDR-06 proxy pipeline journals current input before reduction", async () =
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const response = await fetch(`${runtime.baseUrl}/responses`, {
@@ -1201,6 +1222,7 @@ test("CDR-06 committed rebase history starts from the new response chain root", 
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const first = await fetch(`${runtime.baseUrl}/responses`, {
@@ -1289,6 +1311,7 @@ test("CDR-06 mock smoke keeps five turns on the new response chain", async () =>
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const first = await fetch(`${runtime.baseUrl}/responses`, {
@@ -1396,6 +1419,7 @@ test("CDR-06 proxy restart keeps the committed rebase response chain", async () 
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const first = await fetch(`${runtime.baseUrl}/responses`, {
@@ -1470,6 +1494,7 @@ test("CDR-06 proxy restart keeps the committed rebase response chain", async () 
     runtime = await startCodexResponsesProxy({
       config: restartedConfig,
       logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
     });
 
     const third = await fetch(`${runtime.baseUrl}/responses`, {

@@ -159,9 +159,7 @@ export async function executeCodexRebaseWithFallback(params: {
       const compatibilityResult = await resolveCodexProviderReplayCompatibility({
         ...params.capabilityStore,
         items: rebaseItems,
-        acceptedEvidence: probeMode === "mock_fixture"
-          ? ["real_provider", "mock_fixture"]
-          : ["real_provider"],
+        acceptedEvidence: params.capabilityStore.acceptedEvidence ?? ["real_provider"],
       });
       const rejected = compatibilityResult.decisions.filter((entry) => (
         entry.status === "verified_unsupported" || entry.status === "payload_rejected"
@@ -256,7 +254,8 @@ export async function executeCodexRebaseWithFallback(params: {
   }): Promise<void> {
     const store = params.capabilityStore;
     if (!store) return;
-    const evidence = store.probeMode === "mock_fixture" ? "mock_fixture" : "real_provider";
+    const evidence = store.evidenceSource
+      ?? (store.probeMode === "mock_fixture" ? "mock_fixture" : "real_provider");
     for (const item of paramsForRecord.items) {
       await appendCodexRebaseCapability({
         stateDir: store.stateDir,
@@ -397,9 +396,11 @@ export async function executeCodexRebaseWithFallback(params: {
       const observation = rebaseResponseObservation(rebaseResponse);
       const newResponseId = observation.completed ? observation.responseId : undefined;
       if (newResponseId) {
+        let journalCommittedAt: string | undefined;
         if (params.beforeCommit) {
           try {
             await params.beforeCommit({ response: rebaseResponse, newResponseId });
+            journalCommittedAt = new Date().toISOString();
           } catch {
             return await sendOriginalWithFallbackOutcome("rebase_journal_error");
           }
@@ -412,6 +413,7 @@ export async function executeCodexRebaseWithFallback(params: {
               epochId: params.epochId,
               newResponseId,
               newRevision: params.epochStore.newRevision,
+              journalCommittedAt,
               accounting: params.accounting,
             });
           } catch {
