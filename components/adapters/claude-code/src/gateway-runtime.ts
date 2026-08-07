@@ -381,6 +381,9 @@ export async function startClaudeCodeGatewayRuntime(params: {
               stateDir: config.stateDir,
               sessionId,
             });
+            if (loaded.bypassed) {
+              throw new Error(`context mutation plan store unavailable: ${loaded.reasons.join(",")}`);
+            }
             // Relocate any active plan onto the CURRENT snapshot: a later turn
             // may have shifted item positions (new stableIds + revision) while
             // the underlying content is unchanged, so an exact-revision match
@@ -402,43 +405,42 @@ export async function startClaudeCodeGatewayRuntime(params: {
                 });
                 plan = relocatedPlan;
                 replayedFromStore = true;
+                activePlanStatus = "active";
                 break;
               }
             }
             if (!replayedFromStore) {
-            if (loaded.bypassed) {
-              throw new Error(`context mutation plan store unavailable: ${loaded.reasons.join(",")}`);
-            }
-            const persistedPlan = loaded.plans.find(
-              (candidate) => candidate.baseRevision === snapshot.revision,
-            );
-            let plan;
-            if (persistedPlan) {
-              plan = persistedPlan;
-              activePlanStatus = "active";
-            } else {
-              plan = buildContextMutationPlan({
-                hostId: "claude-code",
-                sessionId,
-                snapshot,
-                selections: analysis.selections.map((selection) => ({
-                  segmentIds: selection.segmentIds,
-                  chars: selection.chars,
-                })),
-                segmentLocations,
-              });
-              const stored = await saveActiveContextMutationPlan({
-                stateDir: config.stateDir,
-                plan,
-              });
-              if (stored.bypassed || (stored.status !== "active" && stored.status !== "applied")) {
-                throw new Error(`context mutation plan could not be persisted: ${stored.reasons.join(",")}`);
+              const persistedPlan = loaded.plans.find(
+                (candidate) => candidate.baseRevision === snapshot.revision,
+              );
+              if (persistedPlan) {
+                plan = persistedPlan;
+                activePlanStatus = "active";
+              } else {
+                plan = buildContextMutationPlan({
+                  hostId: "claude-code",
+                  sessionId,
+                  snapshot,
+                  selections: analysis.selections.map((selection) => ({
+                    segmentIds: selection.segmentIds,
+                    chars: selection.chars,
+                  })),
+                  segmentLocations,
+                });
+                const stored = await saveActiveContextMutationPlan({
+                  stateDir: config.stateDir,
+                  plan,
+                });
+                if (stored.bypassed || (stored.status !== "active" && stored.status !== "applied")) {
+                  throw new Error(`context mutation plan could not be persisted: ${stored.reasons.join(",")}`);
+                }
+                activePlanStatus = stored.status;
               }
-              activePlanStatus = stored.status;
             }
             if (!plan) {
               throw new Error("context mutation plan unavailable");
             }
+            activePlanId = plan.planId;
             // Archive stage (before apply): each tool_result the plan would evict
             // is archived first. On success we record the opaque archiveRef on the
             // op so apply writes a recovery_ref into the stub. On failure we drop
@@ -452,7 +454,6 @@ export async function startClaudeCodeGatewayRuntime(params: {
               plan,
               request: overlayRequest,
             });
-            activePlanId = plan.planId;
             const { request: rewritten, result } = await claudeContextRewriteBackend.apply({
               snapshot,
               plan,
@@ -464,7 +465,12 @@ export async function startClaudeCodeGatewayRuntime(params: {
                 sessionId,
                 planId: plan.planId,
               });
-              // Record this turn's overlay in the append-only audit log (§4.5).
+              if (applied.bypassed) {
+                throw new Error(`context mutation plan commit failed: ${applied.reasons.join(",")}`);
+              }
+            }
+            // Record this turn's overlay in the append-only audit log (§4.5).
+            if (result.changed) {
               await appendOverlayHistory(config.stateDir, {
                 sessionId,
                 planId: plan.planId,
@@ -474,9 +480,6 @@ export async function startClaudeCodeGatewayRuntime(params: {
                 savedChars: result.savedChars,
                 relocated: replayedFromStore,
               });
-              if (applied.bypassed) {
-                throw new Error(`context mutation plan commit failed: ${applied.reasons.join(",")}`);
-              }
             }
 
             evictionSummary = {
