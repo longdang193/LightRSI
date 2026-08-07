@@ -425,3 +425,60 @@ export function relocateContextMutationPlan(params: {
     relocated: relocatedOperations.length > 0,
   };
 }
+
+export type EvictableToolResult = {
+  opId: string;
+  itemId: string;
+  toolUseId: string;
+  msgIdx: number;
+  blockIdx: number;
+  originalText: string;
+};
+
+/**
+ * Collect the tool_result items a plan would evict from the current request,
+ * together with their original text — WITHOUT mutating anything. The gateway
+ * uses this to archive each tool_result before apply runs; apply then evicts
+ * the same items. Sharing one locator keeps "what gets archived" and "what gets
+ * evicted" from drifting apart. Only tool_result blocks are collected (text
+ * blocks are not archived). Mirrors apply's locating rules, including the
+ * protected-turn guard, so it never selects the active user turn or a prefill.
+ */
+export function collectEvictableToolResults(params: {
+  snapshot: ModelContextSnapshot;
+  plan: ContextMutationPlan;
+  request: ClaudeOverlayRequest;
+  applicableOperationIds: string[];
+}): EvictableToolResult[] {
+  const { plan, request, applicableOperationIds } = params;
+  const applicable = new Set(applicableOperationIds);
+  const messages = request.messages;
+  const protectedIdx = lastUserMessageIndex(messages);
+  const collected: EvictableToolResult[] = [];
+
+  for (const op of plan.operations) {
+    if (!applicable.has(op.id)) continue;
+    for (const itemId of op.targetItemIds) {
+      const parsed = parseStableId(itemId);
+      if (!parsed) continue;
+      const { msgIdx, blockIdx } = parsed;
+      if (protectedIdx < 0 || msgIdx >= protectedIdx) continue;
+      const message = messages[msgIdx];
+      if (!message || !Array.isArray(message.content)) continue;
+      const block = asBlockRecord(message.content[blockIdx]);
+      if (!block || block.type !== "tool_result") continue;
+      const content = block.content;
+      if (typeof content !== "string") continue;
+      const toolUseId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+      collected.push({
+        opId: op.id,
+        itemId,
+        toolUseId,
+        msgIdx,
+        blockIdx,
+        originalText: content,
+      });
+    }
+  }
+  return collected;
+}
