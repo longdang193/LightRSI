@@ -25,6 +25,7 @@ import type { TokenPilotClaudeCodeConfig } from "./config.js";
 import { proxyBaseUrlForPort } from "./config.js";
 import type { TokenPilotClaudeCodeLogger } from "./logger.js";
 import { createClaudeMessagesPayloadCodec } from "./messages-codec.js";
+import { encodeRequestOrBypass } from "./context-rewrite/encode-bypass.js";
 import { reduceClaudeRequestEnvelope, type ClaudeReductionSummary } from "./reduction.js";
 import {
   applyClaudeEviction,
@@ -558,7 +559,14 @@ export async function startClaudeCodeGatewayRuntime(params: {
         },
       });
       const reductionSummary = prepared.reductionSummary;
-      payload = codec.encodeRequest(prepared.envelope);
+      {
+        const encoded = encodeRequestOrBypass({ codec, envelope: prepared.envelope, rawBody: body });
+        payload = encoded.payload as Record<string, unknown>;
+        if (encoded.bypassed) {
+          evictionBypassReason = "encode_error";
+          logger.warn("context overlay bypassed category=encode_error");
+        }
+      }
       const reducedRequestText = typeof prepared.envelope.metadata?.inputText === "string"
         ? prepared.envelope.metadata.inputText
         : "";
