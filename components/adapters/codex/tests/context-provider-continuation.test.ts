@@ -202,6 +202,48 @@ test("CDR-05 provider continuation keeps native chaining after a successful prov
   });
 });
 
+test("CDR-05 provider continuation rejects chained 2xx responses without a completed response id", async () => {
+  await withTempState(async (stateDir) => {
+    const result = await executeCodexProviderContinuationWithReplay({
+      chainedPayload,
+      statelessReplayPayload,
+      capabilityStore: capabilityStore(stateDir),
+      async sendUpstream() {
+        return { status: 200, headers: {}, text: JSON.stringify({ status: "completed" }) };
+      },
+    });
+
+    assert.equal(result.outcome, "failed");
+    const journal = await readCodexRebaseCapabilityJournal(stateDir);
+    assert.equal(journal.capabilities.length, 0);
+  });
+});
+
+test("CDR-05 provider continuation rejects stateless 2xx responses without a completed response id", async () => {
+  await withTempState(async (stateDir) => {
+    await appendCodexRebaseCapability({
+      ...capabilityStore(stateDir),
+      itemType: CODEX_RESPONSE_CHAIN_CAPABILITY_ITEM_TYPE,
+      status: "verified_unsupported",
+      evidence: "real_provider",
+      reason: "response_chain_reference_unsupported",
+      ttlMs: 60_000,
+    });
+    const result = await executeCodexProviderContinuationWithReplay({
+      chainedPayload,
+      statelessReplayPayload,
+      capabilityStore: capabilityStore(stateDir),
+      async sendUpstream() {
+        return { status: 200, headers: {}, text: JSON.stringify({ status: "completed" }) };
+      },
+    });
+
+    assert.equal(result.outcome, "failed");
+    const journal = await readCodexRebaseCapabilityJournal(stateDir);
+    assert.equal(journal.capabilities.some((entry) => entry.itemType !== CODEX_RESPONSE_CHAIN_CAPABILITY_ITEM_TYPE), false);
+  });
+});
+
 test("CDR-05 provider continuation does not retry unrelated provider rejections", async () => {
   await withTempState(async (stateDir) => {
     let requestCount = 0;

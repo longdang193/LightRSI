@@ -504,7 +504,7 @@ test("CDR-06 proxy automatically replaces an unsupported response chain with sta
         latestResponseId: snapshot?.latestResponseId,
         previousResponseId: snapshot?.previousResponseId,
       })),
-      { latestResponseId: "resp-pipeline-3", previousResponseId: "resp-pipeline-1" },
+      { latestResponseId: "resp-pipeline-3", previousResponseId: undefined },
     );
 
     const journal = await readCodexRebaseCapabilityJournal(stateDir);
@@ -537,7 +537,7 @@ test("CDR-06 proxy automatically replaces an unsupported response chain with sta
         latestResponseId: snapshot?.latestResponseId,
         previousResponseId: snapshot?.previousResponseId,
       })),
-      { latestResponseId: "resp-pipeline-4", previousResponseId: "resp-pipeline-3" },
+      { latestResponseId: "resp-pipeline-4", previousResponseId: undefined },
     );
   } finally {
     await runtime?.close();

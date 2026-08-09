@@ -26,6 +26,52 @@ function successful(response: CodexUpstreamResponse): boolean {
   return response.status >= 200 && response.status < 300;
 }
 
+function asObject(value: unknown): JsonObject | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as JsonObject
+    : undefined;
+}
+
+function responseString(value: unknown, field: "id" | "status"): string | undefined {
+  const object = asObject(value);
+  if (!object) return undefined;
+  const direct = object[field];
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  const response = asObject(object.response);
+  const nested = response?.[field];
+  return typeof nested === "string" && nested.trim() ? nested.trim() : undefined;
+}
+
+function isEventStreamResponse(response: CodexUpstreamResponse): boolean {
+  const contentType = Object.entries(response.headers)
+    .find(([name]) => name.toLowerCase() === "content-type")?.[1]
+    ?.toLowerCase();
+  return Boolean(
+    contentType?.includes("text/event-stream")
+    || /^event:\s*response\.|^data:\s*\{|\n\n\s*event:\s*response\./m.test(response.text),
+  );
+}
+
+function providerContinuationResponseCompleted(response: CodexUpstreamResponse): boolean {
+  if (!successful(response)) return false;
+  if (isEventStreamResponse(response)) {
+    const collected = collectCodexResponseItemsFromStream(response.text);
+    return collected.status === "completed"
+      && collected.malformedEventCount === 0
+      && (collected.eventTypeCounts["response.completed"] ?? 0) > 0
+      && typeof collected.responseId === "string"
+      && collected.responseId.trim().length > 0;
+  }
+
+  try {
+    const parsed = JSON.parse(response.text) as unknown;
+    const status = responseString(parsed, "status")?.toLowerCase();
+    return (!status || status === "completed") && Boolean(responseString(parsed, "id"));
+  } catch {
+    return false;
+  }
+}
+
 function previousResponseId(payload: JsonObject): string | undefined {
   return typeof payload.previous_response_id === "string" && payload.previous_response_id.trim()
     ? payload.previous_response_id.trim()
@@ -174,7 +220,7 @@ export async function executeCodexProviderContinuationWithReplay(params: {
   }
 
   async function recordReplayResult(response: CodexUpstreamResponse): Promise<void> {
-    if (successful(response)) {
+    if (providerContinuationResponseCompleted(response)) {
       for (const item of replayItems) {
         await safeRecord({
           itemType: item.itemType,
@@ -215,13 +261,14 @@ export async function executeCodexProviderContinuationWithReplay(params: {
     chainedResponse?: CodexUpstreamResponse,
   ): Promise<CodexProviderContinuationResult> {
     let response = await params.sendUpstream(cloneJson(statelessPayload));
-    if (successful(response) && responseMissingRequestedEncryptedReasoning(statelessPayload, response)) {
+    if (providerContinuationResponseCompleted(response)
+      && responseMissingRequestedEncryptedReasoning(statelessPayload, response)) {
       response = await params.sendUpstream(cloneJson(statelessPayload));
     }
     await recordReplayResult(response);
     return {
       response,
-      outcome: successful(response) ? "stateless_replay" : "failed",
+      outcome: providerContinuationResponseCompleted(response) ? "stateless_replay" : "failed",
       chainedResponse,
     };
   }
@@ -234,7 +281,7 @@ export async function executeCodexProviderContinuationWithReplay(params: {
   }
 
   const chainedResponse = await params.sendUpstream(cloneJson(params.chainedPayload));
-  if (successful(chainedResponse)) {
+  if (providerContinuationResponseCompleted(chainedResponse)) {
     await safeRecord({
       itemType: chainItem.itemType,
       status: "verified_supported",

@@ -189,7 +189,15 @@ function nonStreamRequestStatus(params: {
   response: JsonObject | undefined;
 }): CodexJournalStatus {
   if (params.httpStatus < 200 || params.httpStatus >= 300) return "failed";
-  return responsePayloadStatus(params.response) ?? "completed";
+  const status = responsePayloadStatus(params.response);
+  if (status && status !== "completed") return status;
+  return typeof params.response?.id === "string" && params.response.id.trim()
+    ? "completed"
+    : "incomplete";
+}
+
+function startsNewResponseChain(outcome: string | undefined): boolean {
+  return outcome === "committed" || outcome === "stateless_replay";
 }
 
 function streamRequestStatus(params: {
@@ -629,6 +637,12 @@ export async function startCodexResponsesProxy(params: {
         }) === "verified_supported";
       let contextRewriteOutcome: string | undefined;
       let contextHistoryJournalPersisted = false;
+      const committedContextInputItems = (): JsonObject[] | undefined => {
+        const source = contextRewriteOutcome === "stateless_replay"
+          ? continuationReplayPayload
+          : payload;
+        return Array.isArray(source?.input) ? source.input as JsonObject[] : undefined;
+      };
 
       const appendStreamContextHistory = async (paramsForJournal: {
         status: number;
@@ -660,8 +674,8 @@ export async function startCodexResponsesProxy(params: {
           sessionId,
           requestId: requestJournalEntry.requestId,
           payload: originalPayload,
-          committedInputItems: paramsForJournal.committed && Array.isArray(payload.input)
-            ? payload.input as JsonObject[]
+          committedInputItems: paramsForJournal.committed
+            ? committedContextInputItems()
             : undefined,
           status,
           error,
@@ -698,8 +712,8 @@ export async function startCodexResponsesProxy(params: {
           sessionId,
           requestId: requestJournalEntry.requestId,
           payload: originalPayload,
-          committedInputItems: paramsForJournal.committed && Array.isArray(payload.input)
-            ? payload.input as JsonObject[]
+          committedInputItems: paramsForJournal.committed
+            ? committedContextInputItems()
             : undefined,
           status,
           error,
@@ -772,7 +786,7 @@ export async function startCodexResponsesProxy(params: {
         rawStreamText: string;
       }): Promise<void> => {
         const snapshot = snapshotCodexResponsesStream(paramsForRecord.rawStreamText);
-        const logicalPreviousResponseId = contextRewriteOutcome === "committed"
+        const logicalPreviousResponseId = startsNewResponseChain(contextRewriteOutcome)
           ? undefined
           : typeof originalPayload.previous_response_id === "string"
             ? originalPayload.previous_response_id
@@ -801,7 +815,7 @@ export async function startCodexResponsesProxy(params: {
             await appendStreamContextHistory({
               status: paramsForRecord.status,
               rawStreamText: paramsForRecord.rawStreamText,
-              committed: contextRewriteOutcome === "committed",
+              committed: startsNewResponseChain(contextRewriteOutcome),
             });
           } catch (err) {
             await appendTrace(config.stateDir, {
@@ -922,7 +936,7 @@ export async function startCodexResponsesProxy(params: {
       let responseId = typeof responseJson?.id === "string" && responseJson.id.trim()
         ? responseJson.id
         : undefined;
-      const previousResponseId = contextRewriteOutcome === "committed"
+      const previousResponseId = startsNewResponseChain(contextRewriteOutcome)
         ? undefined
         : typeof originalPayload.previous_response_id === "string"
           ? originalPayload.previous_response_id
@@ -955,7 +969,7 @@ export async function startCodexResponsesProxy(params: {
             response: responseJson,
             responseText: upstreamResp.text,
             httpStatus: upstreamResp.status,
-            committed: contextRewriteOutcome === "committed",
+            committed: startsNewResponseChain(contextRewriteOutcome),
           });
         } catch (err) {
           await appendTrace(config.stateDir, {
