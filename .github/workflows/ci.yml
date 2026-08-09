@@ -47,6 +47,9 @@ jobs:
       - name: Test Claude Code adapter
         run: pnpm --dir components/adapters/claude-code test
 
+      - name: Test Codex adapter
+        run: pnpm --dir components/adapters/codex test
+
       - name: Test host adapter package
         run: pnpm --dir components/packages/foundation/host-adapter test
 
