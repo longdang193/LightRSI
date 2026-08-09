@@ -149,6 +149,7 @@ export async function executeCodexRebaseWithFallback(params: {
     return {
       response,
       outcome: isSuccessfulResponse(response) ? "bypassed" : "failed",
+      reason: notice?.reason ?? "rewrite_guard_busy",
       capability: notice,
     };
   }
@@ -213,6 +214,7 @@ export async function executeCodexRebaseWithFallback(params: {
       return {
         response,
         outcome: isSuccessfulResponse(response) ? "bypassed" : "failed",
+        reason: "cooldown_active",
         cooldown: codexRebaseCooldownNotice(activeCooldown),
       };
     }
@@ -345,6 +347,7 @@ export async function executeCodexRebaseWithFallback(params: {
     return {
       response: fallbackResponse,
       outcome: fallbackSucceeded ? "bypassed" : "failed",
+      reason,
       rebaseResponse,
       epoch,
       cooldown,
@@ -438,6 +441,7 @@ export async function executeCodexRebaseWithFallback(params: {
         return {
           response: rebaseResponse,
           outcome: "committed",
+          reason: "rebase_committed",
           newResponseId,
           rebaseResponse,
           epoch,

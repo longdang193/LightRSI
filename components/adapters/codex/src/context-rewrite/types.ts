@@ -86,6 +86,7 @@ export type CodexUpstreamResponse = {
 export type CodexRebaseFallbackResult = {
   response: CodexUpstreamResponse;
   outcome: "committed" | "bypassed" | "failed";
+  reason?: string;
   newResponseId?: string;
   rebaseResponse?: CodexUpstreamResponse;
   epoch?: CodexRebaseEpoch;
