@@ -28,7 +28,10 @@ async function requestBody(req: IncomingMessage): Promise<JsonObject> {
   });
 }
 
-async function startProviderFixture(options: { rejectWithSecret?: boolean } = {}): Promise<{
+async function startProviderFixture(options: {
+  rejectChainReferences?: boolean;
+  rejectWithSecret?: boolean;
+} = {}): Promise<{
   baseUrl: string;
   authorizationPresent(): boolean;
   close(): Promise<void>;
@@ -50,6 +53,17 @@ async function startProviderFixture(options: { rejectWithSecret?: boolean } = {}
       return;
     }
     const payload = await requestBody(req);
+    if (options.rejectChainReferences && typeof payload.previous_response_id === "string") {
+      res.statusCode = 400;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({
+        error: {
+          code: "invalid_request_error",
+          message: "previous_response_id is not supported by this provider",
+        },
+      }));
+      return;
+    }
     ordinal += 1;
     const id = `resp-provider-fixture-${ordinal}`;
     const previousId = typeof payload.previous_response_id === "string"
@@ -198,6 +212,35 @@ test("provider smoke emits sanitized real-chain, capability v2, matrix, and usag
     else process.env.OPENAI_API_KEY = previousKey;
     if (previousCli === undefined) delete process.env.CODEX_CLI_VERSION;
     else process.env.CODEX_CLI_VERSION = previousCli;
+    await provider.close();
+    await rm(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("provider smoke accepts journal-backed stateless continuation roots", async () => {
+  const provider = await startProviderFixture({ rejectChainReferences: true });
+  const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-stateless-smoke-test-"));
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "provider-smoke-test-key-not-secret";
+  try {
+    const result = await runCodexRebaseProviderSmoke({
+      baseUrl: provider.baseUrl,
+      model: "provider-fixture-model",
+      continuationTurns: 5,
+      outputDir,
+    });
+    const evidence = result.evidence;
+
+    assert.equal(evidence.rebase.committed, true);
+    assert.equal(evidence.rebase.responseChain.linksValid, true);
+    assert.equal(evidence.rebase.responseChain.restartPreserved, true);
+    assert.equal(evidence.rebase.responseChain.finalHistoryComplete, true);
+    assert.ok(evidence.capability.realProviderRejectedItemTypes.includes("previous_response_id"));
+    assert.ok(evidence.capability.realProviderVerifiedItemTypes.includes("reasoning"));
+    assert.ok(evidence.usage.observedSavedInputTokens > 0);
+  } finally {
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
     await provider.close();
     await rm(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }

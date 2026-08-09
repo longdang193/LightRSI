@@ -6,6 +6,22 @@ export {
   resolveCodexProviderContinuationCompatibility,
 } from "./provider-continuation.js";
 export type { CodexProviderContinuationCompatibility } from "./provider-continuation.js";
+export { createCodexContextRewriteLifecycle } from "./lifecycle-events.js";
+export type { CodexContextRewriteLifecycle } from "./lifecycle-events.js";
+export {
+  codexSharedContextRewriteBackend,
+  runCodexSharedGoldenFixture,
+} from "./backend.js";
+export type {
+  CodexSharedBackendDetails,
+  CodexSharedBackendMetadata,
+  CodexSharedBackendRequest,
+  CodexSharedContextRewriteBackend,
+  CodexSharedGoldenDecision,
+  CodexSharedGoldenFixture,
+  CodexSharedGoldenItem,
+  CodexSharedGoldenTask,
+} from "./backend.js";
 export {
   buildCodexRebaseRequest,
   validateCodexRebaseRequest,

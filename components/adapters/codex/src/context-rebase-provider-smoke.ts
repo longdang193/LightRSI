@@ -245,9 +245,18 @@ function responseChainLinksValid(params: {
     ));
     if (matchingRequests.length !== 1) return false;
     const request = matchingRequests[0]!;
+    // Native continuation keeps the provider parent. A stateless replay is a
+    // deliberate new root and is valid only when the journal retained the
+    // exact full input that was actually sent for that root.
     const matchingResponses = Array.from(responses.values()).filter((entry) => (
       entry.requestId === request.requestId
-      && entry.previousResponseId === expectedPreviousId
+      && (
+        entry.previousResponseId === expectedPreviousId
+        || (
+          entry.previousResponseId === null
+          && Array.isArray(request.committedInputItems)
+        )
+      )
     ));
     if (matchingResponses.length !== 1) return false;
     previousResponseId = matchingResponses[0]!.responseId!;

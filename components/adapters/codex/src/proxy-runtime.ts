@@ -9,6 +9,8 @@ import {
 import {
   countTextWithPreciseTokens,
   createStaticStatePathResolver,
+  type ContextRewriteEventInput,
+  type ContextRewriteEventName,
   type HostRequestEnvelope,
   prepareBeforeCallWithReductionSummary,
   recordUxEffect,
@@ -77,6 +79,7 @@ import {
   acquireCodexRebaseSessionLock,
   buildCodexRebaseRequest,
   codexRebaseEndpointIdentity,
+  createCodexContextRewriteLifecycle,
   executeCodexProviderContinuationWithReplay,
   executeCodexRebaseWithFallback,
   failPendingCodexRebaseEpochsAfterRestart,
@@ -165,6 +168,77 @@ function codexMutationPlanId(plan: CodexMutationPlan): string {
     baseRevision: plan.baseRevision ?? null,
     operations: plan.operations,
   })}`;
+}
+
+type CodexLifecyclePlan = {
+  planId: string;
+  operationIds?: string[];
+  itemIds?: string[];
+  previousRevision?: string;
+  nextRevision?: string;
+  estimatedSavedChars?: number;
+  savedChars?: number;
+};
+
+function codexMutationLifecyclePlan(plan: CodexMutationPlan): CodexLifecyclePlan {
+  return {
+    planId: codexMutationPlanId(plan),
+    operationIds: plan.operations.map((operation, index) => (
+      `op-${index + 1}-${hashJson({
+        type: operation.type,
+        stableItemId: operation.stableItemId ?? null,
+      })}`
+    )),
+    itemIds: plan.operations
+      .map((operation) => operation.stableItemId)
+      .filter((stableItemId): stableItemId is string => Boolean(stableItemId)),
+    previousRevision: plan.baseRevision,
+  };
+}
+
+function codexValidationReasonCodes(error: unknown): string[] {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  const reasons: string[] = [];
+  if (message.includes("revision_mismatch")) reasons.push("revision_drift");
+  if (message.includes("effective_history_incomplete")) reasons.push("effective_history_incomplete");
+  if (message.includes("tool_") || message.includes("program_")) reasons.push("tool_closure_unresolved");
+  if (message.includes("mutation_target")) reasons.push("mutation_target_unavailable");
+  if (message.includes("unsupported_operation")) reasons.push("unsupported_operation");
+  return reasons.length > 0 ? reasons : ["rewrite_validation_error"];
+}
+
+const SAFE_REWRITE_REASON_CODES = new Set([
+  "capability_check_error",
+  "capability_journal_untrusted",
+  "cooldown_active",
+  "encrypted_payload_rejected",
+  "epoch_store_error",
+  "fallback_original_request",
+  "fallback_upstream_error",
+  "feature_disabled",
+  "history_journal_write_failed",
+  "item_schema_unsupported",
+  "native_response_chain_used",
+  "provider_replay_probe_required",
+  "provider_replay_rejected",
+  "rebase_journal_error",
+  "rebase_response_failed",
+  "rebase_response_id_missing",
+  "rebase_response_incomplete",
+  "rebase_stream_failed",
+  "rebase_stream_incomplete",
+  "rebase_stream_malformed",
+  "rebase_upstream_error",
+  "rebase_upstream_rejected",
+  "request_journal_unavailable",
+  "response_chain_head_missing",
+  "rewrite_configuration_unsupported",
+  "rewrite_guard_busy",
+  "stateless_continuation_succeeded",
+]);
+
+function codexSafeRuntimeReason(reason: string | undefined, fallback: string): string {
+  return reason && SAFE_REWRITE_REASON_CODES.has(reason) ? reason : fallback;
 }
 
 function encodedRequestPayload(params: {
@@ -347,6 +421,40 @@ export async function startCodexResponsesProxy(params: {
         envelope = { ...envelope, model };
       }
       const sessionId = envelope.session.sessionId;
+      const contextRewriteLifecycle = createCodexContextRewriteLifecycle({
+        stateDir: config.stateDir,
+        sessionId,
+      });
+      const emittedContextRewriteStages = new Set<string>();
+      let activeLifecyclePlan: CodexLifecyclePlan | undefined;
+      const emitContextRewriteStage = async (
+        stage: ContextRewriteEventName,
+        details: Partial<Omit<
+          ContextRewriteEventInput,
+          "stage" | "hostId" | "sessionId" | "mode"
+        >> = {},
+        lifecyclePlan: CodexLifecyclePlan | undefined = activeLifecyclePlan,
+      ): Promise<void> => {
+        const planId = details.planId ?? lifecyclePlan?.planId;
+        const eventKey = `${planId ?? "request"}\0${stage}`;
+        if (emittedContextRewriteStages.has(eventKey)) return;
+        emittedContextRewriteStages.add(eventKey);
+        await contextRewriteLifecycle.append({
+          stage,
+          ...(lifecyclePlan?.planId ? { planId: lifecyclePlan.planId } : {}),
+          ...(lifecyclePlan?.previousRevision
+            ? { previousRevision: lifecyclePlan.previousRevision }
+            : {}),
+          ...(lifecyclePlan?.nextRevision ? { nextRevision: lifecyclePlan.nextRevision } : {}),
+          ...(lifecyclePlan?.operationIds ? { operationIds: lifecyclePlan.operationIds } : {}),
+          ...(lifecyclePlan?.itemIds ? { itemIds: lifecyclePlan.itemIds } : {}),
+          ...(lifecyclePlan?.estimatedSavedChars !== undefined
+            ? { estimatedSavedChars: lifecyclePlan.estimatedSavedChars }
+            : {}),
+          ...(lifecyclePlan?.savedChars !== undefined ? { savedChars: lifecyclePlan.savedChars } : {}),
+          ...details,
+        });
+      };
       await recoverSessionEpochsAfterRestart(sessionId);
       if (inboundPromptCacheKey) {
         if (
@@ -388,6 +496,38 @@ export async function startCodexResponsesProxy(params: {
       let continuationReplayRequest: CodexRebaseRequestResult | undefined;
       let rebaseAccounting = rebaseRequest?.accounting;
       const mutationPlan = activeMutationPlan(config);
+      if (mutationPlan) {
+        activeLifecyclePlan = codexMutationLifecyclePlan(mutationPlan);
+        await emitContextRewriteStage("context_rewrite_planned");
+        if (!config.contextRewrite.enabled) {
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: ["feature_disabled"],
+            fallbackUsed: true,
+          });
+        } else if (!requestJournalEntry) {
+          await emitContextRewriteStage("context_rewrite_failed", {
+            reasonCodes: ["request_journal_unavailable"],
+            errorCategory: "history_journal_write_failed",
+            fallbackUsed: true,
+          });
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: ["fallback_original_request"],
+            fallbackUsed: true,
+          });
+        } else if (typeof originalPayload.previous_response_id !== "string"
+          || !originalPayload.previous_response_id) {
+          await emitContextRewriteStage("context_rewrite_deferred", {
+            reasonCodes: ["response_chain_head_missing"],
+          });
+        } else if (!config.contextRewrite.retryOriginalRequest
+          || config.contextRewrite.mode !== "response_chain_rebase"
+          || config.contextRewrite.failureMode !== "bypass") {
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: ["rewrite_configuration_unsupported"],
+            fallbackUsed: true,
+          });
+        }
+      }
       let effectiveHistoryPromise: ReturnType<typeof buildCodexEffectiveHistory> | undefined;
       const effectiveHistoryForHead = (): ReturnType<typeof buildCodexEffectiveHistory> => {
         if (!requestJournalEntry || typeof originalPayload.previous_response_id !== "string") {
@@ -430,7 +570,7 @@ export async function startCodexResponsesProxy(params: {
       if (canAttemptCodexRebase({ config, payload: originalPayload, requestEntry: requestJournalEntry })
         && mutationPlan
         && requestJournalEntry) {
-        const planId = codexMutationPlanId(mutationPlan);
+        const planId = activeLifecyclePlan?.planId ?? codexMutationPlanId(mutationPlan);
         try {
           const effectiveHistory = await effectiveHistoryForHead();
           rebaseRequest = buildCodexRebaseRequest({
@@ -443,12 +583,23 @@ export async function startCodexResponsesProxy(params: {
             mutationPlan,
           });
           rebasePlanId = planId;
+          activeLifecyclePlan = {
+            ...(activeLifecyclePlan ?? { planId }),
+            previousRevision: rebaseRequest.oldRevision,
+            nextRevision: rebaseRequest.rebaseRevision,
+            estimatedSavedChars: rebaseRequest.accounting.plannedSavedChars,
+            savedChars: rebaseRequest.accounting.actuallyRemovedChars,
+          };
         } catch (err) {
           await appendTrace(config.stateDir, {
             stage: "context_rewrite_rebase_deferred",
             sessionId,
             model,
             reason: err instanceof Error ? err.message : String(err),
+          });
+          await emitContextRewriteStage("context_rewrite_deferred", {
+            reasonCodes: codexValidationReasonCodes(err),
+            deferredOperationIds: activeLifecyclePlan?.operationIds,
           });
         }
       }
@@ -457,7 +608,11 @@ export async function startCodexResponsesProxy(params: {
         && requestJournalEntry
         && typeof originalPayload.previous_response_id === "string"
         && config.contextRewrite.providerCompatibilityProbe !== "disabled";
+      let continuationLifecyclePlanned = false;
       if (canPrepareContinuationReplay) {
+        continuationLifecyclePlanned = true;
+        activeLifecyclePlan = { planId: "provider-continuation-replay" };
+        await emitContextRewriteStage("context_rewrite_planned");
         try {
           const effectiveHistory = await effectiveHistoryForHead();
           continuationReplayRequest = buildCodexRebaseRequest({
@@ -469,6 +624,13 @@ export async function startCodexResponsesProxy(params: {
             currentInput: originalPayload.input,
             mutationPlan: { baseRevision: effectiveHistory.revision, operations: [] },
           });
+          activeLifecyclePlan = {
+            planId: "provider-continuation-replay",
+            previousRevision: continuationReplayRequest.oldRevision,
+            nextRevision: continuationReplayRequest.rebaseRevision,
+            estimatedSavedChars: continuationReplayRequest.accounting.plannedSavedChars,
+            savedChars: continuationReplayRequest.accounting.actuallyRemovedChars,
+          };
         } catch (err) {
           await appendTrace(config.stateDir, {
             stage: "provider_continuation_replay_deferred",
@@ -476,7 +638,17 @@ export async function startCodexResponsesProxy(params: {
             model,
             reason: err instanceof Error ? err.message : String(err),
           });
+          await emitContextRewriteStage("context_rewrite_deferred", {
+            reasonCodes: codexValidationReasonCodes(err),
+          });
         }
+      }
+      if (!config.contextRewrite.enabled && !mutationPlan && !continuationLifecyclePlanned) {
+        activeLifecyclePlan = undefined;
+        await emitContextRewriteStage("context_rewrite_bypassed", {
+          reasonCodes: ["feature_disabled"],
+          fallbackUsed: true,
+        });
       }
 
       const payload = cloneJsonObject(rebaseRequest?.payload ?? originalPayload);
@@ -635,13 +807,128 @@ export async function startCodexResponsesProxy(params: {
           chainedPayload: payload,
           capabilityStore,
         }) === "verified_supported";
-      let contextRewriteOutcome: string | undefined;
+      let contextRewriteOutcome: string | undefined = nativeStreamChainVerified
+        ? "chained"
+        : undefined;
+      let contextRewriteValidationPassed = false;
+      let contextRewriteFailureReason: string | undefined;
+      let contextRewriteDeferredReason: string | undefined;
+      let contextRewriteBypassReason: string | undefined;
       let contextHistoryJournalPersisted = false;
+      if (nativeStreamChainVerified) contextRewriteValidationPassed = true;
       const committedContextInputItems = (): JsonObject[] | undefined => {
         const source = contextRewriteOutcome === "stateless_replay"
           ? continuationReplayPayload
           : payload;
         return Array.isArray(source?.input) ? source.input as JsonObject[] : undefined;
+      };
+
+      const finalizeContextRewriteLifecycle = async (
+        requestStatus: CodexJournalStatus,
+      ): Promise<void> => {
+        if (!activeLifecyclePlan || !contextRewriteOutcome) return;
+        const responseCompleted = requestStatus === "completed";
+        const journalReady = contextHistoryJournalPersisted;
+        if (contextRewriteOutcome === "committed" || contextRewriteOutcome === "stateless_replay") {
+          if (!responseCompleted || !journalReady) {
+            await emitContextRewriteStage("context_rewrite_failed", {
+              reasonCodes: [journalReady
+                ? "rebase_response_incomplete"
+                : "history_journal_write_failed"],
+              errorCategory: journalReady
+                ? "provider_response_incomplete"
+                : "history_journal_write_failed",
+              fallbackUsed: false,
+            });
+            return;
+          }
+          await emitContextRewriteStage("context_rewrite_validated", {
+            applicableOperationIds: activeLifecyclePlan.operationIds,
+          });
+          await emitContextRewriteStage("context_rewrite_applied", {
+            applicableOperationIds: activeLifecyclePlan.operationIds,
+            fallbackUsed: false,
+          });
+          return;
+        }
+        if (contextRewriteOutcome === "chained") {
+          if (!responseCompleted || !journalReady) {
+            await emitContextRewriteStage("context_rewrite_failed", {
+              reasonCodes: [journalReady
+                ? "rebase_response_incomplete"
+                : "history_journal_write_failed"],
+              errorCategory: journalReady
+                ? "provider_response_incomplete"
+                : "history_journal_write_failed",
+              fallbackUsed: false,
+            });
+            return;
+          }
+          await emitContextRewriteStage("context_rewrite_validated");
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: ["native_response_chain_used"],
+            fallbackUsed: false,
+          });
+          return;
+        }
+        if (contextRewriteOutcome === "bypassed") {
+          if (!responseCompleted || !journalReady) {
+            await emitContextRewriteStage("context_rewrite_failed", {
+              reasonCodes: [journalReady
+                ? "rebase_response_incomplete"
+                : "history_journal_write_failed"],
+              errorCategory: journalReady
+                ? "provider_response_incomplete"
+                : "history_journal_write_failed",
+              fallbackUsed: true,
+            });
+            return;
+          }
+          if (contextRewriteValidationPassed) {
+            await emitContextRewriteStage("context_rewrite_validated", {
+              applicableOperationIds: activeLifecyclePlan.operationIds,
+            });
+          }
+          if (contextRewriteFailureReason) {
+            await emitContextRewriteStage("context_rewrite_failed", {
+              reasonCodes: [codexSafeRuntimeReason(
+                contextRewriteFailureReason,
+                "rebase_upstream_rejected",
+              )],
+              errorCategory: "rewrite_apply_failed",
+              fallbackUsed: true,
+            });
+          } else if (contextRewriteDeferredReason) {
+            await emitContextRewriteStage("context_rewrite_deferred", {
+              reasonCodes: [codexSafeRuntimeReason(
+                contextRewriteDeferredReason,
+                "provider_replay_probe_required",
+              )],
+              deferredOperationIds: activeLifecyclePlan.operationIds,
+            });
+          }
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: [codexSafeRuntimeReason(
+              contextRewriteBypassReason,
+              "fallback_original_request",
+            )],
+            fallbackUsed: true,
+          });
+          return;
+        }
+        if (contextRewriteValidationPassed) {
+          await emitContextRewriteStage("context_rewrite_validated", {
+            applicableOperationIds: activeLifecyclePlan.operationIds,
+          });
+        }
+        await emitContextRewriteStage("context_rewrite_failed", {
+          reasonCodes: [codexSafeRuntimeReason(
+            contextRewriteFailureReason,
+            "rebase_upstream_error",
+          )],
+          errorCategory: "provider_request_failed",
+          fallbackUsed: contextRewriteValidationPassed,
+        });
       };
 
       const appendStreamContextHistory = async (paramsForJournal: {
@@ -680,6 +967,7 @@ export async function startCodexResponsesProxy(params: {
           status,
           error,
         });
+        contextHistoryJournalPersisted = true;
       };
 
       const appendNonStreamContextHistory = async (paramsForJournal: {
@@ -718,6 +1006,7 @@ export async function startCodexResponsesProxy(params: {
           status,
           error,
         });
+        contextHistoryJournalPersisted = true;
       };
 
       const persistAcceptedRebaseResponse = async (paramsForCommit: {
@@ -744,40 +1033,98 @@ export async function startCodexResponsesProxy(params: {
 
       const sendRebasedOrCurrentPayload = async () => {
         if (rebaseRequest && requestJournalEntry && rebasePlanId) {
-          const result = await executeCodexRebaseWithFallback({
-            sessionId,
-            planId: rebasePlanId,
-            epochId: `epoch-${requestJournalEntry.requestId}`,
-            originalPayload: fallbackPayload,
-            rebasedPayload: payload,
-            sendUpstream,
-            beforeCommit: persistAcceptedRebaseResponse,
-            accounting: rebaseAccounting,
-            epochStore: {
-              stateDir: config.stateDir,
-              oldPreviousResponseId: String(originalPayload.previous_response_id),
-              oldRevision: rebaseRequest.oldRevision,
-              newRevision: rebaseRequest.rebaseRevision,
-            },
-            cooldownStore: {
-              stateDir: config.stateDir,
-              cooldownMs: config.contextRewrite.cooldownMs,
-            },
-            capabilityStore,
-          });
-          contextRewriteOutcome = result.outcome;
-          if (result.outcome !== "committed") contextHistoryJournalPersisted = false;
-          return result.response;
+          try {
+            const result = await executeCodexRebaseWithFallback({
+              sessionId,
+              planId: rebasePlanId,
+              epochId: `epoch-${requestJournalEntry.requestId}`,
+              originalPayload: fallbackPayload,
+              rebasedPayload: payload,
+              sendUpstream,
+              beforeCommit: persistAcceptedRebaseResponse,
+              accounting: rebaseAccounting,
+              epochStore: {
+                stateDir: config.stateDir,
+                oldPreviousResponseId: String(originalPayload.previous_response_id),
+                oldRevision: rebaseRequest.oldRevision,
+                newRevision: rebaseRequest.rebaseRevision,
+              },
+              cooldownStore: {
+                stateDir: config.stateDir,
+                cooldownMs: config.contextRewrite.cooldownMs,
+              },
+              capabilityStore,
+            });
+            contextRewriteOutcome = result.outcome;
+            contextRewriteValidationPassed = Boolean(result.rebaseResponse)
+              || result.outcome === "committed";
+            if (result.outcome !== "committed") contextHistoryJournalPersisted = false;
+            if (result.outcome === "bypassed") {
+              if (result.rebaseResponse) {
+                contextRewriteFailureReason = result.reason
+                  ?? result.cooldown?.reason
+                  ?? result.capability?.reason
+                  ?? "rebase_upstream_rejected";
+                contextRewriteBypassReason = "fallback_original_request";
+              } else if (result.capability?.reason === "provider_replay_probe_required") {
+                contextRewriteDeferredReason = result.capability.reason;
+                contextRewriteBypassReason = "fallback_original_request";
+              } else if (result.capability?.reason) {
+                contextRewriteBypassReason = result.capability.reason;
+              } else if (result.reason === "cooldown_active") {
+                contextRewriteBypassReason = "cooldown_active";
+              } else if (result.reason === "rewrite_guard_busy") {
+                contextRewriteBypassReason = "rewrite_guard_busy";
+              } else if (result.reason) {
+                contextRewriteFailureReason = result.reason;
+                contextRewriteBypassReason = "fallback_original_request";
+              } else if (result.cooldown) {
+                contextRewriteBypassReason = "cooldown_active";
+              } else {
+                contextRewriteBypassReason = "rewrite_guard_busy";
+              }
+            } else if (result.outcome === "failed") {
+              contextRewriteFailureReason = result.reason
+                ?? result.cooldown?.reason
+                ?? result.capability?.reason
+                ?? "rebase_upstream_error";
+            }
+            return result.response;
+          } catch (error) {
+            contextRewriteOutcome = "failed";
+            contextRewriteFailureReason = "rebase_upstream_error";
+            await emitContextRewriteStage("context_rewrite_failed", {
+              reasonCodes: ["rebase_upstream_error"],
+              errorCategory: "provider_request_failed",
+              fallbackUsed: true,
+            });
+            throw error;
+          }
         }
         if (continuationReplayPayload) {
-          const result = await executeCodexProviderContinuationWithReplay({
-            chainedPayload: payload,
-            statelessReplayPayload: continuationReplayPayload,
-            sendUpstream,
-            capabilityStore,
-          });
-          contextRewriteOutcome = result.outcome;
-          return result.response;
+          try {
+            const result = await executeCodexProviderContinuationWithReplay({
+              chainedPayload: payload,
+              statelessReplayPayload: continuationReplayPayload,
+              sendUpstream,
+              capabilityStore,
+            });
+            contextRewriteOutcome = result.outcome;
+            contextRewriteValidationPassed = result.outcome !== "failed";
+            if (result.outcome === "failed") {
+              contextRewriteFailureReason = "rebase_upstream_error";
+            }
+            return result.response;
+          } catch (error) {
+            contextRewriteOutcome = "failed";
+            contextRewriteFailureReason = "rebase_upstream_error";
+            await emitContextRewriteStage("context_rewrite_failed", {
+              reasonCodes: ["rebase_upstream_error"],
+              errorCategory: "provider_request_failed",
+              fallbackUsed: false,
+            });
+            throw error;
+          }
         }
         return sendUpstream(payload);
       };
@@ -827,6 +1174,7 @@ export async function startCodexResponsesProxy(params: {
             });
           }
         }
+        await finalizeContextRewriteLifecycle(requestStatus);
         await appendTrace(config.stateDir, {
           stage: "proxy_after_call",
           sessionId,
@@ -981,6 +1329,10 @@ export async function startCodexResponsesProxy(params: {
           });
         }
       }
+      await finalizeContextRewriteLifecycle(nonStreamRequestStatus({
+        httpStatus: upstreamResp.status,
+        response: responseJson,
+      }));
       await recordCodexUxReduction({
         stateDir: config.stateDir,
         sessionId,

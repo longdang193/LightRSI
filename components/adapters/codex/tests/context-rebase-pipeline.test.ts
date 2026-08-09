@@ -244,6 +244,23 @@ function inputText(payload: JsonObject | undefined): string {
   return JSON.stringify(input);
 }
 
+const CONTEXT_REWRITE_LIFECYCLE_STAGES = new Set([
+  "context_rewrite_planned",
+  "context_rewrite_validated",
+  "context_rewrite_applied",
+  "context_rewrite_deferred",
+  "context_rewrite_failed",
+  "context_rewrite_bypassed",
+]);
+
+async function readContextRewriteLifecycleEvents(stateDir: string): Promise<JsonObject[]> {
+  const rows = (await readFile(join(stateDir, "event-trace.jsonl"), "utf8"))
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as JsonObject);
+  return rows.filter((row) => CONTEXT_REWRITE_LIFECYCLE_STAGES.has(String(row.stage)));
+}
+
 test("CDR-03 proxy startup recovers a pending epoch before serving its session", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pending-restart-"));
   const upstream = await startSequencedResponsesUpstream();
@@ -439,6 +456,20 @@ test("CDR-06 proxy pipeline rebases a non-stream request from effective history"
     assert.equal("previous_response_id" in (upstream.requests[1] ?? {}), false);
     assert.doesNotMatch(inputText(upstream.requests[1]), /OLD_SENTINEL_PIPELINE/);
     assert.match(inputText(upstream.requests[1]), /CURRENT_SENTINEL_PIPELINE/);
+    const lifecycleEvents = (await readContextRewriteLifecycleEvents(stateDir))
+      .filter((event) => String(event.planId).startsWith("plan-"));
+    assert.deepEqual(
+      lifecycleEvents.map((event) => event.stage),
+      [
+        "context_rewrite_planned",
+        "context_rewrite_validated",
+        "context_rewrite_applied",
+      ],
+    );
+    assert.equal(lifecycleEvents[2]?.fallbackUsed, false);
+    const serializedLifecycle = JSON.stringify(lifecycleEvents);
+    assert.doesNotMatch(serializedLifecycle, /OLD_SENTINEL_PIPELINE|CURRENT_SENTINEL_PIPELINE/);
+    assert.doesNotMatch(serializedLifecycle, /responseId|previousResponseId|promptCacheKey|encrypted_content/);
   } finally {
     await runtime?.close();
     await upstream.close();
@@ -539,6 +570,23 @@ test("CDR-06 proxy automatically replaces an unsupported response chain with sta
       })),
       { latestResponseId: "resp-pipeline-4", previousResponseId: undefined },
     );
+    const continuationEvents = (await readContextRewriteLifecycleEvents(stateDir))
+      .filter((event) => event.planId === "provider-continuation-replay");
+    assert.deepEqual(
+      continuationEvents.slice(0, 3).map((event) => event.stage),
+      [
+        "context_rewrite_planned",
+        "context_rewrite_validated",
+        "context_rewrite_applied",
+      ],
+    );
+    const featureDisabled = (await readContextRewriteLifecycleEvents(stateDir)).find((event) => (
+      event.stage === "context_rewrite_bypassed"
+      && event.planId === undefined
+      && Array.isArray(event.reasonCodes)
+      && event.reasonCodes.includes("feature_disabled")
+    ));
+    assert.ok(featureDisabled);
   } finally {
     await runtime?.close();
     await upstream.close();
@@ -847,6 +895,24 @@ test("CDR-01 proxy pipeline defers stale mutation plans", async () => {
     assert.equal(upstream.requests.length, 2);
     assert.equal(upstream.requests[1]?.previous_response_id, "resp-pipeline-1");
     assert.match(inputText(upstream.requests[1]), /CURRENT_SENTINEL_STALE_PLAN/);
+    const lifecycleEvents = await readContextRewriteLifecycleEvents(stateDir);
+    const mutationEvents = lifecycleEvents.filter((event) => String(event.planId).startsWith("plan-"));
+    assert.deepEqual(
+      mutationEvents.map((event) => event.stage),
+      ["context_rewrite_planned", "context_rewrite_deferred"],
+    );
+    assert.deepEqual(mutationEvents[1]?.reasonCodes, ["revision_drift"]);
+    const continuationEvents = lifecycleEvents
+      .filter((event) => event.planId === "provider-continuation-replay");
+    assert.deepEqual(
+      continuationEvents.map((event) => event.stage),
+      [
+        "context_rewrite_planned",
+        "context_rewrite_validated",
+        "context_rewrite_bypassed",
+      ],
+    );
+    assert.deepEqual(continuationEvents[2]?.reasonCodes, ["native_response_chain_used"]);
   } finally {
     await runtime?.close();
     await upstream.close();
@@ -947,6 +1013,22 @@ test("CDR-06 proxy pipeline falls back and cools down rejected rebases", async (
     assert.equal(fourth.status, 200);
     assert.equal(upstream.requests.length, 5);
     assert.equal(upstream.requests[4]?.previous_response_id, "resp-pipeline-1");
+    const mutationEvents = (await readContextRewriteLifecycleEvents(stateDir))
+      .filter((event) => String(event.planId).startsWith("plan-"));
+    assert.deepEqual(
+      mutationEvents.slice(0, 4).map((event) => event.stage),
+      [
+        "context_rewrite_planned",
+        "context_rewrite_validated",
+        "context_rewrite_failed",
+        "context_rewrite_bypassed",
+      ],
+    );
+    assert.ok(mutationEvents.some((event) => (
+      event.stage === "context_rewrite_bypassed"
+      && Array.isArray(event.reasonCodes)
+      && event.reasonCodes.includes("cooldown_active")
+    )));
   } finally {
     await runtime?.close();
     await upstream.close();
@@ -1145,6 +1227,17 @@ test("CDR-06 proxy pipeline falls back and cools down rejected stream rebases", 
     await third.text();
     assert.equal(upstream.requests.length, 4);
     assert.equal(upstream.requests[3]?.previous_response_id, "resp-stream-pipeline-1");
+    const mutationEvents = (await readContextRewriteLifecycleEvents(stateDir))
+      .filter((event) => String(event.planId).startsWith("plan-"));
+    assert.deepEqual(
+      mutationEvents.slice(0, 4).map((event) => event.stage),
+      [
+        "context_rewrite_planned",
+        "context_rewrite_validated",
+        "context_rewrite_failed",
+        "context_rewrite_bypassed",
+      ],
+    );
   } finally {
     await runtime?.close();
     await upstream.close();
