@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   loadSessionTaskRegistry,
+  loadRawSemanticTurnRecord,
   persistSessionTaskRegistry,
   type SessionTaskRegistry,
   type DeltaView,
@@ -198,6 +199,43 @@ test("a successful no-op estimate advances the watermark once", async () => {
   const registry = await loadSessionTaskRegistry(stateDir, sessionId);
   assert.equal(registry.lastProcessedTurnSeq, 1);
   assert.equal(registry.version, 1);
+});
+
+test("a retry restores a raw turn that was missing after a claimed counter", async () => {
+  const stateDir = await tempStateDir();
+  const sessionId = "sess-raw-retry";
+  const estimator: TaskStateEstimator = {
+    estimate: () => ({ baseVersion: 0, taskUpdates: [] }),
+  };
+
+  await runSemanticPipeline({
+    stateDir,
+    sessionId,
+    messages: SIMPLE_MESSAGES,
+    estimator,
+    updateRegistryFromDelta: async () => {
+      throw new Error("simulate raw turn follow-up failure");
+    },
+  });
+
+  // The pipeline above wrote its raw record before the injected updater fails,
+  // so remove it to model a process dying between turn claim and raw record
+  // persistence. The retry must restore it rather than consume an empty delta.
+  const { unlink } = await import("node:fs/promises");
+  const { rawSemanticTurnRecordPath } = await import("@lightmem2/history");
+  await unlink(rawSemanticTurnRecordPath(stateDir, sessionId, 1));
+
+  const retry = await runSemanticPipeline({
+    stateDir,
+    sessionId,
+    messages: SIMPLE_MESSAGES,
+    estimator,
+    updateRegistryFromDelta: realUpdateRegistryFromDelta,
+  });
+
+  assert.equal(retry.turnSeq, 1);
+  assert.equal(await loadRawSemanticTurnRecord(stateDir, sessionId, 1) !== null, true);
+  assert.equal((await loadSessionTaskRegistry(stateDir, sessionId)).lastProcessedTurnSeq, 1);
 });
 
 test("an internal error fails open (ran=false, request path unaffected)", async () => {

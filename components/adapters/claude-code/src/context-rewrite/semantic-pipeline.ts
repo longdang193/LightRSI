@@ -69,7 +69,8 @@ export async function runSemanticPipeline(params: {
       requestFingerprint,
     );
 
-    if (isNewRequest) {
+    const existingRecord = await loadRawSemanticTurnRecord(stateDir, sessionId, turnSeq);
+    if (isNewRequest || !existingRecord) {
       const record = buildRawSemanticTurnRecord({
         sessionId,
         turnSeq,
