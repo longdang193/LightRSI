@@ -66,6 +66,7 @@ export type ClaudeCodeGatewayRuntime = {
 
 type ClaudeCodeGatewayRuntimeDependencies = {
   cloneRequestPayload?: typeof structuredClone;
+  resolveEstimator?: typeof resolveClaudeTaskStateEstimator;
 };
 
 function isSyntheticClaudeSessionId(sessionId: string): boolean {
@@ -336,7 +337,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
       // an estimator is configured (env-driven, default off). Entirely
       // fail-open — it must never block or fail the request, so any error is
       // swallowed here and the request proceeds unchanged.
-      const semanticEstimator = resolveClaudeTaskStateEstimator({ env: process.env });
+      const semanticEstimator = (params.dependencies?.resolveEstimator ?? resolveClaudeTaskStateEstimator)({ env: process.env });
       if (semanticEstimator) {
         try {
           await runSemanticPipeline({
