@@ -11,6 +11,7 @@ import {
 export type UpdateRegistryResult = {
   registry: SessionTaskRegistry;
   changed: boolean;
+  processed?: boolean;
   note?: "base_version_mismatch" | "no_updates" | "estimator_failed";
 };
 
@@ -45,7 +46,16 @@ export async function updateRegistryFromDelta(params: {
     return { registry, changed: false, note: "base_version_mismatch" };
   }
   if (!output.taskUpdates || output.taskUpdates.length === 0) {
-    return { registry, changed: false, note: "no_updates" };
+    // A valid no-op estimate still consumed this delta. Persist its watermark so
+    // future turns do not repeatedly pay to re-estimate the same observations.
+    return {
+      registry: applySessionTaskRegistryPatch(registry, {
+        lastProcessedTurnSeq: delta.toTurnSeqInclusive,
+      }),
+      changed: false,
+      processed: true,
+      note: "no_updates",
+    };
   }
 
   const { patch } = mapTaskUpdatesToRegistryPatch({
@@ -55,5 +65,5 @@ export async function updateRegistryFromDelta(params: {
     toTurnSeqInclusive: delta.toTurnSeqInclusive,
   });
   const nextRegistry = applySessionTaskRegistryPatch(registry, patch);
-  return { registry: nextRegistry, changed: true };
+  return { registry: nextRegistry, changed: true, processed: true };
 }

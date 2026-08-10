@@ -11,6 +11,7 @@ import {
 } from "@lightmem2/history";
 import type { TaskStateEstimator } from "@lightmem2/eviction";
 import { runSemanticPipeline } from "../src/context-rewrite/semantic-pipeline.js";
+import { updateRegistryFromDelta as realUpdateRegistryFromDelta } from "../src/context-rewrite/task-registry-update.js";
 
 async function tempStateDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "lightmem2-semantic-pipeline-"));
@@ -157,13 +158,46 @@ test("interval covers only (lastProcessed, now]", async () => {
     estimator: fakeEstimator, updateRegistryFromDelta,
   });
   await runSemanticPipeline({
-    stateDir, sessionId, messages: SIMPLE_MESSAGES,
+    stateDir,
+    sessionId,
+    messages: [
+      { role: "user", content: [{ type: "text", text: "a different request" }] },
+    ],
     estimator: fakeEstimator, updateRegistryFromDelta,
   });
 
   assert.ok(seenDelta);
   assert.equal(seenDelta!.fromTurnSeqExclusive, 1);
   assert.equal(seenDelta!.toTurnSeqInclusive, 2);
+});
+
+test("a successful no-op estimate advances the watermark once", async () => {
+  const stateDir = await tempStateDir();
+  const sessionId = "sess-noop";
+  const estimator: TaskStateEstimator = {
+    estimate: () => ({ baseVersion: 0, taskUpdates: [] }),
+  };
+
+  const first = await runSemanticPipeline({
+    stateDir,
+    sessionId,
+    messages: SIMPLE_MESSAGES,
+    estimator,
+    updateRegistryFromDelta: realUpdateRegistryFromDelta,
+  });
+  const retry = await runSemanticPipeline({
+    stateDir,
+    sessionId,
+    messages: SIMPLE_MESSAGES,
+    estimator,
+    updateRegistryFromDelta: realUpdateRegistryFromDelta,
+  });
+
+  assert.equal(first.changed, false);
+  assert.equal(retry.note, "already_processed");
+  const registry = await loadSessionTaskRegistry(stateDir, sessionId);
+  assert.equal(registry.lastProcessedTurnSeq, 1);
+  assert.equal(registry.version, 1);
 });
 
 test("an internal error fails open (ran=false, request path unaffected)", async () => {

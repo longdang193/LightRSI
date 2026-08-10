@@ -3,6 +3,7 @@ import test from "node:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { persistRawSemanticTurnRecord } from "@lightmem2/history";
 import { readClaudeTurnSeq, bumpClaudeTurnSeq } from "../src/context-rewrite/turn-counter.js";
 
 async function tempStateDir(): Promise<string> {
@@ -47,4 +48,24 @@ test("a corrupt counter file is treated as 0 (fail-open)", async () => {
   assert.equal(await readClaudeTurnSeq(stateDir, "sess-x"), 0);
   // and bump recovers by starting from 0 -> 1
   assert.equal(await bumpClaudeTurnSeq(stateDir, "sess-x"), 1);
+});
+
+test("a corrupt counter recovers after existing raw turn records", async () => {
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const stateDir = await tempStateDir();
+  const sessionId = "sess-raw-recovery";
+  await persistRawSemanticTurnRecord(stateDir, {
+    sessionId,
+    turnSeq: 7,
+    turnAbsId: `${sessionId}:t7`,
+    messages: [],
+    toolCalls: [],
+    toolResults: [],
+  });
+  const dir = join(stateDir, "claude-context", "sessions", sessionId);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "turn-counter.json"), "{ not valid json", "utf8");
+
+  assert.equal(await readClaudeTurnSeq(stateDir, sessionId), 7);
+  assert.equal(await bumpClaudeTurnSeq(stateDir, sessionId), 8);
 });

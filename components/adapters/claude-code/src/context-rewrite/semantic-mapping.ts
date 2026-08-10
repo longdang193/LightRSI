@@ -19,6 +19,17 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+/** Claude resends its full message history. A semantic turn is only the tail
+ * beginning at the newest user message, matching the transcript sync contract
+ * used by the OpenClaw adapter. */
+export function sliceClaudeMessagesForCurrentUserTurn(messages: unknown[]): unknown[] {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = asRecord(messages[index]);
+    if (message?.role === "user") return messages.slice(index);
+  }
+  return messages;
+}
+
 // Extract a file path from a tool_use input, if the tool operates on a file.
 function filePathOf(input: Record<string, unknown> | undefined): string | undefined {
   if (!input) return undefined;

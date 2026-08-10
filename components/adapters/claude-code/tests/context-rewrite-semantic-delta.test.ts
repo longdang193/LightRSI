@@ -4,6 +4,7 @@ import { buildDeltaViewFromRawSemanticSnapshot } from "@lightmem2/history";
 import {
   buildRawSemanticTurnRecord,
   buildRawSemanticSnapshot,
+  sliceClaudeMessagesForCurrentUserTurn,
 } from "../src/context-rewrite/semantic-mapping.js";
 
 const SESSION = "sess-delta";
@@ -49,4 +50,18 @@ test("a full delta from turn 0 covers all turns", () => {
   const snapshot = buildRawSemanticSnapshot({ sessionId: SESSION, turns: [t1, t2] });
   const delta = buildDeltaViewFromRawSemanticSnapshot(snapshot, { fromTurnSeqExclusive: 0 });
   assert.equal(delta.messages.length, 2);
+});
+
+test("Claude full-history requests contribute only their newest user turn", () => {
+  const history = [
+    { role: "user", content: "old request" },
+    { role: "assistant", content: "old answer" },
+    { role: "user", content: "current request" },
+  ];
+  const record = buildRawSemanticTurnRecord({
+    sessionId: SESSION,
+    turnSeq: 2,
+    messages: sliceClaudeMessagesForCurrentUserTurn(history),
+  });
+  assert.deepEqual(record.messages.map((message) => message.text), ["current request"]);
 });

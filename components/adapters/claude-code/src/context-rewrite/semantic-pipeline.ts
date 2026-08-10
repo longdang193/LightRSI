@@ -9,8 +9,13 @@ import {
   type RawSemanticTurnRecord,
 } from "@lightmem2/history";
 import type { TaskStateEstimator } from "@lightmem2/eviction";
-import { buildRawSemanticTurnRecord, buildRawSemanticSnapshot } from "./semantic-mapping.js";
-import { bumpClaudeTurnSeq } from "./turn-counter.js";
+import { createHash } from "node:crypto";
+import {
+  buildRawSemanticTurnRecord,
+  buildRawSemanticSnapshot,
+  sliceClaudeMessagesForCurrentUserTurn,
+} from "./semantic-mapping.js";
+import { claimClaudeSemanticTurn } from "./turn-counter.js";
 
 export type SemanticPipelineResult = {
   ran: boolean;
@@ -23,8 +28,8 @@ export type SemanticPipelineResult = {
  * V2 semantic-delta pipeline for one Claude request. Advances the per-session
  * turn counter, records this turn, then rebuilds the (lastProcessed, now]
  * interval into a DeltaView, asks the estimator for task-state updates, and
- * persists the updated registry — advancing lastProcessedTurnSeq only when the
- * registry actually changed.
+ * persists the updated registry. A successful no-op estimate advances
+ * lastProcessedTurnSeq too, so the same observations are not re-estimated.
  *
  * The whole thing is fail-open: any error (I/O, estimator, version conflict)
  * leaves the request path untouched and returns { ran:false/… } instead of
@@ -34,8 +39,8 @@ export type SemanticPipelineResult = {
  * Watermark: updateRegistryFromDelta's mapper already sets
  * lastProcessedTurnSeq = delta.toTurnSeqInclusive in the patch, so a successful
  * update returns a registry whose watermark is advanced — we persist it as-is.
- * On changed=false (estimator failed / no updates / version mismatch) the
- * watermark is NOT advanced, so the next request re-covers the same interval.
+ * Estimator failures and version mismatches leave the watermark unchanged so a
+ * later turn can recover the interval safely.
  */
 export async function runSemanticPipeline(params: {
   stateDir: string;
@@ -46,17 +51,38 @@ export async function runSemanticPipeline(params: {
     registry: import("@lightmem2/history").SessionTaskRegistry;
     delta: import("@lightmem2/history").DeltaView;
     estimator: TaskStateEstimator;
-  }) => Promise<{ registry: import("@lightmem2/history").SessionTaskRegistry; changed: boolean; note?: string }>;
+  }) => Promise<{
+    registry: import("@lightmem2/history").SessionTaskRegistry;
+    changed: boolean;
+    processed?: boolean;
+    note?: string;
+  }>;
 }): Promise<SemanticPipelineResult> {
   const { stateDir, sessionId, messages, estimator, updateRegistryFromDelta } = params;
   try {
-    const turnSeq = await bumpClaudeTurnSeq(stateDir, sessionId);
+    const requestFingerprint = createHash("sha256")
+      .update(JSON.stringify(messages))
+      .digest("hex");
+    const { turnSeq, isNewRequest } = await claimClaudeSemanticTurn(
+      stateDir,
+      sessionId,
+      requestFingerprint,
+    );
 
-    const record = buildRawSemanticTurnRecord({ sessionId, turnSeq, messages });
-    await persistRawSemanticTurnRecord(stateDir, record);
+    if (isNewRequest) {
+      const record = buildRawSemanticTurnRecord({
+        sessionId,
+        turnSeq,
+        messages: sliceClaudeMessagesForCurrentUserTurn(messages),
+      });
+      await persistRawSemanticTurnRecord(stateDir, record);
+    }
 
     const registry = await loadSessionTaskRegistry(stateDir, sessionId);
     const fromTurnSeqExclusive = registry.lastProcessedTurnSeq;
+    if (!isNewRequest && fromTurnSeqExclusive >= turnSeq) {
+      return { ran: true, changed: false, turnSeq, note: "already_processed" };
+    }
 
     // Load only the (lastProcessed, now] interval of persisted turn records.
     const allSeqs = await listRawSemanticTurnSeqs(stateDir, sessionId);
@@ -77,7 +103,7 @@ export async function runSemanticPipeline(params: {
     });
 
     const result = await updateRegistryFromDelta({ registry, delta, estimator });
-    if (!result.changed) {
+    if (!result.changed && result.processed !== true) {
       return { ran: true, changed: false, turnSeq, note: result.note };
     }
 
@@ -93,7 +119,7 @@ export async function runSemanticPipeline(params: {
       throw error;
     }
 
-    return { ran: true, changed: true, turnSeq };
+    return { ran: true, changed: result.changed, turnSeq, note: result.note };
   } catch {
     // fail-open: semantic side-work must never break the request path
     return { ran: false, changed: false, note: "pipeline_error" };
