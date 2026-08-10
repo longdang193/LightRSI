@@ -45,8 +45,8 @@ function candidatesByFingerprint(snapshot: ModelContextSnapshot): Map<string, st
  * persisted fingerprint still matches. Missing IDs may move to a new stable
  * ID only when the persisted fingerprint has exactly one current match.
  */
-export function relocateTargetIds(
-  operation: ContextMutationOperation,
+export function relocateTargetIds<TAdapterReplacementItem = never>(
+  operation: ContextMutationOperation<TAdapterReplacementItem>,
   snapshot: ModelContextSnapshot,
 ): ContextMutationTargetRelocation {
   if (operation.targetItemIds.length === 0) {
