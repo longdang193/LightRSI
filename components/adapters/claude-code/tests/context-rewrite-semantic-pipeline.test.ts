@@ -1,0 +1,188 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  loadSessionTaskRegistry,
+  persistSessionTaskRegistry,
+  type SessionTaskRegistry,
+  type DeltaView,
+} from "@lightmem2/history";
+import type { TaskStateEstimator } from "@lightmem2/eviction";
+import { runSemanticPipeline } from "../src/context-rewrite/semantic-pipeline.js";
+
+async function tempStateDir(): Promise<string> {
+  return mkdtemp(join(tmpdir(), "lightmem2-semantic-pipeline-"));
+}
+
+// A no-op estimator: the pipeline injects updateRegistryFromDelta, so the
+// estimator object itself is never actually called in these tests — the fake
+// updater decides the outcome. We still pass one to satisfy the type.
+const fakeEstimator: TaskStateEstimator = {
+  estimate: () => ({ baseVersion: 0, taskUpdates: [] }),
+};
+
+const SIMPLE_MESSAGES = [
+  { role: "user", content: [{ type: "text", text: "hello" }] },
+  { role: "assistant", content: [{ type: "text", text: "hi" }] },
+];
+
+test("changed=true: persists the updated registry (watermark advanced by mapper)", async () => {
+  const stateDir = await tempStateDir();
+  const sessionId = "sess-1";
+
+  // Fake updater: returns a registry whose watermark the mapper already
+  // advanced to the delta's toTurnSeqInclusive, and version bumped.
+  const updateRegistryFromDelta = async (args: {
+    registry: SessionTaskRegistry;
+    delta: DeltaView;
+    estimator: TaskStateEstimator;
+  }) => {
+    const next: SessionTaskRegistry = {
+      ...args.registry,
+      lastProcessedTurnSeq: args.delta.toTurnSeqInclusive,
+      version: args.registry.version + 1,
+    };
+    return { registry: next, changed: true };
+  };
+
+  const result = await runSemanticPipeline({
+    stateDir,
+    sessionId,
+    messages: SIMPLE_MESSAGES,
+    estimator: fakeEstimator,
+    updateRegistryFromDelta,
+  });
+
+  assert.equal(result.ran, true);
+  assert.equal(result.changed, true);
+  assert.equal(result.turnSeq, 1);
+
+  // The registry was persisted with the advanced watermark.
+  const persisted = await loadSessionTaskRegistry(stateDir, sessionId);
+  assert.equal(persisted.lastProcessedTurnSeq, 1);
+});
+
+test("changed=false: does NOT persist, watermark stays put (re-covers next turn)", async () => {
+  const stateDir = await tempStateDir();
+  const sessionId = "sess-2";
+
+  const updateRegistryFromDelta = async (args: {
+    registry: SessionTaskRegistry;
+    delta: DeltaView;
+    estimator: TaskStateEstimator;
+  }) => {
+    return { registry: args.registry, changed: false, note: "no_updates" };
+  };
+
+  const result = await runSemanticPipeline({
+    stateDir,
+    sessionId,
+    messages: SIMPLE_MESSAGES,
+    estimator: fakeEstimator,
+    updateRegistryFromDelta,
+  });
+
+  assert.equal(result.ran, true);
+  assert.equal(result.changed, false);
+  assert.equal(result.note, "no_updates");
+
+  // Watermark not advanced (still 0) because nothing changed.
+  const persisted = await loadSessionTaskRegistry(stateDir, sessionId);
+  assert.equal(persisted.lastProcessedTurnSeq, 0);
+});
+
+test("version conflict during persist is abandoned, not clobbered", async () => {
+  const stateDir = await tempStateDir();
+  const sessionId = "sess-3";
+
+  // Pre-seed a registry at version 5 so the pipeline's expectedVersion (0,
+  // from its own fresh load) will mismatch when it tries to persist.
+  const seeded = await loadSessionTaskRegistry(stateDir, sessionId);
+  await persistSessionTaskRegistry(stateDir, { ...seeded, version: 5 });
+
+  const updateRegistryFromDelta = async (args: {
+    registry: SessionTaskRegistry;
+    delta: DeltaView;
+    estimator: TaskStateEstimator;
+  }) => {
+    // Pipeline loaded version 5, so expectedVersion=5 — force a mismatch by
+    // having ANOTHER writer bump it to 6 before our persist runs.
+    await persistSessionTaskRegistry(stateDir, { ...args.registry, version: 6 });
+    const next: SessionTaskRegistry = {
+      ...args.registry,
+      lastProcessedTurnSeq: args.delta.toTurnSeqInclusive,
+      version: args.registry.version + 1,
+    };
+    return { registry: next, changed: true };
+  };
+
+  const result = await runSemanticPipeline({
+    stateDir,
+    sessionId,
+    messages: SIMPLE_MESSAGES,
+    estimator: fakeEstimator,
+    updateRegistryFromDelta,
+  });
+
+  assert.equal(result.ran, true);
+  assert.equal(result.changed, false);
+  assert.equal(result.note, "version_conflict");
+});
+
+test("interval covers only (lastProcessed, now]", async () => {
+  const stateDir = await tempStateDir();
+  const sessionId = "sess-4";
+
+  // Advance the registry watermark to 1 first so the next run's interval
+  // starts after turn 1.
+  const seeded = await loadSessionTaskRegistry(stateDir, sessionId);
+  await persistSessionTaskRegistry(stateDir, { ...seeded, lastProcessedTurnSeq: 1 });
+
+  let seenDelta: DeltaView | undefined;
+  const updateRegistryFromDelta = async (args: {
+    registry: SessionTaskRegistry;
+    delta: DeltaView;
+    estimator: TaskStateEstimator;
+  }) => {
+    seenDelta = args.delta;
+    return { registry: args.registry, changed: false };
+  };
+
+  // First run bumps turnSeq to 1... but watermark is already 1, so interval is
+  // empty. Run again to get turnSeq 2 with a (1, 2] interval.
+  await runSemanticPipeline({
+    stateDir, sessionId, messages: SIMPLE_MESSAGES,
+    estimator: fakeEstimator, updateRegistryFromDelta,
+  });
+  await runSemanticPipeline({
+    stateDir, sessionId, messages: SIMPLE_MESSAGES,
+    estimator: fakeEstimator, updateRegistryFromDelta,
+  });
+
+  assert.ok(seenDelta);
+  assert.equal(seenDelta!.fromTurnSeqExclusive, 1);
+  assert.equal(seenDelta!.toTurnSeqInclusive, 2);
+});
+
+test("an internal error fails open (ran=false, request path unaffected)", async () => {
+  const stateDir = await tempStateDir();
+  const sessionId = "sess-5";
+
+  const updateRegistryFromDelta = async () => {
+    throw new Error("boom inside update");
+  };
+
+  const result = await runSemanticPipeline({
+    stateDir,
+    sessionId,
+    messages: SIMPLE_MESSAGES,
+    estimator: fakeEstimator,
+    updateRegistryFromDelta,
+  });
+
+  assert.equal(result.ran, false);
+  assert.equal(result.changed, false);
+  assert.equal(result.note, "pipeline_error");
+});

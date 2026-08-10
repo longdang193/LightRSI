@@ -143,3 +143,31 @@ test("claude-code session report renders topology and recent reduction metrics",
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("claude-code session report shows latest and cumulative eviction savings", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "tokenpilot-claude-code-evict-report-"));
+  try {
+    // Snapshot carries the latest turn's eviction savings; bindings carry the
+    // per-turn history the report sums for the cumulative figure.
+    await upsertClaudeCodeSessionSnapshot(dir, "sess-evict", {
+      latestModel: "claude-test",
+      evictionSavedChars: 200,
+    });
+    await appendClaudeCodeRecentTurnBinding(dir, {
+      sessionId: "sess-evict", responseId: "msg-1", model: "claude-test",
+      evictionSavedChars: 300, stream: false, updatedAt: new Date().toISOString(),
+    });
+    await appendClaudeCodeRecentTurnBinding(dir, {
+      sessionId: "sess-evict", responseId: "msg-2", model: "claude-test",
+      evictionSavedChars: 200, stream: false, updatedAt: new Date().toISOString(),
+    });
+
+    const report = await renderClaudeCodeSessionReport(dir, "sess-evict");
+
+    // Latest = the most recent turn's savings; cumulative = sum across turns.
+    assert.match(report, /^Latest eviction savings: 200$/m);
+    assert.match(report, /^Cumulative eviction savings: 500$/m);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

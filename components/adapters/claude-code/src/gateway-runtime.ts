@@ -37,6 +37,9 @@ import { claudeContextRewriteBackend, relocateContextMutationPlan } from "./cont
 import { applyArchivePlan } from "./context-rewrite/archive.js";
 import { saveLatestClaudeSnapshot } from "./context-rewrite/snapshot-store.js";
 import { appendOverlayHistory } from "./context-rewrite/overlay-history.js";
+import { resolveClaudeTaskStateEstimator } from "./context-rewrite/estimator-config.js";
+import { runSemanticPipeline } from "./context-rewrite/semantic-pipeline.js";
+import { updateRegistryFromDelta } from "./context-rewrite/task-registry-update.js";
 import { buildContextMutationPlan } from "@lightmem2/eviction";
 import { createHash as _createHash } from "node:crypto";
 import {
@@ -63,6 +66,7 @@ export type ClaudeCodeGatewayRuntime = {
 
 type ClaudeCodeGatewayRuntimeDependencies = {
   cloneRequestPayload?: typeof structuredClone;
+  resolveEstimator?: typeof resolveClaudeTaskStateEstimator;
 };
 
 function isSyntheticClaudeSessionId(sessionId: string): boolean {
@@ -328,6 +332,26 @@ export async function startClaudeCodeGatewayRuntime(params: {
         ? envelope.metadata.inputText
         : "";
       const sessionId = await resolveObservedClaudeSessionId(config.stateDir, envelope.session.sessionId);
+
+      // Semantic-delta task-registry sync (V2). Feature-gated: only runs when
+      // an estimator is configured (env-driven, default off). Entirely
+      // fail-open — it must never block or fail the request, so any error is
+      // swallowed here and the request proceeds unchanged.
+      const semanticEstimator = (params.dependencies?.resolveEstimator ?? resolveClaudeTaskStateEstimator)({ env: process.env });
+      if (semanticEstimator) {
+        try {
+          await runSemanticPipeline({
+            stateDir: config.stateDir,
+            sessionId,
+            messages: envelope.messages,
+            estimator: semanticEstimator,
+            updateRegistryFromDelta,
+          });
+        } catch (error) {
+          logger.warn(`semantic pipeline failed (ignored): ${String(error)}`);
+        }
+      }
+
       const evictionEnabled = config.modules.eviction && config.eviction.enabled;
       let evictionSummary: ClaudeEvictionApplySummary = {
         enabled: evictionEnabled,

@@ -1389,3 +1389,134 @@ test("gateway relocates a persisted plan onto shifted history across turns", asy
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("gateway runs the semantic pipeline when an estimator is injected, and stays fail-open when it throws", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-semantic-"));
+  const proxyPort = await reserveUnusedPort();
+  const forwarder: HostGatewayForwarder = {
+    async request() {
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        text: JSON.stringify({
+          id: "msg_sem_1", type: "message", role: "assistant",
+          content: [{ type: "text", text: "ok" }],
+          usage: { input_tokens: 10, output_tokens: 3 }, stop_reason: "end_turn",
+        }),
+      };
+    },
+    async requestStream() { throw new Error("stream not used"); },
+  };
+
+  // A fake estimator whose estimate() THROWS. The semantic block must catch it
+  // and let the request proceed unchanged (fail-open).
+  const throwingResolveEstimator = () => ({
+    estimate() { throw new Error("estimator boom"); },
+  });
+
+  const runtime = await startClaudeCodeGatewayRuntime({
+    config: normalizeTokenPilotClaudeCodeConfig({
+      stateDir: join(dir, "state"),
+      proxyPort,
+    }),
+    logger: createConsoleLogger(false),
+    forwarder,
+    dependencies: { resolveEstimator: throwingResolveEstimator as never },
+  });
+
+  try {
+    const resp = await fetch(`${runtime.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "sess-sem-fail" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        stream: false,
+        messages: [
+          { role: "user", content: [{ type: "text", text: "hello" }] },
+        ],
+        max_tokens: 128,
+      }),
+    });
+    // Estimator threw, but the request is unaffected — fail-open.
+    assert.equal(resp.status, 200);
+    const body = JSON.parse(await resp.text()) as { id?: string };
+    assert.equal(body.id, "msg_sem_1");
+  } finally {
+    await runtime.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("gateway persists a task registry when the injected estimator returns updates", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-semantic-ok-"));
+  const proxyPort = await reserveUnusedPort();
+  const forwarder: HostGatewayForwarder = {
+    async request() {
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        text: JSON.stringify({
+          id: "msg_sem_2", type: "message", role: "assistant",
+          content: [{ type: "text", text: "ok" }],
+          usage: { input_tokens: 10, output_tokens: 3 }, stop_reason: "end_turn",
+        }),
+      };
+    },
+    async requestStream() { throw new Error("stream not used"); },
+  };
+
+  // A fake estimator that returns a single task update, so the registry should
+  // change and be persisted. baseVersion 0 matches a fresh (empty) registry.
+  const okResolveEstimator = () => ({
+    estimate() {
+      return {
+        baseVersion: 0,
+        taskUpdates: [
+          {
+            taskId: "task-1",
+            state: "active",
+            objective: "do the thing",
+          },
+        ],
+      };
+    },
+  });
+
+  const runtime = await startClaudeCodeGatewayRuntime({
+    config: normalizeTokenPilotClaudeCodeConfig({
+      stateDir: join(dir, "state"),
+      proxyPort,
+    }),
+    logger: createConsoleLogger(false),
+    forwarder,
+    dependencies: { resolveEstimator: okResolveEstimator as never },
+  });
+
+  try {
+    const resp = await fetch(`${runtime.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "sess-sem-ok" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        stream: false,
+        messages: [
+          { role: "user", content: [{ type: "text", text: "start a task" }] },
+        ],
+        max_tokens: 128,
+      }),
+    });
+    assert.equal(resp.status, 200);
+
+    // The semantic block ran and persisted a registry for this session.
+    const registryRaw = await readFile(
+      join(dir, "state", "task-state", "sess-sem-ok", "registry.json"),
+      "utf8",
+    );
+    const registry = JSON.parse(registryRaw) as { sessionId: string; version: number };
+    assert.equal(registry.sessionId, "sess-sem-ok");
+    assert.ok(registry.version >= 1);
+  } finally {
+    await runtime.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
