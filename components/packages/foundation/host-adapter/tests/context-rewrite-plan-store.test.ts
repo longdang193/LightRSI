@@ -243,6 +243,98 @@ test("active plans move atomically into separate terminal states", async () => {
   }
 });
 
+test("marking a missing plan as applied does not create an applied marker", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-missing-applied-"));
+  try {
+    const result = await markContextMutationPlanApplied({
+      stateDir,
+      sessionId: "session-missing-applied",
+      planId: "plan-does-not-exist",
+    });
+
+    assert.equal(result.outcome, "missing");
+    assert.equal(result.bypassed, true);
+    assert.deepEqual(result.reasons, ["plan_not_found"]);
+    await assert.rejects(access(contextMutationPlanFilePath(
+      stateDir,
+      "session-missing-applied",
+      "applied",
+      "plan-does-not-exist",
+    )));
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("corrupt active plan cannot be marked applied", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-corrupt-applied-"));
+  try {
+    const plan = createPlan("plan-corrupt-applied");
+    const activePath = contextMutationPlanFilePath(
+      stateDir,
+      plan.sessionId,
+      "active",
+      plan.planId,
+    );
+    await mkdir(dirname(activePath), { recursive: true });
+    await writeFile(activePath, "{not-json", "utf8");
+
+    const result = await markContextMutationPlanApplied({
+      stateDir,
+      sessionId: plan.sessionId,
+      planId: plan.planId,
+    });
+
+    assert.equal(result.outcome, "bypassed");
+    assert.equal(result.bypassed, true);
+    assert.deepEqual(result.reasons, ["corrupt_plan_quarantined"]);
+    await assert.rejects(access(contextMutationPlanFilePath(
+      stateDir,
+      plan.sessionId,
+      "applied",
+      plan.planId,
+    )));
+    const quarantineFiles = await readdir(
+      contextMutationPlanQuarantineDir(stateDir, plan.sessionId, "active"),
+    );
+    assert.equal(quarantineFiles.length, 1);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("failed plan cannot later be marked applied", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-failed-applied-"));
+  try {
+    const plan = createPlan("plan-failed-terminal");
+    await saveActiveContextMutationPlan({ stateDir, plan });
+    const failed = await markContextMutationPlanFailed({
+      stateDir,
+      sessionId: plan.sessionId,
+      planId: plan.planId,
+    });
+    assert.equal(failed.outcome, "transitioned");
+    assert.equal(failed.status, "failed");
+
+    const applied = await markContextMutationPlanApplied({
+      stateDir,
+      sessionId: plan.sessionId,
+      planId: plan.planId,
+    });
+    assert.equal(applied.outcome, "bypassed");
+    assert.equal(applied.bypassed, true);
+    assert.deepEqual(applied.reasons, ["plan_terminal_status_conflict"]);
+    const appliedPlans = await loadContextMutationPlans({
+      stateDir,
+      sessionId: plan.sessionId,
+      status: "applied",
+    });
+    assert.deepEqual(appliedPlans.plans, []);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("every status loader detects a plan stored in multiple statuses", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-status-conflict-"));
   try {
