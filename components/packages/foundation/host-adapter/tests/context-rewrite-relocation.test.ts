@@ -115,3 +115,129 @@ test("relocated plan updates revision and fingerprint claims", () => {
   });
   assert.deepEqual(original.operations[0]!.targetItemIds, ["old-item-1"]);
 });
+
+test("rebinds an unchanged stable target when only the snapshot revision changed", () => {
+  const original = plan([
+    operation(["new-item-1"], { "new-item-1": "fp-1" }),
+  ]);
+  const result = relocateContextMutationPlan({ snapshot, plan: original });
+
+  assert.equal(result.relocated, true);
+  assert.equal(result.plan.baseRevision, snapshot.revision);
+  assert.deepEqual(result.plan.operations[0]!.targetItemIds, ["new-item-1"]);
+});
+
+test("rejects relocation across host or session identities", () => {
+  const original = plan([
+    operation(["old-item-1"], { "old-item-1": "fp-1" }),
+  ]);
+  const hostMismatch = relocateContextMutationPlan({
+    snapshot: { ...snapshot, hostId: "other-host" },
+    plan: original,
+  });
+  const sessionMismatch = relocateContextMutationPlan({
+    snapshot: { ...snapshot, sessionId: "other-session" },
+    plan: original,
+  });
+
+  assert.equal(hostMismatch.relocated, false);
+  assert.deepEqual(hostMismatch.plan.operations, []);
+  assert.deepEqual(hostMismatch.deferredOperationIds, ["op-1"]);
+  assert.deepEqual(hostMismatch.reasons, ["host_id_mismatch"]);
+  assert.equal(hostMismatch.plan.baseRevision, original.baseRevision);
+  assert.deepEqual(sessionMismatch.reasons, ["session_id_mismatch"]);
+});
+
+test("keeps adapter-owned snapshot metadata and replacement item types isolated", () => {
+  const metadataSnapshot: ModelContextSnapshot<{ requestId: string }> = {
+    ...snapshot,
+    adapterMetadata: { requestId: "request-1" },
+  };
+  const replacementPlan: ContextMutationPlan<{ pointer: string }> = {
+    ...plan([]),
+    operations: [{
+      ...operation(["old-item-1"], { "old-item-1": "fp-1" }),
+      type: "replace",
+      replacementItems: [{ pointer: "archive-ref" }],
+    }],
+  };
+  const result = relocateContextMutationPlan({
+    snapshot: metadataSnapshot,
+    plan: replacementPlan,
+  });
+
+  assert.equal(result.relocated, true);
+  assert.deepEqual(result.plan.operations[0]!.replacementItems, [
+    { pointer: "archive-ref" },
+  ]);
+});
+
+test("rebinds safe operations while deferring unsafe operations", () => {
+  const safe = operation(["new-item-1"], { "new-item-1": "fp-1" });
+  const unsafe = {
+    ...operation(["gone"], { gone: "missing-fingerprint" }),
+    id: "op-2",
+  };
+  const result = relocateContextMutationPlan({
+    snapshot,
+    plan: plan([safe, unsafe]),
+  });
+
+  assert.equal(result.relocated, true);
+  assert.equal(result.plan.baseRevision, snapshot.revision);
+  assert.deepEqual(result.plan.operations.map((item) => item.id), ["op-1"]);
+  assert.deepEqual(result.deferredOperationIds, ["op-2"]);
+  assert.deepEqual(result.reasons, ["operation:op-2:target_missing"]);
+});
+
+test("defers malformed fingerprint scope instead of silently normalizing it", () => {
+  const malformed = operation(["old-item-1"], {
+    "old-item-1": "fp-1",
+    "outside-target": "fp-2",
+  });
+  const result = relocateContextMutationPlan({
+    snapshot,
+    plan: plan([malformed]),
+  });
+
+  assert.equal(result.relocated, false);
+  assert.deepEqual(result.plan.operations, []);
+  assert.deepEqual(result.reasons, [
+    "operation:op-1:target_fingerprint_scope_mismatch",
+  ]);
+});
+
+test("defers duplicate operation ids before relocation", () => {
+  const duplicate = operation(["old-item-1"], { "old-item-1": "fp-1" });
+  const result = relocateContextMutationPlan({
+    snapshot,
+    plan: plan([duplicate, { ...duplicate }]),
+  });
+
+  assert.equal(result.relocated, false);
+  assert.deepEqual(result.plan.operations, []);
+  assert.deepEqual(result.deferredOperationIds, ["op-1"]);
+  assert.deepEqual(result.reasons, ["operation:op-1:duplicate_id"]);
+});
+
+test("rejects blank plan and snapshot envelope fields", () => {
+  const original = plan([
+    operation(["old-item-1"], { "old-item-1": "fp-1" }),
+  ]);
+  const result = relocateContextMutationPlan({
+    snapshot: { ...snapshot, hostId: "", sessionId: "", revision: "" },
+    plan: { ...original, planId: "", hostId: "", sessionId: "", baseRevision: "" },
+  });
+
+  assert.equal(result.relocated, false);
+  assert.deepEqual(result.plan.operations, []);
+  assert.deepEqual(result.reasons, [
+    "plan_id_empty",
+    "plan_host_id_empty",
+    "snapshot_host_id_empty",
+    "plan_session_id_empty",
+    "snapshot_session_id_empty",
+    "plan_base_revision_empty",
+    "snapshot_revision_empty",
+  ]);
+});
