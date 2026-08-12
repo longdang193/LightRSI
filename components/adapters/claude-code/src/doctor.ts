@@ -43,6 +43,8 @@ export type ClaudeCodeDoctorReport = {
   overlayEvictionFailureMode: string;
   overlayPlanStoreStatus: string;
   overlaySessionBinding: string;
+  overlayTaskStateEstimatorEnabled: boolean;
+  overlayTaskStateEstimatorConfigured: boolean;
   toolSearchEnabled: boolean;
   proxyHealthy: boolean;
   upstreamBaseUrl: string;
@@ -133,6 +135,8 @@ export function formatClaudeCodeDoctorReport(report: ClaudeCodeDoctorReport): st
     `- overlay session binding: ${report.overlaySessionBinding}`,
     `- overlay eviction enabled: ${report.overlayEvictionEnabled ? "yes" : "no"}`,
     `- overlay eviction failure mode: ${report.overlayEvictionFailureMode}`,
+    `- task-state estimator enabled: ${report.overlayTaskStateEstimatorEnabled ? "yes" : "no"}`,
+    `- task-state estimator configured: ${report.overlayTaskStateEstimatorConfigured ? "yes" : "no"}`,
     `- tool search enabled: ${report.toolSearchEnabled ? "yes" : "no"}`,
     `- proxy healthy: ${report.proxyHealthy ? "yes" : "no"}`,
     `- proxy base URL: ${report.proxyBaseUrl}`,
@@ -255,6 +259,12 @@ export async function inspectClaudeCodeDoctor(params: {
     overlayEvictionFailureMode: params.config.eviction.failureMode,
     overlayPlanStoreStatus: "persistent",
     overlaySessionBinding: "persisted",
+    overlayTaskStateEstimatorEnabled: params.config.taskStateEstimator.enabled,
+    overlayTaskStateEstimatorConfigured: Boolean(
+      params.config.taskStateEstimator.baseUrl &&
+        params.config.taskStateEstimator.apiKey &&
+        params.config.taskStateEstimator.model,
+    ),
     settingsPath: params.settingsPath,
     mcpConfigPath,
     tokenPilotConfigPath: params.tokenPilotConfigPath,
