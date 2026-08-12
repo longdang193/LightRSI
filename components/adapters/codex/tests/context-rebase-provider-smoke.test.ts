@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   CODEX_REBASE_PROVIDER_SMOKE_EVIDENCE_SCHEMA,
+  buildProviderCompatibilityMatrix,
   compareProviderUsage,
   runCodexRebaseProviderSmoke,
   sanitizedEvidenceLabel,
@@ -31,6 +32,8 @@ async function requestBody(req: IncomingMessage): Promise<JsonObject> {
 async function startProviderFixture(options: {
   rejectChainReferences?: boolean;
   rejectWithSecret?: boolean;
+  rejectWebSearchWithSecret?: boolean;
+  omitWebSearchCall?: boolean;
 } = {}): Promise<{
   baseUrl: string;
   authorizationPresent(): boolean;
@@ -74,6 +77,22 @@ async function startProviderFixture(options: {
     const forcedToolCall = payload.tool_choice
       && typeof payload.tool_choice === "object"
       && !Array.isArray(payload.tool_choice);
+    const webSearchRequested = Array.isArray(payload.tools)
+      && payload.tools.some((tool) => (
+        tool && typeof tool === "object" && !Array.isArray(tool) && tool.type === "web_search"
+      ))
+      && payload.tool_choice === "required";
+    if (options.rejectWebSearchWithSecret && webSearchRequested) {
+      res.statusCode = 400;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({
+        error: {
+          code: "invalid_request_error",
+          message: "hosted web search unavailable secret-optional-provider-body",
+        },
+      }));
+      return;
+    }
     const encryptedContent = `opaque-provider-fixture-${ordinal}`;
     const output = forcedToolCall
       ? [
@@ -86,7 +105,23 @@ async function startProviderFixture(options: {
           arguments: "{\"record\":\"retained\"}",
         },
       ]
-      : [
+      : webSearchRequested && !options.omitWebSearchCall
+        ? [
+          { id: `reasoning-${ordinal}`, type: "reasoning", encrypted_content: encryptedContent, summary: [] },
+          {
+            id: `web-search-${ordinal}`,
+            type: "web_search_call",
+            status: "completed",
+            action: { type: "search", query: "official OpenAI Responses API documentation" },
+          },
+          {
+            id: `message-${ordinal}`,
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "OK" }],
+          },
+        ]
+        : [
         { id: `reasoning-${ordinal}`, type: "reasoning", encrypted_content: encryptedContent, summary: [] },
         {
           id: `message-${ordinal}`,
@@ -156,6 +191,19 @@ test("provider usage comparison reports observed and projected break-even", () =
   assert.equal(evidence.subsequentSavedInputTokensPerTurn, 50);
 });
 
+test("provider compatibility matrix reflects journal evidence for every catalog item", () => {
+  const matrix = buildProviderCompatibilityMatrix(
+    ["compaction", "web_search_call"],
+    ["mcp_call", "shell_call"],
+  );
+  assert.equal(matrix.find((entry) => entry.itemType === "compaction")?.providerDecision, "real-pass");
+  assert.equal(matrix.find((entry) => entry.itemType === "web_search_call")?.providerDecision, "real-pass");
+  assert.equal(matrix.find((entry) => entry.itemType === "mcp_call")?.providerDecision, "real-reject");
+  assert.equal(matrix.find((entry) => entry.itemType === "shell_call")?.providerDecision, "real-reject");
+  assert.equal(matrix.find((entry) => entry.itemType === "program")?.providerDecision, "not-observed");
+  assert.equal(matrix.find((entry) => entry.itemType === "unknown")?.structuralPolicy, "deferred");
+});
+
 test("provider smoke emits sanitized real-chain, capability v2, matrix, and usage evidence", async () => {
   const provider = await startProviderFixture();
   const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-smoke-test-"));
@@ -169,6 +217,7 @@ test("provider smoke emits sanitized real-chain, capability v2, matrix, and usag
       model: "provider-fixture-model",
       continuationTurns: 5,
       outputDir,
+      compatibilityScenarios: ["web-search"],
     });
     const evidence = result.evidence;
     const artifactText = await readFile(result.artifactPath, "utf8");
@@ -178,12 +227,16 @@ test("provider smoke emits sanitized real-chain, capability v2, matrix, and usag
     assert.equal(evidence.runtime.codexCli, "not-observed");
     assert.equal(evidence.capability.encryptedReasoningPresent, true);
     assert.equal(evidence.capability.journalTrusted, true);
+    assert.deepEqual(evidence.compatibilityScenarioPolicy, {
+      additionalScenariosRequired: false,
+    });
     assert.deepEqual(evidence.capability.realProviderVerifiedItemTypes, [
       "function_call",
       "function_call_output",
       "message",
       "previous_response_id",
       "reasoning",
+      "web_search_call",
     ]);
     assert.deepEqual(evidence.capability.realProviderRejectedItemTypes, []);
     assert.equal(evidence.rebase.committed, true);
@@ -201,10 +254,28 @@ test("provider smoke emits sanitized real-chain, capability v2, matrix, and usag
     assert.equal(evidence.compatibilityMatrix.find((entry) => entry.itemType === "reasoning")?.providerDecision, "real-pass");
     assert.equal(evidence.compatibilityMatrix.find((entry) => entry.itemType === "previous_response_id")?.providerDecision, "real-pass");
     assert.equal(evidence.compatibilityMatrix.find((entry) => entry.itemType === "compaction")?.providerDecision, "not-observed");
+    assert.deepEqual(evidence.compatibilityScenarios, [
+      {
+        scenario: "core",
+        requiredItemTypes: ["message", "function_call", "function_call_output", "reasoning"],
+        observedOutputItemTypes: ["message", "function_call", "reasoning"],
+        status: "real-pass",
+        reason: "provider_replay_succeeded",
+      },
+      {
+        scenario: "web-search",
+        requiredItemTypes: ["web_search_call"],
+        observedOutputItemTypes: ["web_search_call"],
+        status: "real-pass",
+        reason: "provider_replay_succeeded",
+      },
+    ]);
+    assert.equal(evidence.compatibilityMatrix.find((entry) => entry.itemType === "web_search_call")?.providerDecision, "real-pass");
     assert.equal(provider.authorizationPresent(), true);
     assert.match(result.artifactSha256, /^[a-f0-9]{64}$/u);
     assert.equal(JSON.parse(artifactText).schema, CODEX_REBASE_PROVIDER_SMOKE_EVIDENCE_SCHEMA);
     assert.doesNotMatch(artifactText, /EVICT_ME_|KEEP_ME_|CURRENT_INPUT_|opaque-provider-fixture-/u);
+    assert.doesNotMatch(artifactText, /official OpenAI Responses API documentation/u);
     assert.doesNotMatch(artifactText, /provider-smoke-test-key-not-secret|sk-credential-shaped-cli-label/u);
     assert.doesNotMatch(artifactText, /authorization|bearer/iu);
   } finally {
@@ -212,6 +283,99 @@ test("provider smoke emits sanitized real-chain, capability v2, matrix, and usag
     else process.env.OPENAI_API_KEY = previousKey;
     if (previousCli === undefined) delete process.env.CODEX_CLI_VERSION;
     else process.env.CODEX_CLI_VERSION = previousCli;
+    await provider.close();
+    await rm(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("optional provider scenarios record not-observed evidence without blocking core", async () => {
+  const provider = await startProviderFixture({ omitWebSearchCall: true });
+  const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-optional-smoke-test-"));
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "provider-smoke-test-key-not-secret";
+  try {
+    const result = await runCodexRebaseProviderSmoke({
+      baseUrl: provider.baseUrl,
+      model: "provider-fixture-model",
+      continuationTurns: 5,
+      outputDir,
+      compatibilityScenarios: ["web-search"],
+    });
+    assert.equal(result.evidence.rebase.committed, true);
+    assert.deepEqual(result.evidence.compatibilityScenarios.find((entry) => (
+      entry.scenario === "web-search"
+    )), {
+      scenario: "web-search",
+      requiredItemTypes: ["web_search_call"],
+      observedOutputItemTypes: [],
+      status: "not-observed",
+      reason: "required_item_not_observed",
+    });
+    assert.equal(
+      result.evidence.compatibilityMatrix.find((entry) => entry.itemType === "web_search_call")?.providerDecision,
+      "not-observed",
+    );
+    assert.equal(
+      JSON.parse(await readFile(result.artifactPath, "utf8")).schema,
+      CODEX_REBASE_PROVIDER_SMOKE_EVIDENCE_SCHEMA,
+    );
+  } finally {
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+    await provider.close();
+    await rm(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("strict provider scenarios keep selected optional probes as evidence gates", async () => {
+  const provider = await startProviderFixture({ omitWebSearchCall: true });
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "provider-smoke-test-key-not-secret";
+  try {
+    await assert.rejects(
+      runCodexRebaseProviderSmoke({
+        baseUrl: provider.baseUrl,
+        model: "provider-fixture-model",
+        continuationTurns: 5,
+        compatibilityScenarios: ["web-search"],
+        strictCompatibilityScenarios: true,
+      }),
+      /Required compatibility scenario did not pass: web-search/u,
+    );
+  } finally {
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+    await provider.close();
+  }
+});
+
+test("optional provider probe failures remain sanitized evidence", async () => {
+  const provider = await startProviderFixture({ rejectWebSearchWithSecret: true });
+  const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-failed-optional-smoke-test-"));
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "provider-smoke-test-key-not-secret";
+  try {
+    const result = await runCodexRebaseProviderSmoke({
+      baseUrl: provider.baseUrl,
+      model: "provider-fixture-model",
+      continuationTurns: 5,
+      outputDir,
+      compatibilityScenarios: ["web-search"],
+    });
+    const artifactText = await readFile(result.artifactPath, "utf8");
+    assert.deepEqual(result.evidence.compatibilityScenarios.find((entry) => (
+      entry.scenario === "web-search"
+    )), {
+      scenario: "web-search",
+      requiredItemTypes: ["web_search_call"],
+      observedOutputItemTypes: [],
+      status: "not-observed",
+      reason: "scenario_probe_failed",
+    });
+    assert.doesNotMatch(artifactText, /secret-optional-provider-body/u);
+  } finally {
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
     await provider.close();
     await rm(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
