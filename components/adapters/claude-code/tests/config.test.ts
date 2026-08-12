@@ -56,3 +56,43 @@ test("normalizeTokenPilotClaudeCodeConfig preserves and clamps eviction settings
   assert.equal(config.eviction.minBlockChars, 256);
   assert.equal(config.eviction.failureMode, "bypass");
 });
+
+test("normalizeTokenPilotClaudeCodeConfig applies taskStateEstimator defaults", () => {
+  const config = normalizeTokenPilotClaudeCodeConfig({});
+  assert.equal(config.taskStateEstimator.enabled, false);
+  assert.equal(config.taskStateEstimator.baseUrl, undefined);
+  assert.equal(config.taskStateEstimator.apiKey, undefined);
+  assert.equal(config.taskStateEstimator.model, undefined);
+  assert.equal(config.taskStateEstimator.requestTimeoutMs, 60_000);
+  assert.equal(config.taskStateEstimator.batchTurns, 5);
+  assert.equal(config.taskStateEstimator.evictionLookaheadTurns, 3);
+  assert.equal(config.taskStateEstimator.inputMode, undefined);
+  assert.equal(config.taskStateEstimator.lifecycleMode, undefined);
+  assert.equal(config.taskStateEstimator.evidenceMode, undefined);
+});
+
+test("normalizeTokenPilotClaudeCodeConfig reads and clamps taskStateEstimator values", () => {
+  const config = normalizeTokenPilotClaudeCodeConfig({
+    taskStateEstimator: {
+      enabled: true,
+      baseUrl: "https://estimator.example.com/v1///",
+      apiKey: "  sk-test  ",
+      model: "claude-sonnet-4-6",
+      requestTimeoutMs: 5000,
+      batchTurns: 0,
+      evictionLookaheadTurns: 10,
+      inputMode: "sliding_window",
+      lifecycleMode: "decoupled",
+      evidenceMode: "two_state",
+    },
+  });
+  assert.equal(config.taskStateEstimator.enabled, true);
+  assert.equal(config.taskStateEstimator.apiKey, "sk-test");
+  assert.equal(config.taskStateEstimator.model, "claude-sonnet-4-6");
+  assert.equal(config.taskStateEstimator.requestTimeoutMs, 5000);
+  assert.equal(config.taskStateEstimator.batchTurns, 1);
+  assert.equal(config.taskStateEstimator.evictionLookaheadTurns, 10);
+  assert.equal(config.taskStateEstimator.inputMode, "sliding_window");
+  assert.equal(config.taskStateEstimator.lifecycleMode, "decoupled");
+  assert.equal(config.taskStateEstimator.evidenceMode, "two_state");
+});

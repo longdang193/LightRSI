@@ -42,6 +42,18 @@ export type TokenPilotClaudeCodeConfig = {
     };
     passOptions: Record<string, Record<string, unknown>>;
   };
+  taskStateEstimator: {
+    enabled: boolean;
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
+    requestTimeoutMs: number;
+    batchTurns: number;
+    evictionLookaheadTurns: number;
+    inputMode?: "sliding_window" | "completed_summary_plus_active_turns";
+    lifecycleMode?: "coupled" | "decoupled";
+    evidenceMode?: "two_state" | "three_state";
+  };
 };
 
 type NormalizeClaudeCodeConfigOptions = {
@@ -145,6 +157,7 @@ export function normalizeTokenPilotClaudeCodeConfig(
   const eviction = asRecord(obj.eviction);
   const reduction = asRecord(obj.reduction);
   const passes = asRecord(reduction.passes);
+  const taskStateEstimator = asRecord(obj.taskStateEstimator);
   const configPath = options?.configPath ?? defaultTokenPilotClaudeCodeConfigPath();
   return {
     enabled: boolValue(obj.enabled, true),
@@ -181,6 +194,33 @@ export function normalizeTokenPilotClaudeCodeConfig(
         agentsStartupOptimization: boolValue(passes.agentsStartupOptimization, true),
       },
       passOptions: sanitizeClaudeReductionPassOptions(reduction.passOptions),
+    },
+    taskStateEstimator: {
+      enabled: boolValue(taskStateEstimator.enabled, false),
+      baseUrl: stringValue(taskStateEstimator.baseUrl),
+      apiKey: stringValue(taskStateEstimator.apiKey),
+      model: stringValue(taskStateEstimator.model),
+      requestTimeoutMs: numberValue(taskStateEstimator.requestTimeoutMs, 60_000, 1000, 600_000),
+      batchTurns: numberValue(taskStateEstimator.batchTurns, 5, 1, 1000),
+      evictionLookaheadTurns: numberValue(taskStateEstimator.evictionLookaheadTurns, 3, 1, 1000),
+      inputMode:
+        taskStateEstimator.inputMode === "sliding_window"
+          ? "sliding_window"
+          : taskStateEstimator.inputMode === "completed_summary_plus_active_turns"
+            ? "completed_summary_plus_active_turns"
+            : undefined,
+      lifecycleMode:
+        taskStateEstimator.lifecycleMode === "decoupled"
+          ? "decoupled"
+          : taskStateEstimator.lifecycleMode === "coupled"
+            ? "coupled"
+            : undefined,
+      evidenceMode:
+        taskStateEstimator.evidenceMode === "two_state"
+          ? "two_state"
+          : taskStateEstimator.evidenceMode === "three_state"
+            ? "three_state"
+            : undefined,
     },
   };
 }

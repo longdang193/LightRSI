@@ -324,7 +324,9 @@ test("claude-code mode writes only claude-supported fields", async () => {
     assert.equal(reloaded.reduction.maxToolChars, 1800);
 
     const record = reloaded as unknown as Record<string, unknown>;
-    assert.equal("taskStateEstimator" in record, false);
+    assert.equal("taskStateEstimator" in record, true);
+    assert.equal((record.taskStateEstimator as Record<string, unknown>).enabled, false);
+    assert.equal((record.taskStateEstimator as Record<string, unknown>).batchTurns, 5);
     assert.equal("eviction" in record, true);
     assert.equal((record.eviction as Record<string, unknown>).enabled, false);
     assert.equal((record.eviction as Record<string, unknown>).failureMode, "bypass");
