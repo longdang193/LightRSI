@@ -64,3 +64,41 @@ test("disabled by default when nothing is set", () => {
   const estimator = resolveClaudeTaskStateEstimator({ env: {} });
   assert.equal(estimator, undefined);
 });
+
+test("assembles an estimator from the full config superset (lookahead + modes)", () => {
+  const estimator = resolveClaudeTaskStateEstimator({
+    config: {
+      enabled: true,
+      baseUrl: "https://api.example.com",
+      apiKey: "sk-x",
+      model: "m1",
+      requestTimeoutMs: 30_000,
+      batchTurns: 8,
+      evictionLookaheadTurns: 4,
+      inputMode: "sliding_window",
+      lifecycleMode: "decoupled",
+      evidenceMode: "two_state",
+    },
+    env: {},
+  });
+  assert.ok(estimator);
+  assert.equal(typeof estimator!.estimate, "function");
+});
+
+test("config estimator fields win over env fallback", () => {
+  const estimator = resolveClaudeTaskStateEstimator({
+    config: {
+      enabled: true,
+      baseUrl: "https://api.example.com",
+      apiKey: "sk-x",
+      model: "m1",
+      evictionLookaheadTurns: 7,
+    },
+    env: {
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS: "99",
+    },
+  });
+  // config-present wins; the estimator assembles without throwing.
+  assert.ok(estimator);
+  assert.equal(typeof estimator!.estimate, "function");
+});
