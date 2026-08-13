@@ -24,8 +24,11 @@ import type { CodexRebaseAccounting } from "./context-rewrite/types.js";
 import { resolveCodexSessionIdByResponseId } from "./session-state.js";
 
 export const CODEX_REBASE_PROVIDER_SMOKE_EVIDENCE_SCHEMA =
-  "lightmem2.codex.context-rebase-provider-smoke-evidence/v2";
+  "lightmem2.codex.context-rebase-provider-smoke-evidence/v3";
 const PROVIDER_SMOKE_MAX_OUTPUT_TOKENS = 2_048;
+
+export const CODEX_PROVIDER_SMOKE_SCENARIOS = ["core", "web-search"] as const;
+export type CodexProviderSmokeScenario = typeof CODEX_PROVIDER_SMOKE_SCENARIOS[number];
 
 export type ProviderUsageObservation = {
   inputTokens: number;
@@ -67,6 +70,61 @@ export type ProviderCompatibilityMatrixEntry = {
   reason: string;
 };
 
+export type ProviderCompatibilityScenarioEvidence = {
+  scenario: CodexProviderSmokeScenario;
+  requiredItemTypes: string[];
+  observedOutputItemTypes: string[];
+  status: "real-pass" | "real-reject" | "not-observed";
+  reason:
+    | "provider_replay_succeeded"
+    | "provider_replay_rejected"
+    | "required_item_not_observed"
+    | "scenario_probe_failed";
+};
+
+type ProviderCompatibilityCatalogEntry = Pick<
+  ProviderCompatibilityMatrixEntry,
+  "itemType" | "structuralPolicy"
+>;
+
+export const CODEX_PROVIDER_COMPATIBILITY_CATALOG: readonly ProviderCompatibilityCatalogEntry[] = [
+  { itemType: "previous_response_id", structuralPolicy: "transport" },
+  { itemType: "message", structuralPolicy: "replay-candidate" },
+  { itemType: "function_call", structuralPolicy: "closure-required" },
+  { itemType: "function_call_output", structuralPolicy: "closure-required" },
+  { itemType: "custom_tool_call", structuralPolicy: "closure-required" },
+  { itemType: "custom_tool_call_output", structuralPolicy: "closure-required" },
+  { itemType: "computer_call", structuralPolicy: "closure-required" },
+  { itemType: "computer_call_output", structuralPolicy: "closure-required" },
+  { itemType: "local_shell_call", structuralPolicy: "closure-required" },
+  { itemType: "local_shell_call_output", structuralPolicy: "closure-required" },
+  { itemType: "shell_call", structuralPolicy: "closure-required" },
+  { itemType: "shell_call_output", structuralPolicy: "closure-required" },
+  { itemType: "apply_patch_call", structuralPolicy: "closure-required" },
+  { itemType: "apply_patch_call_output", structuralPolicy: "closure-required" },
+  { itemType: "reasoning", structuralPolicy: "exact-payload" },
+  { itemType: "compaction", structuralPolicy: "exact-payload" },
+  { itemType: "program", structuralPolicy: "exact-payload" },
+  { itemType: "program_output", structuralPolicy: "exact-payload" },
+  { itemType: "web_search_call", structuralPolicy: "replay-candidate" },
+  { itemType: "file_search_call", structuralPolicy: "replay-candidate" },
+  { itemType: "code_interpreter_call", structuralPolicy: "replay-candidate" },
+  { itemType: "image_generation_call", structuralPolicy: "replay-candidate" },
+  { itemType: "mcp_call", structuralPolicy: "replay-candidate" },
+  { itemType: "mcp_list_tools", structuralPolicy: "replay-candidate" },
+  { itemType: "mcp_approval_request", structuralPolicy: "replay-candidate" },
+  { itemType: "mcp_approval_response", structuralPolicy: "replay-candidate" },
+  { itemType: "tool_search_call", structuralPolicy: "replay-candidate" },
+  { itemType: "tool_search_output", structuralPolicy: "replay-candidate" },
+  { itemType: "additional_tools", structuralPolicy: "replay-candidate" },
+  { itemType: "unknown", structuralPolicy: "deferred" },
+];
+
+const PROVIDER_SMOKE_SCENARIO_ITEM_TYPES: Record<CodexProviderSmokeScenario, readonly string[]> = {
+  core: ["message", "function_call", "function_call_output", "reasoning"],
+  "web-search": ["web_search_call"],
+};
+
 export type CodexRebaseProviderSmokeEvidence = {
   schema: typeof CODEX_REBASE_PROVIDER_SMOKE_EVIDENCE_SCHEMA;
   mode: "provider";
@@ -98,6 +156,10 @@ export type CodexRebaseProviderSmokeEvidence = {
     realProviderVerifiedItemTypes: string[];
     realProviderRejectedItemTypes: string[];
   };
+  compatibilityScenarioPolicy: {
+    additionalScenariosRequired: boolean;
+  };
+  compatibilityScenarios: ProviderCompatibilityScenarioEvidence[];
   compatibilityMatrix: ProviderCompatibilityMatrixEntry[];
   rebase: {
     committed: boolean;
@@ -151,6 +213,8 @@ export type RunCodexRebaseProviderSmokeOptions = {
   model?: string;
   outputDir?: string;
   continuationTurns?: number;
+  compatibilityScenarios?: CodexProviderSmokeScenario[];
+  strictCompatibilityScenarios?: boolean;
 };
 
 export type CodexRebaseProviderSmokeRunResult = {
@@ -187,6 +251,7 @@ async function replayDiagnostic(params: {
 
 type ProviderRebaseResult = ProviderConversationResult & {
   capability: CodexRebaseProviderSmokeEvidence["capability"];
+  compatibilityScenarios: ProviderCompatibilityScenarioEvidence[];
   compatibilityMatrix: ProviderCompatibilityMatrixEntry[];
   rebase: CodexRebaseProviderSmokeEvidence["rebase"];
 };
@@ -444,6 +509,12 @@ function toolDefinition(): JsonObject {
   };
 }
 
+function providerSmokeTools(scenarios: readonly CodexProviderSmokeScenario[]): JsonObject[] {
+  return scenarios.includes("web-search")
+    ? [toolDefinition(), { type: "web_search" }]
+    : [toolDefinition()];
+}
+
 function firstTurnPayload(params: {
   model: string;
   sessionId: string;
@@ -470,6 +541,7 @@ function continuationPayload(params: {
   model: string;
   previousResponseId: string;
   input: JsonObject[];
+  compatibilityScenarios: CodexProviderSmokeScenario[];
 }): JsonObject {
   return {
     model: params.model,
@@ -478,7 +550,7 @@ function continuationPayload(params: {
     include: ["reasoning.encrypted_content"],
     reasoning: { effort: "low", summary: "auto" },
     max_output_tokens: PROVIDER_SMOKE_MAX_OUTPUT_TOKENS,
-    tools: [toolDefinition()],
+    tools: providerSmokeTools(params.compatibilityScenarios),
     tool_choice: "none",
     previous_response_id: params.previousResponseId,
     input: params.input,
@@ -505,6 +577,31 @@ function requiredToolCallPayload(params: {
     tools: [toolDefinition()],
     tool_choice: { type: "function", name: "lookup_smoke_fixture" },
     input: [...params.historyInput, toolRequestItem()],
+  };
+}
+
+function webSearchPayload(params: {
+  model: string;
+  sessionId: string;
+  historyInput: JsonObject[];
+}): JsonObject {
+  return {
+    model: params.model,
+    stream: false,
+    store: false,
+    include: ["reasoning.encrypted_content"],
+    reasoning: { effort: "low", summary: "auto" },
+    max_output_tokens: PROVIDER_SMOKE_MAX_OUTPUT_TOKENS,
+    metadata: { tokenpilotSessionId: params.sessionId },
+    tools: [{ type: "web_search" }],
+    tool_choice: "required",
+    input: [
+      ...params.historyInput,
+      {
+        role: "user",
+        content: "Use web search to find the official OpenAI Responses API documentation, then reply with one word.",
+      },
+    ],
   };
 }
 
@@ -596,7 +693,9 @@ async function setupStoredRoot(params: {
   firstEncryptedPayload: string;
   toolResponse: JsonObject;
   toolOutputResponse: JsonObject;
+  setupResponses: JsonObject[];
   historyInput: JsonObject[];
+  observedOutputItemTypes: string[];
   previousResponseId: string;
 }> {
   const firstSample = await postProviderEncryptedReasoningSample({
@@ -636,13 +735,21 @@ async function setupStoredRoot(params: {
     sessionId: params.sessionId,
     historyInput: toolOutputHistory,
   }), `${params.phase} setup turn 3`);
+  const setupResponses = [first, toolResponse, toolOutputResponse];
+  const historyInput = [...toolOutputHistory, ...jsonItems(toolOutputResponse.output)];
+  const previousResponseId = responseId(toolOutputResponse, `${params.phase} setup turn 3`);
   return {
     first,
     firstEncryptedPayload: firstSample.encryptedPayload,
     toolResponse,
     toolOutputResponse,
-    historyInput: [...toolOutputHistory, ...jsonItems(toolOutputResponse.output)],
-    previousResponseId: responseId(toolOutputResponse, `${params.phase} setup turn 3`),
+    setupResponses,
+    historyInput,
+    observedOutputItemTypes: Array.from(new Set(
+      setupResponses.flatMap((response) => jsonItems(response.output))
+        .map((item) => typeof item.type === "string" ? item.type : "message"),
+    )).sort(),
+    previousResponseId,
   };
 }
 
@@ -685,9 +792,7 @@ async function runControlConversation(params: {
     }
     return {
       setupUsage: [
-        usageObservation(setup.first),
-        usageObservation(setup.toolResponse),
-        usageObservation(setup.toolOutputResponse),
+        ...setup.setupResponses.map(usageObservation),
       ],
       continuationUsage,
     };
@@ -697,55 +802,178 @@ async function runControlConversation(params: {
   }
 }
 
-function compatibilityMatrix(
+export function buildProviderCompatibilityMatrix(
   realProviderVerifiedItemTypes: string[],
   realProviderRejectedItemTypes: string[],
 ): ProviderCompatibilityMatrixEntry[] {
   const verified = new Set(realProviderVerifiedItemTypes);
   const rejected = new Set(realProviderRejectedItemTypes);
-  const real = (itemType: string, policy: ProviderCompatibilityMatrixEntry["structuralPolicy"]): ProviderCompatibilityMatrixEntry => ({
-    itemType,
-    structuralPolicy: policy,
-    providerDecision: verified.has(itemType)
-      ? "real-pass"
-      : rejected.has(itemType) ? "real-reject" : "not-observed",
-    evidence: verified.has(itemType) || rejected.has(itemType) ? "real-provider" : "none",
-    reason: verified.has(itemType)
-      ? "provider_replay_succeeded"
-      : rejected.has(itemType) ? "provider_replay_rejected" : "not_observed_in_provider_smoke",
+  return CODEX_PROVIDER_COMPATIBILITY_CATALOG.map(({ itemType, structuralPolicy }) => {
+    if (itemType === "unknown") {
+      return {
+        itemType,
+        structuralPolicy,
+        providerDecision: "not-observed",
+        evidence: "none",
+        reason: "unknown_items_require_explicit_adapter_support",
+      };
+    }
+    const supported = verified.has(itemType);
+    const unsupported = rejected.has(itemType);
+    return {
+      itemType,
+      structuralPolicy,
+      // A contradictory journal is rejected by the evidence gate. Showing the
+      // conservative decision here avoids accidentally presenting it as pass.
+      providerDecision: unsupported ? "real-reject" : supported ? "real-pass" : "not-observed",
+      evidence: supported || unsupported ? "real-provider" : "none",
+      reason: supported && unsupported
+        ? "contradictory_provider_evidence"
+        : unsupported
+          ? "provider_replay_rejected"
+          : supported ? "provider_replay_succeeded" : "not_observed_in_provider_smoke",
+    };
   });
-  return [
-    real("previous_response_id", "transport"),
-    real("message", "replay-candidate"),
-    real("function_call", "closure-required"),
-    real("function_call_output", "closure-required"),
-    { itemType: "custom_tool_call", structuralPolicy: "closure-required", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "custom_tool_call_output", structuralPolicy: "closure-required", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "computer_call", structuralPolicy: "closure-required", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "computer_call_output", structuralPolicy: "closure-required", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "local_shell_call", structuralPolicy: "closure-required", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "local_shell_call_output", structuralPolicy: "closure-required", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "shell_call", structuralPolicy: "closure-required", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "shell_call_output", structuralPolicy: "closure-required", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "apply_patch_call", structuralPolicy: "closure-required", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "apply_patch_call_output", structuralPolicy: "closure-required", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    real("reasoning", "exact-payload"),
-    { itemType: "compaction", structuralPolicy: "exact-payload", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "program", structuralPolicy: "exact-payload", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "program_output", structuralPolicy: "exact-payload", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "web_search_call", structuralPolicy: "replay-candidate", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "file_search_call", structuralPolicy: "replay-candidate", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "code_interpreter_call", structuralPolicy: "replay-candidate", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "image_generation_call", structuralPolicy: "replay-candidate", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "mcp_call", structuralPolicy: "replay-candidate", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "mcp_list_tools", structuralPolicy: "replay-candidate", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "mcp_approval_request", structuralPolicy: "replay-candidate", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "mcp_approval_response", structuralPolicy: "replay-candidate", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "tool_search_call", structuralPolicy: "replay-candidate", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "tool_search_output", structuralPolicy: "replay-candidate", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "additional_tools", structuralPolicy: "replay-candidate", providerDecision: "not-observed", evidence: "none", reason: "not_emitted_by_provider" },
-    { itemType: "unknown", structuralPolicy: "deferred", providerDecision: "not-observed", evidence: "none", reason: "unknown_items_require_explicit_adapter_support" },
-  ];
+}
+
+function compatibilityScenarioEvidence(params: {
+  scenarios: CodexProviderSmokeScenario[];
+  observedOutputItemTypes: string[];
+  verifiedItemTypes: string[];
+  rejectedItemTypes: string[];
+}): ProviderCompatibilityScenarioEvidence[] {
+  const observed = new Set(params.observedOutputItemTypes);
+  const verified = new Set(params.verifiedItemTypes);
+  const rejected = new Set(params.rejectedItemTypes);
+  return params.scenarios.map((scenario) => {
+    const requiredItemTypes = [...PROVIDER_SMOKE_SCENARIO_ITEM_TYPES[scenario]];
+    const realRejected = requiredItemTypes.some((itemType) => rejected.has(itemType));
+    const realPassed = requiredItemTypes.every((itemType) => verified.has(itemType));
+    return {
+      scenario,
+      requiredItemTypes,
+      observedOutputItemTypes: requiredItemTypes.filter((itemType) => observed.has(itemType)),
+      status: realRejected ? "real-reject" : realPassed ? "real-pass" : "not-observed",
+      reason: realRejected
+        ? "provider_replay_rejected"
+        : realPassed ? "provider_replay_succeeded" : "required_item_not_observed",
+    };
+  });
+}
+
+function notObservedCompatibilityScenario(
+  scenario: CodexProviderSmokeScenario,
+  reason: "required_item_not_observed" | "scenario_probe_failed",
+): ProviderCompatibilityScenarioEvidence {
+  return {
+    scenario,
+    requiredItemTypes: [...PROVIDER_SMOKE_SCENARIO_ITEM_TYPES[scenario]],
+    observedOutputItemTypes: [],
+    status: "not-observed",
+    reason,
+  };
+}
+
+async function runWebSearchCompatibilityScenario(params: {
+  baseUrl: string;
+  model: string;
+  marker: string;
+}): Promise<{
+  evidence: ProviderCompatibilityScenarioEvidence;
+  verifiedItemTypes: string[];
+  rejectedItemTypes: string[];
+}> {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-web-search-state-"));
+  const sessionId = `codex-provider-web-search-${randomUUID()}`;
+  const values = syntheticConversationValues(params.marker);
+  let runtime: CodexProxyRuntime | undefined;
+  try {
+    const config = buildProviderSmokeConfig({
+      stateDir,
+      proxyPort: await reserveFetchPort(),
+      upstreamBaseUrl: params.baseUrl,
+      rewriteEnabled: true,
+    });
+    runtime = await startCodexResponsesProxy({ config, logger: silentLogger });
+    const firstSample = await postProviderEncryptedReasoningSample({
+      runtime,
+      payload: firstTurnPayload({
+        model: params.model,
+        sessionId,
+        evictText: values.evictText,
+        keepText: values.keepText,
+      }),
+      phase: "web-search compatibility setup",
+    });
+    const initialHistory = [
+      { role: "user", content: values.evictText },
+      { role: "user", content: values.keepText },
+      ...jsonItems(firstSample.response.output),
+    ];
+    const webSearchResponse = await postProviderResponse(runtime, webSearchPayload({
+      model: params.model,
+      sessionId,
+      historyInput: initialHistory,
+    }), "web-search compatibility generation");
+    const webSearchOutput = jsonItems(webSearchResponse.output);
+    if (!webSearchOutput.some((item) => item.type === "web_search_call")) {
+      return {
+        evidence: notObservedCompatibilityScenario("web-search", "required_item_not_observed"),
+        verifiedItemTypes: [],
+        rejectedItemTypes: [],
+      };
+    }
+    const previousResponseId = responseId(webSearchResponse, "web-search compatibility generation");
+    const beforeRebase = await buildCodexEffectiveHistory({
+      stateDir,
+      sessionId,
+      headResponseId: previousResponseId,
+    });
+    const evictedItem = beforeRebase.replayableItems.find((entry) => (
+      JSON.stringify(entry.item).includes(values.evictText)
+      || JSON.stringify(entry.item).includes("discardable provider smoke context")
+    ));
+    if (!evictedItem) throw new Error("Provider web-search scenario could not resolve the eviction target");
+    config.contextRewrite.mutationPlan = {
+      operations: [{ type: "evict", stableItemId: evictedItem.stableItemId }],
+    };
+    await postProviderResponse(runtime, continuationPayload({
+      model: params.model,
+      previousResponseId,
+      input: [{ role: "user", content: "Acknowledge the compatibility probe with one word." }],
+      compatibilityScenarios: ["core", "web-search"],
+    }), "web-search compatibility rebase");
+    const capabilityJournal = await readCodexRebaseCapabilityJournal(stateDir);
+    if (capabilityJournal.readError || capabilityJournal.malformedLineCount > 0) {
+      throw new Error("Provider web-search scenario capability journal was not trusted");
+    }
+    const verifiedItemTypes = Array.from(new Set(
+      capabilityJournal.capabilities
+        .filter((entry) => entry.status === "verified_supported" && entry.evidence === "real_provider")
+        .map((entry) => entry.itemType),
+    )).sort();
+    const rejectedItemTypes = Array.from(new Set(
+      capabilityJournal.capabilities
+        .filter((entry) => (
+          entry.evidence === "real_provider"
+          && (entry.status === "verified_unsupported" || entry.status === "payload_rejected")
+        ))
+        .map((entry) => entry.itemType),
+    )).sort();
+    const [evidence] = compatibilityScenarioEvidence({
+      scenarios: ["web-search"],
+      observedOutputItemTypes: webSearchOutput.map((item) => (
+        typeof item.type === "string" ? item.type : "message"
+      )),
+      verifiedItemTypes,
+      rejectedItemTypes,
+    });
+    if (!evidence) throw new Error("Provider web-search scenario did not produce evidence");
+    return { evidence, verifiedItemTypes, rejectedItemTypes };
+  } finally {
+    await runtime?.close();
+    await rm(stateDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
 }
 
 async function runRebaseConversation(params: {
@@ -801,6 +1029,7 @@ async function runRebaseConversation(params: {
         model: params.model,
         previousResponseId,
         input: [{ role: "user", content: currentInput }],
+        compatibilityScenarios: ["core"],
       }), "rebase continuation turn 1");
     } catch (error) {
       const diagnostic = await replayDiagnostic({ stateDir, sessionId, headResponseId: previousResponseId });
@@ -834,6 +1063,7 @@ async function runRebaseConversation(params: {
           model: params.model,
           previousResponseId,
           input: [{ role: "user", content: `Acknowledge continuation turn ${turn} with one word.` }],
+          compatibilityScenarios: ["core"],
         }), `rebase continuation turn ${turn}`);
       } catch (error) {
         const diagnostic = await replayDiagnostic({ stateDir, sessionId, headResponseId: previousResponseId });
@@ -899,9 +1129,7 @@ async function runRebaseConversation(params: {
 
     return {
       setupUsage: [
-        usageObservation(setup.first),
-        usageObservation(setup.toolResponse),
-        usageObservation(setup.toolOutputResponse),
+        ...setup.setupResponses.map(usageObservation),
       ],
       continuationUsage,
       capability: {
@@ -915,7 +1143,13 @@ async function runRebaseConversation(params: {
         realProviderVerifiedItemTypes,
         realProviderRejectedItemTypes,
       },
-      compatibilityMatrix: compatibilityMatrix(
+      compatibilityScenarios: compatibilityScenarioEvidence({
+        scenarios: ["core"],
+        observedOutputItemTypes: setup.observedOutputItemTypes,
+        verifiedItemTypes: realProviderVerifiedItemTypes,
+        rejectedItemTypes: realProviderRejectedItemTypes,
+      }),
+      compatibilityMatrix: buildProviderCompatibilityMatrix(
         realProviderVerifiedItemTypes,
         realProviderRejectedItemTypes,
       ),
@@ -1018,12 +1252,20 @@ function assertProviderEvidence(evidence: CodexRebaseProviderSmokeEvidence): voi
   const contradictoryCapabilities = evidence.capability.realProviderVerifiedItemTypes.filter((itemType) => (
     evidence.capability.realProviderRejectedItemTypes.includes(itemType)
   ));
+  const incompleteRequiredScenarios = evidence.compatibilityScenarios.filter((scenario) => (
+    scenario.status !== "real-pass"
+    && (
+      scenario.scenario === "core"
+      || evidence.compatibilityScenarioPolicy.additionalScenariosRequired
+    )
+  ));
   const checks: Array<[boolean, string]> = [
     [evidence.capability.responsesEndpointAccepted, "Responses endpoint was not accepted"],
     [evidence.capability.encryptedReasoningPresent, "Encrypted reasoning was not observed"],
     [evidence.capability.journalTrusted, "Capability journal was not trusted"],
     [missingVerified.length === 0, `Missing real-provider capability: ${missingVerified.join(",")}`],
     [contradictoryCapabilities.length === 0, `Contradictory capability evidence: ${contradictoryCapabilities.join(",")}`],
+    [incompleteRequiredScenarios.length === 0, `Required compatibility scenario did not pass: ${incompleteRequiredScenarios.map((entry) => entry.scenario).join(",")}`],
     [evidence.rebase.committed, "Rebase epoch was not committed"],
     [evidence.rebase.oldChainReferenceRemoved, "Old chain reference remained on the new root"],
     [evidence.rebase.currentInputOccurrences === 1, "Current input was not replayed exactly once"],
@@ -1043,6 +1285,17 @@ function assertProviderEvidence(evidence: CodexRebaseProviderSmokeEvidence): voi
   ];
   const failure = checks.find(([passed]) => !passed);
   if (failure) throw new Error(`Provider smoke evidence gate failed: ${failure[1]}`);
+}
+
+function normalizedCompatibilityScenarios(
+  requested: CodexProviderSmokeScenario[] | undefined,
+): CodexProviderSmokeScenario[] {
+  const known = new Set<string>(CODEX_PROVIDER_SMOKE_SCENARIOS);
+  const invalid = (requested ?? []).filter((scenario) => !known.has(scenario));
+  if (invalid.length > 0) {
+    throw new Error(`Unknown provider compatibility scenario: ${invalid.join(",")}`);
+  }
+  return Array.from(new Set<CodexProviderSmokeScenario>(["core", ...(requested ?? [])]));
 }
 
 async function writeEvidence(
@@ -1083,11 +1336,56 @@ export async function runCodexRebaseProviderSmoke(
   if (!Number.isInteger(continuationTurns) || continuationTurns < 5 || continuationTurns > 20) {
     throw new Error("Provider smoke continuationTurns must be an integer from 5 to 20");
   }
+  const compatibilityScenarios = normalizedCompatibilityScenarios(options.compatibilityScenarios);
+  const additionalScenariosRequired = options.strictCompatibilityScenarios === true;
   const startedAt = new Date().toISOString();
   const marker = randomUUID();
   // Proxy startup configures a process-global resolver, so the scenarios run serially.
-  const baseline = await runControlConversation({ baseUrl, model, continuationTurns, marker });
-  const rebase = await runRebaseConversation({ baseUrl, model, continuationTurns, marker });
+  const baseline = await runControlConversation({
+    baseUrl,
+    model,
+    continuationTurns,
+    marker,
+  });
+  const rebase = await runRebaseConversation({
+    baseUrl,
+    model,
+    continuationTurns,
+    marker,
+  });
+  const additionalScenarioResults = [];
+  if (compatibilityScenarios.includes("web-search")) {
+    try {
+      additionalScenarioResults.push(await runWebSearchCompatibilityScenario({
+        baseUrl,
+        model,
+        marker,
+      }));
+    } catch {
+      additionalScenarioResults.push({
+        evidence: notObservedCompatibilityScenario("web-search", "scenario_probe_failed"),
+        verifiedItemTypes: [],
+        rejectedItemTypes: [],
+      });
+    }
+  }
+  const realProviderVerifiedItemTypes = Array.from(new Set([
+    ...rebase.capability.realProviderVerifiedItemTypes,
+    ...additionalScenarioResults.flatMap((result) => result.verifiedItemTypes),
+  ])).sort();
+  const realProviderRejectedItemTypes = Array.from(new Set([
+    ...rebase.capability.realProviderRejectedItemTypes,
+    ...additionalScenarioResults.flatMap((result) => result.rejectedItemTypes),
+  ])).sort();
+  const capability = {
+    ...rebase.capability,
+    realProviderVerifiedItemTypes,
+    realProviderRejectedItemTypes,
+  };
+  const compatibilityScenarioResults = [
+    ...rebase.compatibilityScenarios,
+    ...additionalScenarioResults.map((result) => result.evidence),
+  ];
   const usage = compareProviderUsage(
     baseline.continuationUsage,
     rebase.continuationUsage,
@@ -1113,8 +1411,15 @@ export async function runCodexRebaseProviderSmoke(
     },
     startedAt,
     finishedAt: new Date().toISOString(),
-    capability: rebase.capability,
-    compatibilityMatrix: rebase.compatibilityMatrix,
+    capability,
+    compatibilityScenarioPolicy: {
+      additionalScenariosRequired,
+    },
+    compatibilityScenarios: compatibilityScenarioResults,
+    compatibilityMatrix: buildProviderCompatibilityMatrix(
+      realProviderVerifiedItemTypes,
+      realProviderRejectedItemTypes,
+    ),
     rebase: rebase.rebase,
     controlledFailureCoverage: {
       source: "mock-automation",

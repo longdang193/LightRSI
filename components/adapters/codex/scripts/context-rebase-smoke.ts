@@ -1,13 +1,21 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { runCodexRebaseProviderSmoke } from "../src/context-rebase-provider-smoke.js";
+import {
+  CODEX_PROVIDER_SMOKE_SCENARIOS,
+  runCodexRebaseProviderSmoke,
+  type CodexProviderSmokeScenario,
+} from "../src/context-rebase-provider-smoke.js";
 import { runCodexRebaseMockSmoke } from "../src/context-rebase-smoke.js";
 
 function optionValue(name: string): string | undefined {
   const prefix = `--${name}=`;
   const argument = process.argv.slice(2).find((value) => value.startsWith(prefix));
   return argument?.slice(prefix.length);
+}
+
+function flagEnabled(name: string): boolean {
+  return process.argv.slice(2).includes(`--${name}`);
 }
 
 function printHelp(): void {
@@ -20,6 +28,10 @@ function printHelp(): void {
     "  --base-url=<url>           Provider base URL; defaults to OPENAI_BASE_URL.",
     "  --credentials-file=<path> Provider env file; defaults to <initial cwd>/.env.",
     "  --continuation-turns=<n>  Provider continuation turns, from 5 to 20.",
+    "  --compatibility-scenarios=<list>",
+    "                             Extra real-provider scenarios; available: web-search.",
+    "  --strict-compatibility-scenarios",
+    "                             Require every selected extra scenario to pass.",
     "  --output-dir=<path>        Directory for sanitized evidence JSON.",
     "  --help                     Show this help.",
     "",
@@ -69,6 +81,18 @@ function integerOption(name: string): number | undefined {
   return parsed;
 }
 
+function compatibilityScenariosOption(): CodexProviderSmokeScenario[] | undefined {
+  const value = optionValue("compatibility-scenarios");
+  if (value === undefined) return undefined;
+  const scenarios = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  const known = new Set<string>(CODEX_PROVIDER_SMOKE_SCENARIOS);
+  const invalid = scenarios.filter((scenario) => !known.has(scenario));
+  if (invalid.length > 0) {
+    throw new Error(`Unknown --compatibility-scenarios value: ${invalid.join(",")}`);
+  }
+  return scenarios as CodexProviderSmokeScenario[];
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes("--help")) {
     printHelp();
@@ -86,6 +110,8 @@ async function main(): Promise<void> {
       model: optionValue("model"),
       outputDir: optionValue("output-dir"),
       continuationTurns: integerOption("continuation-turns"),
+      compatibilityScenarios: compatibilityScenariosOption(),
+      strictCompatibilityScenarios: flagEnabled("strict-compatibility-scenarios"),
     });
     console.log(JSON.stringify({
       ok: true,
@@ -98,6 +124,8 @@ async function main(): Promise<void> {
       encryptedReasoningPresent: result.evidence.capability.encryptedReasoningPresent,
       verifiedItemTypes: result.evidence.capability.realProviderVerifiedItemTypes,
       rejectedItemTypes: result.evidence.capability.realProviderRejectedItemTypes,
+      compatibilityScenarioPolicy: result.evidence.compatibilityScenarioPolicy,
+      compatibilityScenarios: result.evidence.compatibilityScenarios,
       rebaseCommitted: result.evidence.rebase.committed,
       sentinel: result.evidence.rebase.sentinel,
       continuationTurns: result.evidence.rebase.responseChain.continuationTurns,

@@ -170,14 +170,36 @@ npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
   --output-dir=/path/to/sanitized-evidence
 ```
 
+To extend the real-provider item matrix with a hosted web-search replay, opt in
+to the additional scenario:
+
+```bash
+npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
+  --mode=provider \
+  --compatibility-scenarios=web-search \
+  --output-dir=/path/to/sanitized-evidence
+```
+
+Additional scenarios are observational by default. If the provider omits the
+requested item or the isolated probe fails, the sanitized v3 artifact is still
+written with `status: not-observed` and a categorical `reason`; the core rebase
+gate remains authoritative. To make every selected additional scenario a hard
+gate, add `--strict-compatibility-scenarios`.
+
 Provider mode reads `OPENAI_API_KEY` and `OPENAI_BASE_URL` from the process
 environment or `<initial cwd>/.env`; `--credentials-file` can select another
 ignored env file. There is no CLI argument for the key. The mode first verifies
 exact encrypted-reasoning and function-call/output replay, then compares a
 control chain with a five-turn rebase chain and restarts the proxy before turn
-three. It writes a v2 artifact only if the Responses endpoint, capability v2
+three. It writes a v3 artifact only if the Responses endpoint, capability v2
 journal, rebase commit ordering, sentinel checks, exact payload digest, tool
 closure, response links, restart mapping, and provider usage gates all pass.
+In strict mode, the optional web-search scenario also requires a real
+`web_search_call` output to survive the stateless rebase and receive `real-pass`
+journal evidence. The scenario runs as a separate three-request probe so
+hosted-tool output cannot distort the core five-turn usage comparison. The
+compatibility matrix is derived from the journal for every catalogued item;
+items not emitted by the selected provider/model remain `not-observed`.
 
 Evidence contains only safe endpoint/model labels, an endpoint digest,
 booleans, counts, item types, payload length/digest, and provider usage totals.
