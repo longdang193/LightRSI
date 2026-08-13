@@ -11,7 +11,15 @@ import {
   compareProviderUsage,
   runCodexRebaseProviderSmoke,
   sanitizedEvidenceLabel,
+  summarizeRealProviderCapabilities,
 } from "../src/context-rebase-provider-smoke.js";
+import {
+  CODEX_REBASE_API_VERSION,
+  CODEX_REBASE_CAPABILITY_SCHEMA,
+  CODEX_REBASE_ITEM_SCHEMA_VERSION,
+  CODEX_REBASE_WIRE_MODE,
+  type CodexRebaseCapability,
+} from "../src/context-rewrite/index.js";
 import type { JsonObject } from "../src/context-history/index.js";
 
 async function requestBody(req: IncomingMessage): Promise<JsonObject> {
@@ -204,6 +212,44 @@ test("provider compatibility matrix reflects journal evidence for every catalog 
   assert.equal(matrix.find((entry) => entry.itemType === "unknown")?.structuralPolicy, "deferred");
 });
 
+test("payload-specific rejection does not become item-wide incompatibility", () => {
+  const capability = (
+    status: CodexRebaseCapability["status"],
+    payloadDigest?: string,
+  ): CodexRebaseCapability => ({
+    schema: CODEX_REBASE_CAPABILITY_SCHEMA,
+    provider: "openai-compatible",
+    model: "fixture-model",
+    wireMode: CODEX_REBASE_WIRE_MODE,
+    apiVersion: CODEX_REBASE_API_VERSION,
+    endpointId: "not-observed",
+    itemType: "reasoning",
+    itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
+    status,
+    evidence: "real_provider",
+    ...(payloadDigest ? { payloadDigest } : {}),
+    observedAt: "2026-08-13T00:00:00.000Z",
+    expiresAt: "2026-08-20T00:00:00.000Z",
+  });
+  const summary = summarizeRealProviderCapabilities([
+    capability("verified_supported"),
+    capability("payload_rejected", `sha256:${"a".repeat(64)}`),
+  ]);
+
+  assert.deepEqual(summary, {
+    verifiedItemTypes: ["reasoning"],
+    rejectedItemTypes: [],
+    payloadRejectedItemTypes: ["reasoning"],
+  });
+  assert.equal(
+    buildProviderCompatibilityMatrix(
+      summary.verifiedItemTypes,
+      summary.rejectedItemTypes,
+    ).find((entry) => entry.itemType === "reasoning")?.providerDecision,
+    "real-pass",
+  );
+});
+
 test("provider smoke emits sanitized real-chain, capability v2, matrix, and usage evidence", async () => {
   const provider = await startProviderFixture();
   const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-smoke-test-"));
@@ -239,6 +285,7 @@ test("provider smoke emits sanitized real-chain, capability v2, matrix, and usag
       "web_search_call",
     ]);
     assert.deepEqual(evidence.capability.realProviderRejectedItemTypes, []);
+    assert.deepEqual(evidence.capability.realProviderPayloadRejectedItemTypes, []);
     assert.equal(evidence.rebase.committed, true);
     assert.equal(evidence.rebase.oldChainReferenceRemoved, true);
     assert.equal(evidence.rebase.currentInputOccurrences, 1);

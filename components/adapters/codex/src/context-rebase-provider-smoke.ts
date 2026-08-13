@@ -19,6 +19,7 @@ import {
   CODEX_REBASE_WIRE_MODE,
   readCodexRebaseCapabilityJournal,
   readLatestCodexRebaseEpoch,
+  type CodexRebaseCapability,
 } from "./context-rewrite/index.js";
 import type { CodexRebaseAccounting } from "./context-rewrite/types.js";
 import { resolveCodexSessionIdByResponseId } from "./session-state.js";
@@ -155,6 +156,7 @@ export type CodexRebaseProviderSmokeEvidence = {
     journalTrusted: boolean;
     realProviderVerifiedItemTypes: string[];
     realProviderRejectedItemTypes: string[];
+    realProviderPayloadRejectedItemTypes?: string[];
   };
   compatibilityScenarioPolicy: {
     additionalScenariosRequired: boolean;
@@ -836,6 +838,28 @@ export function buildProviderCompatibilityMatrix(
   });
 }
 
+export function summarizeRealProviderCapabilities(
+  capabilities: CodexRebaseCapability[],
+): {
+  verifiedItemTypes: string[];
+  rejectedItemTypes: string[];
+  payloadRejectedItemTypes: string[];
+} {
+  const realProvider = capabilities.filter((entry) => entry.evidence === "real_provider");
+  const itemTypesForStatus = (status: CodexRebaseCapability["status"]): string[] => (
+    Array.from(new Set(
+      realProvider
+        .filter((entry) => entry.status === status)
+        .map((entry) => entry.itemType),
+    )).sort()
+  );
+  return {
+    verifiedItemTypes: itemTypesForStatus("verified_supported"),
+    rejectedItemTypes: itemTypesForStatus("verified_unsupported"),
+    payloadRejectedItemTypes: itemTypesForStatus("payload_rejected"),
+  };
+}
+
 function compatibilityScenarioEvidence(params: {
   scenarios: CodexProviderSmokeScenario[];
   observedOutputItemTypes: string[];
@@ -947,19 +971,10 @@ async function runWebSearchCompatibilityScenario(params: {
     if (capabilityJournal.readError || capabilityJournal.malformedLineCount > 0) {
       throw new Error("Provider web-search scenario capability journal was not trusted");
     }
-    const verifiedItemTypes = Array.from(new Set(
-      capabilityJournal.capabilities
-        .filter((entry) => entry.status === "verified_supported" && entry.evidence === "real_provider")
-        .map((entry) => entry.itemType),
-    )).sort();
-    const rejectedItemTypes = Array.from(new Set(
-      capabilityJournal.capabilities
-        .filter((entry) => (
-          entry.evidence === "real_provider"
-          && (entry.status === "verified_unsupported" || entry.status === "payload_rejected")
-        ))
-        .map((entry) => entry.itemType),
-    )).sort();
+    const {
+      verifiedItemTypes,
+      rejectedItemTypes,
+    } = summarizeRealProviderCapabilities(capabilityJournal.capabilities);
     const [evidence] = compatibilityScenarioEvidence({
       scenarios: ["web-search"],
       observedOutputItemTypes: webSearchOutput.map((item) => (
@@ -1113,19 +1128,11 @@ async function runRebaseConversation(params: {
     const terminalSessionMappingMatches =
       await resolveCodexSessionIdByResponseId(stateDir, previousResponseId) === sessionId;
     const capabilityJournal = await readCodexRebaseCapabilityJournal(stateDir);
-    const realProviderVerifiedItemTypes = Array.from(new Set(
-      capabilityJournal.capabilities
-        .filter((entry) => entry.status === "verified_supported" && entry.evidence === "real_provider")
-        .map((entry) => entry.itemType),
-    )).sort();
-    const realProviderRejectedItemTypes = Array.from(new Set(
-      capabilityJournal.capabilities
-        .filter((entry) => (
-          entry.evidence === "real_provider"
-          && (entry.status === "verified_unsupported" || entry.status === "payload_rejected")
-        ))
-        .map((entry) => entry.itemType),
-    )).sort();
+    const {
+      verifiedItemTypes: realProviderVerifiedItemTypes,
+      rejectedItemTypes: realProviderRejectedItemTypes,
+      payloadRejectedItemTypes: realProviderPayloadRejectedItemTypes,
+    } = summarizeRealProviderCapabilities(capabilityJournal.capabilities);
 
     return {
       setupUsage: [
@@ -1142,6 +1149,7 @@ async function runRebaseConversation(params: {
         journalTrusted: !capabilityJournal.readError && capabilityJournal.malformedLineCount === 0,
         realProviderVerifiedItemTypes,
         realProviderRejectedItemTypes,
+        realProviderPayloadRejectedItemTypes,
       },
       compatibilityScenarios: compatibilityScenarioEvidence({
         scenarios: ["core"],
