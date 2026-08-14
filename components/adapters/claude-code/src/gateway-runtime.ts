@@ -334,7 +334,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
       const sessionId = await resolveObservedClaudeSessionId(config.stateDir, envelope.session.sessionId);
 
       // Semantic-delta task-registry sync (V2). Feature-gated: only runs when
-      // an estimator is configured (env-driven, default off). Entirely
+      // an estimator is configured (config with env fallback, default off). Entirely
       // fail-open — it must never block or fail the request, so any error is
       // swallowed here and the request proceeds unchanged.
       const semanticEstimator = (params.dependencies?.resolveEstimator ?? resolveClaudeTaskStateEstimator)({ config: config.taskStateEstimator, env: process.env });

@@ -25,6 +25,53 @@ export type ClaudeEstimatorConfig = {
   evidenceMode?: "two_state" | "three_state";
 };
 
+export type ClaudeEstimatorConfigStatus = {
+  enabled: boolean;
+  configured: boolean;
+};
+
+function resolveEstimatorConnection(params?: {
+  config?: ClaudeEstimatorConfig;
+  env?: NodeJS.ProcessEnv;
+}): ClaudeEstimatorConfigStatus & {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+} {
+  const config = params?.config ?? {};
+  const env = params?.env ?? process.env;
+  const enabled =
+    config.enabled ?? isTruthy(envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED", "TOKENPILOT_TASK_STATE_ESTIMATOR_ENABLED"));
+  const baseUrlRaw =
+    config.baseUrl && config.baseUrl.trim().length > 0
+      ? config.baseUrl.trim()
+      : envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL", "TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL");
+  const baseUrl = baseUrlRaw ? baseUrlRaw.replace(/\/+$/, "") : "";
+  const apiKey =
+    config.apiKey && config.apiKey.trim().length > 0
+      ? config.apiKey.trim()
+      : envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY", "TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY");
+  const model =
+    config.model && config.model.trim().length > 0
+      ? config.model.trim()
+      : envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL", "TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL");
+  return {
+    enabled,
+    configured: Boolean(baseUrl && apiKey && model),
+    baseUrl,
+    apiKey,
+    model,
+  };
+}
+
+export function inspectClaudeTaskStateEstimatorConfig(params?: {
+  config?: ClaudeEstimatorConfig;
+  env?: NodeJS.ProcessEnv;
+}): ClaudeEstimatorConfigStatus {
+  const { enabled, configured } = resolveEstimatorConnection(params);
+  return { enabled, configured };
+}
+
 /**
  * Assemble the Claude-side task-state estimator from explicit config (wins) or
  * environment variables (fallback), mirroring OpenClaw's assembly pattern but
@@ -43,28 +90,13 @@ export function resolveClaudeTaskStateEstimator(params?: {
 }): TaskStateEstimator | undefined {
   const config = params?.config ?? {};
   const env = params?.env ?? process.env;
-
-  const enabled =
-    config.enabled ?? isTruthy(envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED", "TOKENPILOT_TASK_STATE_ESTIMATOR_ENABLED"));
-  if (!enabled) return undefined;
-
-  const baseUrlRaw =
-    config.baseUrl && config.baseUrl.trim().length > 0
-      ? config.baseUrl.trim()
-      : envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL", "TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL");
-  const baseUrl = baseUrlRaw ? baseUrlRaw.replace(/\/+$/, "") : "";
-  const apiKey =
-    config.apiKey && config.apiKey.trim().length > 0
-      ? config.apiKey.trim()
-      : envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY", "TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY");
-  const model =
-    config.model && config.model.trim().length > 0
-      ? config.model.trim()
-      : envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL", "TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL");
+  const connection = resolveEstimatorConnection({ config, env });
+  const { baseUrl, apiKey, model } = connection;
+  if (!connection.enabled) return undefined;
 
   // Not fully configured → stay off rather than construct a broken estimator
   // (createApiTaskStateEstimator throws without all three).
-  if (!baseUrl || !apiKey || !model) return undefined;
+  if (!connection.configured) return undefined;
 
   const timeoutRaw = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_TIMEOUT_MS", "TOKENPILOT_TASK_STATE_ESTIMATOR_TIMEOUT_MS");
   const parsedTimeout = Number.parseInt(timeoutRaw, 10);

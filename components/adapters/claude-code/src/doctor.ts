@@ -21,6 +21,7 @@ import {
 } from "./config.js";
 import { resolveClaudeCodeHookCommandForInstall } from "./install.js";
 import { resolveClaudeCodeMcpServerSpecForInstall } from "./install.js";
+import { inspectClaudeTaskStateEstimatorConfig } from "./context-rewrite/estimator-config.js";
 
 export type ClaudeCodeDoctorReport = {
   settingsPath: string;
@@ -166,6 +167,7 @@ export async function inspectClaudeCodeDoctor(params: {
   settingsPath: string;
   tokenPilotConfigPath: string;
   mcpConfigPath: string;
+  env?: NodeJS.ProcessEnv;
 }): Promise<ClaudeCodeDoctorReport> {
   const proxyBaseUrl = proxyBaseUrlForPort(params.config.proxyPort);
   const expectedHookCommand = resolveClaudeCodeHookCommandForInstall();
@@ -252,6 +254,10 @@ export async function inspectClaudeCodeDoctor(params: {
   mcpArgsMatch = mcpHealth.argsMatch;
   mcpStartupTimeoutSecMatches = mcpHealth.startupTimeoutSecMatches;
   const recoveryMcpHealthy = mcpHealth.healthy;
+  const estimatorStatus = inspectClaudeTaskStateEstimatorConfig({
+    config: params.config.taskStateEstimator,
+    env: params.env ?? process.env,
+  });
 
   return {
     overlayBackendMode: "request_overlay",
@@ -259,12 +265,8 @@ export async function inspectClaudeCodeDoctor(params: {
     overlayEvictionFailureMode: params.config.eviction.failureMode,
     overlayPlanStoreStatus: "persistent",
     overlaySessionBinding: "persisted",
-    overlayTaskStateEstimatorEnabled: params.config.taskStateEstimator.enabled,
-    overlayTaskStateEstimatorConfigured: Boolean(
-      params.config.taskStateEstimator.baseUrl &&
-        params.config.taskStateEstimator.apiKey &&
-        params.config.taskStateEstimator.model,
-    ),
+    overlayTaskStateEstimatorEnabled: estimatorStatus.enabled,
+    overlayTaskStateEstimatorConfigured: estimatorStatus.configured,
     settingsPath: params.settingsPath,
     mcpConfigPath,
     tokenPilotConfigPath: params.tokenPilotConfigPath,

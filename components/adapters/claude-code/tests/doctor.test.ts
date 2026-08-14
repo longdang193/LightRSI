@@ -52,6 +52,28 @@ test("inspectClaudeCodeDoctor reports missing settings honestly", async () => {
   }
 });
 
+test("inspectClaudeCodeDoctor reports estimator env fallback", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-doctor-estimator-"));
+  try {
+    const report = await inspectClaudeCodeDoctor({
+      config: normalizeTokenPilotClaudeCodeConfig({ stateDir: join(dir, "state") }),
+      settingsPath: join(dir, "settings.json"),
+      mcpConfigPath: join(dir, ".claude.json"),
+      tokenPilotConfigPath: join(dir, "tokenpilot.json"),
+      env: {
+        LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
+        LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
+        LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
+        LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "m-env",
+      },
+    });
+    assert.equal(report.overlayTaskStateEstimatorEnabled, true);
+    assert.equal(report.overlayTaskStateEstimatorConfigured, true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("inspectClaudeCodeDoctor detects gateway routing from settings env", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-doctor-env-"));
   try {

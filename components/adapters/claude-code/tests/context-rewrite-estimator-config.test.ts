@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveClaudeTaskStateEstimator } from "../src/context-rewrite/estimator-config.js";
+import {
+  inspectClaudeTaskStateEstimatorConfig,
+  resolveClaudeTaskStateEstimator,
+} from "../src/context-rewrite/estimator-config.js";
 
 test("returns an estimator when enabled and fully configured via config", () => {
   const estimator = resolveClaudeTaskStateEstimator({
@@ -37,6 +40,50 @@ test("assembles from env when config is absent", () => {
     },
   });
   assert.ok(estimator);
+});
+
+test("normalized config preserves env enablement when enabled is absent", () => {
+  const estimator = resolveClaudeTaskStateEstimator({
+    config: {
+      requestTimeoutMs: 60_000,
+      batchTurns: 5,
+      evictionLookaheadTurns: 3,
+    },
+    env: {
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "m-env",
+    },
+  });
+  assert.ok(estimator);
+});
+
+test("explicit false disables env-configured estimator", () => {
+  const estimator = resolveClaudeTaskStateEstimator({
+    config: { enabled: false },
+    env: {
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "m-env",
+    },
+  });
+  assert.equal(estimator, undefined);
+});
+
+test("config inspection follows env fallback without exposing credentials", () => {
+  const status = inspectClaudeTaskStateEstimatorConfig({
+    config: {},
+    env: {
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "m-env",
+    },
+  });
+  assert.deepEqual(status, { enabled: true, configured: true });
+  assert.equal("apiKey" in status, false);
 });
 
 test("falls back to TOKENPILOT_ env names", () => {

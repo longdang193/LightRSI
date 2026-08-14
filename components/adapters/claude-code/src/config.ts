@@ -43,7 +43,7 @@ export type TokenPilotClaudeCodeConfig = {
     passOptions: Record<string, Record<string, unknown>>;
   };
   taskStateEstimator: {
-    enabled: boolean;
+    enabled?: boolean;
     baseUrl?: string;
     apiKey?: string;
     model?: string;
@@ -196,7 +196,10 @@ export function normalizeTokenPilotClaudeCodeConfig(
       passOptions: sanitizeClaudeReductionPassOptions(reduction.passOptions),
     },
     taskStateEstimator: {
-      enabled: boolValue(taskStateEstimator.enabled, false),
+      enabled:
+        typeof taskStateEstimator.enabled === "boolean"
+          ? taskStateEstimator.enabled
+          : undefined,
       baseUrl: stringValue(taskStateEstimator.baseUrl),
       apiKey: stringValue(taskStateEstimator.apiKey),
       model: stringValue(taskStateEstimator.model),

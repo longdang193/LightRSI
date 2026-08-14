@@ -59,7 +59,7 @@ test("normalizeTokenPilotClaudeCodeConfig preserves and clamps eviction settings
 
 test("normalizeTokenPilotClaudeCodeConfig applies taskStateEstimator defaults", () => {
   const config = normalizeTokenPilotClaudeCodeConfig({});
-  assert.equal(config.taskStateEstimator.enabled, false);
+  assert.equal(config.taskStateEstimator.enabled, undefined);
   assert.equal(config.taskStateEstimator.baseUrl, undefined);
   assert.equal(config.taskStateEstimator.apiKey, undefined);
   assert.equal(config.taskStateEstimator.model, undefined);
