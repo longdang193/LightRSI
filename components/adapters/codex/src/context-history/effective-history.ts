@@ -235,13 +235,19 @@ function buildAttributedTurns(params: {
       inputItemIds: [],
       outputItemIds: [],
     };
-    const attribute = (item: JsonObject, phase: "input" | "output") => {
+    const attribute = (
+      item: JsonObject,
+      phase: "input" | "output",
+      trackSource = true,
+    ) => {
       const key = turnAttributionKey(item);
-      const bucket = `${turn.request.entry.turnOrdinal}:${phase}`;
-      const buckets = sourceBuckets.get(key) ?? new Set<string>();
-      buckets.add(bucket);
-      sourceBuckets.set(key, buckets);
-      sourceCounts.set(key, (sourceCounts.get(key) ?? 0) + 1);
+      if (trackSource) {
+        const bucket = `${turn.request.entry.turnOrdinal}:${phase}`;
+        const buckets = sourceBuckets.get(key) ?? new Set<string>();
+        buckets.add(bucket);
+        sourceBuckets.set(key, buckets);
+        sourceCounts.set(key, (sourceCounts.get(key) ?? 0) + 1);
+      }
       const candidate = candidates.find((entry) => !entry.matched && entry.key === key);
       if (!candidate) return;
       candidate.matched = true;
@@ -251,6 +257,10 @@ function buildAttributedTurns(params: {
       );
     };
     turn.request.entry.inputItems.forEach((item) => attribute(item, "input"));
+    const sourceKeys = new Set(turn.request.entry.inputItems.map(turnAttributionKey));
+    committedInputItems(turn)
+      .filter((item) => !sourceKeys.has(turnAttributionKey(item)))
+      .forEach((item) => attribute(item, "input", false));
     turn.response.entry.outputItems.forEach((item) => attribute(item, "output"));
     return sidecar;
   });

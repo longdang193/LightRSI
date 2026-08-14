@@ -361,6 +361,48 @@ test("CDH-04 Effective History View keeps stateless continuation roots single an
   });
 });
 
+test("CDH-04 Effective History View attributes committed replay input to the semantic turn", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-committed-input-attribution";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      turnOrdinal: 1,
+      payload: {
+        input: [{ id: "current-input", role: "user", content: "current" }],
+      },
+      committedInputItems: [
+        { id: "prior-input", role: "user", content: "prior context" },
+        { id: "current-input", role: "user", content: "current" },
+      ],
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{ id: "assistant-1", type: "message", role: "assistant", content: "answer" }],
+      },
+      status: "completed",
+    });
+
+    const view = await buildCodexEffectiveHistoryView({
+      stateDir,
+      sessionId,
+      headResponseId: "response-1",
+    });
+
+    assert.equal(view.semanticComplete, true);
+    assert.deepEqual(view.turns.map((turn) => ({
+      inputCount: turn.inputItemIds.length,
+      outputCount: turn.outputItemIds.length,
+    })), [{ inputCount: 2, outputCount: 1 }]);
+  });
+});
+
 test("CDH-04 Effective History View fails closed on ambiguous cross-turn replay attribution", async () => {
   await withTempState(async (stateDir) => {
     const sessionId = "codex-session-ambiguous-stateless-root";
