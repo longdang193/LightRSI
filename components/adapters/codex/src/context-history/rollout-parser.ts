@@ -1,5 +1,6 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
+import { buildTurnAbsId } from "@lightmem2/history";
 
 import {
   asJsonObject,
@@ -10,6 +11,9 @@ import { codexReplayabilityForItem, codexReplayPairRef } from "./replayability.j
 import type {
   CodexEffectiveHistory,
   CodexEffectiveHistoryItem,
+  CodexEffectiveHistoryReasonCode,
+  CodexEffectiveHistoryTurn,
+  CodexEffectiveHistoryView,
   CodexRolloutSessionMeta,
   CodexRolloutSnapshot,
   CodexRolloutTaskEvidence,
@@ -36,7 +40,7 @@ function isToolOutput(item: JsonObject): boolean {
 }
 
 type RolloutAccumulator = {
-  replayCandidates: JsonObject[];
+  replayCandidates: RolloutItemCandidate[];
   observationCandidates: JsonObject[];
   malformedLineCount: number;
   malformedSinceBaseline: number;
@@ -44,6 +48,14 @@ type RolloutAccumulator = {
   compactionBaselineApplied: boolean;
   unknownRecordTypeCounts: Record<string, number>;
   taskEvidence: CodexRolloutTaskEvidence;
+  currentTurnSeq?: number;
+};
+
+type RolloutItemCandidate = {
+  item: JsonObject;
+  turnSeq?: number;
+  phase: "input" | "output";
+  boundarySource?: "compaction" | "rollout";
 };
 
 function createAccumulator(): RolloutAccumulator {
@@ -123,6 +135,42 @@ function compactionReplacementItems(payload: JsonObject): JsonObject[] | undefin
   return undefined;
 }
 
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : undefined;
+}
+
+function turnSeqFromContext(payload: JsonObject): number | undefined {
+  return positiveInteger(payload.turn_seq) ?? positiveInteger(payload.turn_ordinal);
+}
+
+function itemPhase(item: JsonObject): "input" | "output" {
+  const role = typeof item.role === "string" ? item.role : undefined;
+  if (role === "assistant") return "output";
+  const ref = codexReplayPairRef(item);
+  if (ref.side === "call") return "output";
+  if (ref.side === "output") return "input";
+  return item.type === "reasoning"
+    || item.type === "compaction"
+    || (typeof item.type === "string" && item.type.endsWith("_call"))
+    ? "output"
+    : "input";
+}
+
+function candidate(
+  item: JsonObject,
+  turnSeq: number | undefined,
+  boundarySource: "compaction" | "rollout",
+): RolloutItemCandidate {
+  return {
+    item,
+    turnSeq,
+    phase: itemPhase(item),
+    ...(turnSeq === undefined ? { boundarySource } : {}),
+  };
+}
+
 function addTaskEvidence(payload: JsonObject, evidence: CodexRolloutTaskEvidence): void {
   const eventType = typeof payload.type === "string" ? payload.type : undefined;
   const turnId = typeof payload.turn_id === "string" ? payload.turn_id : undefined;
@@ -134,23 +182,24 @@ function addTaskEvidence(payload: JsonObject, evidence: CodexRolloutTaskEvidence
 }
 
 function buildHistory(params: {
-  replayCandidates: JsonObject[];
+  replayCandidates: RolloutItemCandidate[];
   observationCandidates: JsonObject[];
   malformedSinceBaseline: number;
-}): CodexEffectiveHistory {
-  const replayCandidates: JsonObject[] = [];
+  sessionId: string;
+}): CodexEffectiveHistoryView {
+  const replayCandidates: RolloutItemCandidate[] = [];
   const observationCandidates = [...params.observationCandidates];
-  const deferredCandidates: JsonObject[] = [];
-  for (const item of params.replayCandidates) {
-    const replayability = codexReplayabilityForItem(item);
-    if (replayability.mode === "replayable") replayCandidates.push(item);
-    else if (replayability.mode === "observation_only") observationCandidates.push(item);
-    else deferredCandidates.push(item);
+  const deferredCandidates: RolloutItemCandidate[] = [];
+  for (const entry of params.replayCandidates) {
+    const replayability = codexReplayabilityForItem(entry.item);
+    if (replayability.mode === "replayable") replayCandidates.push(entry);
+    else if (replayability.mode === "observation_only") observationCandidates.push(entry.item);
+    else deferredCandidates.push(entry);
   }
 
   const expectedOutputs = new Map<string, string>();
   const outputTypes = new Map<string, string>();
-  for (const item of replayCandidates) {
+  for (const { item } of replayCandidates) {
     const callId = itemCallId(item);
     if (!callId) continue;
     const expectedType = expectedOutputType(item);
@@ -161,7 +210,12 @@ function buildHistory(params: {
   let incomplete = params.malformedSinceBaseline > 0 || deferredCandidates.length > 0;
   const occurrences = new Map<string, number>();
   const replayableItems: CodexEffectiveHistoryItem[] = [];
-  for (const item of replayCandidates) {
+  const effectiveCandidateById = new Map<string, RolloutItemCandidate>();
+  const attributedCandidateByItem = new Map(
+    params.replayCandidates.map((entry) => [entry.item, entry] as const),
+  );
+  for (const entry of replayCandidates) {
+    const item = entry.item;
     const callId = itemCallId(item);
     if (isToolOutput(item) && (
       !callId
@@ -170,13 +224,22 @@ function buildHistory(params: {
       incomplete = true;
       continue;
     }
-    replayableItems.push(createEffectiveItem(item, occurrences));
+    const effective = createEffectiveItem(item, occurrences);
+    replayableItems.push(effective);
+    effectiveCandidateById.set(effective.stableItemId, entry);
   }
 
-  const observationOnlyItems = observationCandidates.map((item) =>
-    createEffectiveItem(item, occurrences)
-  );
-  const deferredItems = deferredCandidates.map((item) => createEffectiveItem(item, occurrences));
+  const observationOnlyItems = observationCandidates.map((item) => {
+    const effective = createEffectiveItem(item, occurrences);
+    const attributed = attributedCandidateByItem.get(item);
+    if (attributed) effectiveCandidateById.set(effective.stableItemId, attributed);
+    return effective;
+  });
+  const deferredItems = deferredCandidates.map((entry) => {
+    const effective = createEffectiveItem(entry.item, occurrences);
+    effectiveCandidateById.set(effective.stableItemId, entry);
+    return effective;
+  });
   const unresolvedCallIds = Array.from(expectedOutputs)
     .filter(([callId, expectedType]) => outputTypes.get(callId) !== expectedType)
     .map(([callId]) => callId)
@@ -200,7 +263,7 @@ function buildHistory(params: {
     incomplete,
   })}`;
 
-  return {
+  const history: CodexEffectiveHistory = {
     revision,
     replayableItems,
     observationOnlyItems,
@@ -208,6 +271,42 @@ function buildHistory(params: {
     unresolvedCallIds,
     source: "rollout_bootstrap",
     incomplete,
+  };
+  const turnBySeq = new Map<number, CodexEffectiveHistoryTurn>();
+  for (const effective of [...replayableItems, ...observationOnlyItems, ...deferredItems]) {
+    const entry = effectiveCandidateById.get(effective.stableItemId);
+    if (!entry?.turnSeq) continue;
+    const turn = turnBySeq.get(entry.turnSeq) ?? {
+      turnSeq: entry.turnSeq,
+      turnAbsId: buildTurnAbsId(params.sessionId, entry.turnSeq),
+      inputItemIds: [],
+      outputItemIds: [],
+    };
+    const itemIds = entry.phase === "input" ? turn.inputItemIds : turn.outputItemIds;
+    if (!itemIds.includes(effective.stableItemId)) itemIds.push(effective.stableItemId);
+    turnBySeq.set(entry.turnSeq, turn);
+  }
+  const effectiveCandidates = Array.from(effectiveCandidateById.values());
+  const boundaryUnavailable = effectiveCandidates.some((entry) => entry.turnSeq === undefined);
+  const compactionBoundaryUnavailable = effectiveCandidates.some((entry) =>
+    entry.turnSeq === undefined && entry.boundarySource === "compaction"
+  );
+  const reasonCodes: CodexEffectiveHistoryReasonCode[] = Array.from(new Set([
+    ...(history.incomplete ? ["history_replay_incomplete" as const] : []),
+    ...(params.malformedSinceBaseline > 0 ? ["rollout_malformed_lines" as const] : []),
+    ...(compactionBoundaryUnavailable
+      ? ["rollout_compaction_turn_boundary_unavailable" as const]
+      : boundaryUnavailable
+        ? ["rollout_turn_boundary_unavailable" as const]
+        : []),
+    ...(deferredItems.length > 0 ? ["history_deferred_items" as const] : []),
+    ...(unresolvedCallIds.length > 0 ? ["history_unresolved_tool_calls" as const] : []),
+  ]));
+  return {
+    history,
+    turns: Array.from(turnBySeq.values()).sort((left, right) => left.turnSeq - right.turnSeq),
+    semanticComplete: reasonCodes.length === 0,
+    reasonCodes,
   };
 }
 
@@ -234,7 +333,7 @@ function consumeRolloutLine(accumulator: RolloutAccumulator, rawLine: string): v
     return;
   }
   if (recordType === "response_item") {
-    accumulator.replayCandidates.push(payload);
+    accumulator.replayCandidates.push(candidate(payload, accumulator.currentTurnSeq, "rollout"));
     return;
   }
   if (recordType === "compacted") {
@@ -244,14 +343,21 @@ function consumeRolloutLine(accumulator: RolloutAccumulator, rawLine: string): v
       accumulator.malformedSinceBaseline += 1;
       return;
     }
-    accumulator.replayCandidates = replacementItems;
+    const compactionTurnSeq = turnSeqFromContext(payload);
+    accumulator.replayCandidates = replacementItems.map((item) =>
+      candidate(item, turnSeqFromContext(item), "compaction")
+    );
     accumulator.observationCandidates = [];
     accumulator.malformedSinceBaseline = 0;
     accumulator.taskEvidence = { completedTurnIds: [], abortedTurnIds: [] };
     accumulator.compactionBaselineApplied = true;
+    accumulator.currentTurnSeq = compactionTurnSeq;
     return;
   }
   if (recordType === "turn_context" || recordType === "event_msg") {
+    if (recordType === "turn_context") {
+      accumulator.currentTurnSeq = turnSeqFromContext(payload);
+    }
     if (recordType === "event_msg") addTaskEvidence(payload, accumulator.taskEvidence);
     accumulator.observationCandidates.push({ type: recordType, payload });
     return;
@@ -269,12 +375,16 @@ function finishRolloutSnapshot(accumulator: RolloutAccumulator): CodexRolloutSna
   ) {
     return null;
   }
-  return {
-    history: buildHistory({
+  const sessionId = accumulator.sessionMeta?.sessionId ?? "unknown-codex-session";
+  const view = buildHistory({
       replayCandidates: accumulator.replayCandidates,
       observationCandidates: accumulator.observationCandidates,
       malformedSinceBaseline: accumulator.malformedSinceBaseline,
-    }),
+      sessionId,
+    });
+  return {
+    history: view.history,
+    view,
     sessionMeta: accumulator.sessionMeta,
     malformedLineCount: accumulator.malformedLineCount,
     unknownRecordTypeCounts: accumulator.unknownRecordTypeCounts,

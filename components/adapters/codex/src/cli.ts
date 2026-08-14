@@ -10,6 +10,10 @@ import {
 } from "./daemon.js";
 import { createConsoleLogger } from "./logger.js";
 import { startCodexResponsesProxy } from "./proxy-runtime.js";
+import {
+  codexEstimatorStatusView,
+  resolveCodexTaskStateEstimator,
+} from "./context-rewrite/estimator-config.js";
 
 function usage(): string {
   return [
@@ -70,6 +74,10 @@ async function main() {
 
   if (command === "status") {
     const daemon = await readDaemonStatus(config);
+    const taskStateEstimator = codexEstimatorStatusView(resolveCodexTaskStateEstimator({
+      config: config.taskStateEstimator,
+      env: process.env,
+    }));
     console.log(JSON.stringify({
       enabled: config.enabled,
       stateDir: config.stateDir,
@@ -79,6 +87,7 @@ async function main() {
       modules: config.modules,
       reduction: config.reduction,
       proxyMode: config.proxyMode,
+      taskStateEstimator,
     }, null, 2));
     return;
   }

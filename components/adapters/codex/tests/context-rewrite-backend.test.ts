@@ -8,10 +8,11 @@ import {
 
 import type { CodexEffectiveHistoryItem, JsonObject } from "../src/context-history/types.js";
 import {
+  buildCodexContextSnapshot,
   codexSharedContextRewriteBackend,
   runCodexSharedGoldenFixture,
   type CodexSharedBackendRequest,
-} from "../src/context-rewrite/index.js";
+} from "../src/index.js";
 
 const SESSION_ID = "codex-shared-backend-session";
 
@@ -80,6 +81,96 @@ function planFor(params: {
     createdAt: "2026-08-09T00:00:00.000Z",
   };
 }
+
+test("Codex canonical snapshot builder matches the shared backend and stays deterministic", async () => {
+  const request = requestFor([
+    message("system", "system", "protected system"),
+    message("developer", "developer", "protected developer"),
+    message("active-user", "user", "keep current work"),
+  ]);
+  request.currentInput = [{ type: "message", role: "user", content: "current request" }];
+  request.taskIdsByItemId = {
+    system: ["task-root"],
+    developer: ["task-root"],
+    "active-user": ["task-active"],
+  };
+  request.activeTaskIds = [" task-active ", "task-active"];
+  request.evictableTaskIds = [" task-completed ", "task-completed"];
+
+  const first = buildCodexContextSnapshot(request);
+  const second = buildCodexContextSnapshot(request);
+  const backend = await codexSharedContextRewriteBackend.readSnapshot({
+    sessionId: SESSION_ID,
+    request,
+  });
+
+  assert.deepEqual(first, second);
+  assert.deepEqual(backend, first);
+  assert.deepEqual(
+    first.items.map((item) => [item.stableId, item.kind, item.role, item.taskIds]),
+    [
+      ["system", "system", "system", ["task-root"]],
+      ["developer", "developer", "developer", ["task-root"]],
+      ["active-user", "user", "user", ["task-active"]],
+    ],
+  );
+  assert.deepEqual(first.adapterMetadata?.currentInput, request.currentInput);
+  assert.notEqual(first.adapterMetadata?.currentInput, request.currentInput);
+  assert.deepEqual(first.adapterMetadata?.activeTaskIds, ["task-active"]);
+  assert.deepEqual(first.adapterMetadata?.evictableTaskIds, ["task-completed"]);
+
+  await assert.rejects(
+    codexSharedContextRewriteBackend.readSnapshot({
+      sessionId: "different-session",
+      request,
+    }),
+    /Codex shared backend session mismatch/,
+  );
+});
+
+test("Codex canonical snapshot preserves history buckets and tool closure metadata", () => {
+  const call: CodexEffectiveHistoryItem = {
+    stableItemId: "old-call",
+    callId: "call-old",
+    item: { type: "function_call", call_id: "call-old", name: "read", arguments: "{}" },
+  };
+  const result: CodexEffectiveHistoryItem = {
+    stableItemId: "old-result",
+    callId: "call-old",
+    item: { type: "function_call_output", call_id: "call-old", output: "old result" },
+  };
+  const deferred = message("deferred-user", "user", "deferred request");
+  const request = requestFor([call, result]);
+  request.effectiveHistory.observationOnlyItems = [
+    message("observation-assistant", "assistant", "observation only"),
+  ];
+  request.effectiveHistory.deferredItems = [deferred];
+
+  const snapshot = buildCodexContextSnapshot(request);
+
+  assert.deepEqual(
+    snapshot.items.map((item) => [item.stableId, item.kind, item.callId]),
+    [
+      ["old-call", "tool_call", "call-old"],
+      ["old-result", "tool_result", "call-old"],
+      ["observation-assistant", "assistant", undefined],
+      ["deferred-user", "user", undefined],
+    ],
+  );
+  assert.deepEqual(snapshot.adapterMetadata?.replayableItemIds, ["old-call", "old-result"]);
+  assert.deepEqual(
+    snapshot.adapterMetadata?.effectiveHistory.observationOnlyItems,
+    request.effectiveHistory.observationOnlyItems,
+  );
+  assert.deepEqual(
+    snapshot.adapterMetadata?.effectiveHistory.deferredItems,
+    request.effectiveHistory.deferredItems,
+  );
+  assert.notEqual(
+    snapshot.adapterMetadata?.effectiveHistory,
+    request.effectiveHistory,
+  );
+});
 
 test("Codex shared backend maps effective history and prepares a standard rebase result", async () => {
   const items: CodexEffectiveHistoryItem[] = [

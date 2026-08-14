@@ -1,4 +1,6 @@
 export * from "./types.js";
+export * from "./estimator-config.js";
+export * from "./semantic-mapping.js";
 export { applyCodexContextRewrite } from "./disabled.js";
 export { executeCodexRebaseWithFallback } from "./fallback.js";
 export {
@@ -9,6 +11,7 @@ export type { CodexProviderContinuationCompatibility } from "./provider-continua
 export { createCodexContextRewriteLifecycle } from "./lifecycle-events.js";
 export type { CodexContextRewriteLifecycle } from "./lifecycle-events.js";
 export {
+  buildCodexContextSnapshot,
   codexSharedContextRewriteBackend,
   runCodexSharedGoldenFixture,
 } from "./backend.js";

@@ -118,13 +118,10 @@ function orderedOperationIds(
     .filter((operationId) => ids.has(operationId));
 }
 
-function requestSnapshot(
-  sessionId: string,
+export function buildCodexContextSnapshot(
   request: CodexSharedBackendRequest,
 ): ModelContextSnapshot<CodexSharedBackendMetadata> {
-  if (request.sessionId !== sessionId) {
-    throw new Error(`Codex shared backend session mismatch: expected ${sessionId}`);
-  }
+  const sessionId = request.sessionId;
   const history = structuredClone(request.effectiveHistory);
   const allItems = [
     ...history.replayableItems,
@@ -202,7 +199,10 @@ export const codexSharedContextRewriteBackend: CodexSharedContextRewriteBackend 
   mode: "response_chain_rebase",
 
   async readSnapshot({ sessionId, request }) {
-    return requestSnapshot(sessionId, request);
+    if (request.sessionId !== sessionId) {
+      throw new Error(`Codex shared backend session mismatch: expected ${sessionId}`);
+    }
+    return buildCodexContextSnapshot(request);
   },
 
   async validate({ snapshot, plan }) {
@@ -312,7 +312,7 @@ export const codexSharedContextRewriteBackend: CodexSharedContextRewriteBackend 
     }
 
     try {
-      const currentSnapshot = requestSnapshot(request.sessionId, request);
+      const currentSnapshot = buildCodexContextSnapshot(request);
       if (!snapshotsMatch(snapshot, currentSnapshot)) {
         return {
           request,

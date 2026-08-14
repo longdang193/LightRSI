@@ -1,5 +1,6 @@
 import type {
   CodexEffectiveHistory,
+  CodexEffectiveHistoryView,
   CodexRolloutSnapshot,
 } from "./types.js";
 
@@ -17,8 +18,19 @@ export type CodexRolloutBootstrapRejectionReason =
 
 export type CodexRolloutBootstrapValidation = {
   history: CodexEffectiveHistory | null;
+  view: CodexEffectiveHistoryView | null;
   rejectionReason?: CodexRolloutBootstrapRejectionReason;
 };
+
+function accepted(rollout: CodexRolloutSnapshot): CodexRolloutBootstrapValidation {
+  return { history: rollout.history, view: rollout.view };
+}
+
+function rejected(
+  rejectionReason: CodexRolloutBootstrapRejectionReason,
+): CodexRolloutBootstrapValidation {
+  return { history: null, view: null, rejectionReason };
+}
 
 function normalizeSessionIdentity(value: string | undefined): string | undefined {
   const normalized = value?.trim();
@@ -53,48 +65,48 @@ export function validateCodexRolloutBootstrap(params: {
   const snapshotSessionId = normalizeSessionIdentity(params.snapshotCodexSessionId);
   const rolloutSessionId = normalizeSessionIdentity(params.rollout.sessionMeta?.sessionId);
   if (!snapshotSessionId) {
-    return { history: null, rejectionReason: "snapshot_session_identity_missing" };
+    return rejected("snapshot_session_identity_missing");
   }
   if (expectedSessionId && snapshotSessionId !== expectedSessionId) {
-    return { history: null, rejectionReason: "snapshot_session_identity_mismatch" };
+    return rejected("snapshot_session_identity_mismatch");
   }
   if (!rolloutSessionId) {
-    return { history: null, rejectionReason: "rollout_session_identity_missing" };
+    return rejected("rollout_session_identity_missing");
   }
   if (rolloutSessionId !== (expectedSessionId ?? snapshotSessionId)) {
-    return { history: null, rejectionReason: "rollout_session_identity_mismatch" };
+    return rejected("rollout_session_identity_mismatch");
   }
 
   if (!hasEncryptedReplayItems(params.rollout)) {
-    return { history: params.rollout.history };
+    return accepted(params.rollout);
   }
 
   const rolloutProvider = normalizeDimension(params.rollout.sessionMeta?.modelProvider);
   const currentCodexProvider = normalizeDimension(params.currentCodexProvider);
   if (!rolloutProvider || !currentCodexProvider) {
-    return { history: null, rejectionReason: "encrypted_rollout_codex_provider_missing" };
+    return rejected("encrypted_rollout_codex_provider_missing");
   }
   if (rolloutProvider !== currentCodexProvider) {
-    return { history: null, rejectionReason: "encrypted_rollout_codex_provider_mismatch" };
+    return rejected("encrypted_rollout_codex_provider_mismatch");
   }
 
   const sourceUpstreamProvider = normalizeDimension(params.sourceUpstreamProvider);
   const currentUpstreamProvider = normalizeDimension(params.currentUpstreamProvider);
   if (!sourceUpstreamProvider || !currentUpstreamProvider) {
-    return { history: null, rejectionReason: "encrypted_rollout_upstream_provider_missing" };
+    return rejected("encrypted_rollout_upstream_provider_missing");
   }
   if (sourceUpstreamProvider !== currentUpstreamProvider) {
-    return { history: null, rejectionReason: "encrypted_rollout_upstream_provider_mismatch" };
+    return rejected("encrypted_rollout_upstream_provider_mismatch");
   }
 
   const sourceModel = normalizeDimension(params.sourceModel);
   const currentModel = normalizeDimension(params.currentModel);
   if (!sourceModel || !currentModel) {
-    return { history: null, rejectionReason: "encrypted_rollout_model_missing" };
+    return rejected("encrypted_rollout_model_missing");
   }
   if (sourceModel !== currentModel) {
-    return { history: null, rejectionReason: "encrypted_rollout_model_mismatch" };
+    return rejected("encrypted_rollout_model_mismatch");
   }
 
-  return { history: params.rollout.history };
+  return accepted(params.rollout);
 }

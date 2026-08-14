@@ -1,3 +1,4 @@
+import { buildTurnAbsId } from "@lightmem2/history";
 import { readCodexContextHistoryJournalRecoveringTail } from "./journal-append.js";
 import { codexReplayabilityForItem, codexReplayPairRef } from "./replayability.js";
 import { cloneJson, hashJson } from "./shared.js";
@@ -5,6 +6,9 @@ import type {
   CodexContextHistoryJournalEntry,
   CodexEffectiveHistory,
   CodexEffectiveHistoryItem,
+  CodexEffectiveHistoryReasonCode,
+  CodexEffectiveHistoryTurn,
+  CodexEffectiveHistoryView,
   CodexRequestJournalEntry,
   CodexResponseJournalEntry,
   JsonObject,
@@ -23,6 +27,11 @@ type IndexedResponse = {
 type CommittedTurn = {
   request: IndexedRequest;
   response: IndexedResponse;
+};
+
+type EffectiveItemRecord = {
+  stableItemId: string;
+  item: JsonObject;
 };
 
 function findLastResponse(
@@ -84,6 +93,10 @@ function previousResponseId(turn: CommittedTurn): string | undefined {
   return turn.request.entry.previousResponseId;
 }
 
+function semanticPreviousResponseId(turn: CommittedTurn): string | undefined {
+  return previousResponseId(turn) ?? turn.request.entry.previousResponseId;
+}
+
 function committedInputItems(turn: CommittedTurn): JsonObject[] {
   return turn.request.entry.committedInputItems ?? turn.request.entry.inputItems;
 }
@@ -92,6 +105,7 @@ function buildCommittedChain(params: {
   headResponseId?: string;
   requests: Map<string, IndexedRequest>;
   responses: Map<string, IndexedResponse[]>;
+  parentResponseId?: (turn: CommittedTurn) => string | undefined;
 }): { chain: CommittedTurn[]; complete: boolean } {
   const committed = committedResponses(params.responses, params.requests);
   const head = params.headResponseId
@@ -120,7 +134,7 @@ function buildCommittedChain(params: {
     const turn = { request, response: cursor };
     chain.unshift(turn);
 
-    const previousId = previousResponseId(turn);
+    const previousId = (params.parentResponseId ?? previousResponseId)(turn);
     if (!previousId) break;
     cursor = findLastResponse(committed, (candidate) => (
       candidate.entry.responseId === previousId
@@ -165,9 +179,10 @@ function appendEffectiveItem(params: {
   replayableItems: CodexEffectiveHistoryItem[];
   observationOnlyItems: CodexEffectiveHistoryItem[];
   deferredItems: CodexEffectiveHistoryItem[];
-}): void {
+  effectiveItemRecords?: EffectiveItemRecord[];
+}): string | undefined {
   const nativeId = itemIdentity(params);
-  if (params.seen.has(nativeId)) return;
+  if (params.seen.has(nativeId)) return undefined;
   params.seen.add(nativeId);
   const effectiveItem: CodexEffectiveHistoryItem = {
     stableItemId: `codex-${hashJson(nativeId)}`,
@@ -179,6 +194,164 @@ function appendEffectiveItem(params: {
   if (replayability.mode === "replayable") params.replayableItems.push(effectiveItem);
   else if (replayability.mode === "observation_only") params.observationOnlyItems.push(effectiveItem);
   else params.deferredItems.push(effectiveItem);
+  params.effectiveItemRecords?.push({
+    stableItemId: effectiveItem.stableItemId,
+    item: effectiveItem.item,
+  });
+  return effectiveItem.stableItemId;
+}
+
+function turnAttributionKey(item: JsonObject): string {
+  const normalized = cloneJson(item);
+  delete normalized.id;
+  if (!["program_output", "tool_search_call", "tool_search_output"].includes(
+    String(normalized.type ?? "").toLowerCase(),
+  )) delete normalized.status;
+  delete normalized.created_at;
+  return hashJson(normalized);
+}
+
+function buildAttributedTurns(params: {
+  chain: CommittedTurn[];
+  effectiveItemRecords: EffectiveItemRecord[];
+  sessionId: string;
+}): { turns: CodexEffectiveHistoryTurn[]; complete: boolean; ambiguousDuplicate: boolean } {
+  const candidates = params.effectiveItemRecords.map((entry) => ({
+    ...entry,
+    key: turnAttributionKey(entry.item),
+    matched: false,
+  }));
+  const sourceBuckets = new Map<string, Set<string>>();
+  const sourceCounts = new Map<string, number>();
+  const finalCounts = new Map<string, number>();
+  for (const candidate of candidates) {
+    finalCounts.set(candidate.key, (finalCounts.get(candidate.key) ?? 0) + 1);
+  }
+
+  const turns = params.chain.map((turn) => {
+    const sidecar: CodexEffectiveHistoryTurn = {
+      turnSeq: turn.request.entry.turnOrdinal,
+      turnAbsId: buildTurnAbsId(params.sessionId, turn.request.entry.turnOrdinal),
+      inputItemIds: [],
+      outputItemIds: [],
+    };
+    const attribute = (item: JsonObject, phase: "input" | "output") => {
+      const key = turnAttributionKey(item);
+      const bucket = `${turn.request.entry.turnOrdinal}:${phase}`;
+      const buckets = sourceBuckets.get(key) ?? new Set<string>();
+      buckets.add(bucket);
+      sourceBuckets.set(key, buckets);
+      sourceCounts.set(key, (sourceCounts.get(key) ?? 0) + 1);
+      const candidate = candidates.find((entry) => !entry.matched && entry.key === key);
+      if (!candidate) return;
+      candidate.matched = true;
+      appendUnique(
+        phase === "input" ? sidecar.inputItemIds : sidecar.outputItemIds,
+        candidate.stableItemId,
+      );
+    };
+    turn.request.entry.inputItems.forEach((item) => attribute(item, "input"));
+    turn.response.entry.outputItems.forEach((item) => attribute(item, "output"));
+    return sidecar;
+  });
+  const ambiguousDuplicate = Array.from(sourceCounts).some(([key, sourceCount]) => (
+    (finalCounts.get(key) ?? 0) > 0
+    && sourceCount > (finalCounts.get(key) ?? 0)
+    && (sourceBuckets.get(key)?.size ?? 0) > 1
+  ));
+  return {
+    turns,
+    complete: !ambiguousDuplicate && candidates.every((entry) => entry.matched),
+    ambiguousDuplicate,
+  };
+}
+
+function appendUnique(values: string[], value: string | undefined): void {
+  if (value && !values.includes(value)) values.push(value);
+}
+
+function mergeTurns(
+  turns: CodexEffectiveHistoryTurn[],
+  validItemIds?: Set<string>,
+): CodexEffectiveHistoryTurn[] {
+  const byTurnSeq = new Map<number, CodexEffectiveHistoryTurn>();
+  for (const turn of turns) {
+    const inputItemIds = turn.inputItemIds.filter((itemId) => !validItemIds || validItemIds.has(itemId));
+    const outputItemIds = turn.outputItemIds.filter((itemId) => !validItemIds || validItemIds.has(itemId));
+    const existing = byTurnSeq.get(turn.turnSeq);
+    if (!existing) {
+      byTurnSeq.set(turn.turnSeq, {
+        turnSeq: turn.turnSeq,
+        turnAbsId: turn.turnAbsId,
+        inputItemIds: Array.from(new Set(inputItemIds)),
+        outputItemIds: Array.from(new Set(outputItemIds)),
+      });
+      continue;
+    }
+    inputItemIds.forEach((itemId) => appendUnique(existing.inputItemIds, itemId));
+    outputItemIds.forEach((itemId) => appendUnique(existing.outputItemIds, itemId));
+  }
+  const attributedItemIds = new Set<string>();
+  return Array.from(byTurnSeq.values())
+    .sort((left, right) => left.turnSeq - right.turnSeq)
+    .map((turn) => ({
+      ...turn,
+      inputItemIds: turn.inputItemIds.filter((itemId) => {
+        if (attributedItemIds.has(itemId)) return false;
+        attributedItemIds.add(itemId);
+        return true;
+      }),
+      outputItemIds: turn.outputItemIds.filter((itemId) => {
+        if (attributedItemIds.has(itemId)) return false;
+        attributedItemIds.add(itemId);
+        return true;
+      }),
+    }));
+}
+
+function alignProxyTurnsAfterRollout(params: {
+  sessionId: string;
+  rolloutTurns: CodexEffectiveHistoryTurn[];
+  proxyTurns: CodexEffectiveHistoryTurn[];
+}): CodexEffectiveHistoryTurn[] {
+  if (params.rolloutTurns.length === 0 || params.proxyTurns.length === 0) {
+    return params.proxyTurns;
+  }
+  // A fresh proxy journal starts its local ordinal at 1 even when the Codex
+  // rollout already contains session-global turns. Empty rollout sidecars do
+  // not prove a boundary, so only advance after the last turn owning an item.
+  const evidencedRolloutTurns = params.rolloutTurns.filter((turn) =>
+    turn.inputItemIds.length > 0 || turn.outputItemIds.length > 0
+  );
+  if (evidencedRolloutTurns.length === 0) return params.proxyTurns;
+  const lastRolloutTurnSeq = Math.max(...evidencedRolloutTurns.map((turn) => turn.turnSeq));
+  const firstProxyTurnSeq = Math.min(...params.proxyTurns.map((turn) => turn.turnSeq));
+  const offset = firstProxyTurnSeq <= lastRolloutTurnSeq
+    ? lastRolloutTurnSeq - firstProxyTurnSeq + 1
+    : 0;
+  if (offset === 0) return params.proxyTurns;
+  return params.proxyTurns.map((turn) => {
+    const turnSeq = turn.turnSeq + offset;
+    return {
+      ...turn,
+      turnSeq,
+      turnAbsId: buildTurnAbsId(params.sessionId, turnSeq),
+    };
+  });
+}
+
+function historyItemIds(history: CodexEffectiveHistory): Set<string> {
+  return new Set([
+    ...history.replayableItems,
+    ...history.observationOnlyItems,
+    ...history.deferredItems,
+  ].map((entry) => entry.stableItemId));
+}
+
+function uniqueReasonCodes(
+  values: CodexEffectiveHistoryReasonCode[],
+): CodexEffectiveHistoryReasonCode[] {
+  return Array.from(new Set(values));
 }
 
 function unresolvedCallIds(items: CodexEffectiveHistoryItem[]): string[] {
@@ -226,6 +399,18 @@ function hasUncommittedResponseWork(params: {
 
 function hasMalformedStreamEvents(chain: CommittedTurn[]): boolean {
   return chain.some((turn) => (turn.response.entry.malformedEventCount ?? 0) > 0);
+}
+
+function hasTurnSequenceConflict(chain: CommittedTurn[]): boolean {
+  let previous = 0;
+  const seen = new Set<number>();
+  for (const turn of chain) {
+    const turnSeq = turn.request.entry.turnOrdinal;
+    if (seen.has(turnSeq) || turnSeq <= previous) return true;
+    seen.add(turnSeq);
+    previous = turnSeq;
+  }
+  return false;
 }
 
 function effectiveItemKeys(entry: CodexEffectiveHistoryItem): string[] {
@@ -283,29 +468,32 @@ function historyRevision(params: {
 }
 
 function mergeRolloutBootstrapWithProxyJournal(params: {
-  bootstrapped: CodexEffectiveHistory;
+  sessionId: string;
+  bootstrapped: CodexEffectiveHistoryView;
+  proxyTurns: CodexEffectiveHistoryTurn[];
   proxyReplayableItems: CodexEffectiveHistoryItem[];
   proxyObservationOnlyItems: CodexEffectiveHistoryItem[];
   proxyDeferredItems: CodexEffectiveHistoryItem[];
   proxyIncomplete: boolean;
-}): CodexEffectiveHistory {
+  proxyReasonCodes: CodexEffectiveHistoryReasonCode[];
+}): CodexEffectiveHistoryView {
   const seen = new Set<string>();
   const replayableItems: CodexEffectiveHistoryItem[] = [];
   const observationOnlyItems: CodexEffectiveHistoryItem[] = [];
   const deferredItems: CodexEffectiveHistoryItem[] = [];
   appendMergedEffectiveItems({
     target: replayableItems,
-    entries: params.bootstrapped.replayableItems,
+    entries: params.bootstrapped.history.replayableItems,
     seen,
   });
   appendMergedEffectiveItems({
     target: observationOnlyItems,
-    entries: params.bootstrapped.observationOnlyItems,
+    entries: params.bootstrapped.history.observationOnlyItems,
     seen,
   });
   appendMergedEffectiveItems({
     target: deferredItems,
-    entries: params.bootstrapped.deferredItems,
+    entries: params.bootstrapped.history.deferredItems,
     seen,
   });
   appendMergedEffectiveItems({
@@ -324,16 +512,16 @@ function mergeRolloutBootstrapWithProxyJournal(params: {
     seen,
   });
   const unresolved = Array.from(new Set([
-    ...params.bootstrapped.unresolvedCallIds,
+    ...params.bootstrapped.history.unresolvedCallIds,
     ...unresolvedCallIds(replayableItems),
   ])).sort();
   const incomplete = Boolean(
-    params.bootstrapped.incomplete
+    params.bootstrapped.history.incomplete
     || params.proxyIncomplete
     || deferredItems.length > 0
     || unresolved.length > 0
   );
-  return {
+  const history: CodexEffectiveHistory = {
     revision: historyRevision({
       replayableItems,
       observationOnlyItems,
@@ -348,15 +536,44 @@ function mergeRolloutBootstrapWithProxyJournal(params: {
     source: "rollout_proxy_merge",
     incomplete,
   };
+  const alignedProxyTurns = alignProxyTurnsAfterRollout({
+    sessionId: params.sessionId,
+    rolloutTurns: params.bootstrapped.turns,
+    proxyTurns: params.proxyTurns,
+  });
+  const turns = mergeTurns(
+    [...params.bootstrapped.turns, ...alignedProxyTurns],
+    historyItemIds(history),
+  );
+  const reasonCodes = uniqueReasonCodes([
+    ...params.bootstrapped.reasonCodes,
+    ...params.proxyReasonCodes,
+    ...(incomplete ? ["history_replay_incomplete" as const] : []),
+    ...(deferredItems.length > 0 ? ["history_deferred_items" as const] : []),
+    ...(unresolved.length > 0 ? ["history_unresolved_tool_calls" as const] : []),
+  ]);
+  return {
+    history,
+    turns,
+    semanticComplete: params.bootstrapped.semanticComplete
+      && !params.proxyIncomplete
+      && reasonCodes.length === 0,
+    reasonCodes,
+  };
 }
 
-export async function buildCodexEffectiveHistory(params: {
+export type BuildCodexEffectiveHistoryParams = {
   stateDir: string;
   sessionId: string;
   headResponseId?: string;
   currentRequestId?: string;
   rolloutParserBootstrap?: () => Promise<CodexEffectiveHistory | null>;
-}): Promise<CodexEffectiveHistory> {
+  rolloutViewBootstrap?: () => Promise<CodexEffectiveHistoryView | null>;
+};
+
+export async function buildCodexEffectiveHistoryView(
+  params: BuildCodexEffectiveHistoryParams,
+): Promise<CodexEffectiveHistoryView> {
   const journalRead = await readCodexContextHistoryJournalRecoveringTail(params.stateDir, params.sessionId);
   const requests = latestRequests(journalRead.entries);
   const responses = responsesById(journalRead.entries);
@@ -365,7 +582,14 @@ export async function buildCodexEffectiveHistory(params: {
     requests,
     responses,
   });
+  const semanticChain = buildCommittedChain({
+    headResponseId: params.headResponseId,
+    requests,
+    responses,
+    parentResponseId: semanticPreviousResponseId,
+  });
   const malformedStreams = hasMalformedStreamEvents(committedChain.chain);
+  const turnSequenceConflict = hasTurnSequenceConflict(committedChain.chain);
   const emptyChainWithJournal = Boolean(
     committedChain.chain.length === 0
     && journalRead.entries.some((entry) => (
@@ -394,9 +618,21 @@ export async function buildCodexEffectiveHistory(params: {
     || uncommittedActiveWork
     || uncommittedResponseWork,
   );
+  const journalReasonCodes: CodexEffectiveHistoryReasonCode[] = [
+    ...(journalRead.readError ? ["journal_read_error" as const] : []),
+    ...(journalRead.malformedLineCount > 0 ? ["journal_malformed_lines" as const] : []),
+    ...(malformedStreams ? ["journal_malformed_stream" as const] : []),
+    ...(!committedChain.complete ? ["journal_committed_chain_incomplete" as const] : []),
+    ...(emptyChainWithJournal ? ["journal_history_without_committed_chain" as const] : []),
+    ...(uncommittedActiveWork ? ["journal_uncommitted_request" as const] : []),
+    ...(uncommittedResponseWork ? ["journal_uncommitted_response" as const] : []),
+    ...(params.currentRequestId ? ["journal_current_request_uncommitted" as const] : []),
+    ...(turnSequenceConflict ? ["journal_turn_sequence_conflict" as const] : []),
+  ];
   const replayableItems: CodexEffectiveHistoryItem[] = [];
   const observationOnlyItems: CodexEffectiveHistoryItem[] = [];
   const deferredItems: CodexEffectiveHistoryItem[] = [];
+  const effectiveItemRecords: EffectiveItemRecord[] = [];
   const seen = new Set<string>();
   for (const turn of committedChain.chain) {
     committedInputItems(turn).forEach((item, itemOrdinal) => {
@@ -410,6 +646,7 @@ export async function buildCodexEffectiveHistory(params: {
         replayableItems,
         observationOnlyItems,
         deferredItems,
+        effectiveItemRecords,
       });
     });
     turn.response.entry.outputItems.forEach((item, itemOrdinal) => {
@@ -423,18 +660,70 @@ export async function buildCodexEffectiveHistory(params: {
         replayableItems,
         observationOnlyItems,
         deferredItems,
+        effectiveItemRecords,
       });
     });
   }
+  const attribution = buildAttributedTurns({
+    chain: semanticChain.chain,
+    effectiveItemRecords,
+    sessionId: params.sessionId,
+  });
+  const attributionIncomplete = !semanticChain.complete || !attribution.complete;
+  if (attributionIncomplete) journalReasonCodes.push("journal_turn_attribution_incomplete");
+  const turns = attribution.turns;
 
   const unresolved = unresolvedCallIds(replayableItems);
   const effectiveIncomplete = journalIncomplete || deferredItems.length > 0 || unresolved.length > 0;
-  if ((journalRead.entries.length === 0 || effectiveIncomplete) && params.rolloutParserBootstrap) {
-    const bootstrapped = await params.rolloutParserBootstrap();
+  const bootstrapRequested = journalRead.entries.length === 0
+    || effectiveIncomplete
+    || (attributionIncomplete && Boolean(params.rolloutViewBootstrap));
+  if (bootstrapRequested && (params.rolloutViewBootstrap || params.rolloutParserBootstrap)) {
+    const bootstrapped = params.rolloutViewBootstrap
+      ? await params.rolloutViewBootstrap()
+      : await params.rolloutParserBootstrap!().then((history) => history
+        ? {
+            history,
+            turns: [],
+            semanticComplete: false,
+            reasonCodes: ["rollout_turn_boundary_unavailable" as const],
+          }
+        : null);
     if (bootstrapped) {
-      if (committedChain.chain.length === 0) return bootstrapped;
+      const normalizedBootstrap: CodexEffectiveHistoryView = {
+        ...bootstrapped,
+        turns: mergeTurns(bootstrapped.turns.map((turn) => ({
+          ...turn,
+          turnAbsId: buildTurnAbsId(params.sessionId, turn.turnSeq),
+        })), historyItemIds(bootstrapped.history)),
+        reasonCodes: uniqueReasonCodes(bootstrapped.reasonCodes),
+      };
+      const proxyReasonCodes = journalReasonCodes.filter((reason) =>
+        reason !== "journal_committed_chain_incomplete"
+        && reason !== "journal_history_without_committed_chain"
+        && !(
+          reason === "journal_turn_attribution_incomplete"
+          && !semanticChain.complete
+          && attribution.complete
+          && !attribution.ambiguousDuplicate
+          && normalizedBootstrap.semanticComplete
+        )
+      );
+      if (committedChain.chain.length === 0) {
+        const reasonCodes = uniqueReasonCodes([
+          ...normalizedBootstrap.reasonCodes,
+          ...proxyReasonCodes,
+        ]);
+        return {
+          ...normalizedBootstrap,
+          semanticComplete: normalizedBootstrap.semanticComplete && reasonCodes.length === 0,
+          reasonCodes,
+        };
+      }
       return mergeRolloutBootstrapWithProxyJournal({
-        bootstrapped,
+        sessionId: params.sessionId,
+        bootstrapped: normalizedBootstrap,
+        proxyTurns: turns,
         proxyReplayableItems: replayableItems,
         proxyObservationOnlyItems: observationOnlyItems,
         proxyDeferredItems: deferredItems,
@@ -446,6 +735,7 @@ export async function buildCodexEffectiveHistory(params: {
           || uncommittedActiveWork
           || uncommittedResponseWork
         ),
+        proxyReasonCodes,
       });
     }
   }
@@ -457,7 +747,7 @@ export async function buildCodexEffectiveHistory(params: {
     incomplete: effectiveIncomplete,
   });
 
-  return {
+  const history: CodexEffectiveHistory = {
     revision,
     replayableItems,
     observationOnlyItems,
@@ -466,4 +756,22 @@ export async function buildCodexEffectiveHistory(params: {
     source: journalRead.entries.length > 0 ? "proxy_journal" : "empty",
     incomplete: effectiveIncomplete,
   };
+  const reasonCodes = uniqueReasonCodes([
+    ...journalReasonCodes,
+    ...(effectiveIncomplete ? ["history_replay_incomplete" as const] : []),
+    ...(deferredItems.length > 0 ? ["history_deferred_items" as const] : []),
+    ...(unresolved.length > 0 ? ["history_unresolved_tool_calls" as const] : []),
+  ]);
+  return {
+    history,
+    turns: mergeTurns(turns, historyItemIds(history)),
+    semanticComplete: reasonCodes.length === 0,
+    reasonCodes,
+  };
+}
+
+export async function buildCodexEffectiveHistory(
+  params: BuildCodexEffectiveHistoryParams,
+): Promise<CodexEffectiveHistory> {
+  return (await buildCodexEffectiveHistoryView(params)).history;
 }

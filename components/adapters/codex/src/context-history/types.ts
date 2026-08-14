@@ -67,6 +67,38 @@ export type CodexEffectiveHistory = {
   incomplete: boolean;
 };
 
+export type CodexEffectiveHistoryTurn = {
+  turnSeq: number;
+  turnAbsId: string;
+  inputItemIds: string[];
+  outputItemIds: string[];
+};
+
+export type CodexEffectiveHistoryReasonCode =
+  | "journal_read_error"
+  | "journal_malformed_lines"
+  | "journal_malformed_stream"
+  | "journal_committed_chain_incomplete"
+  | "journal_history_without_committed_chain"
+  | "journal_uncommitted_request"
+  | "journal_uncommitted_response"
+  | "journal_current_request_uncommitted"
+  | "journal_turn_sequence_conflict"
+  | "journal_turn_attribution_incomplete"
+  | "history_replay_incomplete"
+  | "history_deferred_items"
+  | "history_unresolved_tool_calls"
+  | "rollout_turn_boundary_unavailable"
+  | "rollout_compaction_turn_boundary_unavailable"
+  | "rollout_malformed_lines";
+
+export type CodexEffectiveHistoryView = {
+  history: CodexEffectiveHistory;
+  turns: CodexEffectiveHistoryTurn[];
+  semanticComplete: boolean;
+  reasonCodes: CodexEffectiveHistoryReasonCode[];
+};
+
 export type CodexRolloutSessionMeta = {
   sessionId?: string;
   cwd?: string;
@@ -83,6 +115,7 @@ export type CodexRolloutTaskEvidence = {
 
 export type CodexRolloutSnapshot = {
   history: CodexEffectiveHistory;
+  view: CodexEffectiveHistoryView;
   sessionMeta?: CodexRolloutSessionMeta;
   malformedLineCount: number;
   unknownRecordTypeCounts: Record<string, number>;

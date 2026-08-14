@@ -352,7 +352,8 @@ test("codex mode writes only codex-supported fields", async () => {
     assert.equal(reloaded.reduction.maxToolChars, 1800);
 
     const record = reloaded as unknown as Record<string, unknown>;
-    assert.equal("taskStateEstimator" in record, false);
+    assert.equal("taskStateEstimator" in record, true);
+    assert.equal((record.taskStateEstimator as Record<string, unknown>).enabled, undefined);
     assert.equal("eviction" in record, false);
     const modules = record.modules as Record<string, unknown>;
     assert.equal("policy" in modules, false);

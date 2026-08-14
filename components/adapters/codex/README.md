@@ -137,6 +137,45 @@ Once installed, Codex can use the real internal recovery tool named
 `memory_fault_recover` through the registered MCP server. Recovery hints in
 trimmed payloads are no longer just protocol text.
 
+### Task-state estimator bridge (PR-B)
+
+The task-state estimator bridge is default-disabled. A conservative
+`~/.codex/tokenpilot.json` example is:
+
+```json
+{
+  "taskStateEstimator": {
+    "enabled": false,
+    "baseUrl": "https://estimator.example/v1",
+    "model": "estimator-model",
+    "requestTimeoutMs": 60000,
+    "batchTurns": 5,
+    "evictionLookaheadTurns": 3,
+    "inputMode": "sliding_window",
+    "lifecycleMode": "coupled",
+    "evidenceMode": "three_state"
+  }
+}
+```
+
+Keep API keys out of checked-in configuration. The resolver accepts
+`LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY` from the environment, with
+`TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY` as a compatibility fallback. The
+same prefixes support `ENABLED`, `BASE_URL`, `MODEL`, `TIMEOUT_MS`,
+`BATCH_TURNS`, `EVICTION_LOOKAHEAD_TURNS`, `INPUT_MODE`, `LIFECYCLE_MODE`, and
+`EVIDENCE_MODE`; explicit JSON fields take precedence over environment values.
+
+If the bridge is enabled without `baseUrl`, `apiKey`, or `model`, diagnostics
+report `incomplete` and fail closed. Status and doctor output expose only safe
+configuration state and numeric parameters, never the API key or an
+Authorization header.
+
+PR-B only provides configuration resolution, effective-history semantic input,
+and the canonical context snapshot. It does not invoke the estimator or shared
+planner in the production proxy, and it cannot trigger an automatic rebase.
+`contextRewrite.mutationPlan` remains a test/smoke override and does not gain
+runtime priority from this bridge.
+
 ### Offline context-rebase smoke
 
 The response-chain rebase path has a credential-free smoke command for local

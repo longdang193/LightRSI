@@ -15,6 +15,10 @@ test("normalizeTokenPilotCodexConfig applies stable defaults", () => {
   assert.equal(config.contextRewrite.failureMode, "bypass");
   assert.equal(config.contextRewrite.retryOriginalRequest, true);
   assert.equal(config.contextRewrite.cooldownMs, 300_000);
+  assert.equal(config.taskStateEstimator.enabled, undefined);
+  assert.equal(config.taskStateEstimator.baseUrl, undefined);
+  assert.equal(config.taskStateEstimator.requestTimeoutMs, undefined);
+  assert.equal(config.taskStateEstimator.inputMode, undefined);
 });
 
 test("normalizeTokenPilotCodexConfig derives default stateDir from the tokenpilot config path", () => {
@@ -33,6 +37,50 @@ test("normalizeTokenPilotCodexConfig trims and clamps values", () => {
   assert.equal(config.logLevel, "debug");
   assert.equal(config.proxyPort, 65535);
   assert.equal(config.upstreamProvider, "OPENAI");
+});
+
+test("normalizeTokenPilotCodexConfig normalizes estimator config", () => {
+  const config = normalizeTokenPilotCodexConfig({
+    taskStateEstimator: {
+      enabled: true,
+      baseUrl: "  https://estimator.example/v1///  ",
+      apiKey: "  secret-value  ",
+      model: "  estimator-model  ",
+      requestTimeoutMs: 999_999,
+      batchTurns: 0,
+      evictionLookaheadTurns: 9.8,
+      inputMode: "completed_summary_plus_active_turns",
+      lifecycleMode: "decoupled",
+      evidenceMode: "two_state",
+    },
+  });
+
+  assert.deepEqual(config.taskStateEstimator, {
+    enabled: true,
+    baseUrl: "https://estimator.example/v1",
+    apiKey: "secret-value",
+    model: "estimator-model",
+    requestTimeoutMs: 300_000,
+    batchTurns: 1,
+    evictionLookaheadTurns: 9,
+    inputMode: "completed_summary_plus_active_turns",
+    lifecycleMode: "decoupled",
+    evidenceMode: "two_state",
+  });
+});
+
+test("normalizeTokenPilotCodexConfig falls back from invalid estimator enums", () => {
+  const config = normalizeTokenPilotCodexConfig({
+    taskStateEstimator: {
+      inputMode: "invalid",
+      lifecycleMode: "invalid",
+      evidenceMode: "invalid",
+    },
+  });
+
+  assert.equal(config.taskStateEstimator.inputMode, "sliding_window");
+  assert.equal(config.taskStateEstimator.lifecycleMode, "coupled");
+  assert.equal(config.taskStateEstimator.evidenceMode, "three_state");
 });
 
 test("normalizeTokenPilotCodexConfig preserves context rewrite plan revisions", () => {

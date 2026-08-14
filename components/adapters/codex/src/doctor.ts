@@ -9,7 +9,11 @@ import {
   asObjectRecord,
   scanInstalledHookEvents,
 } from "../../shared/doctor-shared.js";
-import type { TokenPilotCodexConfig } from "./config.js";
+import type {
+  CodexMcpServerConfig,
+  CodexProviderConfig,
+  TokenPilotCodexConfig,
+} from "./config.js";
 import {
   readCodexMcpServerFromToml,
   readCodexProviderFromToml,
@@ -19,6 +23,11 @@ import {
   formatCodexRebaseCapabilityStatus,
   readCodexRebaseCapabilityJournal,
 } from "./context-rewrite/rebase-capability.js";
+import {
+  codexEstimatorDiagnostic,
+  resolveCodexTaskStateEstimator,
+  type CodexEstimatorDiagnostic,
+} from "./context-rewrite/estimator-config.js";
 import { readDaemonStatus } from "./daemon.js";
 import { resolveCodexHookCommandForInstall, resolveCodexMcpServerSpecForInstall } from "./install.js";
 
@@ -57,6 +66,24 @@ export type CodexDoctorReport = {
   rebaseCapabilityStatus?: string[];
   rebaseCapabilityTrusted?: boolean;
   rebaseCapabilityIssue?: string;
+  taskStateEstimator?: CodexEstimatorDiagnostic;
+};
+
+export type CodexProviderDiagnostic = {
+  configured: boolean;
+  name?: string;
+  baseUrlConfigured: boolean;
+  apiKeyConfigured: boolean;
+  wireApi?: "responses" | "chat";
+  requiresOpenAIAuth?: boolean;
+};
+
+export type CodexMcpServerDiagnostic = {
+  configured: boolean;
+  commandConfigured: boolean;
+  argsCount: number;
+  envKeys: string[];
+  startupTimeoutSec?: number;
 };
 
 const HOOK_EVENT_NAMES = [
@@ -74,6 +101,50 @@ function normalizeLocalProxyBaseUrl(value: string | undefined): string | undefin
   return `http://127.0.0.1:${match[1]}/v1`;
 }
 
+function sanitizeDiagnosticUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, value.endsWith("/") ? "/" : "");
+  } catch {
+    return "(configured but not safely displayable)";
+  }
+}
+
+export function codexProviderDiagnostic(
+  provider: CodexProviderConfig | undefined,
+): CodexProviderDiagnostic {
+  const name = provider?.name?.trim();
+  return {
+    configured: Boolean(provider),
+    name: name && !/(?:\b(?:bearer|api[_-]?key|access[_-]?token|secret|authorization)\b|sk-[a-z0-9_-]{12,}|(?:github_pat_|gh[pousr]_)[a-z0-9_]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|(?:xapp-|xox[baprsuv]-)[a-z0-9-]{10,}|tvly-[a-z0-9-]{12,}|[?&](?:key|token|signature)=)/iu.test(name)
+      ? name
+      : name
+        ? "(configured but not safely displayable)"
+        : undefined,
+    baseUrlConfigured: Boolean(provider?.baseUrl),
+    apiKeyConfigured: Boolean(provider?.apiKey),
+    wireApi: provider?.wireApi,
+    requiresOpenAIAuth: provider?.requiresOpenAIAuth,
+  };
+}
+
+export function codexMcpServerDiagnostic(
+  server: CodexMcpServerConfig | undefined,
+): CodexMcpServerDiagnostic {
+  return {
+    configured: Boolean(server),
+    commandConfigured: Boolean(server?.command),
+    argsCount: server?.args.length ?? 0,
+    envKeys: Object.keys(server?.env ?? {}).sort(),
+    startupTimeoutSec: server?.startupTimeoutSec,
+  };
+}
+
 async function checkHealth(baseUrl: string): Promise<boolean> {
   try {
     const resp = await fetch(`${baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "")}/health`);
@@ -86,6 +157,16 @@ async function checkHealth(baseUrl: string): Promise<boolean> {
 }
 
 export function formatCodexDoctorReport(report: CodexDoctorReport): string {
+  const taskStateEstimator = report.taskStateEstimator ?? {
+    status: "disabled" as const,
+    model: null,
+    baseUrlConfigured: false,
+    apiKeyConfigured: false,
+    requestTimeoutMs: 60_000,
+    batchTurns: 5,
+    evictionLookaheadTurns: 3,
+    missingFields: [],
+  };
   const rebaseCapabilityStatus = report.rebaseCapabilityStatus ?? [];
   const rebaseCapabilitySummary = report.rebaseCapabilityTrusted === false
     ? `untrusted (${report.rebaseCapabilityIssue ?? "read or validation error"}); runtime will bypass rebase`
@@ -121,10 +202,18 @@ export function formatCodexDoctorReport(report: CodexDoctorReport): string {
     `- recovery MCP startup timeout matches: ${report.mcpStartupTimeoutSecMatches ? "yes" : "no"}`,
     `- daemon running: ${report.daemonRunning ? "yes" : "no"}`,
     `- proxy healthy: ${report.proxyHealthy ? "yes" : "no"}`,
-    `- proxy base URL: ${report.proxyBaseUrl}`,
+    `- proxy base URL: ${sanitizeDiagnosticUrl(report.proxyBaseUrl) ?? "(unset)"}`,
     `- upstream provider: ${report.upstreamProvider ?? "(unset)"}`,
-    `- upstream base URL: ${report.upstreamBaseUrl ?? "(unset)"}`,
+    `- upstream base URL: ${sanitizeDiagnosticUrl(report.upstreamBaseUrl) ?? "(unset)"}`,
     `- upstream loops into local proxy: ${report.upstreamLoopDetected ? "yes" : "no"}`,
+    `- task-state estimator status: ${taskStateEstimator.status}`,
+    `- task-state estimator model: ${taskStateEstimator.model ?? "(unset)"}`,
+    `- task-state estimator base URL configured: ${taskStateEstimator.baseUrlConfigured ? "yes" : "no"}`,
+    `- task-state estimator API key configured: ${taskStateEstimator.apiKeyConfigured ? "yes" : "no"}`,
+    `- task-state estimator request timeout: ${taskStateEstimator.requestTimeoutMs}ms`,
+    `- task-state estimator batch turns: ${taskStateEstimator.batchTurns}`,
+    `- task-state estimator eviction lookahead turns: ${taskStateEstimator.evictionLookaheadTurns}`,
+    `- task-state estimator missing fields: ${taskStateEstimator.missingFields.length > 0 ? taskStateEstimator.missingFields.join(", ") : "(none)"}`,
     `- CDR-05 rebase capability cache: ${rebaseCapabilitySummary}`,
   ];
   const fixes: string[] = [];
@@ -156,6 +245,11 @@ export function formatCodexDoctorReport(report: CodexDoctorReport): string {
   if (report.adapterEnabled && (!report.daemonRunning || !report.proxyHealthy)) {
     fixes.push("- trust the TokenPilot hooks in Codex, then start a new session so SessionStart can boot the local proxy");
     fixes.push("- if the proxy is still unhealthy after a new session starts, run `tokenpilot-codex start` or `tokenpilot-codex restart`");
+  }
+  if (taskStateEstimator.status === "incomplete") {
+    fixes.push(
+      `- configure taskStateEstimator ${taskStateEstimator.missingFields.length > 0 ? taskStateEstimator.missingFields.join(", ") : "settings"}; estimator runtime remains disabled until the configuration is ready`,
+    );
   }
   if (report.degradedMode) {
     lines.push(
@@ -234,6 +328,10 @@ export async function inspectCodexDoctor(params: {
     && daemon.running
     && proxyHealthy;
   const recoveryMcpHealthy = mcpHealth.healthy;
+  const taskStateEstimator = codexEstimatorDiagnostic(resolveCodexTaskStateEstimator({
+    config: params.config.taskStateEstimator,
+    env: process.env,
+  }));
   return {
     configPath: params.configPath,
     hooksConfigPath: params.hooksConfigPath,
@@ -256,7 +354,7 @@ export async function inspectCodexDoctor(params: {
     stateDir: params.config.stateDir,
     upstreamProvider: params.config.upstreamProvider,
     upstreamLoopDetected,
-    upstreamBaseUrl,
+    upstreamBaseUrl: sanitizeDiagnosticUrl(upstreamBaseUrl),
     mcpInstalled: mcpHealth.installed,
     mcpStateDirMatches: mcpHealth.stateDirMatches,
     mcpCommandMatches: mcpHealth.commandMatches,
@@ -269,5 +367,6 @@ export async function inspectCodexDoctor(params: {
     rebaseCapabilityStatus,
     rebaseCapabilityTrusted,
     rebaseCapabilityIssue,
+    taskStateEstimator,
   };
 }

@@ -27,6 +27,10 @@ test("GUA-04 parses the latest compacted rollout baseline and post-baseline item
   assert.equal(history.source, "rollout_bootstrap");
   assert.equal(history.incomplete, false);
   assert.equal(snapshot.compactionBaselineApplied, true);
+  assert.equal(snapshot.view.history, snapshot.history);
+  assert.equal(snapshot.view.semanticComplete, false);
+  assert.deepEqual(snapshot.view.turns, []);
+  assert.deepEqual(snapshot.view.reasonCodes, ["rollout_compaction_turn_boundary_unavailable"]);
   assert.deepEqual(history.unresolvedCallIds, []);
   assert.match(history.revision, /^rev-[0-9a-f]{24}$/);
   assert.deepEqual(
@@ -64,6 +68,74 @@ test("GUA-04 parses the latest compacted rollout baseline and post-baseline item
   );
   assert.equal((await stat(rolloutPath)).mtimeMs, before.mtimeMs);
   assert.equal(await readFile(rolloutPath, "utf8"), beforeText);
+});
+
+test("GUA-04 does not convert Codex UUID turn ids into shared turn sequences", () => {
+  const snapshot = parseCodexRolloutText({
+    text: [
+      JSON.stringify({
+        type: "session_meta",
+        payload: { id: "codex-session-rollout-uuid" },
+      }),
+      JSON.stringify({
+        type: "turn_context",
+        payload: { turn_id: "00000000-0000-4000-8000-000000000099" },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: { id: "msg-uuid", type: "message", role: "assistant", content: "answer" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.ok(snapshot);
+  assert.deepEqual(snapshot.view.turns, []);
+  assert.equal(snapshot.view.semanticComplete, false);
+  assert.deepEqual(snapshot.view.reasonCodes, ["rollout_turn_boundary_unavailable"]);
+});
+
+test("GUA-04 builds rollout sidecars only from explicit positive turn sequences", () => {
+  const snapshot = parseCodexRolloutText({
+    text: [
+      JSON.stringify({
+        type: "session_meta",
+        payload: { id: "codex-session-rollout-seq" },
+      }),
+      JSON.stringify({
+        type: "turn_context",
+        payload: { turn_id: "opaque-host-turn", turn_seq: 7 },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: { id: "call-7", type: "function_call", call_id: "tool-7", name: "run", arguments: "{}" },
+      }),
+      JSON.stringify({
+        type: "turn_context",
+        payload: { turn_id: "opaque-host-turn-next", turn_ordinal: 8 },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: { id: "output-8", type: "function_call_output", call_id: "tool-7", output: "done" },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: { id: "user-8", type: "message", role: "user", content: "continue" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.ok(snapshot);
+  assert.equal(snapshot.view.semanticComplete, true);
+  assert.deepEqual(snapshot.view.reasonCodes, []);
+  assert.deepEqual(snapshot.view.turns.map((turn) => ({
+    turnSeq: turn.turnSeq,
+    turnAbsId: turn.turnAbsId,
+    inputCount: turn.inputItemIds.length,
+    outputCount: turn.outputItemIds.length,
+  })), [
+    { turnSeq: 7, turnAbsId: "codex-session-rollout-seq:t7", inputCount: 0, outputCount: 1 },
+    { turnSeq: 8, turnAbsId: "codex-session-rollout-seq:t8", inputCount: 2, outputCount: 0 },
+  ]);
 });
 
 test("GUA-04 isolates malformed lines without discarding valid items", async () => {
