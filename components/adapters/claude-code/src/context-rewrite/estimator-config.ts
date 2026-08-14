@@ -18,13 +18,19 @@ export type ClaudeEstimatorConfig = {
   apiKey?: string;
   model?: string;
   requestTimeoutMs?: number;
+  batchTurns?: number;
+  evictionLookaheadTurns?: number;
+  inputMode?: "sliding_window" | "completed_summary_plus_active_turns";
+  lifecycleMode?: "coupled" | "decoupled";
+  evidenceMode?: "two_state" | "three_state";
 };
 
 /**
  * Assemble the Claude-side task-state estimator from explicit config (wins) or
  * environment variables (fallback), mirroring OpenClaw's assembly pattern but
- * only for the fields the Claude generic path needs (no TokenPilot lifecycle /
- * evidence / promotion knobs). Returns undefined — meaning "semantic path off" —
+ * covering the estimator API fields the Claude path uses (baseUrl/apiKey/model
+ * plus requestTimeoutMs/batchTurns/evictionLookaheadTurns/inputMode/lifecycleMode/
+ * evidenceMode; promotion knobs are not exposed). Returns undefined — meaning "semantic path off" —
  * when the estimator is not enabled or is not fully configured
  * (baseUrl + apiKey + model all required). Never throws: a missing/partial
  * config yields undefined, not an error, so callers can simply skip semantics.
@@ -65,10 +71,38 @@ export function resolveClaudeTaskStateEstimator(params?: {
   const requestTimeoutMs =
     config.requestTimeoutMs ?? (Number.isFinite(parsedTimeout) ? Math.max(1000, parsedTimeout) : undefined);
 
+  const batchTurnsRaw = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_BATCH_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_BATCH_TURNS");
+  const parsedBatchTurns = Number.parseInt(batchTurnsRaw, 10);
+  const batchTurns =
+    config.batchTurns ?? (Number.isFinite(parsedBatchTurns) ? Math.max(1, parsedBatchTurns) : undefined);
+
+  const lookaheadRaw = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS");
+  const parsedLookahead = Number.parseInt(lookaheadRaw, 10);
+  const evictionLookaheadTurns =
+    config.evictionLookaheadTurns ?? (Number.isFinite(parsedLookahead) ? Math.max(1, parsedLookahead) : undefined);
+
+  const envInputMode = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_INPUT_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_INPUT_MODE");
+  const inputMode =
+    config.inputMode ??
+    (envInputMode === "sliding_window" || envInputMode === "completed_summary_plus_active_turns" ? envInputMode : undefined);
+
+  const envLifecycleMode = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_LIFECYCLE_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_LIFECYCLE_MODE");
+  const lifecycleMode =
+    config.lifecycleMode ?? (envLifecycleMode === "decoupled" || envLifecycleMode === "coupled" ? envLifecycleMode : undefined);
+
+  const envEvidenceMode = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_EVIDENCE_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVIDENCE_MODE");
+  const evidenceMode =
+    config.evidenceMode ?? (envEvidenceMode === "two_state" || envEvidenceMode === "three_state" ? envEvidenceMode : undefined);
+
   return createApiTaskStateEstimator({
     baseUrl,
     apiKey,
     model,
     ...(requestTimeoutMs !== undefined ? { requestTimeoutMs } : {}),
+    ...(batchTurns !== undefined ? { batchTurns } : {}),
+    ...(evictionLookaheadTurns !== undefined ? { evictionLookaheadTurns } : {}),
+    ...(inputMode !== undefined ? { inputMode } : {}),
+    ...(lifecycleMode !== undefined ? { lifecycleMode } : {}),
+    ...(evidenceMode !== undefined ? { evidenceMode } : {}),
   });
 }
