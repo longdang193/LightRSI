@@ -12,26 +12,33 @@ function rolloutSnapshot(params?: {
   encrypted?: boolean;
 }): CodexRolloutSnapshot {
   const encrypted = params?.encrypted !== false;
+  const history: CodexRolloutSnapshot["history"] = {
+    revision: "rollout-revision",
+    replayableItems: [
+      {
+        stableItemId: "message-1",
+        item: { type: "message", role: "user", content: "continue" },
+      },
+      ...(encrypted
+        ? [{
+          stableItemId: "compaction-1",
+          item: { type: "compaction", encrypted_content: "opaque" },
+        }]
+        : []),
+    ],
+    observationOnlyItems: [],
+    deferredItems: [],
+    unresolvedCallIds: [],
+    source: "rollout_bootstrap",
+    incomplete: false,
+  };
   return {
-    history: {
-      revision: "rollout-revision",
-      replayableItems: [
-        {
-          stableItemId: "message-1",
-          item: { type: "message", role: "user", content: "continue" },
-        },
-        ...(encrypted
-          ? [{
-            stableItemId: "compaction-1",
-            item: { type: "compaction", encrypted_content: "opaque" },
-          }]
-          : []),
-      ],
-      observationOnlyItems: [],
-      deferredItems: [],
-      unresolvedCallIds: [],
-      source: "rollout_bootstrap",
-      incomplete: false,
+    history,
+    view: {
+      history,
+      turns: [],
+      semanticComplete: false,
+      reasonCodes: ["rollout_compaction_turn_boundary_unavailable"],
     },
     sessionMeta: {
       sessionId: params?.sessionId,
@@ -74,6 +81,8 @@ test("rollout bootstrap accepts matching session and encrypted payload provenanc
 
   assert.equal(result.rejectionReason, undefined);
   assert.equal(result.history?.revision, "rollout-revision");
+  assert.equal(result.view?.history, result.history);
+  assert.deepEqual(result.view?.reasonCodes, ["rollout_compaction_turn_boundary_unavailable"]);
 });
 
 test("rollout bootstrap rejects missing and mismatched session identities", () => {

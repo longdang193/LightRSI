@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import test from "node:test";
 import { appendFile, mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
-import { formatCodexDoctorReport, inspectCodexDoctor } from "../src/doctor.js";
+import {
+  codexMcpServerDiagnostic,
+  codexProviderDiagnostic,
+  formatCodexDoctorReport,
+  inspectCodexDoctor,
+} from "../src/doctor.js";
 import {
   appendCodexRebaseCapability,
   CODEX_REBASE_API_VERSION,
@@ -35,6 +43,8 @@ async function reserveUnusedPort(): Promise<number> {
     });
   });
 }
+
+const execFileAsync = promisify(execFile);
 
 test("inspectCodexDoctor reports missing provider and hooks honestly", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-"));
@@ -69,6 +79,207 @@ test("inspectCodexDoctor reports missing provider and hooks honestly", async () 
     assert.equal(report.mcpStateDirMatches, false);
     assert.equal(report.mcpCommandMatches, false);
     assert.equal(report.mcpArgsMatch, false);
+    assert.equal(report.taskStateEstimator?.status, "disabled");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("inspectCodexDoctor reports incomplete estimator config without leaking secrets", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-estimator-"));
+  try {
+    const proxyPort = await reserveUnusedPort();
+    const codexConfigPath = join(dir, "config.toml");
+    const hooksConfigPath = join(dir, "hooks.json");
+    const tokenPilotConfigPath = join(dir, "tokenpilot.json");
+    await writeFile(codexConfigPath, "model_provider = \"OpenAI\"\n", "utf8");
+    await writeFile(hooksConfigPath, JSON.stringify({ hooks: {} }), "utf8");
+
+    const report = await inspectCodexDoctor({
+      config: normalizeTokenPilotCodexConfig({
+        stateDir: join(dir, "state"),
+        proxyPort,
+        taskStateEstimator: {
+          enabled: true,
+          apiKey: "doctor-secret-never-report",
+          model: "estimator-model",
+        },
+      }),
+      configPath: codexConfigPath,
+      hooksConfigPath,
+      tokenPilotConfigPath,
+    });
+    const text = formatCodexDoctorReport(report);
+
+    assert.equal(report.taskStateEstimator?.status, "incomplete");
+    assert.deepEqual(report.taskStateEstimator?.missingFields, ["baseUrl"]);
+    assert.match(text, /task-state estimator status: incomplete/);
+    assert.match(text, /missing fields: baseUrl/);
+    assert.match(text, /runtime remains disabled/);
+    assert.doesNotMatch(text, /doctor-secret-never-report|Authorization/i);
+    assert.doesNotMatch(JSON.stringify(report), /doctor-secret-never-report/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("doctor diagnostics summarize provider and MCP config without secret values", () => {
+  const provider = codexProviderDiagnostic({
+    name: "provider-name",
+    baseUrl: "https://user:provider-password@example.com/v1?api_key=query-secret",
+    apiKey: "provider-api-secret",
+    wireApi: "responses",
+    requiresOpenAIAuth: true,
+  });
+  const mcp = codexMcpServerDiagnostic({
+    command: "node",
+    args: ["server.js", "--token", "mcp-argument-secret"],
+    env: {
+      TOKENPILOT_STATE_DIR: "/tmp/state",
+      SERVICE_API_KEY: "mcp-env-secret",
+    },
+    startupTimeoutSec: 90,
+  });
+  const serialized = JSON.stringify({ provider, mcp });
+
+  assert.deepEqual(provider, {
+    configured: true,
+    name: "provider-name",
+    baseUrlConfigured: true,
+    apiKeyConfigured: true,
+    wireApi: "responses",
+    requiresOpenAIAuth: true,
+  });
+  assert.deepEqual(mcp, {
+    configured: true,
+    commandConfigured: true,
+    argsCount: 3,
+    envKeys: ["SERVICE_API_KEY", "TOKENPILOT_STATE_DIR"],
+    startupTimeoutSec: 90,
+  });
+  assert.doesNotMatch(serialized, /provider-password|query-secret|provider-api-secret|mcp-argument-secret|mcp-env-secret/);
+
+  const unsafeName = codexProviderDiagnostic({
+    name: "Authorization Bearer provider-name-secret",
+    baseUrl: "https://example.com/v1",
+  });
+  assert.equal(unsafeName.name, "(configured but not safely displayable)");
+  assert.doesNotMatch(JSON.stringify(unsafeName), /Authorization|Bearer|provider-name-secret/i);
+});
+
+test("formatCodexDoctorReport redacts credentials embedded in diagnostic URLs", () => {
+  const text = formatCodexDoctorReport({
+    configPath: "/tmp/config.toml",
+    hooksConfigPath: "/tmp/hooks.json",
+    tokenPilotConfigPath: "/tmp/tokenpilot.json",
+    proxyBaseUrl: "http://127.0.0.1:17667/v1",
+    expectedHookCommand: "node hooks-handler.js",
+    expectedMcpCommand: process.execPath,
+    expectedMcpArgs: ["/tmp/server.js"],
+    expectedMcpStartupTimeoutSec: 90,
+    adapterEnabled: false,
+    providerInstalled: true,
+    providerActive: true,
+    providerIntercepted: false,
+    hooksInstalled: true,
+    hooksComplete: true,
+    hooksMatchExpectedCommand: true,
+    installedHookEvents: ["SessionStart", "PreToolUse", "PostToolUse", "Stop"],
+    missingHookEvents: [],
+    daemonRunning: false,
+    proxyHealthy: false,
+    stateDir: "/tmp/state",
+    upstreamLoopDetected: false,
+    upstreamBaseUrl: "https://user:url-password@example.com/v1?api_key=url-query-secret",
+    mcpInstalled: true,
+    mcpStateDirMatches: true,
+    mcpCommandMatches: true,
+    mcpArgsMatch: true,
+    mcpStartupTimeoutSecMatches: true,
+    coreRuntimeHealthy: false,
+    recoveryMcpHealthy: true,
+    degradedMode: false,
+  });
+
+  assert.match(text, /upstream base URL: https:\/\/example\.com\/v1/);
+  assert.doesNotMatch(text, /url-password|url-query-secret/);
+});
+
+test("doctor-codex script exposes estimator diagnostics without serializing configured secrets", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-script-"));
+  try {
+    const proxyPort = await reserveUnusedPort();
+    const stateDir = join(dir, "state");
+    const codexConfigPath = join(dir, "config.toml");
+    const hooksConfigPath = join(dir, "hooks.json");
+    const tokenPilotConfigPath = join(dir, "tokenpilot.json");
+    await writeFile(codexConfigPath, [
+      'model_provider = "tokenpilot"',
+      "",
+      "[model_providers.tokenpilot]",
+      `base_url = ${JSON.stringify(`http://127.0.0.1:${proxyPort}/v1`)}`,
+      'api_key = "tokenpilot-provider-secret"',
+      'wire_api = "responses"',
+      "",
+      "[model_providers.OpenAI]",
+      'base_url = "https://user:url-password@example.com/v1?api_key=query-secret"',
+      'api_key = "upstream-provider-secret"',
+      'wire_api = "responses"',
+      "",
+      "[mcp_servers.tokenpilot_memory_fault_recover]",
+      `command = ${JSON.stringify(process.execPath)}`,
+      'args = ["server.js", "--token", "mcp-argument-secret"]',
+      "startup_timeout_sec = 90",
+      "",
+      "[mcp_servers.tokenpilot_memory_fault_recover.env]",
+      'SERVICE_API_KEY = "mcp-env-secret"',
+      `TOKENPILOT_STATE_DIR = ${JSON.stringify(stateDir)}`,
+      "",
+    ].join("\n"), "utf8");
+    await writeFile(hooksConfigPath, JSON.stringify({ hooks: {} }), "utf8");
+    await writeFile(tokenPilotConfigPath, JSON.stringify({
+      stateDir,
+      proxyPort,
+      providerName: "tokenpilot",
+      upstreamProvider: "OpenAI",
+      taskStateEstimator: {
+        enabled: true,
+        apiKey: "estimator-script-secret",
+        model: "estimator-model",
+      },
+    }), "utf8");
+
+    const adapterDir = fileURLToPath(new URL("..", import.meta.url));
+    const { stdout, stderr } = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", "scripts/doctor-codex.ts"],
+      {
+        cwd: adapterDir,
+        env: {
+          ...process.env,
+          CODEX_CONFIG_PATH: codexConfigPath,
+          CODEX_HOOKS_CONFIG_PATH: hooksConfigPath,
+          TOKENPILOT_CODEX_CONFIG: tokenPilotConfigPath,
+          LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "",
+          LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "",
+          TOKENPILOT_TASK_STATE_ESTIMATOR_ENABLED: "",
+          TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY: "",
+        },
+      },
+    );
+    const output = JSON.parse(stdout) as Record<string, any>;
+    const serialized = `${stdout}\n${stderr}`;
+
+    assert.equal(output.taskStateEstimator.status, "incomplete");
+    assert.deepEqual(output.taskStateEstimator.missingFields, ["baseUrl"]);
+    assert.equal(output.tokenpilotProvider.apiKeyConfigured, true);
+    assert.equal(output.upstream.apiKeyConfigured, true);
+    assert.equal(output.recoveryMcp.argsCount, 3);
+    assert.deepEqual(output.recoveryMcp.envKeys, ["SERVICE_API_KEY", "TOKENPILOT_STATE_DIR"]);
+    assert.doesNotMatch(
+      serialized,
+      /tokenpilot-provider-secret|url-password|query-secret|upstream-provider-secret|mcp-argument-secret|mcp-env-secret|estimator-script-secret|Authorization/i,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

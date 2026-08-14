@@ -8,7 +8,11 @@ import {
   resolveUpstreamProvider,
 } from "../src/config.js";
 import { readDaemonStatus } from "../src/daemon.js";
-import { inspectCodexDoctor } from "../src/doctor.js";
+import {
+  codexMcpServerDiagnostic,
+  codexProviderDiagnostic,
+  inspectCodexDoctor,
+} from "../src/doctor.js";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
@@ -25,16 +29,16 @@ async function main() {
   });
   const tokenpilotProvider = await readCodexProviderFromToml(config.providerName, codexConfigPath);
   const recoveryMcp = await readCodexMcpServerFromToml("tokenpilot_memory_fault_recover", codexConfigPath);
-  const upstream = await resolveUpstreamProvider(config, codexConfigPath).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }));
+  const upstream = await resolveUpstreamProvider(config, codexConfigPath).catch(() => undefined);
   const daemon = await readDaemonStatus(config);
   const hooksText = existsSync(hooksConfigPath) ? await readFile(hooksConfigPath, "utf8").catch(() => "") : "";
   const hookHandlerCount = (hooksText.match(/hooks-handler\.js/g) ?? []).length;
   console.log(JSON.stringify({
-    ok: Boolean(tokenpilotProvider) && !("error" in upstream),
+    ok: Boolean(tokenpilotProvider) && Boolean(upstream),
     codexConfigPath,
     hooksConfigPath,
     tokenPilotConfigPath,
-    tokenpilotProvider: tokenpilotProvider ?? null,
+    tokenpilotProvider: codexProviderDiagnostic(tokenpilotProvider),
     hooks: {
       installed: doctor.hooksInstalled,
       handlerCount: hookHandlerCount,
@@ -42,8 +46,8 @@ async function main() {
         ? "multiple TokenPilot hooks are registered; rerun install to dedupe hooks.json"
         : undefined,
     },
-    recoveryMcp,
-    upstream,
+    recoveryMcp: codexMcpServerDiagnostic(recoveryMcp),
+    upstream: codexProviderDiagnostic(upstream),
     proxy: {
       baseUrl: doctor.proxyBaseUrl,
       healthOk: doctor.proxyHealthy,
@@ -51,6 +55,7 @@ async function main() {
     },
     daemon,
     modules: config.modules,
+    taskStateEstimator: doctor.taskStateEstimator,
   }, null, 2));
 }
 

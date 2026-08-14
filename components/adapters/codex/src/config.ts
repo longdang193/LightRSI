@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import type { TaskStateEstimatorApiConfig } from "@lightmem2/eviction";
 import type { CodexContextRewriteConfig, CodexMutationPlan } from "./context-rewrite/types.js";
 
 export type CodexProviderConfig = {
@@ -32,7 +33,9 @@ export type TokenPilotCodexConfig = {
     stabilizer: boolean;
     reduction: boolean;
   };
+  taskStateEstimator: TaskStateEstimatorApiConfig;
   contextRewrite: CodexContextRewriteConfig & {
+    // Test/smoke override only. Production rewrite planning must derive this at runtime.
     mutationPlan?: CodexMutationPlan;
   };
   reduction: {
@@ -112,6 +115,15 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function optionalNumberValue(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number | undefined {
+  return value === undefined ? undefined : numberValue(value, fallback, min, max);
+}
+
 function sanitizeCodexReductionPassOptions(raw: unknown): Record<string, Record<string, unknown>> {
   const input = asRecord(raw);
   const output: Record<string, Record<string, unknown>> = {};
@@ -156,6 +168,7 @@ export function normalizeTokenPilotCodexConfig(
   const proxyMode = asRecord(obj.proxyMode);
   const hooks = asRecord(obj.hooks);
   const modules = asRecord(obj.modules);
+  const taskStateEstimator = asRecord(obj.taskStateEstimator);
   const contextRewrite = asRecord(obj.contextRewrite);
   const reduction = asRecord(obj.reduction);
   const passes = asRecord(reduction.passes);
@@ -190,6 +203,28 @@ export function normalizeTokenPilotCodexConfig(
     modules: {
       stabilizer: boolValue(modules.stabilizer, true),
       reduction: boolValue(modules.reduction, true),
+    },
+    taskStateEstimator: {
+      enabled: taskStateEstimator.enabled === undefined
+        ? undefined
+        : boolValue(taskStateEstimator.enabled, false),
+      baseUrl: stringValue(taskStateEstimator.baseUrl)?.replace(/\/+$/, ""),
+      apiKey: stringValue(taskStateEstimator.apiKey),
+      model: stringValue(taskStateEstimator.model),
+      requestTimeoutMs: optionalNumberValue(taskStateEstimator.requestTimeoutMs, 60_000, 1_000, 300_000),
+      batchTurns: optionalNumberValue(taskStateEstimator.batchTurns, 5, 1, 100),
+      evictionLookaheadTurns: optionalNumberValue(taskStateEstimator.evictionLookaheadTurns, 3, 1, 100),
+      inputMode: taskStateEstimator.inputMode === undefined
+        ? undefined
+        : taskStateEstimator.inputMode === "completed_summary_plus_active_turns"
+          ? "completed_summary_plus_active_turns"
+          : "sliding_window",
+      lifecycleMode: taskStateEstimator.lifecycleMode === undefined
+        ? undefined
+        : taskStateEstimator.lifecycleMode === "decoupled" ? "decoupled" : "coupled",
+      evidenceMode: taskStateEstimator.evidenceMode === undefined
+        ? undefined
+        : taskStateEstimator.evidenceMode === "two_state" ? "two_state" : "three_state",
     },
     contextRewrite: {
       enabled: boolValue(contextRewrite.enabled, false),

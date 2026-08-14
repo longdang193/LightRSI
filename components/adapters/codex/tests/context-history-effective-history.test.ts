@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,6 +8,8 @@ import {
   appendCodexRequestJournalEntry,
   appendCodexResponseJournalEntry,
   buildCodexEffectiveHistory,
+  buildCodexEffectiveHistoryView,
+  codexContextHistoryJournalPath,
   type JsonObject,
 } from "../src/context-history/index.js";
 
@@ -107,6 +109,307 @@ test("CDH-04 Effective History Builder preserves ordered turns when a provider r
     assert.match(JSON.stringify(history.replayableItems), /reused id turn 1/);
     assert.match(JSON.stringify(history.replayableItems), /reused id turn 2/);
     assert.match(JSON.stringify(history.replayableItems), /reused id turn 3/);
+  });
+});
+
+test("CDH-04 Effective History View builds deterministic journal turn sidecars", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-turn-sidecar";
+    for (let turn = 1; turn <= 2; turn += 1) {
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turn}`,
+        turnOrdinal: turn,
+        payload: {
+          ...(turn > 1 ? { previous_response_id: `resp-${turn - 1}` } : {}),
+          input: [{ id: `input-${turn}`, role: "user", content: `turn ${turn}` }],
+        },
+        status: "completed",
+      });
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turn}`,
+        response: {
+          id: `resp-${turn}`,
+          previous_response_id: turn > 1 ? `resp-${turn - 1}` : null,
+          output: [{ id: `output-${turn}`, type: "message", role: "assistant", content: `answer ${turn}` }],
+        },
+        status: "completed",
+      });
+    }
+
+    const first = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+    const restarted = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+    const legacy = await buildCodexEffectiveHistory({ stateDir, sessionId });
+
+    assert.equal(first.semanticComplete, true);
+    assert.deepEqual(first.reasonCodes, []);
+    assert.deepEqual(first.turns.map(({ turnSeq, turnAbsId }) => ({ turnSeq, turnAbsId })), [
+      { turnSeq: 1, turnAbsId: `${sessionId}:t1` },
+      { turnSeq: 2, turnAbsId: `${sessionId}:t2` },
+    ]);
+    assert.deepEqual(first.turns, restarted.turns);
+    assert.deepEqual(first.history, legacy);
+    assert.equal(first.history.revision, legacy.revision);
+
+    const allItemIds = new Set([
+      ...first.history.replayableItems,
+      ...first.history.observationOnlyItems,
+      ...first.history.deferredItems,
+    ].map((entry) => entry.stableItemId));
+    for (const turn of first.turns) {
+      assert.equal(turn.inputItemIds.length, 1);
+      assert.equal(turn.outputItemIds.length, 1);
+      assert.equal(turn.inputItemIds.every((itemId) => allItemIds.has(itemId)), true);
+      assert.equal(turn.outputItemIds.every((itemId) => allItemIds.has(itemId)), true);
+    }
+  });
+});
+
+test("CDH-04 Effective History View marks the current request semantic-only incomplete", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-current-request";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      turnOrdinal: 1,
+      payload: { input: [{ role: "user", content: "committed" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: { id: "resp-1", output: [{ type: "message", role: "assistant", content: "done" }] },
+      status: "completed",
+    });
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-current",
+      turnOrdinal: 2,
+      payload: { previous_response_id: "resp-1", input: [{ role: "user", content: "current" }] },
+      status: "pending",
+    });
+
+    const view = await buildCodexEffectiveHistoryView({
+      stateDir,
+      sessionId,
+      headResponseId: "resp-1",
+      currentRequestId: "request-current",
+    });
+
+    assert.equal(view.history.incomplete, false);
+    assert.equal(view.semanticComplete, false);
+    assert.deepEqual(view.reasonCodes, ["journal_current_request_uncommitted"]);
+    assert.deepEqual(view.turns.map((turn) => turn.turnSeq), [1]);
+  });
+});
+
+test("CDH-04 Effective History View fails closed on conflicting journal turn sequences", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-turn-conflict";
+    for (let index = 1; index <= 2; index += 1) {
+      const requestId = `request-${index}`;
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId,
+        turnOrdinal: 1,
+        payload: {
+          ...(index > 1 ? { previous_response_id: "resp-1" } : {}),
+          input: [{ role: "user", content: requestId }],
+        },
+        status: "completed",
+      });
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId,
+        response: {
+          id: `resp-${index}`,
+          previous_response_id: index > 1 ? "resp-1" : null,
+          output: [],
+        },
+        status: "completed",
+      });
+    }
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+    assert.equal(view.history.incomplete, false);
+    assert.equal(view.semanticComplete, false);
+    assert.equal(view.reasonCodes.includes("journal_turn_sequence_conflict"), true);
+  });
+});
+
+test("CDH-04 Effective History View reports malformed journal records with a finite reason", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-malformed-record";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-valid",
+      payload: { input: [{ role: "user", content: "valid prefix" }] },
+      status: "completed",
+    });
+    await appendFile(
+      codexContextHistoryJournalPath(stateDir, sessionId),
+      "{\"truncated\":\n",
+      "utf8",
+    );
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+
+    assert.equal(view.semanticComplete, false);
+    assert.equal(view.reasonCodes.includes("journal_malformed_lines"), true);
+    assert.equal(view.reasonCodes.includes("history_replay_incomplete"), true);
+  });
+});
+
+test("CDH-04 Effective History View fails closed when its journal cannot be read", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-effective-read-error";
+    await mkdir(codexContextHistoryJournalPath(stateDir, sessionId), { recursive: true });
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+
+    assert.equal(view.history.incomplete, true);
+    assert.equal(view.semanticComplete, false);
+    assert.equal(view.reasonCodes.includes("journal_read_error"), true);
+    assert.equal(view.reasonCodes.includes("history_replay_incomplete"), true);
+  });
+});
+
+test("CDH-04 Effective History View keeps stateless continuation roots single and deterministic", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-stateless-root";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-old-root",
+      turnOrdinal: 1,
+      payload: { input: [{ id: "old-input", role: "user", content: "old turn" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-old-root",
+      response: { id: "resp-old-root", output: [{ id: "old-output", role: "assistant", content: "old answer" }] },
+      status: "completed",
+    });
+    const replayInput = [
+      { id: "old-input", role: "user", content: "old turn" },
+      { id: "old-output", role: "assistant", content: "old answer" },
+      { id: "current-input", role: "user", content: "current turn" },
+    ];
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-stateless-root",
+      turnOrdinal: 2,
+      payload: {
+        previous_response_id: "resp-old-root",
+        input: [{ id: "current-input", role: "user", content: "current turn" }],
+      },
+      committedInputItems: replayInput,
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-stateless-root",
+      previousResponseId: null,
+      response: {
+        id: "resp-stateless-root",
+        previous_response_id: null,
+        output: [{ id: "current-output", role: "assistant", content: "current answer" }],
+      },
+      status: "completed",
+    });
+
+    const first = await buildCodexEffectiveHistoryView({
+      stateDir,
+      sessionId,
+      headResponseId: "resp-stateless-root",
+    });
+    const restarted = await buildCodexEffectiveHistoryView({
+      stateDir,
+      sessionId,
+      headResponseId: "resp-stateless-root",
+    });
+
+    assert.equal(first.semanticComplete, true);
+    assert.deepEqual(first.turns.map((turn) => ({
+      turnSeq: turn.turnSeq,
+      inputCount: turn.inputItemIds.length,
+      outputCount: turn.outputItemIds.length,
+    })), [
+      { turnSeq: 1, inputCount: 1, outputCount: 1 },
+      { turnSeq: 2, inputCount: 1, outputCount: 1 },
+    ]);
+    assert.deepEqual(first.turns, restarted.turns);
+    const attributedItemIds = first.turns.flatMap((turn) => [
+      ...turn.inputItemIds,
+      ...turn.outputItemIds,
+    ]);
+    assert.equal(attributedItemIds.length, 4);
+    assert.equal(new Set(attributedItemIds).size, attributedItemIds.length);
+  });
+});
+
+test("CDH-04 Effective History View fails closed on ambiguous cross-turn replay attribution", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-ambiguous-stateless-root";
+    for (let turn = 1; turn <= 2; turn += 1) {
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turn}`,
+        turnOrdinal: turn,
+        payload: {
+          ...(turn > 1 ? { previous_response_id: "resp-1" } : {}),
+          input: [{ id: "provider-reused-input", role: "user", content: "same native item" }],
+        },
+        ...(turn === 2 ? {
+          committedInputItems: [
+            { id: "provider-reused-input", role: "user", content: "same native item" },
+          ],
+        } : {}),
+        status: "completed",
+      });
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turn}`,
+        ...(turn === 2 ? { previousResponseId: null } : {}),
+        response: {
+          id: `resp-${turn}`,
+          previous_response_id: turn === 2 ? null : undefined,
+          output: [],
+        },
+        status: "completed",
+      });
+    }
+
+    let legacyBootstrapCalled = false;
+    const view = await buildCodexEffectiveHistoryView({
+      stateDir,
+      sessionId,
+      headResponseId: "resp-2",
+      async rolloutParserBootstrap() {
+        legacyBootstrapCalled = true;
+        return null;
+      },
+    });
+
+    assert.equal(view.history.incomplete, false);
+    assert.equal(view.semanticComplete, false);
+    assert.equal(view.reasonCodes.includes("journal_turn_attribution_incomplete"), true);
+    assert.equal(legacyBootstrapCalled, false);
   });
 });
 
@@ -404,6 +707,172 @@ test("CDH-04 Effective History Builder merges rollout bootstrap with post-baseli
   });
 });
 
+test("CDH-04 Effective History View merges only evidenced rollout and proxy turns", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-rollout-view-merge";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      turnOrdinal: 2,
+      payload: {
+        previous_response_id: "resp-rollout-root",
+        input: [{ id: "proxy-input-2", role: "user", content: "proxy turn" }],
+      },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      response: {
+        id: "resp-proxy-2",
+        previous_response_id: "resp-rollout-root",
+        output: [{ id: "proxy-output-2", type: "message", role: "assistant", content: "proxy answer" }],
+      },
+      status: "completed",
+    });
+    const rolloutItem = {
+      stableItemId: "rollout-input-1",
+      nativeId: "rollout-input-1",
+      item: { id: "rollout-input-1", type: "message", role: "user", content: "rollout turn" },
+    };
+    const rolloutHistory = {
+      revision: "rollout-view-revision",
+      replayableItems: [rolloutItem],
+      observationOnlyItems: [],
+      deferredItems: [],
+      unresolvedCallIds: [],
+      source: "rollout_bootstrap" as const,
+      incomplete: false,
+    };
+
+    const view = await buildCodexEffectiveHistoryView({
+      stateDir,
+      sessionId,
+      headResponseId: "resp-proxy-2",
+      async rolloutViewBootstrap() {
+        return {
+          history: rolloutHistory,
+          turns: [{
+            turnSeq: 1,
+            turnAbsId: "wrong-host-id:t1",
+            inputItemIds: ["rollout-input-1", "removed-rollout-id"],
+            outputItemIds: [],
+          }, {
+            turnSeq: 2,
+            turnAbsId: "wrong-host-id:t2",
+            inputItemIds: [],
+            outputItemIds: ["rollout-input-1"],
+          }],
+          semanticComplete: true,
+          reasonCodes: [],
+        };
+      },
+    });
+
+    assert.equal(view.history.source, "rollout_proxy_merge");
+    assert.equal(view.semanticComplete, true);
+    assert.deepEqual(view.reasonCodes, []);
+    assert.deepEqual(view.turns.map((turn) => ({
+      turnSeq: turn.turnSeq,
+      turnAbsId: turn.turnAbsId,
+      inputCount: turn.inputItemIds.length,
+      outputCount: turn.outputItemIds.length,
+    })), [
+      { turnSeq: 1, turnAbsId: `${sessionId}:t1`, inputCount: 1, outputCount: 0 },
+      { turnSeq: 2, turnAbsId: `${sessionId}:t2`, inputCount: 1, outputCount: 1 },
+    ]);
+    const allAttributedIds = view.turns.flatMap((turn) => [
+      ...turn.inputItemIds,
+      ...turn.outputItemIds,
+    ]);
+    assert.equal(new Set(allAttributedIds).size, allAttributedIds.length);
+    assert.equal(allAttributedIds.includes("removed-rollout-id"), false);
+  });
+});
+
+test("CDH-04 Effective History View aligns local proxy ordinals after a rollout baseline", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-rollout-local-ordinal";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-after-rollout",
+      payload: {
+        previous_response_id: "resp-rollout-root",
+        input: [{ id: "proxy-input", role: "user", content: "after rollout" }],
+      },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-after-rollout",
+      response: {
+        id: "resp-proxy-head",
+        previous_response_id: "resp-rollout-root",
+        output: [{
+          id: "proxy-output",
+          type: "message",
+          role: "assistant",
+          content: "after rollout answer",
+        }],
+      },
+      status: "completed",
+    });
+    const rolloutItem = {
+      stableItemId: "rollout-input-7",
+      nativeId: "rollout-input-7",
+      item: {
+        id: "rollout-input-7",
+        type: "message",
+        role: "user",
+        content: "rollout baseline",
+      },
+    };
+
+    const view = await buildCodexEffectiveHistoryView({
+      stateDir,
+      sessionId,
+      headResponseId: "resp-proxy-head",
+      async rolloutViewBootstrap() {
+        return {
+          history: {
+            revision: "rollout-local-ordinal-revision",
+            replayableItems: [rolloutItem],
+            observationOnlyItems: [],
+            deferredItems: [],
+            unresolvedCallIds: [],
+            source: "rollout_bootstrap",
+            incomplete: false,
+          },
+          turns: [{
+            turnSeq: 7,
+            turnAbsId: `${sessionId}:t7`,
+            inputItemIds: [rolloutItem.stableItemId],
+            outputItemIds: [],
+          }],
+          semanticComplete: true,
+          reasonCodes: [],
+        };
+      },
+    });
+
+    assert.equal(view.semanticComplete, true);
+    assert.deepEqual(view.reasonCodes, []);
+    assert.deepEqual(view.turns.map((turn) => ({
+      turnSeq: turn.turnSeq,
+      turnAbsId: turn.turnAbsId,
+    })), [
+      { turnSeq: 7, turnAbsId: `${sessionId}:t7` },
+      { turnSeq: 8, turnAbsId: `${sessionId}:t8` },
+    ]);
+    assert.deepEqual(view.turns[1]?.inputItemIds.length, 1);
+    assert.deepEqual(view.turns[1]?.outputItemIds.length, 1);
+  });
+});
+
 test("CDH-04 Effective History Builder marks malformed SSE journals incomplete without dropping valid items", async () => {
   await withTempState(async (stateDir) => {
     await appendCodexRequestJournalEntry({
@@ -433,13 +902,16 @@ test("CDH-04 Effective History Builder marks malformed SSE journals incomplete w
       ),
     });
 
-    const history = await buildCodexEffectiveHistory({
+    const view = await buildCodexEffectiveHistoryView({
       stateDir,
       sessionId: "codex-session-1",
       headResponseId: "resp-malformed",
     });
+    const history = view.history;
 
     assert.equal(history.incomplete, true);
+    assert.equal(view.semanticComplete, false);
+    assert.equal(view.reasonCodes.includes("journal_malformed_stream"), true);
     assert.deepEqual(
       history.replayableItems.map((entry) => entry.item.type ?? entry.item.role),
       ["user", "message"],
