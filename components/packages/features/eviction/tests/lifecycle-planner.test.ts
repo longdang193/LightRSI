@@ -159,9 +159,17 @@ test("invalid planner inputs bypass before calling the estimator", async () => {
     estimator: countingEstimator,
     createdAt: " ",
   }));
+  const skippedWindow = await planLifecycleEviction(input({
+    estimator: countingEstimator,
+    delta: {
+      ...delta(3),
+      fromTurnSeqExclusive: 2,
+    },
+  }));
 
   assert.deepEqual(invalidBatch.reasonCodes, ["planner_input_invalid"]);
   assert.deepEqual(missingTimestamp.reasonCodes, ["planner_input_invalid"]);
+  assert.deepEqual(skippedWindow.reasonCodes, ["planner_input_invalid"]);
   assert.equal(calls, 0);
 });
 
@@ -225,7 +233,7 @@ test("successful no-op advances the watermark without reporting task changes", a
     estimator: estimator({ baseVersion: 0, taskUpdates: [] }),
   }));
 
-  assert.equal(result.status, "applied");
+  assert.equal(result.status, "completed");
   assert.equal(result.registry.lastProcessedTurnSeq, 3);
   assert.equal(result.registry.version, 1);
   assert.equal(result.registryUpdateRequired, true);
@@ -446,4 +454,68 @@ test("rejected task updates do not advance the registry watermark", async () => 
   assert.deepEqual(result.reasonCodes, ["task_updates_rejected"]);
   assert.equal(result.registry.lastProcessedTurnSeq, 0);
   assert.equal(result.rejectedUpdates.length, 1);
+});
+
+test("silently unmappable estimator updates do not advance the watermark", async () => {
+  const result = await planLifecycleEviction(input({
+    estimator: estimator({
+      baseVersion: 0,
+      taskUpdates: [{
+        taskId: "new-task",
+        objective: "new work",
+        lifecycle: "active",
+      }],
+    }),
+  }));
+
+  assert.equal(result.status, "deferred");
+  assert.deepEqual(result.reasonCodes, ["estimator_output_invalid"]);
+  assert.equal(result.registry.lastProcessedTurnSeq, 0);
+  assert.equal(result.registryUpdateRequired, false);
+});
+
+test("duplicate task updates and invalid usage are rejected", async () => {
+  const duplicate = {
+    taskId: "task-1",
+    objective: "work",
+    lifecycle: "active" as const,
+    coveredTurnAbsIds: [`${SESSION}:t1`],
+  };
+  const duplicateResult = await planLifecycleEviction(input({
+    estimator: estimator({ baseVersion: 0, taskUpdates: [duplicate, duplicate] }),
+  }));
+  const invalidUsage = await planLifecycleEviction(input({
+    estimator: estimator({
+      baseVersion: 0,
+      taskUpdates: [],
+      usage: { inputTokens: -1, outputTokens: 0, totalTokens: 0 },
+    }),
+  }));
+
+  assert.deepEqual(duplicateResult.reasonCodes, ["estimator_output_invalid"]);
+  assert.deepEqual(invalidUsage.reasonCodes, ["estimator_output_invalid"]);
+});
+
+test("invalid snapshots and non-canonical timestamps bypass before estimation", async () => {
+  let calls = 0;
+  const countingEstimator: TaskStateEstimator = {
+    estimate: async () => {
+      calls += 1;
+      return { baseVersion: 0, taskUpdates: [] };
+    },
+  };
+  const duplicateItemSnapshot = snapshot();
+  duplicateItemSnapshot.items.push({ ...duplicateItemSnapshot.items[0]! });
+  const invalidSnapshot = await planLifecycleEviction(input({
+    estimator: countingEstimator,
+    snapshot: duplicateItemSnapshot,
+  }));
+  const invalidTimestamp = await planLifecycleEviction(input({
+    estimator: countingEstimator,
+    createdAt: "August 13, 2026",
+  }));
+
+  assert.deepEqual(invalidSnapshot.reasonCodes, ["planner_input_invalid"]);
+  assert.deepEqual(invalidTimestamp.reasonCodes, ["planner_input_invalid"]);
+  assert.equal(calls, 0);
 });

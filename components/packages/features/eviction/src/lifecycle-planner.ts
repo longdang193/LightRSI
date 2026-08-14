@@ -8,6 +8,7 @@ import type {
   ContextMutationPlan,
   ModelContextSnapshot,
 } from "@lightmem2/host-adapter";
+import { MODEL_CONTEXT_REWRITE_SCHEMA_VERSION } from "@lightmem2/host-adapter";
 
 import { buildContextMutationPlanFromEviction } from "./context-mutation-plan.js";
 import { analyzeEvictionFromTaskRegistry } from "./planning/analyzer.js";
@@ -23,7 +24,7 @@ import type {
   TaskStateTransition,
 } from "./types.js";
 
-export type LifecyclePlannerStatus = "applied" | "deferred" | "bypassed";
+export type LifecyclePlannerStatus = "completed" | "deferred" | "bypassed";
 
 export type LifecyclePlannerReasonCode =
   | "planner_disabled"
@@ -121,19 +122,74 @@ function baseResult(
 function validEstimatorOutput(value: unknown): value is TaskStateEstimatorOutput {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const output = value as Partial<TaskStateEstimatorOutput>;
-  if (!Number.isInteger(output.baseVersion) || !Array.isArray(output.taskUpdates)) return false;
+  if (
+    !Number.isInteger(output.baseVersion)
+    || (output.baseVersion ?? -1) < 0
+    || !Array.isArray(output.taskUpdates)
+  ) return false;
   const optionalStringArray = (value: unknown): boolean =>
     value === undefined
-    || (Array.isArray(value) && value.every((entry) => typeof entry === "string"));
-  return output.taskUpdates.every((update) => {
+    || (Array.isArray(value) && value.every(
+      (entry) => typeof entry === "string" && entry.trim().length > 0,
+    ));
+  const optionalString = (value: unknown): boolean =>
+    value === undefined || typeof value === "string";
+  const taskIds = new Set<string>();
+  const updatesValid = output.taskUpdates.every((update) => {
     if (!update || typeof update !== "object" || Array.isArray(update)) return false;
-    return typeof update.taskId === "string"
-      && typeof update.objective === "string"
+    if (
+      typeof update.taskId !== "string"
+      || !update.taskId.trim()
+      || taskIds.has(update.taskId.trim())
+    ) return false;
+    taskIds.add(update.taskId.trim());
+    return typeof update.objective === "string"
+      && update.objective.trim().length > 0
       && ["active", "blocked", "completed", "evictable"].includes(update.lifecycle)
       && optionalStringArray(update.coveredTurnAbsIds)
       && optionalStringArray(update.completionEvidence)
-      && optionalStringArray(update.unresolvedQuestions);
+      && optionalStringArray(update.unresolvedQuestions)
+      && optionalString(update.title)
+      && optionalString(update.currentSubgoal)
+      && optionalString(update.evictableReason);
   });
+  if (!updatesValid) return false;
+  if (output.usage === undefined) return true;
+  const usage = output.usage as Partial<NonNullable<TaskStateEstimatorOutput["usage"]>>;
+  return [usage.inputTokens, usage.outputTokens, usage.totalTokens].every(
+    (entry) => typeof entry === "number" && Number.isFinite(entry) && entry >= 0,
+  ) && (
+    usage.costUsd === undefined
+    || (typeof usage.costUsd === "number" && Number.isFinite(usage.costUsd) && usage.costUsd >= 0)
+  );
+}
+
+function canonicalTimestamp(value: string): boolean {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+}
+
+function validPlannerEnvelope(input: LifecyclePlannerInput<unknown>): boolean {
+  const { delta, registry, snapshot } = input;
+  const stableIds = snapshot.items.map((item) => item.stableId);
+  return Number.isInteger(registry.version)
+    && registry.version >= 0
+    && Number.isInteger(registry.lastProcessedTurnSeq)
+    && registry.lastProcessedTurnSeq >= 0
+    && Number.isInteger(delta.fromTurnSeqExclusive)
+    && delta.fromTurnSeqExclusive >= 0
+    && delta.fromTurnSeqExclusive === registry.lastProcessedTurnSeq
+    && Number.isInteger(delta.toTurnSeqInclusive)
+    && delta.toTurnSeqInclusive > delta.fromTurnSeqExclusive
+    && snapshot.schemaVersion === MODEL_CONTEXT_REWRITE_SCHEMA_VERSION
+    && snapshot.hostId.trim().length > 0
+    && snapshot.sessionId.trim().length > 0
+    && snapshot.revision.trim().length > 0
+    && stableIds.length === new Set(stableIds).size
+    && snapshot.items.every(
+      (item) => item.stableId.trim().length > 0 && item.fingerprint.trim().length > 0,
+    )
+    && canonicalTimestamp(input.createdAt);
 }
 
 function blockTaskIds(block: HistoryBlock, registry: SessionTaskRegistry): string[] {
@@ -212,7 +268,7 @@ export async function planLifecycleEviction<TAdapterMetadata = never>(
     || input.config.batchTurns < 1
     || !Number.isInteger(input.pendingTurnCount)
     || input.pendingTurnCount < 0
-    || !input.createdAt.trim()
+    || !validPlannerEnvelope(input)
   ) {
     return baseResult(input, "bypassed", ["planner_input_invalid"]);
   }
@@ -229,7 +285,7 @@ export async function planLifecycleEviction<TAdapterMetadata = never>(
   if (
     input.registry.sessionId !== input.snapshot.sessionId
     || input.delta.coveredTurnAbsIds.some(
-      (turnId) => !turnId.startsWith(`${input.registry.sessionId}:`),
+      (turnId) => !turnId.startsWith(`${input.registry.sessionId}:t`),
     )
   ) {
     return baseResult(input, "bypassed", ["session_mismatch"]);
@@ -280,6 +336,10 @@ export async function planLifecycleEviction<TAdapterMetadata = never>(
       estimatorUsage: output.usage,
     };
   }
+  if (mapped.transitions.length !== output.taskUpdates.length) {
+    const result = baseResult(input, "deferred", ["estimator_output_invalid"], true);
+    return { ...result, estimatorUsage: output.usage };
+  }
 
   const registry = applySessionTaskRegistryPatch(input.registry, mapped.patch);
   const registryChanged = taskStateChanged(input.registry, registry);
@@ -312,7 +372,7 @@ export async function planLifecycleEviction<TAdapterMetadata = never>(
   }
 
   return {
-    status: "applied",
+    status: "completed",
     reasonCodes,
     registry,
     expectedRegistryVersion: input.registry.version,
