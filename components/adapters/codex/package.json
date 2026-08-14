@@ -17,7 +17,7 @@
     "directory": "components/adapters/codex"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.13.0"
   },
   "dependencies": {
     "@lightmem2/artifact-store": "workspace:*",
