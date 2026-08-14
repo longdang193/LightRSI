@@ -6,4 +6,5 @@ export * from "./task-state-estimator.js";
 export * from "./task-update-mapper.js";
 export * from "./history-apply.js";
 export * from "./lifecycle-policy-context.js";
+export * from "./lifecycle-planner.js";
 export * from "./context-mutation-plan.js";
