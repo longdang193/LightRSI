@@ -10,6 +10,7 @@ import {
   assertStablePrefixRewrite,
   type HostGatewayForwarder,
 } from "@lightmem2/host-adapter";
+import { loadSessionTaskRegistry, persistSessionTaskRegistry } from "@lightmem2/history";
 import { readVisualSessionData, readVisualSessionList } from "@lightmem2/product-surface";
 import { normalizeTokenPilotClaudeCodeConfig } from "../src/config.js";
 import { startClaudeCodeGatewayRuntime } from "../src/gateway-runtime.js";
@@ -1517,6 +1518,204 @@ test("gateway persists a task registry when the injected estimator returns updat
     const registry = JSON.parse(registryRaw) as { sessionId: string; version: number };
     assert.equal(registry.sessionId, "sess-sem-ok");
     assert.ok(registry.version >= 1);
+  } finally {
+    await runtime.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("lifecycle estimator rewrites the real Claude upstream payload", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-lifecycle-e2e-"));
+  const proxyPort = await reserveUnusedPort();
+  const seenPayloads: Array<Record<string, unknown>> = [];
+  const bigToolResult = "EVICT_ME_" + "x".repeat(5000);
+  const forwarder: HostGatewayForwarder = {
+    async request(params) {
+      seenPayloads.push(params.payload as Record<string, unknown>);
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        text: JSON.stringify({
+          id: `msg_lifecycle_${seenPayloads.length}`,
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text: "ok" }],
+          usage: { input_tokens: 10, output_tokens: 3 },
+          stop_reason: "end_turn",
+        }),
+      };
+    },
+    async requestStream() { throw new Error("stream not used"); },
+  };
+  let estimateCount = 0;
+  const resolveEstimator = () => ({
+    estimate({ registry, delta }: { registry: { version: number }; delta: { coveredTurnAbsIds: string[] } }) {
+      estimateCount += 1;
+      const evictable = estimateCount > 1;
+      return {
+        baseVersion: registry.version,
+        taskUpdates: [{
+          taskId: "task-lifecycle-e2e",
+          lifecycle: evictable ? "evictable" : "completed",
+          objective: "read and finish the file task",
+          completionEvidence: ["assistant confirmed the task is complete"],
+          coveredTurnAbsIds: delta.coveredTurnAbsIds,
+        }],
+      };
+    },
+  });
+  const runtime = await startClaudeCodeGatewayRuntime({
+    config: normalizeTokenPilotClaudeCodeConfig({
+      stateDir: join(dir, "state"),
+      proxyPort,
+      modules: { stabilizer: false, reduction: false, eviction: true },
+      eviction: { enabled: true, minBlockChars: 256 },
+      taskStateEstimator: { enabled: true, batchTurns: 1 },
+    }),
+    logger: createConsoleLogger(false),
+    forwarder,
+    dependencies: { resolveEstimator: resolveEstimator as never },
+  });
+
+  const toolHistory = [
+    { role: "user", content: [{ type: "text", text: "read the file" }] },
+    {
+      role: "assistant",
+      content: [{ type: "tool_use", id: "toolu_lifecycle_e2e", name: "Read", input: { file_path: "/repo/data.txt" } }],
+    },
+    {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "toolu_lifecycle_e2e", content: bigToolResult }],
+    },
+  ];
+
+  async function send(messages: unknown[]): Promise<void> {
+    const response = await fetch(`${runtime.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "sess-lifecycle-e2e" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", stream: false, messages, max_tokens: 128 }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+  }
+
+  try {
+    // First pass establishes completion evidence and the tool call's turn anchor.
+    await send(toolHistory);
+    // The second estimate promotes the same task to evictable. The old tool
+    // result is now outside the current user turn and must be mapped back to t1.
+    await send([
+      ...toolHistory,
+      { role: "assistant", content: [{ type: "text", text: "task complete" }] },
+      { role: "user", content: [{ type: "text", text: "KEEP_ME_current_turn" }] },
+    ]);
+
+    assert.equal(seenPayloads.length, 2);
+    const secondMessages = seenPayloads[1]!.messages as Array<Record<string, unknown>>;
+    assert.equal(JSON.stringify(seenPayloads[1]).includes(bigToolResult), false);
+    const toolUse = (secondMessages[1]!.content as Array<Record<string, unknown>>)[0];
+    const toolResult = (secondMessages[2]!.content as Array<Record<string, unknown>>)[0];
+    assert.equal(toolUse.id, "toolu_lifecycle_e2e");
+    assert.equal(toolResult.tool_use_id, "toolu_lifecycle_e2e");
+    assert.match(String(toolResult.content), /Tool payload trimmed|evicted: earlier tool result/);
+    assert.equal((secondMessages.at(-1)!.content as Array<Record<string, unknown>>)[0]!.text, "KEEP_ME_current_turn");
+
+    const trace = (await readFile(join(dir, "state", "event-trace.jsonl"), "utf8"))
+      .trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    const beforeCall = trace.filter((entry) => entry.stage === "gateway_before_call").at(-1);
+    assert.equal(beforeCall?.evictionPlanSource, "lifecycle");
+    assert.equal(beforeCall?.evictionApplied, true);
+  } finally {
+    await runtime.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("lifecycle registry persistence failure bypasses the plan and heuristic fallback", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-lifecycle-cas-"));
+  const proxyPort = await reserveUnusedPort();
+  const seenPayloads: Array<Record<string, unknown>> = [];
+  const bigToolResult = "EVICT_ME_" + "x".repeat(5000);
+  const forwarder: HostGatewayForwarder = {
+    async request(params) {
+      seenPayloads.push(params.payload as Record<string, unknown>);
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        text: JSON.stringify({ id: `msg_cas_${seenPayloads.length}`, type: "message", role: "assistant", content: [], stop_reason: "end_turn" }),
+      };
+    },
+    async requestStream() { throw new Error("stream not used"); },
+  };
+  let estimateCount = 0;
+  const resolveEstimator = () => ({
+    estimate({ registry, delta }: { registry: { version: number }; delta: { coveredTurnAbsIds: string[] } }) {
+      estimateCount += 1;
+      return {
+        baseVersion: registry.version,
+        taskUpdates: [{
+          taskId: "task-cas-e2e",
+          lifecycle: estimateCount > 1 ? "evictable" : "completed",
+          objective: "finish the file task",
+          completionEvidence: ["done"],
+          coveredTurnAbsIds: delta.coveredTurnAbsIds,
+        }],
+      };
+    },
+  });
+  let persistCount = 0;
+  const persistTaskRegistry: typeof persistSessionTaskRegistry = async (...args) => {
+    persistCount += 1;
+    if (persistCount === 2) throw new Error("simulated registry CAS conflict");
+    return persistSessionTaskRegistry(...args);
+  };
+  const runtime = await startClaudeCodeGatewayRuntime({
+    config: normalizeTokenPilotClaudeCodeConfig({
+      stateDir: join(dir, "state"),
+      proxyPort,
+      modules: { stabilizer: false, reduction: false, eviction: true },
+      eviction: { enabled: true, minBlockChars: 256 },
+      taskStateEstimator: { enabled: true, batchTurns: 1 },
+    }),
+    logger: createConsoleLogger(false),
+    forwarder,
+    dependencies: {
+      resolveEstimator: resolveEstimator as never,
+      persistTaskRegistry,
+    },
+  });
+  const firstMessages = [
+    { role: "user", content: [{ type: "text", text: "read" }] },
+    { role: "assistant", content: [{ type: "tool_use", id: "toolu_cas_e2e", name: "Read", input: { file_path: "/repo/data.txt" } }] },
+    { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_cas_e2e", content: bigToolResult }] },
+  ];
+  async function send(messages: unknown[]): Promise<void> {
+    const response = await fetch(`${runtime.baseUrl}/v1/messages`, {
+      method: "POST", headers: { "content-type": "application/json", "x-session-id": "sess-cas-e2e" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", stream: false, messages, max_tokens: 64 }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+  }
+  try {
+    await send(firstMessages);
+    await send([
+      ...firstMessages,
+      { role: "assistant", content: [{ type: "text", text: "done" }] },
+      { role: "user", content: [{ type: "text", text: "KEEP_ME_current_turn" }] },
+    ]);
+    assert.equal(seenPayloads.length, 2);
+    assert.equal(JSON.stringify(seenPayloads[1]).includes(bigToolResult), true);
+    const casMessages = seenPayloads[1]!.messages as Array<Record<string, unknown>>;
+    const casToolResult = (casMessages[2]!.content as Array<Record<string, unknown>>)[0];
+    assert.equal(casToolResult.content, bigToolResult);
+    const trace = (await readFile(join(dir, "state", "event-trace.jsonl"), "utf8"))
+      .trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    const beforeCall = trace.filter((entry) => entry.stage === "gateway_before_call").at(-1);
+    assert.equal(beforeCall?.evictionPlanSource, "none");
+    assert.equal(beforeCall?.evictionApplied, false);
+    const registry = await loadSessionTaskRegistry(join(dir, "state"), "sess-cas-e2e");
+    assert.equal(registry.tasks["task-cas-e2e"]?.lifecycle, "completed");
   } finally {
     await runtime.close();
     await rm(dir, { recursive: true, force: true });

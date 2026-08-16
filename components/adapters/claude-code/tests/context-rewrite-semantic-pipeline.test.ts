@@ -11,7 +11,10 @@ import {
   type DeltaView,
 } from "@lightmem2/history";
 import type { TaskStateEstimator } from "@lightmem2/eviction";
-import { runSemanticPipeline } from "../src/context-rewrite/semantic-pipeline.js";
+import {
+  buildUniqueToolCallTurnMap,
+  runSemanticPipeline,
+} from "../src/context-rewrite/semantic-pipeline.js";
 import { updateRegistryFromDelta as realUpdateRegistryFromDelta } from "../src/context-rewrite/task-registry-update.js";
 
 async function tempStateDir(): Promise<string> {
@@ -257,4 +260,32 @@ test("an internal error fails open (ran=false, request path unaffected)", async 
   assert.equal(result.ran, false);
   assert.equal(result.changed, false);
   assert.equal(result.note, "pipeline_error");
+});
+
+test("tool call attribution fails closed when a call id appears in multiple turns", () => {
+  const anchor = (turnSeq: number) => ({
+    sessionId: "sess-map",
+    turnAbsId: `sess-map:t${turnSeq}`,
+    turnSeq,
+    role: "tool" as const,
+  });
+  const turns = [1, 2].map((turnSeq) => ({
+    sessionId: "sess-map",
+    turnSeq,
+    turnAbsId: `sess-map:t${turnSeq}`,
+    messages: [],
+    toolCalls: [{
+      anchor: anchor(turnSeq),
+      toolCallId: "duplicate-call-id",
+      toolName: "Read",
+      argumentsSummary: "{}",
+    }],
+    toolResults: [],
+  }));
+
+  assert.equal(buildUniqueToolCallTurnMap(turns).has("duplicate-call-id"), false);
+  assert.equal(
+    buildUniqueToolCallTurnMap([turns[0]!]).get("duplicate-call-id"),
+    "sess-map:t1",
+  );
 });

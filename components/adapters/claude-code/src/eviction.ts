@@ -136,6 +136,7 @@ function collectToolProtocol(
 
 export function buildToolResultSegments(
   messages: unknown[],
+  turnAbsIdByToolCallId?: ReadonlyMap<string, string>,
 ): { segments: ContextSegment[]; bindings: Map<string, ToolResultBinding> } {
   const { toolUses, validResultIds } = collectToolProtocol(messages);
   const segments: ContextSegment[] = [];
@@ -160,6 +161,7 @@ export function buildToolResultSegments(
       if (!toolUseId || !validResultIds.has(toolUseId)) continue;
       const descriptor = toolUses.get(toolUseId);
       if (!descriptor) continue;
+      const turnAbsId = turnAbsIdByToolCallId?.get(toolUseId);
       const segmentId = toolResultSegmentId(toolUseId);
       const toolPayload: Record<string, unknown> = { toolName: descriptor.name };
       if (descriptor.dataKey) toolPayload.path = descriptor.dataKey;
@@ -175,6 +177,7 @@ export function buildToolResultSegments(
           toolUseId,
           toolName: descriptor.name,
           toolPayload,
+          ...(turnAbsId ? { turnAbsId } : {}),
         },
       });
       bindings.set(segmentId, { segmentId, messageIndex, blockIndex, toolUseId });
@@ -210,8 +213,9 @@ export function buildClaudeHistoryBlocks(
   sessionId: string,
   model: string,
   messages: unknown[],
+  turnAbsIdByToolCallId?: ReadonlyMap<string, string>,
 ): HistoryBlock[] {
-  const { segments } = buildToolResultSegments(messages);
+  const { segments } = buildToolResultSegments(messages, turnAbsIdByToolCallId);
   const { blocks } = buildHistoryBlocks(buildTurnContext(sessionId, model, segments));
   return blocks;
 }

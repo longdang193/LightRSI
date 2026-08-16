@@ -51,8 +51,31 @@ export type SemanticDeltaPreparation =
       isNewRequest: boolean;
       registry: SessionTaskRegistry;
       delta: DeltaView;
+      turnAbsIdByToolCallId: ReadonlyMap<string, string>;
     }
   | { ok: false; turnSeq?: number; note: string };
+
+export function buildUniqueToolCallTurnMap(
+  turns: readonly RawSemanticTurnRecord[],
+): ReadonlyMap<string, string> {
+  const turnIdsByCallId = new Map<string, Set<string>>();
+  for (const turn of turns) {
+    for (const item of [...turn.toolCalls, ...turn.toolResults]) {
+      const callId = item.toolCallId.trim();
+      const turnAbsId = item.anchor.turnAbsId.trim();
+      if (!callId || !turnAbsId) continue;
+      const turnIds = turnIdsByCallId.get(callId) ?? new Set<string>();
+      turnIds.add(turnAbsId);
+      turnIdsByCallId.set(callId, turnIds);
+    }
+  }
+
+  const result = new Map<string, string>();
+  for (const [callId, turnIds] of turnIdsByCallId) {
+    if (turnIds.size === 1) result.set(callId, [...turnIds][0]!);
+  }
+  return result;
+}
 
 /**
  * Prepare the (lastProcessed, now] semantic-delta materials for one Claude
@@ -95,15 +118,18 @@ export async function prepareSemanticDelta(params: {
     return { ok: false, turnSeq, note: "already_processed" };
   }
 
-  // Load only the (lastProcessed, now] interval of persisted turn records.
+  // Load the full persisted record set for stable historical tool attribution;
+  // build the estimator delta from the requested (lastProcessed, now] window.
   const allSeqs = await listRawSemanticTurnSeqs(stateDir, sessionId);
   const intervalSeqs = allSeqs.filter(
     (seq) => seq > fromTurnSeqExclusive && seq <= turnSeq,
   );
   const loaded = await Promise.all(
-    intervalSeqs.map((seq) => loadRawSemanticTurnRecord(stateDir, sessionId, seq)),
+    allSeqs.map((seq) => loadRawSemanticTurnRecord(stateDir, sessionId, seq)),
   );
-  const turns = loaded.filter((r): r is RawSemanticTurnRecord => r !== null);
+  const allTurns = loaded.filter((r): r is RawSemanticTurnRecord => r !== null);
+  const intervalSeqSet = new Set(intervalSeqs);
+  const turns = allTurns.filter((turn) => intervalSeqSet.has(turn.turnSeq));
 
   const snapshot = buildRawSemanticSnapshot({ sessionId, turns });
   const delta = buildDeltaViewFromRawSemanticSnapshot(snapshot, {
@@ -111,7 +137,14 @@ export async function prepareSemanticDelta(params: {
     toTurnSeqInclusive: turnSeq,
   });
 
-  return { ok: true, turnSeq, isNewRequest, registry, delta };
+  return {
+    ok: true,
+    turnSeq,
+    isNewRequest,
+    registry,
+    delta,
+    turnAbsIdByToolCallId: buildUniqueToolCallTurnMap(allTurns),
+  };
 }
 
 export async function runSemanticPipeline(params: {

@@ -21,6 +21,7 @@ import {
   prepareObservedBeforeCall,
 } from "@lightmem2/product-surface";
 import { configureStatePathResolver } from "@lightmem2/artifact-store";
+import type { RuntimeMessage } from "@lightmem2/kernel";
 import type { TokenPilotClaudeCodeConfig } from "./config.js";
 import { proxyBaseUrlForPort } from "./config.js";
 import type { TokenPilotClaudeCodeLogger } from "./logger.js";
@@ -73,7 +74,10 @@ export type ClaudeCodeGatewayRuntime = {
 type ClaudeCodeGatewayRuntimeDependencies = {
   cloneRequestPayload?: typeof structuredClone;
   resolveEstimator?: typeof resolveClaudeTaskStateEstimator;
+  persistTaskRegistry?: typeof persistSessionTaskRegistry;
 };
+
+const CLAUDE_LIFECYCLE_PLAN_SOURCE = "claude-lifecycle";
 
 function isSyntheticClaudeSessionId(sessionId: string): boolean {
   return sessionId.startsWith("claude-synth-");
@@ -338,6 +342,9 @@ export async function startClaudeCodeGatewayRuntime(params: {
         ? envelope.metadata.inputText
         : "";
       const sessionId = await resolveObservedClaudeSessionId(config.stateDir, envelope.session.sessionId);
+      const plannerMessages = Array.isArray((payload as Record<string, unknown>).messages)
+        ? (payload as Record<string, unknown>).messages as unknown[]
+        : [];
 
       const evictionEnabled = config.modules.eviction && config.eviction.enabled;
       let evictionSummary: ClaudeEvictionApplySummary = {
@@ -351,6 +358,10 @@ export async function startClaudeCodeGatewayRuntime(params: {
       let evictionBypassReason: string | undefined;
       let activePlanId: string | undefined;
       let activePlanStatus: "active" | "applied" | undefined;
+      let evictionPlanSource: "lifecycle" | "heuristic" | "none" = "none";
+      let lifecyclePlannerStatus: "completed" | "deferred" | "bypassed" | "not_configured" = "not_configured";
+      let lifecyclePlannerReasonCodes: string[] = [];
+      let lifecycleRegistryVersion: number | undefined;
 
       // Lifecycle planner (estimator-driven). Runs UNCONDITIONALLY (independent
       // of the eviction toggle) so registry updates happen every turn, exactly
@@ -358,33 +369,50 @@ export async function startClaudeCodeGatewayRuntime(params: {
       // execution below is gated by evictionEnabled. Fail-open: any error leaves
       // plannerPlan undefined and the request proceeds unchanged.
       let plannerPlan: ReturnType<typeof buildContextMutationPlan> | undefined;
-      const lifecycleEstimator = (params.dependencies?.resolveEstimator ?? resolveClaudeTaskStateEstimator)({
-        config: config.taskStateEstimator,
-        env: process.env,
-      });
+      let lifecycleEstimator: ReturnType<typeof resolveClaudeTaskStateEstimator>;
+      try {
+        lifecycleEstimator = (params.dependencies?.resolveEstimator ?? resolveClaudeTaskStateEstimator)({
+          config: config.taskStateEstimator,
+          env: process.env,
+        });
+      } catch (error) {
+        lifecycleEstimator = undefined;
+        lifecyclePlannerStatus = "bypassed";
+        lifecyclePlannerReasonCodes = ["estimator_resolver_error"];
+        logger.warn(`lifecycle estimator resolver failed (ignored): ${String(error)}`);
+      }
       if (lifecycleEstimator) {
         try {
           const prep = await prepareSemanticDelta({
             stateDir: config.stateDir,
             sessionId,
-            messages: envelope.messages,
+            messages: plannerMessages,
           });
           if (prep.ok) {
             const plannerRevision = _createHash("sha256")
-              .update(JSON.stringify(envelope.messages))
+              .update(JSON.stringify(plannerMessages))
               .digest("hex")
               .slice(0, 32);
-            const { bindings: plannerBindings } = buildToolResultSegments(envelope.messages);
+            const { bindings: plannerBindings } = buildToolResultSegments(plannerMessages);
             const plannerSnapshot = await claudeContextRewriteBackend.readSnapshot({
               sessionId,
-              request: { sessionId, revision: plannerRevision, messages: envelope.messages },
+              request: {
+                sessionId,
+                revision: plannerRevision,
+                messages: plannerMessages as unknown as RuntimeMessage[],
+              },
             });
             const plannerResult = await planLifecycleEviction({
               registry: prep.registry,
               delta: prep.delta,
               pendingTurnCount: prep.turnSeq - prep.registry.lastProcessedTurnSeq,
               estimator: lifecycleEstimator,
-              historyBlocks: buildClaudeHistoryBlocks(sessionId, envelope.model, envelope.messages),
+              historyBlocks: buildClaudeHistoryBlocks(
+                sessionId,
+                envelope.model,
+                plannerMessages,
+                prep.turnAbsIdByToolCallId,
+              ),
               snapshot: plannerSnapshot,
               stableItemIdsByMessageId: buildSegmentToStableIdMap(sessionId, plannerBindings),
               config: {
@@ -395,21 +423,37 @@ export async function startClaudeCodeGatewayRuntime(params: {
                 evictionMinBlockChars: config.eviction.minBlockChars,
               } satisfies LifecyclePlannerConfig,
               createdAt: new Date().toISOString(),
+              sourcePresetId: CLAUDE_LIFECYCLE_PLAN_SOURCE,
             });
+            lifecyclePlannerStatus = plannerResult.status;
+            lifecyclePlannerReasonCodes = plannerResult.reasonCodes;
+            lifecycleRegistryVersion = plannerResult.registry.version;
+            let registryCommitted = !plannerResult.registryUpdateRequired;
             if (plannerResult.registryUpdateRequired) {
               try {
-                await persistSessionTaskRegistry(config.stateDir, plannerResult.registry, {
+                await (params.dependencies?.persistTaskRegistry ?? persistSessionTaskRegistry)(config.stateDir, plannerResult.registry, {
                   expectedVersion: plannerResult.expectedRegistryVersion,
                 });
+                registryCommitted = true;
               } catch (error) {
                 logger.warn(`lifecycle registry persist failed (ignored): ${String(error)}`);
+                lifecyclePlannerReasonCodes = [
+                  ...lifecyclePlannerReasonCodes,
+                  "registry_persist_failed",
+                ];
               }
             }
-            if (plannerResult.status === "completed" && plannerResult.plan) {
+            if (registryCommitted && plannerResult.status === "completed" && plannerResult.plan) {
               plannerPlan = plannerResult.plan;
+              evictionPlanSource = "lifecycle";
             }
+          } else {
+            lifecyclePlannerStatus = "deferred";
+            lifecyclePlannerReasonCodes = [prep.note];
           }
         } catch (error) {
+          lifecyclePlannerStatus = "bypassed";
+          lifecyclePlannerReasonCodes = ["planner_runtime_error"];
           logger.warn(`lifecycle planner failed (ignored): ${String(error)}`);
         }
       }
@@ -426,14 +470,23 @@ export async function startClaudeCodeGatewayRuntime(params: {
             .digest("hex")
             .slice(0, 32);
 
-          const analysis = analyzeClaudeEviction({
-            sessionId,
-            model: envelope.model,
-            messages: overlayMessages,
-            config: { enabled: true, minBlockChars: config.eviction.minBlockChars },
-          });
+          const analysis = lifecycleEstimator
+            ? {
+                enabled: true,
+                changed: false,
+                evictedBlockIds: [],
+                savedChars: 0,
+                selections: [],
+              }
+            : analyzeClaudeEviction({
+                sessionId,
+                model: envelope.model,
+                messages: overlayMessages,
+                config: { enabled: true, minBlockChars: config.eviction.minBlockChars },
+              });
 
-          if (plannerPlan || (analysis.changed && analysis.selections.length > 0)) {
+          if (plannerPlan || (!lifecycleEstimator && analysis.changed && analysis.selections.length > 0)) {
+            if (!plannerPlan) evictionPlanSource = "heuristic";
             const { bindings } = buildToolResultSegments(overlayMessages);
             const segmentLocations = new Map(
               [...bindings.entries()].map(([segmentId, binding]) => [
@@ -451,13 +504,18 @@ export async function startClaudeCodeGatewayRuntime(params: {
             // session so the overlay has a durable, restart-surviving view of the
             // current turn (§4.5 claude-context). Fail-open, never blocks the request.
             await saveLatestClaudeSnapshot(config.stateDir, sessionId, snapshot);
-            const loaded = await loadActiveContextMutationPlans({
-              stateDir: config.stateDir,
-              sessionId,
-            });
+            const loaded = plannerPlan
+              ? { plans: [], bypassed: false, reasons: [] }
+              : await loadActiveContextMutationPlans({
+                  stateDir: config.stateDir,
+                  sessionId,
+                });
             if (loaded.bypassed) {
               throw new Error(`context mutation plan store unavailable: ${loaded.reasons.join(",")}`);
             }
+            const replayablePlans = loaded.plans.filter(
+              (candidate) => candidate.sourcePresetId !== CLAUDE_LIFECYCLE_PLAN_SOURCE,
+            );
             // Relocate any active plan onto the CURRENT snapshot: a later turn
             // may have shifted item positions (new stableIds + revision) while
             // the underlying content is unchanged, so an exact-revision match
@@ -478,7 +536,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
               }
               activePlanStatus = stored.status;
             }
-            for (const candidate of plannerPlan ? [] : loaded.plans) {
+            for (const candidate of replayablePlans) {
               const { plan: relocatedPlan, relocated } = relocateContextMutationPlan({
                 snapshot,
                 plan: candidate,
@@ -498,7 +556,8 @@ export async function startClaudeCodeGatewayRuntime(params: {
             }
             if (!plannerPlan && !replayedFromStore) {
               const persistedPlan = loaded.plans.find(
-                (candidate) => candidate.baseRevision === snapshot.revision,
+                (candidate) => candidate.sourcePresetId !== CLAUDE_LIFECYCLE_PLAN_SOURCE
+                  && candidate.baseRevision === snapshot.revision,
               );
               if (persistedPlan) {
                 plan = persistedPlan;
@@ -718,6 +777,10 @@ export async function startClaudeCodeGatewayRuntime(params: {
         evictionChangedMessages: evictionSummary.evictedMessageCount,
         evictionChangedToolResults: evictionSummary.evictedToolResultCount,
         evictionBypassReason: evictionBypassReason ?? null,
+        evictionPlanSource,
+        lifecyclePlannerStatus,
+        lifecyclePlannerReasonCodes,
+        lifecycleRegistryVersion: lifecycleRegistryVersion ?? null,
       });
 
       if (prepared.envelope.stream) {
