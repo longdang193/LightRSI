@@ -1,0 +1,376 @@
+{
+  "schema": "lightmem2.lifecycle-planner-fixtures/v1",
+  "cases": [
+    {
+      "id": "completed-tool-pair-evicts-current-keeps",
+      "description": "A completed task with evidence becomes evictable, while the current task and its turn remain protected.",
+      "input": {
+        "registry": {
+          "sessionId": "gua-lifecycle-happy",
+          "version": 2,
+          "tasks": {
+            "task-completed": {
+              "taskId": "task-completed",
+              "title": "Completed tool task",
+              "objective": "Finish the old tool-backed task",
+              "lifecycle": "completed",
+              "completionEvidence": ["tool result confirmed completion"],
+              "unresolvedQuestions": [],
+              "span": {
+                "firstTurnAbsId": "gua-lifecycle-happy:t1",
+                "lastTurnAbsId": "gua-lifecycle-happy:t1",
+                "supportingTurnAbsIds": ["gua-lifecycle-happy:t1"],
+                "lastEstimatorTurnAbsId": "gua-lifecycle-happy:t1"
+              }
+            },
+            "task-current": {
+              "taskId": "task-current",
+              "title": "Current task",
+              "objective": "Continue the current user request",
+              "lifecycle": "active",
+              "completionEvidence": [],
+              "unresolvedQuestions": [],
+              "span": {
+                "firstTurnAbsId": "gua-lifecycle-happy:t2",
+                "lastTurnAbsId": "gua-lifecycle-happy:t2",
+                "supportingTurnAbsIds": ["gua-lifecycle-happy:t2"],
+                "lastEstimatorTurnAbsId": "gua-lifecycle-happy:t2"
+              }
+            }
+          },
+          "activeTaskIds": ["task-current"],
+          "completedTaskIds": ["task-completed"],
+          "evictableTaskIds": [],
+          "taskToBlockIds": {
+            "task-completed": ["block-completed"],
+            "task-current": ["block-current"]
+          },
+          "blockToTaskIds": {
+            "block-completed": ["task-completed"],
+            "block-current": ["task-current"]
+          },
+          "turnToTaskIds": {
+            "gua-lifecycle-happy:t1": ["task-completed"],
+            "gua-lifecycle-happy:t2": ["task-current"]
+          },
+          "lastProcessedTurnSeq": 0
+        },
+        "delta": {
+          "fromTurnSeqExclusive": 0,
+          "toTurnSeqInclusive": 2,
+          "coveredTurnAbsIds": ["gua-lifecycle-happy:t2"],
+          "messages": [
+            {
+              "anchor": {
+                "sessionId": "gua-lifecycle-happy",
+                "turnAbsId": "gua-lifecycle-happy:t2",
+                "turnSeq": 2,
+                "role": "user"
+              },
+              "role": "user",
+              "text": "KEEP_ME_current_task",
+              "source": "raw"
+            }
+          ],
+          "toolCalls": [],
+          "toolResults": [],
+          "filesRead": [],
+          "filesWritten": [],
+          "currentActiveTaskHint": "task-current"
+        },
+        "pendingTurnCount": 2,
+        "estimator": {
+          "kind": "output",
+          "output": {
+            "baseVersion": 2,
+            "taskUpdates": [
+              {
+                "taskId": "task-completed",
+                "objective": "Finish the old tool-backed task",
+                "lifecycle": "evictable",
+                "completionEvidence": ["tool result confirmed completion"],
+                "unresolvedQuestions": [],
+                "evictableReason": "completed task is outside the active window"
+              }
+            ]
+          }
+        },
+        "historyBlocks": [
+          {
+            "blockId": "block-completed",
+            "blockType": "tool_result",
+            "lifecycleState": "EVICTABLE",
+            "segmentIds": ["item-tool-call-evict", "item-tool-result-evict"],
+            "taskIds": ["task-completed"],
+            "turnAbsIds": ["gua-lifecycle-happy:t1"],
+            "text": "EVICT_ME_completed_tool_pair",
+            "charCount": 1200,
+            "approxTokens": 300
+          },
+          {
+            "blockId": "block-current",
+            "blockType": "assistant_reply",
+            "lifecycleState": "ACTIVE",
+            "segmentIds": ["item-current-keep"],
+            "taskIds": ["task-current"],
+            "turnAbsIds": ["gua-lifecycle-happy:t2"],
+            "text": "KEEP_ME_current_task",
+            "charCount": 320,
+            "approxTokens": 80
+          }
+        ],
+        "snapshot": {
+          "schemaVersion": 1,
+          "hostId": "fixture-host",
+          "sessionId": "gua-lifecycle-happy",
+          "revision": "fixture-revision-happy-v1",
+          "items": [
+            {
+              "stableId": "item-tool-call-evict",
+              "kind": "tool_call",
+              "callId": "call-evict-001",
+              "taskIds": ["task-completed"],
+              "fingerprint": "fixture-fingerprint-tool-call-evict",
+              "chars": 400
+            },
+            {
+              "stableId": "item-tool-result-evict",
+              "kind": "tool_result",
+              "callId": "call-evict-001",
+              "taskIds": ["task-completed"],
+              "fingerprint": "fixture-fingerprint-tool-result-evict",
+              "chars": 800
+            },
+            {
+              "stableId": "item-current-keep",
+              "kind": "user",
+              "role": "user",
+              "taskIds": ["task-current"],
+              "fingerprint": "fixture-fingerprint-current-keep",
+              "chars": 320
+            }
+          ]
+        },
+        "stableItemIdsByMessageId": {
+          "item-tool-call-evict": ["item-tool-call-evict"],
+          "item-tool-result-evict": ["item-tool-result-evict"],
+          "item-current-keep": ["item-current-keep"]
+        },
+        "activeTaskIds": ["task-current"],
+        "currentTaskIds": ["task-current"],
+        "currentTurnAbsId": "gua-lifecycle-happy:t2",
+        "closureDeferredTaskIds": [],
+        "config": {
+          "enabled": true,
+          "batchTurns": 1,
+          "evictionEnabled": true,
+          "evictionPolicy": "model_scored",
+          "evictionMinBlockChars": 256
+        },
+        "createdAt": "2026-08-16T00:00:00.000Z",
+        "sourcePresetId": "tokenpilot"
+      },
+      "expected": {
+        "status": "completed",
+        "reasonCodes": ["registry_updated", "mutation_plan_created"],
+        "registryVersion": 3,
+        "lastProcessedTurnSeq": 2,
+        "evictTaskIds": ["task-completed"],
+        "keepTaskIds": ["task-current"],
+        "evictItemIds": ["item-tool-call-evict", "item-tool-result-evict"],
+        "keepItemIds": ["item-current-keep"],
+        "toolPairs": [
+          {
+            "callId": "call-evict-001",
+            "callItemId": "item-tool-call-evict",
+            "resultItemId": "item-tool-result-evict",
+            "action": "evict"
+          }
+        ],
+        "deferredBlockIds": []
+      }
+    },
+    {
+      "id": "unresolved-task-is-protected",
+      "description": "An unresolved task remains protected even when its block is otherwise large enough for eviction.",
+      "input": {
+        "registry": {
+          "sessionId": "gua-lifecycle-unresolved",
+          "version": 0,
+          "tasks": {
+            "task-unresolved": {
+              "taskId": "task-unresolved",
+              "title": "Unresolved task",
+              "objective": "Answer an open question",
+              "lifecycle": "blocked",
+              "completionEvidence": [],
+              "unresolvedQuestions": ["Which source should be used?"],
+              "span": {
+                "firstTurnAbsId": "gua-lifecycle-unresolved:t1",
+                "lastTurnAbsId": "gua-lifecycle-unresolved:t1",
+                "supportingTurnAbsIds": ["gua-lifecycle-unresolved:t1"],
+                "lastEstimatorTurnAbsId": "gua-lifecycle-unresolved:t1"
+              }
+            }
+          },
+          "activeTaskIds": [],
+          "completedTaskIds": [],
+          "evictableTaskIds": [],
+          "taskToBlockIds": {
+            "task-unresolved": ["block-unresolved"]
+          },
+          "blockToTaskIds": {
+            "block-unresolved": ["task-unresolved"]
+          },
+          "turnToTaskIds": {
+            "gua-lifecycle-unresolved:t1": ["task-unresolved"]
+          },
+          "lastProcessedTurnSeq": 0
+        },
+        "delta": {
+          "fromTurnSeqExclusive": 0,
+          "toTurnSeqInclusive": 1,
+          "coveredTurnAbsIds": ["gua-lifecycle-unresolved:t1"],
+          "messages": [],
+          "toolCalls": [],
+          "toolResults": [],
+          "filesRead": [],
+          "filesWritten": []
+        },
+        "pendingTurnCount": 1,
+        "estimator": {
+          "kind": "output",
+          "output": {
+            "baseVersion": 0,
+            "taskUpdates": []
+          }
+        },
+        "historyBlocks": [
+          {
+            "blockId": "block-unresolved",
+            "blockType": "other",
+            "lifecycleState": "EVICTABLE",
+            "segmentIds": ["item-unresolved-keep"],
+            "taskIds": ["task-unresolved"],
+            "turnAbsIds": ["gua-lifecycle-unresolved:t1"],
+            "text": "KEEP_ME_unresolved_task",
+            "charCount": 1200,
+            "approxTokens": 300
+          }
+        ],
+        "snapshot": {
+          "schemaVersion": 1,
+          "hostId": "fixture-host",
+          "sessionId": "gua-lifecycle-unresolved",
+          "revision": "fixture-revision-unresolved-v1",
+          "items": [
+            {
+              "stableId": "item-unresolved-keep",
+              "kind": "user",
+              "role": "user",
+              "taskIds": ["task-unresolved"],
+              "fingerprint": "fixture-fingerprint-unresolved-keep",
+              "chars": 1200
+            }
+          ]
+        },
+        "stableItemIdsByMessageId": {
+          "item-unresolved-keep": ["item-unresolved-keep"]
+        },
+        "activeTaskIds": [],
+        "currentTaskIds": [],
+        "closureDeferredTaskIds": [],
+        "config": {
+          "enabled": true,
+          "batchTurns": 1,
+          "evictionEnabled": true,
+          "evictionPolicy": "model_scored",
+          "evictionMinBlockChars": 256
+        },
+        "createdAt": "2026-08-16T00:00:00.000Z",
+        "sourcePresetId": "tokenpilot"
+      },
+      "expected": {
+        "status": "completed",
+        "reasonCodes": ["registry_watermark_advanced", "no_eviction_candidates"],
+        "registryVersion": 1,
+        "lastProcessedTurnSeq": 1,
+        "evictTaskIds": [],
+        "keepTaskIds": ["task-unresolved"],
+        "evictItemIds": [],
+        "keepItemIds": ["item-unresolved-keep"],
+        "toolPairs": [],
+        "deferredBlockIds": []
+      }
+    },
+    {
+      "id": "insufficient-batch-defers-before-estimator",
+      "description": "The planner defers before estimator execution when the pending batch is too small.",
+      "input": {
+        "registry": {
+          "sessionId": "gua-lifecycle-batch",
+          "version": 0,
+          "tasks": {},
+          "activeTaskIds": [],
+          "completedTaskIds": [],
+          "evictableTaskIds": [],
+          "taskToBlockIds": {},
+          "blockToTaskIds": {},
+          "turnToTaskIds": {},
+          "lastProcessedTurnSeq": 0
+        },
+        "delta": {
+          "fromTurnSeqExclusive": 0,
+          "toTurnSeqInclusive": 1,
+          "coveredTurnAbsIds": ["gua-lifecycle-batch:t1"],
+          "messages": [],
+          "toolCalls": [],
+          "toolResults": [],
+          "filesRead": [],
+          "filesWritten": []
+        },
+        "pendingTurnCount": 1,
+        "estimator": {
+          "kind": "must_not_run",
+          "output": {
+            "baseVersion": 0,
+            "taskUpdates": []
+          }
+        },
+        "historyBlocks": [],
+        "snapshot": {
+          "schemaVersion": 1,
+          "hostId": "fixture-host",
+          "sessionId": "gua-lifecycle-batch",
+          "revision": "fixture-revision-batch-v1",
+          "items": []
+        },
+        "stableItemIdsByMessageId": {},
+        "activeTaskIds": [],
+        "currentTaskIds": [],
+        "closureDeferredTaskIds": [],
+        "config": {
+          "enabled": true,
+          "batchTurns": 2,
+          "evictionEnabled": true,
+          "evictionPolicy": "model_scored",
+          "evictionMinBlockChars": 256
+        },
+        "createdAt": "2026-08-16T00:00:00.000Z",
+        "sourcePresetId": "tokenpilot"
+      },
+      "expected": {
+        "status": "deferred",
+        "reasonCodes": ["insufficient_pending_turns"],
+        "registryVersion": 0,
+        "lastProcessedTurnSeq": 0,
+        "evictTaskIds": [],
+        "keepTaskIds": [],
+        "evictItemIds": [],
+        "keepItemIds": [],
+        "toolPairs": [],
+        "deferredBlockIds": []
+      }
+    }
+  ]
+}
