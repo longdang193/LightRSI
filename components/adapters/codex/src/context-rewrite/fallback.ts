@@ -9,6 +9,7 @@ import type {
   CodexRebaseCooldownNotice,
   CodexRebaseCooldownStoreParams,
   CodexRebaseEpochStoreParams,
+  CodexRebaseExecutionGuard,
   CodexUpstreamResponse,
   CodexUpstreamSender,
   JsonObject,
@@ -131,6 +132,8 @@ export async function executeCodexRebaseWithFallback(params: {
   epochStore?: CodexRebaseEpochStoreParams;
   cooldownStore?: CodexRebaseCooldownStoreParams;
   capabilityStore?: CodexRebaseCapabilityStoreParams;
+  /** Runs after the session lock is acquired and before an epoch is created. */
+  executionGuard?: CodexRebaseExecutionGuard;
 }): Promise<CodexRebaseFallbackResult> {
   let rebaseResponse: CodexUpstreamResponse | undefined;
   let epoch: CodexRebaseEpoch | undefined;
@@ -144,14 +147,19 @@ export async function executeCodexRebaseWithFallback(params: {
 
   async function sendOriginalBypass(
     notice?: CodexRebaseCapabilityNotice,
+    reason?: string,
   ): Promise<CodexRebaseFallbackResult> {
     const response = await params.sendUpstream(cloneJson(params.originalPayload));
     return {
       response,
       outcome: isSuccessfulResponse(response) ? "bypassed" : "failed",
-      reason: notice?.reason ?? "rewrite_guard_busy",
+      reason: notice?.reason ?? reason ?? "rewrite_guard_busy",
       capability: notice,
     };
+  }
+
+  if (params.executionGuard && !params.epochStore) {
+    return sendOriginalBypass(undefined, "rewrite_execution_guard_unavailable");
   }
 
   if (params.capabilityStore && rebaseItems.length > 0) {
@@ -365,33 +373,54 @@ export async function executeCodexRebaseWithFallback(params: {
   let sessionLock: CodexRebaseSessionLock | undefined;
 
   try {
+    let preflightBypassReason: string | undefined;
     if (params.epochStore) {
       try {
         sessionLock = await acquireCodexRebaseSessionLock({
           stateDir: params.epochStore.stateDir,
           sessionId: params.sessionId,
         });
-        if (!sessionLock) return await sendOriginalBypass();
-        const activeEpoch = (await readPendingCodexRebaseEpochs({
-          stateDir: params.epochStore.stateDir,
-          sessionId: params.sessionId,
-        })).find((entry) => entry.epochId !== params.epochId);
-        if (activeEpoch) {
-          return await sendOriginalBypass();
-        }
+        if (!sessionLock) {
+          preflightBypassReason = "rewrite_guard_busy";
+        } else {
+          const activeEpoch = (await readPendingCodexRebaseEpochs({
+            stateDir: params.epochStore.stateDir,
+            sessionId: params.sessionId,
+          })).find((entry) => entry.epochId !== params.epochId);
+          if (activeEpoch) {
+            preflightBypassReason = "rewrite_guard_busy";
+          }
 
-        epoch = await appendPendingCodexRebaseEpoch({
-          stateDir: params.epochStore.stateDir,
-          sessionId: params.sessionId,
-          planId: params.planId,
-          epochId: params.epochId,
-          oldPreviousResponseId: params.epochStore.oldPreviousResponseId,
-          oldRevision: params.epochStore.oldRevision,
-          accounting: params.accounting,
-        });
+          if (!preflightBypassReason && params.executionGuard) {
+            try {
+              const guardDecision = await params.executionGuard();
+              if (!guardDecision.allowed) {
+                preflightBypassReason = guardDecision.reason?.trim()
+                  || "rewrite_execution_guard_rejected";
+              }
+            } catch {
+              preflightBypassReason = "rewrite_execution_guard_error";
+            }
+          }
+
+          if (!preflightBypassReason) {
+            epoch = await appendPendingCodexRebaseEpoch({
+              stateDir: params.epochStore.stateDir,
+              sessionId: params.sessionId,
+              planId: params.planId,
+              epochId: params.epochId,
+              oldPreviousResponseId: params.epochStore.oldPreviousResponseId,
+              oldRevision: params.epochStore.oldRevision,
+              accounting: params.accounting,
+            });
+          }
+        }
       } catch {
         return await sendOriginalWithFallbackOutcome("epoch_store_error");
       }
+    }
+    if (preflightBypassReason) {
+      return await sendOriginalBypass(undefined, preflightBypassReason);
     }
 
     try {

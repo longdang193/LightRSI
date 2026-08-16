@@ -591,6 +591,109 @@ test("CDR-03 Rebase Epoch records fallback extra request accounting", async () =
   });
 });
 
+test("CDR-03 Rebase Epoch evaluates the execution guard under the session lock", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-execution-guard";
+    const sentInputs: string[] = [];
+    let guardCalled = false;
+    const result = await executeCodexRebaseWithFallback({
+      sessionId,
+      planId: "plan-execution-guard",
+      epochId: "epoch-execution-guard",
+      originalPayload: { input: [{ role: "user", content: "original" }] },
+      rebasedPayload: { input: [{ role: "user", content: "rebased" }] },
+      epochStore: {
+        stateDir,
+        oldPreviousResponseId: "resp-old",
+        oldRevision: "rev-old",
+      },
+      async executionGuard() {
+        guardCalled = true;
+        const competingLock = await acquireCodexRebaseSessionLock({ stateDir, sessionId });
+        assert.equal(competingLock, undefined);
+        return {
+          allowed: false,
+          reason: "lifecycle_execution_registry_version_changed",
+        };
+      },
+      async sendUpstream(payload) {
+        sentInputs.push(String((payload.input as JsonObject[])[0]?.content));
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          text: JSON.stringify({ id: "resp-original", status: "completed" }),
+        };
+      },
+    });
+
+    assert.equal(guardCalled, true);
+    assert.equal(result.outcome, "bypassed");
+    assert.equal(result.reason, "lifecycle_execution_registry_version_changed");
+    assert.deepEqual(sentInputs, ["original"]);
+    assert.equal(await readLatestCodexRebaseEpoch({ stateDir, sessionId }), undefined);
+  });
+});
+
+test("CDR-03 Rebase Epoch never executes a guard without a session-lock store", async () => {
+  const sentInputs: string[] = [];
+  let guardCalled = false;
+  const result = await executeCodexRebaseWithFallback({
+    sessionId: "codex-session-guard-without-lock",
+    planId: "plan-guard-without-lock",
+    epochId: "epoch-guard-without-lock",
+    originalPayload: { input: [{ role: "user", content: "original" }] },
+    rebasedPayload: { input: [{ role: "user", content: "rebased" }] },
+    executionGuard: async () => {
+      guardCalled = true;
+      return { allowed: true };
+    },
+    async sendUpstream(payload) {
+      sentInputs.push(String((payload.input as JsonObject[])[0]?.content));
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        text: JSON.stringify({ id: "resp-original", status: "completed" }),
+      };
+    },
+  });
+
+  assert.equal(guardCalled, false);
+  assert.equal(result.outcome, "bypassed");
+  assert.equal(result.reason, "rewrite_execution_guard_unavailable");
+  assert.deepEqual(sentInputs, ["original"]);
+});
+
+test("CDR-03 Rebase Epoch does not retry an original request rejected by the execution guard", async () => {
+  await withTempState(async (stateDir) => {
+    let upstreamCalls = 0;
+    await assert.rejects(() => executeCodexRebaseWithFallback({
+      sessionId: "codex-session-guard-upstream-error",
+      planId: "plan-guard-upstream-error",
+      epochId: "epoch-guard-upstream-error",
+      originalPayload: { input: [{ role: "user", content: "original" }] },
+      rebasedPayload: { input: [{ role: "user", content: "rebased" }] },
+      epochStore: {
+        stateDir,
+        oldPreviousResponseId: "resp-old",
+        oldRevision: "rev-old",
+      },
+      executionGuard: async () => ({
+        allowed: false,
+        reason: "lifecycle_execution_snapshot_changed",
+      }),
+      async sendUpstream() {
+        upstreamCalls += 1;
+        throw new Error("original upstream unavailable");
+      },
+    }), /original upstream unavailable/);
+    assert.equal(upstreamCalls, 1);
+    assert.equal(await readLatestCodexRebaseEpoch({
+      stateDir,
+      sessionId: "codex-session-guard-upstream-error",
+    }), undefined);
+  });
+});
+
 test("CDR-03 Rebase Epoch marks failed when original fallback throws", async () => {
   await withTempState(async (stateDir) => {
     let calls = 0;

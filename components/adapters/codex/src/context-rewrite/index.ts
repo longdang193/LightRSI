@@ -1,6 +1,8 @@
 export * from "./types.js";
 export * from "./estimator-config.js";
 export * from "./semantic-mapping.js";
+export * from "./lifecycle-input.js";
+export * from "./lifecycle-runner.js";
 export { applyCodexContextRewrite } from "./disabled.js";
 export { executeCodexRebaseWithFallback } from "./fallback.js";
 export {
