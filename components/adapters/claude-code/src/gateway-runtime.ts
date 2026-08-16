@@ -31,16 +31,22 @@ import {
   applyClaudeEviction,
   analyzeClaudeEviction,
   buildToolResultSegments,
+  buildClaudeHistoryBlocks,
   type ClaudeEvictionApplySummary,
 } from "./eviction.js";
+import { persistSessionTaskRegistry } from "@lightmem2/history";
 import { claudeContextRewriteBackend, relocateContextMutationPlan } from "./context-rewrite/backend.js";
 import { applyArchivePlan } from "./context-rewrite/archive.js";
 import { saveLatestClaudeSnapshot } from "./context-rewrite/snapshot-store.js";
 import { appendOverlayHistory } from "./context-rewrite/overlay-history.js";
 import { resolveClaudeTaskStateEstimator } from "./context-rewrite/estimator-config.js";
-import { runSemanticPipeline } from "./context-rewrite/semantic-pipeline.js";
-import { updateRegistryFromDelta } from "./context-rewrite/task-registry-update.js";
-import { buildContextMutationPlan } from "@lightmem2/eviction";
+import { prepareSemanticDelta } from "./context-rewrite/semantic-pipeline.js";
+import { buildSegmentToStableIdMap } from "./context-rewrite/segment-stable-id-map.js";
+import {
+  buildContextMutationPlan,
+  planLifecycleEviction,
+  type LifecyclePlannerConfig,
+} from "@lightmem2/eviction";
 import { createHash as _createHash } from "node:crypto";
 import {
   appendClaudeCodeRecentTurnBinding,
@@ -333,25 +339,6 @@ export async function startClaudeCodeGatewayRuntime(params: {
         : "";
       const sessionId = await resolveObservedClaudeSessionId(config.stateDir, envelope.session.sessionId);
 
-      // Semantic-delta task-registry sync (V2). Feature-gated: only runs when
-      // an estimator is configured (config with env fallback, default off). Entirely
-      // fail-open — it must never block or fail the request, so any error is
-      // swallowed here and the request proceeds unchanged.
-      const semanticEstimator = (params.dependencies?.resolveEstimator ?? resolveClaudeTaskStateEstimator)({ config: config.taskStateEstimator, env: process.env });
-      if (semanticEstimator) {
-        try {
-          await runSemanticPipeline({
-            stateDir: config.stateDir,
-            sessionId,
-            messages: envelope.messages,
-            estimator: semanticEstimator,
-            updateRegistryFromDelta,
-          });
-        } catch (error) {
-          logger.warn(`semantic pipeline failed (ignored): ${String(error)}`);
-        }
-      }
-
       const evictionEnabled = config.modules.eviction && config.eviction.enabled;
       let evictionSummary: ClaudeEvictionApplySummary = {
         enabled: evictionEnabled,
@@ -364,6 +351,69 @@ export async function startClaudeCodeGatewayRuntime(params: {
       let evictionBypassReason: string | undefined;
       let activePlanId: string | undefined;
       let activePlanStatus: "active" | "applied" | undefined;
+
+      // Lifecycle planner (estimator-driven). Runs UNCONDITIONALLY (independent
+      // of the eviction toggle) so registry updates happen every turn, exactly
+      // where the old runSemanticPipeline used to. Only the plannerPlan -> overlay
+      // execution below is gated by evictionEnabled. Fail-open: any error leaves
+      // plannerPlan undefined and the request proceeds unchanged.
+      let plannerPlan: ReturnType<typeof buildContextMutationPlan> | undefined;
+      const lifecycleEstimator = (params.dependencies?.resolveEstimator ?? resolveClaudeTaskStateEstimator)({
+        config: config.taskStateEstimator,
+        env: process.env,
+      });
+      if (lifecycleEstimator) {
+        try {
+          const prep = await prepareSemanticDelta({
+            stateDir: config.stateDir,
+            sessionId,
+            messages: envelope.messages,
+          });
+          if (prep.ok) {
+            const plannerRevision = _createHash("sha256")
+              .update(JSON.stringify(envelope.messages))
+              .digest("hex")
+              .slice(0, 32);
+            const { bindings: plannerBindings } = buildToolResultSegments(envelope.messages);
+            const plannerSnapshot = await claudeContextRewriteBackend.readSnapshot({
+              sessionId,
+              request: { sessionId, revision: plannerRevision, messages: envelope.messages },
+            });
+            const plannerResult = await planLifecycleEviction({
+              registry: prep.registry,
+              delta: prep.delta,
+              pendingTurnCount: prep.turnSeq - prep.registry.lastProcessedTurnSeq,
+              estimator: lifecycleEstimator,
+              historyBlocks: buildClaudeHistoryBlocks(sessionId, envelope.model, envelope.messages),
+              snapshot: plannerSnapshot,
+              stableItemIdsByMessageId: buildSegmentToStableIdMap(sessionId, plannerBindings),
+              config: {
+                enabled: true,
+                batchTurns: config.taskStateEstimator.batchTurns,
+                evictionEnabled: config.eviction.enabled,
+                evictionPolicy: "lifecycle",
+                evictionMinBlockChars: config.eviction.minBlockChars,
+              } satisfies LifecyclePlannerConfig,
+              createdAt: new Date().toISOString(),
+            });
+            if (plannerResult.registryUpdateRequired) {
+              try {
+                await persistSessionTaskRegistry(config.stateDir, plannerResult.registry, {
+                  expectedVersion: plannerResult.expectedRegistryVersion,
+                });
+              } catch (error) {
+                logger.warn(`lifecycle registry persist failed (ignored): ${String(error)}`);
+              }
+            }
+            if (plannerResult.status === "completed" && plannerResult.plan) {
+              plannerPlan = plannerResult.plan;
+            }
+          }
+        } catch (error) {
+          logger.warn(`lifecycle planner failed (ignored): ${String(error)}`);
+        }
+      }
+
       if (evictionEnabled) {
         try {
           const candidatePayload = (
@@ -383,7 +433,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
             config: { enabled: true, minBlockChars: config.eviction.minBlockChars },
           });
 
-          if (analysis.changed && analysis.selections.length > 0) {
+          if (plannerPlan || (analysis.changed && analysis.selections.length > 0)) {
             const { bindings } = buildToolResultSegments(overlayMessages);
             const segmentLocations = new Map(
               [...bindings.entries()].map(([segmentId, binding]) => [
@@ -413,9 +463,22 @@ export async function startClaudeCodeGatewayRuntime(params: {
             // the underlying content is unchanged, so an exact-revision match
             // would miss it. relocate re-anchors operations by fingerprint and
             // defers anything ambiguous or gone.
-            let plan: ReturnType<typeof buildContextMutationPlan> | undefined;
+            let plan: ReturnType<typeof buildContextMutationPlan> | undefined = plannerPlan;
             let replayedFromStore = false;
-            for (const candidate of loaded.plans) {
+            if (plannerPlan) {
+              // Planner produced a fresh plan this turn: persist it and skip
+              // relocate/replay + the signal-heuristic build entirely (planner
+              // plans are recomputed each turn, never relocated).
+              const stored = await saveActiveContextMutationPlan({
+                stateDir: config.stateDir,
+                plan: plannerPlan,
+              });
+              if (stored.bypassed || (stored.status !== "active" && stored.status !== "applied")) {
+                throw new Error(`context mutation plan could not be persisted: ${stored.reasons.join(",")}`);
+              }
+              activePlanStatus = stored.status;
+            }
+            for (const candidate of plannerPlan ? [] : loaded.plans) {
               const { plan: relocatedPlan, relocated } = relocateContextMutationPlan({
                 snapshot,
                 plan: candidate,
@@ -433,7 +496,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
                 break;
               }
             }
-            if (!replayedFromStore) {
+            if (!plannerPlan && !replayedFromStore) {
               const persistedPlan = loaded.plans.find(
                 (candidate) => candidate.baseRevision === snapshot.revision,
               );

@@ -1474,8 +1474,9 @@ test("gateway persists a task registry when the injected estimator returns updat
         taskUpdates: [
           {
             taskId: "task-1",
-            state: "active",
+            lifecycle: "active",
             objective: "do the thing",
+            coveredTurnAbsIds: ["sess-sem-ok:t1"],
           },
         ],
       };
@@ -1486,6 +1487,7 @@ test("gateway persists a task registry when the injected estimator returns updat
     config: normalizeTokenPilotClaudeCodeConfig({
       stateDir: join(dir, "state"),
       proxyPort,
+      taskStateEstimator: { enabled: true, batchTurns: 1 },
     }),
     logger: createConsoleLogger(false),
     forwarder,
