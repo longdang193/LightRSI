@@ -90,7 +90,7 @@ The preset exports a versioned host-binding contract from `src/host-binding.ts`.
 | Adapter | Declared feature subset |
 | :-- | :-- |
 | OpenClaw | `stabilizer`, `reduction`, `eviction` |
-| Codex | `stabilizer`, `reduction` |
+| Codex | `stabilizer`, `reduction`, `eviction` |
 | Claude Code | `stabilizer`, `reduction` |
 
 Feature product-surface contributions are initialized through this binding. They no longer depend on importing a feature package for side effects.
@@ -265,7 +265,7 @@ Not every key below applies to every host. For the current public adapters:
 - `OpenClaw`
   - supports the broadest configuration surface, including eviction-related knobs
 - `Codex CLI`
-  - supports stabilizer + reduction related config only
+  - supports stabilizer, reduction, and opt-in estimator-driven response-chain eviction; public eviction controls remain unavailable
 - `Claude Code`
   - supports stabilizer + reduction related config only
 

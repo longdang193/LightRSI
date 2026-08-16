@@ -10,7 +10,7 @@ TokenPilot is now structured as a reusable LightMem2 component with multiple hos
 | `Codex CLI` | available | hooks + local Responses proxy + shared CLI | `npm --prefix components/adapters/codex run build` then `npm --prefix components/adapters/codex run install:codex` | [codex/README.md](./codex/README.md) |
 | `Claude Code` | available | gateway routing + observability hooks + shared CLI | `npm --prefix components/adapters/claude-code run build` then `npm --prefix components/adapters/claude-code run install:claude-code` | [claude-code/README.md](./claude-code/README.md) |
 
-Each host adapter binds the versioned TokenPilot preset explicitly. OpenClaw declares Stabilizer, Reduction, and Eviction; Codex and Claude Code declare Stabilizer and Reduction only. The same adapter-owned product registrations are used by the shared CLI and browser Visual surface for host discovery.
+Each host adapter binds the versioned TokenPilot preset explicitly. OpenClaw and Codex declare Stabilizer, Reduction, and Eviction; Claude Code currently declares Stabilizer and Reduction. The same adapter-owned product registrations are used by the shared CLI and browser Visual surface for host discovery.
 
 ## Capability Matrix
 
@@ -30,6 +30,7 @@ Legend:
 | `visual` | yes | yes | yes |
 | `mode conservative` / `mode normal` | yes | yes | yes |
 | `mode aggressive` | yes | no | no |
+| Estimator-driven lifecycle eviction runtime | yes | yes | yes |
 | Lifecycle eviction controls | yes | no | no |
 | In-host slash commands | yes | no | no |
 | Hook-based observability | partial | yes | yes |
@@ -49,7 +50,7 @@ Legend:
 - uses Codex config mutation, hook registration, and a local OpenAI-compatible Responses proxy
 - preserves the current active Codex provider name and reroutes that provider's `base_url` through the local proxy
 - uses the standalone `lightmem2 codex ...` CLI surface instead of in-host slash commands
-- supports stable-prefix, reduction, report, doctor, browser visual, and real MCP recovery
+- supports stable-prefix, reduction, opt-in estimator-driven response-chain eviction, report, doctor, browser visual, and real MCP recovery
 - first successful verification usually comes after hooks are trusted and a new Codex session triggers `SessionStart`
 - intentionally does not expose `settings`, `eviction`, or `mode aggressive`
 

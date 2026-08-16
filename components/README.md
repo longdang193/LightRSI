@@ -75,7 +75,7 @@ Current preset bindings:
 | Host | TokenPilot feature support |
 | :-- | :-- |
 | OpenClaw | Stabilizer, Reduction, Eviction |
-| Codex | Stabilizer, Reduction |
+| Codex | Stabilizer, Reduction, Eviction |
 | Claude Code | Stabilizer, Reduction |
 
 ## Naming Boundary

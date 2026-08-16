@@ -2,7 +2,7 @@
 
 This package contains the current Codex CLI adapter for the TokenPilot component. It integrates through Codex config mutation, hook registration, and a local OpenAI-compatible Responses proxy.
 
-This adapter explicitly binds the TokenPilot `stabilizer` and `reduction` features. It does not advertise lifecycle eviction support. Its product registration provides Codex state discovery to the shared CLI and Visual surface.
+This adapter explicitly binds the TokenPilot `stabilizer`, `reduction`, and `eviction` features. Its product registration provides Codex state discovery to the shared CLI and Visual surface.
 
 For the component-level overview and shared command surface, see:
 
@@ -23,6 +23,7 @@ Supported:
 - local Responses proxy lifecycle
 - stable-prefix rewriting
 - request-time reduction
+- opt-in task-state estimation, shared lifecycle planning, and response-chain eviction rebase
 - lightweight session-state tracking from proxy + hooks
 - shared browser visual via `lightmem2 codex visual`
 - standalone `lightmem2 codex ...` command surface
@@ -142,6 +143,9 @@ The task-state estimator bridge is default-disabled. A conservative `~/.codex/to
     "inputMode": "sliding_window",
     "lifecycleMode": "coupled",
     "evidenceMode": "three_state"
+  },
+  "contextRewrite": {
+    "enabled": false
   }
 }
 ```
@@ -150,7 +154,7 @@ Keep API keys out of checked-in configuration. The resolver accepts `LIGHTMEM2_T
 
 If the bridge is enabled without `baseUrl`, `apiKey`, or `model`, diagnostics report `incomplete` and fail closed. Status and doctor output expose only safe configuration state and numeric parameters, never the API key or an Authorization header.
 
-PR-B only provides configuration resolution, effective-history semantic input, and the canonical context snapshot. It does not invoke the estimator or shared planner in the production proxy, and it cannot trigger an automatic rebase. `contextRewrite.mutationPlan` remains a test/smoke override and does not gain runtime priority from this bridge.
+Automatic lifecycle eviction remains default-disabled. To opt in, set both `taskStateEstimator.enabled` and `contextRewrite.enabled` to `true`; the production proxy then derives the canonical delta, invokes the estimator and shared lifecycle planner, validates the resulting mutation plan, and attempts a response-chain rebase with original-request fallback. `contextRewrite.mutationPlan` remains a test/smoke override and is ignored whenever estimator-driven lifecycle planning is enabled.
 
 ### Offline context-rebase smoke
 
