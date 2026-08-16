@@ -57,6 +57,7 @@ const fixturePath = path.join(__dirname, "fixtures", "lifecycle-planner.json");
 const forbiddenFixtureContent = [
   /\bsk-[A-Za-z0-9_-]{16,}/,
   /\b(?:github_pat_|gh[pousr]_)[A-Za-z0-9_]{16,}/,
+  /\bAKIA[A-Z0-9]{16}\b/,
   /\bBearer\s+[A-Za-z0-9._~-]{16,}/i,
   /[A-Za-z]:\\\\/,
   /\/(?:Users|home|root|mnt|disk(?:_[^/]+)?)\//i,
@@ -72,6 +73,16 @@ function assertPartition(params: {
   keep: readonly string[];
   label: string;
 }): void {
+  assert.equal(
+    new Set(params.evict).size,
+    params.evict.length,
+    `${params.label} evict ids must be unique`,
+  );
+  assert.equal(
+    new Set(params.keep).size,
+    params.keep.length,
+    `${params.label} keep ids must be unique`,
+  );
   const overlap = params.evict.filter((value) => params.keep.includes(value));
   assert.deepEqual(overlap, [], `${params.label} evict/keep sets must be disjoint`);
   assert.deepEqual(
@@ -79,6 +90,51 @@ function assertPartition(params: {
     sorted(params.all),
     `${params.label} must classify every id exactly once`,
   );
+}
+
+function expectedAction(fixture: LifecycleFixture, itemId: string): "evict" | "keep" {
+  const evicted = fixture.expected.evictItemIds.includes(itemId);
+  const kept = fixture.expected.keepItemIds.includes(itemId);
+  assert.notEqual(evicted, kept, `${fixture.id} ${itemId} must have exactly one action`);
+  return evicted ? "evict" : "keep";
+}
+
+function validateToolPairs(fixture: LifecycleFixture): void {
+  const discovered = new Map<string, { calls: string[]; results: string[]; taskIds: string[][] }>();
+  for (const item of fixture.input.snapshot.items) {
+    if (item.kind !== "tool_call" && item.kind !== "tool_result") continue;
+    assert.ok(item.callId?.trim(), `${fixture.id} ${item.stableId} must have a callId`);
+    const pair = discovered.get(item.callId!) ?? { calls: [], results: [], taskIds: [] };
+    (item.kind === "tool_call" ? pair.calls : pair.results).push(item.stableId);
+    pair.taskIds.push(sorted(item.taskIds ?? []));
+    discovered.set(item.callId!, pair);
+  }
+
+  assert.equal(
+    new Set(fixture.expected.toolPairs.map((pair) => pair.callId)).size,
+    fixture.expected.toolPairs.length,
+    `${fixture.id} declared tool pair ids must be unique`,
+  );
+  assert.deepEqual(
+    sorted(fixture.expected.toolPairs.map((pair) => pair.callId)),
+    sorted([...discovered.keys()]),
+    `${fixture.id} tool pair declarations must cover every discovered pair`,
+  );
+
+  for (const [callId, pair] of discovered) {
+    assert.equal(pair.calls.length, 1, `${fixture.id} ${callId} must have one call`);
+    assert.equal(pair.results.length, 1, `${fixture.id} ${callId} must have one result`);
+    assert.deepEqual(pair.taskIds[0], pair.taskIds[1], `${fixture.id} ${callId} task ids must match`);
+    const callItemId = pair.calls[0]!;
+    const resultItemId = pair.results[0]!;
+    const action = expectedAction(fixture, callItemId);
+    assert.equal(expectedAction(fixture, resultItemId), action, `${fixture.id} ${callId} must remain closed`);
+    const declared = fixture.expected.toolPairs.find((entry) => entry.callId === callId);
+    assert.ok(declared, `${fixture.id} ${callId} must be declared`);
+    assert.equal(declared.callItemId, callItemId);
+    assert.equal(declared.resultItemId, resultItemId);
+    assert.equal(declared.action, action);
+  }
 }
 
 function readFixtures(): LifecycleFixtureFile {
@@ -124,21 +180,31 @@ function validateFixture(fixture: LifecycleFixture): void {
     keep: fixture.expected.keepItemIds,
     label: `${fixture.id} item oracle`,
   });
-  const itemIds = new Set(fixture.input.snapshot.items.map((item) => item.stableId));
-  for (const pair of fixture.expected.toolPairs) {
-    assert.ok(pair.callId.trim());
-    assert.ok(itemIds.has(pair.callItemId), `${fixture.id} missing tool call item`);
-    assert.ok(itemIds.has(pair.resultItemId), `${fixture.id} missing tool result item`);
-    const expectedIds = pair.action === "evict"
-      ? fixture.expected.evictItemIds
-      : fixture.expected.keepItemIds;
-    assert.ok(expectedIds.includes(pair.callItemId), `${fixture.id} tool call action mismatch`);
-    assert.ok(expectedIds.includes(pair.resultItemId), `${fixture.id} tool result action mismatch`);
-  }
+  validateToolPairs(fixture);
 }
 
 test("GUA lifecycle fixtures are sanitized and define complete semantic oracles", () => {
   for (const fixture of readFixtures().cases) validateFixture(fixture);
+});
+
+test("GUA lifecycle fixture validation rejects duplicate decisions", () => {
+  const fixture = structuredClone(readFixtures().cases[0]!);
+  fixture.expected.evictItemIds.push(fixture.expected.evictItemIds[0]!);
+  assert.throws(() => validateFixture(fixture), /must be unique/);
+});
+
+test("GUA lifecycle fixture validation requires every discovered tool pair", () => {
+  const fixture = structuredClone(readFixtures().cases[0]!);
+  fixture.expected.toolPairs = [];
+  assert.throws(() => validateFixture(fixture), /cover every discovered pair/);
+});
+
+test("GUA lifecycle fixture validation rejects split tool pairs", () => {
+  const fixture = structuredClone(readFixtures().cases[0]!);
+  const resultItemId = fixture.expected.toolPairs[0]!.resultItemId;
+  fixture.expected.evictItemIds = fixture.expected.evictItemIds.filter((id) => id !== resultItemId);
+  fixture.expected.keepItemIds.push(resultItemId);
+  assert.throws(() => validateFixture(fixture), /must remain closed/);
 });
 
 test("GUA lifecycle oracle is produced by the real shared planner", async () => {
