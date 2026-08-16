@@ -39,31 +39,69 @@ The restart check proves that request overlay remains safe across process lifeti
 
 ## Codex Response-chain Rebase
 
-The Codex adapter already owns streaming, non-streaming, fallback, cooldown, epoch recovery, journal ordering, malformed closure, and restart tests under:
-
-```text
-components/adapters/codex/tests/
-```
-
 Command:
 
 ```text
 pnpm --dir components/adapters/codex test
 ```
 
-Codex status: **PASS** for committed mock response-chain rebase tests. PR #15 does not add or modify Codex runtime behavior.
+The focused estimator-driven acceptance test verifies:
+
+- Ten successful requests pass through two distinct Codex proxy runtime
+  lifetimes using one isolated state directory and one response-chain session.
+- A fake estimator consumes the real canonical delta and automatically drives
+  `registry -> shared lifecycle planner -> ContextMutationPlan -> rebase`; the
+  test does not inject `contextRewrite.mutationPlan`.
+- The task registry persists across restart (`version 0 -> 1 -> 2`) and the
+  estimator observes the expected base versions (`0`, then `1`).
+- Each lifetime first commits four setup turns containing one evictable and one
+  retained tool pair. The shared oracle scores the planner-triggering request
+  from each phase, identified by its current-user subject marker.
+- Both captured stateless rebase requests remove `previous_response_id` and
+  `EVICT_ME_<uuid>`, preserve `KEEP_ME_<uuid>` and the current turn, and retain
+  complete Responses `function_call` / `function_call_output` closure.
+- No fallback request succeeds in either phase.
+
+Codex status: **PASS** for non-streaming estimator-driven mock-upstream
+acceptance across proxy restart. Streaming, fallback, cooldown, epoch recovery,
+journal ordering, malformed closure, and provider-compatibility scenarios stay
+covered by the adapter's dedicated tests.
+
+Unlike a full-history gateway request, a Codex native continuation carries old
+history implicitly through `previous_response_id`. Consequently the shared
+oracle is used here for sentinel, closure, and fallback safety on the two
+planner-triggering requests; raw request-byte savings are not claimed by this
+test.
+
+## Three-host Fixture Oracle
+
+The existing GUA-02 suite runs the same four logical fixtures through the
+OpenClaw reference backend, Claude overlay backend, and Codex response-chain
+backend:
+
+```text
+pnpm --dir components/adapters/openclaw test
+```
+
+It remains the cross-host target-set oracle. GUA-06 complements it with real
+Claude gateway and Codex proxy HTTP paths against mock upstreams; it does not
+replace the OpenClaw reference-backend ownership boundary.
 
 ## Architecture
 
 - Generic acceptance recording, restart orchestration, sentinel inspection,
-  fallback accounting, and multi-protocol closure checks live in `@lightmem2/host-adapter`.
-- Claude acceptance imports the shared harness through the package API and does
-  not import another adapter's source tree.
-- Each phase fails if any successful upstream request retains eviction content,
-  loses required content, or breaks tool protocol closure.
+  fallback accounting, and multi-protocol closure checks live in
+  `@lightmem2/host-adapter`.
+- Claude and Codex acceptance import the shared harness through the package API
+  and do not import another adapter's source tree.
+- Each scored phase fails if any successful upstream request retains eviction
+  content, loses required content, or breaks tool protocol closure.
 
 ## Limitations
 
-- Mock providers only; no real Claude or Codex provider is called.
+- Mock providers only; no real Claude or Codex provider is called, and mock
+  capability evidence does not upgrade production provider compatibility.
 - Claude streaming acceptance remains separate from this non-streaming test.
+- Codex streaming and failure-matrix acceptance remains in dedicated adapter
+  tests rather than this focused shared-oracle scenario.
 - Persistent Claude rewrite-plan replay is not implemented or claimed.
