@@ -94,6 +94,13 @@ export type CodexRebaseFallbackResult = {
   capability?: CodexRebaseCapabilityNotice;
 };
 
+export type CodexRebaseExecutionGuardDecision = {
+  allowed: boolean;
+  reason?: string;
+};
+
+export type CodexRebaseExecutionGuard = () => Promise<CodexRebaseExecutionGuardDecision>;
+
 export type CodexProviderContinuationResult = {
   response: CodexUpstreamResponse;
   outcome: "chained" | "stateless_replay" | "failed";

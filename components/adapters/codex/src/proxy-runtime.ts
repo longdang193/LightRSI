@@ -9,6 +9,7 @@ import {
 import {
   countTextWithPreciseTokens,
   createStaticStatePathResolver,
+  type ContextMutationPlan,
   type ContextRewriteEventInput,
   type ContextRewriteEventName,
   type HostRequestEnvelope,
@@ -62,7 +63,7 @@ import { initializeCodexTokenPilotPreset } from "./preset.js";
 import {
   appendCodexRequestJournalEntry,
   appendCodexResponseJournalEntry,
-  buildCodexEffectiveHistory,
+  buildCodexEffectiveHistoryView,
   collectCodexResponseItemsFromStream,
   parseCodexRollout,
   validateCodexRolloutBootstrap,
@@ -79,11 +80,16 @@ import {
   acquireCodexRebaseSessionLock,
   buildCodexRebaseRequest,
   codexRebaseEndpointIdentity,
+  codexSharedContextRewriteBackend,
   createCodexContextRewriteLifecycle,
   executeCodexProviderContinuationWithReplay,
   executeCodexRebaseWithFallback,
   failPendingCodexRebaseEpochsAfterRestart,
+  type CodexLifecyclePreparedPlan,
   resolveCodexProviderContinuationCompatibility,
+  resolveCodexTaskStateEstimator,
+  revalidateCodexLifecyclePreparedPlan,
+  runCodexLifecyclePlanner,
   withCodexRebaseReplayAccountingInput,
 } from "./context-rewrite/index.js";
 import type {
@@ -196,6 +202,32 @@ function codexMutationLifecyclePlan(plan: CodexMutationPlan): CodexLifecyclePlan
   };
 }
 
+function codexSharedLifecyclePlan(plan: ContextMutationPlan): CodexLifecyclePlan {
+  return {
+    planId: plan.planId,
+    operationIds: plan.operations.map((operation) => operation.id),
+    itemIds: [...new Set(plan.operations.flatMap((operation) => operation.targetItemIds))],
+    previousRevision: plan.baseRevision,
+    estimatedSavedChars: plan.operations.reduce(
+      (total, operation) => total + Math.max(0, operation.estimatedSavedChars ?? 0),
+      0,
+    ),
+  };
+}
+
+function allLifecycleOperationsApplied(
+  plan: CodexLifecyclePlan,
+  appliedOperationIds: readonly string[],
+  deferredOperationIds: readonly string[],
+): boolean {
+  const expected = [...new Set(plan.operationIds ?? [])];
+  const applied = [...new Set(appliedOperationIds)];
+  return expected.length > 0
+    && deferredOperationIds.length === 0
+    && applied.length === expected.length
+    && expected.every((operationId) => applied.includes(operationId));
+}
+
 function codexValidationReasonCodes(error: unknown): string[] {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
   const reasons: string[] = [];
@@ -218,6 +250,10 @@ const SAFE_REWRITE_REASON_CODES = new Set([
   "feature_disabled",
   "history_journal_write_failed",
   "item_schema_unsupported",
+  "lifecycle_execution_plan_invalid",
+  "lifecycle_execution_registry_load_failed",
+  "lifecycle_execution_registry_version_changed",
+  "lifecycle_execution_snapshot_changed",
   "native_response_chain_used",
   "provider_replay_probe_required",
   "provider_replay_rejected",
@@ -233,12 +269,22 @@ const SAFE_REWRITE_REASON_CODES = new Set([
   "request_journal_unavailable",
   "response_chain_head_missing",
   "rewrite_configuration_unsupported",
+  "rewrite_execution_guard_error",
+  "rewrite_execution_guard_rejected",
+  "rewrite_execution_guard_unavailable",
   "rewrite_guard_busy",
   "stateless_continuation_succeeded",
 ]);
 
 function codexSafeRuntimeReason(reason: string | undefined, fallback: string): string {
   return reason && SAFE_REWRITE_REASON_CODES.has(reason) ? reason : fallback;
+}
+
+function isLifecycleExecutionDeferredReason(reason: string | undefined): boolean {
+  return reason === "lifecycle_execution_plan_invalid"
+    || reason === "lifecycle_execution_registry_load_failed"
+    || reason === "lifecycle_execution_registry_version_changed"
+    || reason === "lifecycle_execution_snapshot_changed";
 }
 
 function encodedRequestPayload(params: {
@@ -333,6 +379,10 @@ export async function startCodexResponsesProxy(params: {
   await mkdir(config.stateDir, { recursive: true });
   const upstream = await resolveUpstreamProvider(config, params.codexConfigPath ?? defaultCodexConfigPath());
   const upstreamProviderName = upstream.name ?? config.upstreamProvider ?? "OpenAI";
+  const estimatorResolution = resolveCodexTaskStateEstimator({
+    config: config.taskStateEstimator,
+  });
+  const lifecyclePlanningConfigured = estimatorResolution.config.enabled;
   const epochRecoveryBySession = new Map<string, Promise<void>>();
 
   async function recoverSessionEpochsAfterRestart(sessionId: string): Promise<void> {
@@ -493,10 +543,184 @@ export async function startCodexResponsesProxy(params: {
 
       let rebaseRequest: CodexRebaseRequestResult | undefined;
       let rebasePlanId: string | undefined;
+      let lifecyclePreparedPlan: CodexLifecyclePreparedPlan | undefined;
       let continuationReplayRequest: CodexRebaseRequestResult | undefined;
       let rebaseAccounting = rebaseRequest?.accounting;
-      const mutationPlan = activeMutationPlan(config);
-      if (mutationPlan) {
+      const mutationPlan = lifecyclePlanningConfigured ? undefined : activeMutationPlan(config);
+      let effectiveHistoryViewPromise: ReturnType<typeof buildCodexEffectiveHistoryView> | undefined;
+      const buildEffectiveHistoryViewForHead = (): ReturnType<typeof buildCodexEffectiveHistoryView> => {
+        if (!requestJournalEntry || typeof originalPayload.previous_response_id !== "string") {
+          throw new Error("Codex effective history requires a journaled response-chain request");
+        }
+        return buildCodexEffectiveHistoryView({
+          stateDir: config.stateDir,
+          sessionId,
+          headResponseId: originalPayload.previous_response_id,
+          currentRequestId: requestJournalEntry.requestId,
+          async rolloutViewBootstrap() {
+            const snapshot = await loadCodexSessionSnapshot(config.stateDir, sessionId);
+            if (!snapshot?.transcriptPath) return null;
+            const rollout = await parseCodexRollout(snapshot.transcriptPath);
+            if (!rollout) return null;
+            const validation = validateCodexRolloutBootstrap({
+              rollout,
+              // prompt_cache_key is an upstream cache namespace, not the
+              // Codex host session identity used by rollout metadata.
+              expectedCodexSessionId: snapshot.codexSessionId,
+              snapshotCodexSessionId: snapshot.codexSessionId,
+              sourceModel: snapshot.latestModel,
+              sourceUpstreamProvider: snapshot.latestUpstreamProvider,
+              currentModel: model,
+              currentCodexProvider: config.providerName,
+              currentUpstreamProvider: upstreamProviderName,
+            });
+            if (validation.rejectionReason) {
+              await appendTrace(config.stateDir, {
+                stage: "context_history_rollout_bootstrap_rejected",
+                sessionId,
+                reason: validation.rejectionReason,
+              });
+            }
+            return validation.view;
+          },
+        });
+      };
+      const effectiveHistoryViewForHead = (): ReturnType<typeof buildCodexEffectiveHistoryView> => {
+        effectiveHistoryViewPromise ??= buildEffectiveHistoryViewForHead();
+        return effectiveHistoryViewPromise;
+      };
+      const effectiveHistoryForHead = async () => (
+        await effectiveHistoryViewForHead()
+      ).history;
+
+      if (lifecyclePlanningConfigured) {
+        if (!config.contextRewrite.enabled) {
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: ["feature_disabled"],
+            fallbackUsed: true,
+          });
+        } else if (!requestJournalEntry) {
+          await emitContextRewriteStage("context_rewrite_failed", {
+            reasonCodes: ["request_journal_unavailable"],
+            errorCategory: "history_journal_write_failed",
+            fallbackUsed: true,
+          });
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: ["fallback_original_request"],
+            fallbackUsed: true,
+          });
+        } else if (typeof originalPayload.previous_response_id !== "string"
+          || !originalPayload.previous_response_id) {
+          await emitContextRewriteStage("context_rewrite_deferred", {
+            reasonCodes: ["response_chain_head_missing"],
+          });
+        } else if (!config.contextRewrite.retryOriginalRequest
+          || config.contextRewrite.mode !== "response_chain_rebase"
+          || config.contextRewrite.failureMode !== "bypass") {
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: ["rewrite_configuration_unsupported"],
+            fallbackUsed: true,
+          });
+        } else if (!estimatorResolution.estimator) {
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: ["estimator_missing"],
+            fallbackUsed: true,
+          });
+        } else {
+          try {
+            const effectiveHistoryView = await effectiveHistoryViewForHead();
+            const lifecycleResult = await runCodexLifecyclePlanner({
+              stateDir: config.stateDir,
+              sessionId,
+              view: effectiveHistoryView,
+              backendRequest: {
+                sessionId,
+                payload: originalPayload,
+                effectiveHistory: effectiveHistoryView.history,
+                currentInput: originalPayload.input,
+              },
+              estimator: estimatorResolution.estimator,
+              config: {
+                enabled: true,
+                batchTurns: estimatorResolution.config.batchTurns,
+                evictionEnabled: true,
+                evictionPolicy: "model_scored",
+                evictionMinBlockChars: 256,
+              },
+              createdAt: new Date().toISOString(),
+              expectedCurrentRequest: requestJournalEntry,
+              inputMode: estimatorResolution.config.inputMode,
+              sourcePresetId: "tokenpilot",
+            });
+            if (lifecycleResult.preparedPlan) {
+              activeLifecyclePlan = codexSharedLifecyclePlan(lifecycleResult.preparedPlan.plan);
+              await emitContextRewriteStage("context_rewrite_planned");
+              const applied = await codexSharedContextRewriteBackend.apply({
+                snapshot: lifecycleResult.preparedPlan.snapshot,
+                plan: lifecycleResult.preparedPlan.plan,
+                request: lifecycleResult.preparedPlan.backendRequest,
+              });
+              const details = applied.result.details;
+              if (
+                applied.result.applied
+                && details?.rebasePrepared
+                && allLifecycleOperationsApplied(
+                  activeLifecyclePlan,
+                  applied.result.appliedOperationIds,
+                  applied.result.deferredOperationIds,
+                )
+              ) {
+                lifecyclePreparedPlan = lifecycleResult.preparedPlan;
+                rebaseRequest = {
+                  payload: applied.request.payload,
+                  oldRevision: applied.result.previousRevision,
+                  rebaseRevision: applied.result.nextRevision,
+                  accounting: details.accounting,
+                };
+                rebasePlanId = lifecycleResult.preparedPlan.plan.planId;
+                activeLifecyclePlan = {
+                  ...activeLifecyclePlan,
+                  previousRevision: rebaseRequest.oldRevision,
+                  nextRevision: rebaseRequest.rebaseRevision,
+                  estimatedSavedChars: rebaseRequest.accounting.plannedSavedChars,
+                  savedChars: rebaseRequest.accounting.actuallyRemovedChars,
+                };
+              } else {
+                lifecyclePreparedPlan = undefined;
+                await emitContextRewriteStage("context_rewrite_deferred", {
+                  reasonCodes: ["lifecycle_runner_plan_invalid"],
+                  deferredOperationIds: activeLifecyclePlan.operationIds,
+                });
+              }
+            } else {
+              lifecyclePreparedPlan = undefined;
+              activeLifecyclePlan = undefined;
+              await emitContextRewriteStage(
+                lifecycleResult.status === "bypassed"
+                  ? "context_rewrite_bypassed"
+                  : "context_rewrite_deferred",
+                {
+                  reasonCodes: lifecycleResult.reasonCodes,
+                  ...(lifecycleResult.status === "bypassed" ? { fallbackUsed: true } : {}),
+                },
+              );
+            }
+          } catch (err) {
+            lifecyclePreparedPlan = undefined;
+            activeLifecyclePlan = undefined;
+            await appendTrace(config.stateDir, {
+              stage: "context_rewrite_lifecycle_planning_failed",
+              sessionId,
+              model,
+              reason: err instanceof Error ? err.message : String(err),
+            });
+            await emitContextRewriteStage("context_rewrite_bypassed", {
+              reasonCodes: ["lifecycle_runner_failed"],
+              fallbackUsed: true,
+            });
+          }
+        }
+      } else if (mutationPlan) {
         activeLifecyclePlan = codexMutationLifecyclePlan(mutationPlan);
         await emitContextRewriteStage("context_rewrite_planned");
         if (!config.contextRewrite.enabled) {
@@ -528,45 +752,6 @@ export async function startCodexResponsesProxy(params: {
           });
         }
       }
-      let effectiveHistoryPromise: ReturnType<typeof buildCodexEffectiveHistory> | undefined;
-      const effectiveHistoryForHead = (): ReturnType<typeof buildCodexEffectiveHistory> => {
-        if (!requestJournalEntry || typeof originalPayload.previous_response_id !== "string") {
-          throw new Error("Codex effective history requires a journaled response-chain request");
-        }
-        effectiveHistoryPromise ??= buildCodexEffectiveHistory({
-          stateDir: config.stateDir,
-          sessionId,
-          headResponseId: originalPayload.previous_response_id,
-          currentRequestId: requestJournalEntry.requestId,
-          async rolloutParserBootstrap() {
-            const snapshot = await loadCodexSessionSnapshot(config.stateDir, sessionId);
-            if (!snapshot?.transcriptPath) return null;
-            const rollout = await parseCodexRollout(snapshot.transcriptPath);
-            if (!rollout) return null;
-            const validation = validateCodexRolloutBootstrap({
-              rollout,
-              // prompt_cache_key is an upstream cache namespace, not the
-              // Codex host session identity used by rollout metadata.
-              expectedCodexSessionId: snapshot.codexSessionId,
-              snapshotCodexSessionId: snapshot.codexSessionId,
-              sourceModel: snapshot.latestModel,
-              sourceUpstreamProvider: snapshot.latestUpstreamProvider,
-              currentModel: model,
-              currentCodexProvider: config.providerName,
-              currentUpstreamProvider: upstreamProviderName,
-            });
-            if (validation.rejectionReason) {
-              await appendTrace(config.stateDir, {
-                stage: "context_history_rollout_bootstrap_rejected",
-                sessionId,
-                reason: validation.rejectionReason,
-              });
-            }
-            return validation.history;
-          },
-        });
-        return effectiveHistoryPromise;
-      };
       if (canAttemptCodexRebase({ config, payload: originalPayload, requestEntry: requestJournalEntry })
         && mutationPlan
         && requestJournalEntry) {
@@ -1054,6 +1239,35 @@ export async function startCodexResponsesProxy(params: {
                 cooldownMs: config.contextRewrite.cooldownMs,
               },
               capabilityStore,
+              executionGuard: lifecyclePreparedPlan
+                ? async () => {
+                    let currentView;
+                    try {
+                      currentView = await buildEffectiveHistoryViewForHead();
+                    } catch {
+                      return {
+                        allowed: false,
+                        reason: "lifecycle_execution_snapshot_changed",
+                      };
+                    }
+                    const handoff = await revalidateCodexLifecyclePreparedPlan({
+                      stateDir: config.stateDir,
+                      sessionId,
+                      preparedPlan: lifecyclePreparedPlan,
+                      view: currentView,
+                      backendRequest: {
+                        sessionId,
+                        payload: originalPayload,
+                        effectiveHistory: currentView.history,
+                        currentInput: originalPayload.input,
+                      },
+                    });
+                    return {
+                      allowed: handoff.valid,
+                      reason: handoff.reasonCodes[0],
+                    };
+                  }
+                : undefined,
             });
             contextRewriteOutcome = result.outcome;
             contextRewriteValidationPassed = Boolean(result.rebaseResponse)
@@ -1075,6 +1289,9 @@ export async function startCodexResponsesProxy(params: {
                 contextRewriteBypassReason = "cooldown_active";
               } else if (result.reason === "rewrite_guard_busy") {
                 contextRewriteBypassReason = "rewrite_guard_busy";
+              } else if (isLifecycleExecutionDeferredReason(result.reason)) {
+                contextRewriteDeferredReason = result.reason;
+                contextRewriteBypassReason = "fallback_original_request";
               } else if (result.reason) {
                 contextRewriteFailureReason = result.reason;
                 contextRewriteBypassReason = "fallback_original_request";
