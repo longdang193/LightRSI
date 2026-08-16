@@ -1,7 +1,6 @@
 # TokenPilot Preset
 
-TokenPilot is the current public runtime preset inside LightMem2.
-It targets a practical long-running-session problem: prompt history grows, tool outputs accumulate, cache reuse becomes unstable, and shared sessions become increasingly expensive.
+TokenPilot is the current public runtime preset inside LightMem2. It targets a practical long-running-session problem: prompt history grows, tool outputs accumulate, cache reuse becomes unstable, and shared sessions become increasingly expensive.
 
 Within the current LightMem2 runtime path, TokenPilot primarily addresses this through:
 
@@ -9,15 +8,9 @@ Within the current LightMem2 runtime path, TokenPilot primarily addresses this t
 - observation reduction before large tool outputs poison later turns
 - lifecycle-aware canonical-history eviction for longer shared-session workflows where the host supports it
 
-The preset owns the verified composition contract, not the feature
-implementations. `components/packages/features/` remains reusable by future
-presets, while each host adapter explicitly declares its supported TokenPilot
-feature subset.
+The preset owns the verified composition contract, not the feature implementations. `components/packages/features/` remains reusable by future presets, while each host adapter explicitly declares its supported TokenPilot feature subset.
 
-The preset also owns `TOKENPILOT_PRODUCT_SURFACE_IDENTITY`, which binds the
-TokenPilot display name, primary `/tokenpilot` command, and the existing
-`/lightmem2` and `/tp` compatibility aliases to the generic product-surface
-runtime.
+The preset also owns `TOKENPILOT_PRODUCT_SURFACE_IDENTITY`, which binds the TokenPilot display name, primary `/tokenpilot` command, and the existing `/lightmem2` and `/tp` compatibility aliases to the generic product-surface runtime.
 
 ## Where It Fits
 
@@ -38,8 +31,7 @@ Use the root [README.md](../../../README.md) for the fastest first-run path:
   - open a new Claude Code session to trigger `SessionStart`
   - verify with `lightmem2 claude-code doctor`
 
-Use [components/README.md](../../README.md) if you want the framework-level
-component index before diving into TokenPilot-specific details.
+Use [components/README.md](../../README.md) if you want the framework-level component index before diving into TokenPilot-specific details.
 
 Use this component README when you need TokenPilot-specific details:
 
@@ -51,14 +43,11 @@ Use this component README when you need TokenPilot-specific details:
 - host integration boundary
 - standalone CLI usage
 
-For compatibility, the current OpenClaw adapter also accepts the `lightmem2`
-command and model namespace aliases in addition to the established
-`tokenpilot` ones.
+For compatibility, the current OpenClaw adapter also accepts the `lightmem2` command and model namespace aliases in addition to the established `tokenpilot` ones.
 
 ## Component And Adapter Boundary
 
-Within LightMem2, `TokenPilot` is a thin preset rather than the owner of shared
-packages or host adapters. It composes Stabilizer, Reduction, and Eviction.
+Within LightMem2, `TokenPilot` is a thin preset rather than the owner of shared packages or host adapters. It composes Stabilizer, Reduction, and Eviction.
 
 In the current public repo:
 
@@ -96,8 +85,7 @@ components/
 
 ## Explicit Host Bindings
 
-The preset exports a versioned host-binding contract from
-`src/host-binding.ts`. Current adapters bind it as follows:
+The preset exports a versioned host-binding contract from `src/host-binding.ts`. Current adapters bind it as follows:
 
 | Adapter | Declared feature subset |
 | :-- | :-- |
@@ -105,17 +93,13 @@ The preset exports a versioned host-binding contract from
 | Codex | `stabilizer`, `reduction` |
 | Claude Code | `stabilizer`, `reduction` |
 
-Feature product-surface contributions are initialized through this binding.
-They no longer depend on importing a feature package for side effects.
+Feature product-surface contributions are initialized through this binding. They no longer depend on importing a feature package for side effects.
 
-Host state discovery is also adapter-owned. The shared CLI and Visual surface
-consume `ProductHostRegistration` records from the adapters, while the recovery
-MCP server declares its preset ownership as a host-neutral product.
+Host state discovery is also adapter-owned. The shared CLI and Visual surface consume `ProductHostRegistration` records from the adapters, while the recovery MCP server declares its preset ownership as a host-neutral product.
 
 ## Host Integrations
 
-TokenPilot is being structured as a reusable LightMem2 component with host
-adapters, rather than as a permanently OpenClaw-only implementation.
+TokenPilot is being structured as a reusable LightMem2 component with host adapters, rather than as a permanently OpenClaw-only implementation.
 
 Host integration index:
 
@@ -367,9 +351,7 @@ Minimal shape:
 
 ### OpenClaw-Oriented Advanced Configuration
 
-The advanced keys below are primarily relevant to the current OpenClaw adapter.
-Codex CLI and Claude Code intentionally do not expose most of these controls in
-their public command surface today.
+The advanced keys below are primarily relevant to the current OpenClaw adapter. Codex CLI and Claude Code intentionally do not expose most of these controls in their public command surface today.
 
 | Key | Type | Default | Description |
 | :-- | :-- | :-- | :-- |
@@ -486,4 +468,4 @@ More package-level adapter notes live in:
 - [adapters/openclaw/README.md](../../adapters/openclaw/README.md)
 - [adapters/codex/README.md](../../adapters/codex/README.md)
 - [adapters/claude-code/README.md](../../adapters/claude-code/README.md)
-- [experiments/tokenpilot/README.md](../../../experiments/tokenpilot/README.md)
+- [TokenPilot experiment repository](https://github.com/Xubqpanda/TokenPilot)

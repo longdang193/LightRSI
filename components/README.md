@@ -1,7 +1,6 @@
 # Components
 
-This directory contains the shared packages, feature modules, presets, products,
-and host adapters that make up LightMem2.
+This directory contains the shared packages, feature modules, presets, products, and host adapters that make up LightMem2.
 
 The current public repository ships one component:
 
@@ -24,10 +23,7 @@ LightMem2 separates:
 
 This layout is meant to let a single component support multiple agent hosts over time.
 
-TokenPilot is represented by `presets/tokenpilot/`; it no longer owns the
-shared packages, adapters, or products. Adapters explicitly bind the preset and
-declare which TokenPilot features they support. Products discover host state
-through adapter-provided registrations rather than a second hardcoded host map.
+TokenPilot is represented by `presets/tokenpilot/`; it no longer owns the shared packages, adapters, or products. Adapters explicitly bind the preset and declare which TokenPilot features they support. Products discover host state through adapter-provided registrations rather than a second hardcoded host map.
 
 ## How To Read This Directory
 
@@ -44,7 +40,7 @@ Use a preset subtree when you need product-specific material such as:
 - configuration details
 - runtime state layout
 - debugging notes
-- benchmark-specific experiment docs
+- links to benchmark-specific reproduction docs maintained in the separate TokenPilot experiment repository
 
 ## Current Layout
 
@@ -96,9 +92,7 @@ Workspace npm packages use the `@lightmem2` scope:
 | Products | `@lightmem2/cli`, `@lightmem2/mcp` |
 | Adapters | `@lightmem2/openclaw-adapter`, `@lightmem2/codex-adapter`, `@lightmem2/claude-code-adapter` |
 
-These names define workspace ownership. They do not imply that every internal
-package is independently published; release entrypoints and their public
-export contracts are versioned separately.
+These names define workspace ownership. They do not imply that every internal package is independently published; release entrypoints and their public export contracts are versioned separately.
 
 Source ownership follows the same boundary:
 
@@ -108,9 +102,4 @@ Source ownership follows the same boundary:
   its display name, `/tokenpilot` command, and compatibility aliases
 - adapters own host-specific compatibility paths and environment bridges
 
-At the current runtime-compatibility layer, the shipped component still uses
-the established `tokenpilot` namespace for plugin id and persisted state. On
-OpenClaw, the current public session model prefix is `lightmem2/<model>`, while
-Codex CLI and Claude Code use the standalone `lightmem2 <host> ...` command
-surface. That boundary is intentional for now so the repo can move toward a
-multi-component layout without breaking the current working paths.
+At the current runtime-compatibility layer, the shipped component still uses the established `tokenpilot` namespace for plugin id and persisted state. On OpenClaw, the current public session model prefix is `lightmem2/<model>`, while Codex CLI and Claude Code use the standalone `lightmem2 <host> ...` command surface. That boundary is intentional for now so the repo can move toward a multi-component layout without breaking the current working paths.

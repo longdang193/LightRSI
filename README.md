@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  A modular framework for long-running agent memory and context management
+A modular framework for long-running agent memory and context management
 </p>
 
 <p align="center">
@@ -19,13 +19,12 @@
 </p>
 
 <p align="center">
-  LightMem2 is a lightweight runtime framework for long-running LLM agents.
-  It reduces context growth and serving cost in real shared-session workloads.
+LightMem2 is a lightweight runtime framework for long-running LLM agents. It reduces context growth and serving cost in real shared-session workloads.
 </p>
 
 <p align="center">
   <strong><span style="font-size:1.35em;">95.7% fewer input tokens</span></strong>
-  &nbsp;&nbsp;|&nbsp;&nbsp;
+&nbsp;&nbsp;|&nbsp;&nbsp;
   <strong><span style="font-size:1.35em;">87.0% lower cost</span></strong>
   <br>
   <span>vs. Vanilla OpenClaw on Claw-Eval continuous mode</span>
@@ -33,7 +32,7 @@
 
 <p align="center">
   <strong><span style="font-size:1.35em;">67.4% fewer input tokens</span></strong>
-  &nbsp;&nbsp;|&nbsp;&nbsp;
+&nbsp;&nbsp;|&nbsp;&nbsp;
   <strong><span style="font-size:1.35em;">61.5% lower cost</span></strong>
   <br>
   <span>vs. Vanilla OpenClaw on PinchBench continuous mode</span>
@@ -61,7 +60,7 @@ LightMem2 is intended to host multiple long-running-agent components over time.
 * <a href='#quickstart'>⚡ Quick Start</a>
 * <a href='#visual-results'>🖼️ Visual Results</a>
 * <a href='#architecture'>🏗️ Architecture</a>
-* <a href='#experiments'>🧪 Experiments</a>
+* <a href='#experiments'>🧪 Experiment Reproduction</a>
 * <a href='#commands'>💡 Commands</a>
 * <a href='#experimental-results'>📁 Experimental Results</a>
 * <a href='#citation'>📄 Citation</a>
@@ -229,9 +228,7 @@ For a fuller runtime summary, run:
 /lightmem2 mode normal
 ```
 
-`/lightmem2 doctor` is the quickest integration self-check for the current OpenClaw adapter surface.
-`/lightmem2 visual` opens the local visual inspector for stability, reduction, and eviction snapshots.
-`/lightmem2 mode <conservative|normal|aggressive>` switches preset runtime behavior.
+`/lightmem2 doctor` is the quickest integration self-check for the current OpenClaw adapter surface. `/lightmem2 visual` opens the local visual inspector for stability, reduction, and eviction snapshots. `/lightmem2 mode <conservative|normal|aggressive>` switches preset runtime behavior.
 
 You can also use the standalone CLI outside OpenClaw:
 
@@ -273,8 +270,7 @@ Expected first-run shape:
 - `lightmem2 codex status` shows `stabilizer` and `reduction` enabled
 - after a few turns, `lightmem2 codex report` no longer says `No TokenPilot session stats yet.`
 
-Install success does not always mean the proxy is already running before the first trusted session.
-If doctor still reports `proxy healthy: no` after trusting hooks and opening a new Codex session, use the manual fallback:
+Install success does not always mean the proxy is already running before the first trusted session. If doctor still reports `proxy healthy: no` after trusting hooks and opening a new Codex session, use the manual fallback:
 
 ```bash
 tokenpilot-codex status
@@ -349,8 +345,7 @@ Eviction view:
 
 ## 🏗️ Architecture
 
-The current public repository separates reusable capabilities, verified presets,
-host adapters, and user-facing products.
+The current public repository separates reusable capabilities, verified presets, host adapters, and user-facing products.
 
 At a high level:
 
@@ -379,24 +374,23 @@ LightMem2/
 │       ├── cli/                  # shared lightmem2 CLI and browser visual launcher
 │       └── mcp/                  # shared memory_fault_recover MCP server
 ├── docs/                         # Public-facing notes and smoke helpers for the current runtime path
-├── experiments/                  # Benchmark adapters and evaluation scripts for the current runtime path
+├── website/                      # Documentation site
 └── README.md
 ```
 
-TokenPilot is now a preset rather than a source-code parent directory. Each
-adapter explicitly binds the preset and contributes host discovery metadata;
-the shared CLI and Visual surface consume those registrations.
+TokenPilot is now a preset rather than a source-code parent directory. Each adapter explicitly binds the preset and contributes host discovery metadata; the shared CLI and Visual surface consume those registrations.
 
 <span id='experiments'/>
 
-## 🧪 Experiments
+## 🧪 Experiment Reproduction
 
-Use these following docs for benchmark-specific assets, environment setup, and runner commands. Experiment entrypoints:
+Benchmark tasks, runners, profiles, and analysis are maintained in the separate [TokenPilot experiment repository](https://github.com/Xubqpanda/TokenPilot). LightMem2 contains the runtime and plugin platform; it no longer vendors the experiment harness.
 
-- [experiments/README.md](./experiments/README.md)
-- [experiments/tokenpilot/README.md](./experiments/tokenpilot/README.md)
-- [experiments/tokenpilot/pinchbench/README.md](./experiments/tokenpilot/pinchbench/README.md)
-- [experiments/tokenpilot/claw-eval/README.md](./experiments/tokenpilot/claw-eval/README.md)
+Experiment entrypoints:
+
+- [TokenPilot reproduction guide](https://github.com/Xubqpanda/TokenPilot/blob/main/README.md)
+- [PinchBench benchmark](https://github.com/Xubqpanda/TokenPilot/tree/main/benchmarks/pinchbench)
+- [Claw-Eval benchmark](https://github.com/Xubqpanda/TokenPilot/tree/main/benchmarks/claw-eval)
 
 
 <span id='commands'/>
@@ -531,10 +525,9 @@ Useful Claude Code controls:
 
 The tables below summarize the current LightMem2 runtime path, implemented today through the TokenPilot component, on **PinchBench** and **Claw-Eval**.
 
-`Isolated` mode evaluates each task in a fresh session, focusing on single-task behavior without cross-task history carryover.
-`Continuous` mode evaluates longer-running shared-session workflows, where context accumulation and cache reuse matter much more.
+`Isolated` mode evaluates each task in a fresh session, focusing on single-task behavior without cross-task history carryover. `Continuous` mode evaluates longer-running shared-session workflows, where context accumulation and cache reuse matter much more.
 
-For exact reproduction commands and benchmark-specific setup, start from: [experiments/README.md](./experiments/README.md)
+For exact reproduction commands and benchmark-specific setup, start from the [TokenPilot reproduction guide](https://github.com/Xubqpanda/TokenPilot/blob/main/README.md).
 
 ### PinchBench
 PinchBench logs and output bundles: [PinchBench Result](https://drive.google.com/drive/u/0/folders/11hrLzrreLnBFLz5bttx11lGUcO39QkLc)

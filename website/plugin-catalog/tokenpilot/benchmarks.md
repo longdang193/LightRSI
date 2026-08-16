@@ -93,7 +93,7 @@ TokenPilot achieves the lowest cache miss and lowest cost in isolated mode as we
 
 ## Reproducing Results
 
-See [experiments/README.md](https://github.com/zjunlp/LightMem2/blob/main/experiments/README.md) in the repository for:
+See the [TokenPilot experiment repository](https://github.com/Xubqpanda/TokenPilot) for:
 - Environment setup
 - Data download links
 - Runner commands

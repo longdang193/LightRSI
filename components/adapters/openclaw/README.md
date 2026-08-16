@@ -1,11 +1,8 @@
 # TokenPilot OpenClaw Adapter
 
-This package contains the live OpenClaw adapter runtime for the current LightMem2 OpenClaw path.
-Within the broader LightMem2 framework, this package is the runtime adapter layer used by the TokenPilot component.
+This package contains the live OpenClaw adapter runtime for the current LightMem2 OpenClaw path. Within the broader LightMem2 framework, this package is the runtime adapter layer used by the TokenPilot component.
 
-This adapter explicitly binds TokenPilot with `stabilizer`, `reduction`, and
-`eviction`, and contributes OpenClaw state discovery to the shared CLI/Visual
-product registry.
+This adapter explicitly binds TokenPilot with `stabilizer`, `reduction`, and `eviction`, and contributes OpenClaw state discovery to the shared CLI/Visual product registry.
 
 For the component-level overview, command surface, and full configuration reference, see:
 
@@ -57,8 +54,7 @@ cd /path/to/LightMem2
 lightmem2 openclaw doctor
 ```
 
-Development-style install should use source build + runtime sync instead of
-mixing release and load-path installs. The current sanity workflow is:
+Development-style install should use source build + runtime sync instead of mixing release and load-path installs. The current sanity workflow is:
 
 1. build the package
 2. sync the runtime artifact
@@ -147,7 +143,4 @@ npm test
 npm run doctor:openclaw
 ```
 
-The package still contains a small release-helper surface under
-`components/adapters/openclaw/scripts/`. Benchmarking and evaluation flows should
-stay outside this package and eventually live under the top-level
-`experiments/` tree.
+The package still contains a small release-helper surface under `components/adapters/openclaw/scripts/`. Benchmarking and evaluation flows live in the separate [TokenPilot experiment repository](https://github.com/Xubqpanda/TokenPilot).

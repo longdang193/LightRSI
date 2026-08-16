@@ -13,26 +13,17 @@ components/adapters/codex/*.tgz
 components/adapters/claude-code/*.tgz
 release-artifacts/
 
+# Local-only logo exports
+figs/lightmem2_logo_long_running.png
+figs/lightmem2_logo_long_running.svg
+website/public/images/logo-long-running.png
+website/public/images/logo-long-running.svg
+
 log/
 
-experiments/tokenpilot/pinchbench/save/
-experiments/tokenpilot/pinchbench/dataset/save/
-experiments/tokenpilot/pinchbench/run/estimator.local.env
 *.local.env
 *.local.sh
 nohup.out
-
-experiments/tokenpilot/claw-eval/save/
-experiments/tokenpilot/claw-eval/dataset/general/*
-!experiments/tokenpilot/claw-eval/dataset/general/README.md
-experiments/tokenpilot/claw-eval/dataset/tasks/**/fixtures/**
-experiments/tokenpilot/claw-eval/dataset/tasks/**/output.html
-
-experiments/tokenpilot/pinchbench/dataset/assets/*
-!experiments/tokenpilot/pinchbench/dataset/assets/README.md
-experiments/tokenpilot/pinchbench/run/*.log
-experiments/tokenpilot/pinchbench/dataset/benchmark.log
-experiments/tokenpilot/pinchbench/scripts/distill.log
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

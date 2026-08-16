@@ -22,11 +22,12 @@ LightMem2/
 │               ├── decision/    #   Policy analysis, reduction/eviction
 │               └── memory/      #   Experimental memory layer
 ├── docs/                        # Public-facing notes and helpers
-├── experiments/                 # Benchmark adapters and scripts
 ├── website/                     # This documentation site
 ├── figs/                        # Images for README
 └── README.md
 ```
+
+Benchmark tasks, runners, profiles, and analysis are maintained in the separate [TokenPilot experiment repository](https://github.com/Xubqpanda/TokenPilot).
 
 ## Key Directories
 
