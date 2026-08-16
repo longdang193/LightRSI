@@ -1,19 +1,15 @@
 # TokenPilot Adapters
 
-This directory contains host-specific integration layers for the TokenPilot
-component.
+This directory contains host-specific integration layers for the TokenPilot component.
 
-Shared runtime logic belongs under `components/packages/`.
-Anything that depends on one concrete host should stay under
-`components/adapters/<host>/`.
+Shared runtime logic belongs under `components/packages/`. Anything that depends on one concrete host should stay under `components/adapters/<host>/`.
 
 Each adapter owns two explicit declarations in addition to its runtime code:
 
 - a TokenPilot preset binding describing the supported feature subset
 - a product registration describing host identity and state discovery
 
-The shared CLI and browser Visual surface consume those registrations instead
-of maintaining separate hardcoded host metadata.
+The shared CLI and browser Visual surface consume those registrations instead of maintaining separate hardcoded host metadata.
 
 ## Current Status
 
@@ -118,8 +114,7 @@ Use this order when bringing up a new adapter:
 4. add reduction and persistence hooks
 5. add visual and richer command surfaces last
 
-This keeps the first working version small and makes boundary mistakes easier to
-spot.
+This keeps the first working version small and makes boundary mistakes easier to spot.
 
 ## Related Docs
 

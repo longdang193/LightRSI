@@ -1,7 +1,5 @@
 # Community Plugins
 
-::: danger 
-README 
-:::
+::: danger README :::
 
- Plugin SDK  Registry 
+Plugin SDK Registry

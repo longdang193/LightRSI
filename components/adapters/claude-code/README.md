@@ -1,14 +1,8 @@
 # TokenPilot Claude Code Adapter
 
-This package contains the current Claude Code adapter for the TokenPilot
-component. It is gateway-first: Claude Code requests are routed through a local
-Anthropic-compatible gateway, while hooks and a shared MCP server provide
-observability and real archive recovery.
+This package contains the current Claude Code adapter for the TokenPilot component. It is gateway-first: Claude Code requests are routed through a local Anthropic-compatible gateway, while hooks and a shared MCP server provide observability and real archive recovery.
 
-This adapter explicitly binds the TokenPilot `stabilizer` and `reduction`
-features. It does not advertise lifecycle eviction support. Its product
-registration provides Claude Code state discovery to the shared CLI and Visual
-surface.
+This adapter explicitly binds the TokenPilot `stabilizer` and `reduction` features. It does not advertise lifecycle eviction support. Its product registration provides Claude Code state discovery to the shared CLI and Visual surface.
 
 For the shared component overview and host matrix, see:
 
@@ -47,9 +41,7 @@ For a release archive, extract it and run the bundled installer directly:
 node /path/to/package/dist/install-claude-code.js
 ```
 
-The release archive is self-contained: its hooks, recovery MCP server,
-`lightmem2` command, and `tokenpilot-claude-code` command all run from the
-extracted package directory. Keep that directory in place after installation.
+The release archive is self-contained: its hooks, recovery MCP server, `lightmem2` command, and `tokenpilot-claude-code` command all run from the extracted package directory. Keep that directory in place after installation.
 
 For a source checkout, build the adapter first:
 
@@ -96,8 +88,7 @@ The installed Claude Code skill bridge currently creates these explicit skills:
 - `lightmem2-doctor`
 - `lightmem2-visual`
 
-These are host entry points, not a separate runtime implementation. They call
-the existing `lightmem2 claude-code ...` CLI surface underneath.
+These are host entry points, not a separate runtime implementation. They call the existing `lightmem2 claude-code ...` CLI surface underneath.
 
 ## Verify
 
@@ -123,9 +114,7 @@ lightmem2 claude-code reduction status
 lightmem2 claude-code stabilizer target developer
 ```
 
-The Claude Code gateway is now auto-started from the installed `SessionStart`
-hook. After the first Claude Code session starts, `lightmem2 claude-code doctor`
-should report `proxy healthy: yes` without a separate manual start step.
+The Claude Code gateway is now auto-started from the installed `SessionStart` hook. After the first Claude Code session starts, `lightmem2 claude-code doctor` should report `proxy healthy: yes` without a separate manual start step.
 
 Expected first-run shape:
 
@@ -133,8 +122,7 @@ Expected first-run shape:
 - `lightmem2 claude-code status` shows `stabilizer` and `reduction` enabled
 - after a few turns, `lightmem2 claude-code report` no longer says `No TokenPilot session stats yet.`
 
-Claude Code currently supports `mode conservative` and `mode normal`.
-`mode aggressive` is not available on the current adapter.
+Claude Code currently supports `mode conservative` and `mode normal`. `mode aggressive` is not available on the current adapter.
 
 ## Commands
 
@@ -236,9 +224,7 @@ cat ~/.claude/.claude.json
 npm --prefix components/adapters/claude-code run doctor:claude-code
 ```
 
-If install finishes in degraded MCP mode, gateway routing and reduction remain
-usable; only the real `memory_fault_recover` tool path is unavailable until MCP
-startup succeeds.
+If install finishes in degraded MCP mode, gateway routing and reduction remain usable; only the real `memory_fault_recover` tool path is unavailable until MCP startup succeeds.
 
 ## Package Scripts
 

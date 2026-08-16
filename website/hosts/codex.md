@@ -63,8 +63,7 @@ Expected output:
 lightmem2 codex doctor
 ```
 
-::: warning Proxy may not start before first trusted session
-Install success does not guarantee the proxy is already running. If `doctor` still reports `proxy healthy: no` after trusting hooks and opening a new Codex session, use the manual fallback:
+::: warning Proxy may not start before first trusted session Install success does not guarantee the proxy is already running. If `doctor` still reports `proxy healthy: no` after trusting hooks and opening a new Codex session, use the manual fallback:
 ```bash
 tokenpilot-codex status
 tokenpilot-codex start

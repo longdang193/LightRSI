@@ -62,9 +62,7 @@ Expected output:
 lightmem2 claude-code doctor
 ```
 
-::: warning Gateway starts on first session
-Install success does not guarantee the gateway is already healthy before `SessionStart` fires. Open a new Claude Code session to trigger auto-start.
-:::
+::: warning Gateway starts on first session Install success does not guarantee the gateway is already healthy before `SessionStart` fires. Open a new Claude Code session to trigger auto-start. :::
 
 ## Standalone CLI
 

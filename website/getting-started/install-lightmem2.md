@@ -46,8 +46,7 @@ pnpm lightmem2:install
 
 The first command builds the shared `lightmem2` CLI. The second installs it to `~/.local/bin/lightmem2`.
 
-::: warning PATH notice
-Make sure `~/.local/bin` is on your `PATH`. Add this to your shell config if needed:
+::: warning PATH notice Make sure `~/.local/bin` is on your `PATH`. Add this to your shell config if needed:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"

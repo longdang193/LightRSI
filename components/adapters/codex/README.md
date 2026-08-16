@@ -1,12 +1,8 @@
 # TokenPilot Codex Adapter
 
-This package contains the current Codex CLI adapter for the TokenPilot component.
-It integrates through Codex config mutation, hook registration, and a local OpenAI-compatible Responses proxy.
+This package contains the current Codex CLI adapter for the TokenPilot component. It integrates through Codex config mutation, hook registration, and a local OpenAI-compatible Responses proxy.
 
-This adapter explicitly binds the TokenPilot `stabilizer` and `reduction`
-features. It does not advertise lifecycle eviction support. Its product
-registration provides Codex state discovery to the shared CLI and Visual
-surface.
+This adapter explicitly binds the TokenPilot `stabilizer` and `reduction` features. It does not advertise lifecycle eviction support. Its product registration provides Codex state discovery to the shared CLI and Visual surface.
 
 For the component-level overview and shared command surface, see:
 
@@ -47,9 +43,7 @@ For a release archive, extract it and run the bundled installer directly:
 node /path/to/package/dist/install-codex.js
 ```
 
-The release archive is self-contained: its hooks, recovery MCP server,
-`lightmem2` command, and `tokenpilot-codex` command all run from the extracted
-package directory. Keep that directory in place after installation.
+The release archive is self-contained: its hooks, recovery MCP server, `lightmem2` command, and `tokenpilot-codex` command all run from the extracted package directory. Keep that directory in place after installation.
 
 For a source checkout, build the adapter first:
 
@@ -96,12 +90,9 @@ The installed Codex skill bridge currently creates these explicit skills:
 - `lightmem2-doctor`
 - `lightmem2-visual`
 
-These are host entry points, not a separate runtime implementation. They call
-the existing `lightmem2 codex ...` CLI surface underneath.
+These are host entry points, not a separate runtime implementation. They call the existing `lightmem2 codex ...` CLI surface underneath.
 
-This install mode is intentionally session-preserving: Codex keeps using the
-same provider name it was already using, so existing thread history does not
-disappear behind a separate `tokenpilot` provider bucket.
+This install mode is intentionally session-preserving: Codex keeps using the same provider name it was already using, so existing thread history does not disappear behind a separate `tokenpilot` provider bucket.
 
 ## Verify
 
@@ -133,14 +124,11 @@ Expected first-run shape:
 - `lightmem2 codex status` shows `stabilizer` and `reduction` enabled
 - after a few turns, `lightmem2 codex report` no longer says `No TokenPilot session stats yet.`
 
-Once installed, Codex can use the real internal recovery tool named
-`memory_fault_recover` through the registered MCP server. Recovery hints in
-trimmed payloads are no longer just protocol text.
+Once installed, Codex can use the real internal recovery tool named `memory_fault_recover` through the registered MCP server. Recovery hints in trimmed payloads are no longer just protocol text.
 
 ### Task-state estimator bridge (PR-B)
 
-The task-state estimator bridge is default-disabled. A conservative
-`~/.codex/tokenpilot.json` example is:
+The task-state estimator bridge is default-disabled. A conservative `~/.codex/tokenpilot.json` example is:
 
 ```json
 {
@@ -158,28 +146,15 @@ The task-state estimator bridge is default-disabled. A conservative
 }
 ```
 
-Keep API keys out of checked-in configuration. The resolver accepts
-`LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY` from the environment, with
-`TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY` as a compatibility fallback. The
-same prefixes support `ENABLED`, `BASE_URL`, `MODEL`, `TIMEOUT_MS`,
-`BATCH_TURNS`, `EVICTION_LOOKAHEAD_TURNS`, `INPUT_MODE`, `LIFECYCLE_MODE`, and
-`EVIDENCE_MODE`; explicit JSON fields take precedence over environment values.
+Keep API keys out of checked-in configuration. The resolver accepts `LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY` from the environment, with `TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY` as a compatibility fallback. The same prefixes support `ENABLED`, `BASE_URL`, `MODEL`, `TIMEOUT_MS`, `BATCH_TURNS`, `EVICTION_LOOKAHEAD_TURNS`, `INPUT_MODE`, `LIFECYCLE_MODE`, and `EVIDENCE_MODE`; explicit JSON fields take precedence over environment values.
 
-If the bridge is enabled without `baseUrl`, `apiKey`, or `model`, diagnostics
-report `incomplete` and fail closed. Status and doctor output expose only safe
-configuration state and numeric parameters, never the API key or an
-Authorization header.
+If the bridge is enabled without `baseUrl`, `apiKey`, or `model`, diagnostics report `incomplete` and fail closed. Status and doctor output expose only safe configuration state and numeric parameters, never the API key or an Authorization header.
 
-PR-B only provides configuration resolution, effective-history semantic input,
-and the canonical context snapshot. It does not invoke the estimator or shared
-planner in the production proxy, and it cannot trigger an automatic rebase.
-`contextRewrite.mutationPlan` remains a test/smoke override and does not gain
-runtime priority from this bridge.
+PR-B only provides configuration resolution, effective-history semantic input, and the canonical context snapshot. It does not invoke the estimator or shared planner in the production proxy, and it cannot trigger an automatic rebase. `contextRewrite.mutationPlan` remains a test/smoke override and does not gain runtime priority from this bridge.
 
 ### Offline context-rebase smoke
 
-The response-chain rebase path has a credential-free smoke command for local
-development and CI:
+The response-chain rebase path has a credential-free smoke command for local development and CI:
 
 ```bash
 npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
@@ -187,16 +162,9 @@ npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
   --output-dir=/path/to/sanitized-evidence
 ```
 
-It starts a temporary loopback Responses upstream and verifies encrypted
-reasoning replay, function call/output closure, sentinel eviction and
-retention, five turns on the new response chain, proxy restart, one-attempt
-fallback with cooldown, all eight stabilizer/reduction/rewrite combinations,
-and estimated rebase accounting including the break-even turn.
+It starts a temporary loopback Responses upstream and verifies encrypted reasoning replay, function call/output closure, sentinel eviction and retention, five turns on the new response chain, proxy restart, one-attempt fallback with cooldown, all eight stabilizer/reduction/rewrite combinations, and estimated rebase accounting including the break-even turn.
 
-The command never reads an API key. Its evidence is explicitly marked
-`mode: mock` and omits raw prompts, headers, response IDs, and encrypted
-reasoning payloads. It does not replace real-provider validation or
-provider-observed usage and break-even evidence.
+The command never reads an API key. Its evidence is explicitly marked `mode: mock` and omits raw prompts, headers, response IDs, and encrypted reasoning payloads. It does not replace real-provider validation or provider-observed usage and break-even evidence.
 
 ### Opt-in provider context-rebase smoke
 
@@ -209,8 +177,7 @@ npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
   --output-dir=/path/to/sanitized-evidence
 ```
 
-To extend the real-provider item matrix with a hosted web-search replay, opt in
-to the additional scenario:
+To extend the real-provider item matrix with a hosted web-search replay, opt in to the additional scenario:
 
 ```bash
 npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
@@ -219,74 +186,17 @@ npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
   --output-dir=/path/to/sanitized-evidence
 ```
 
-Additional scenarios are observational by default. If the provider omits the
-requested item or the isolated probe fails, the sanitized v3 artifact is still
-written with `status: not-observed` and a categorical `reason`; the core rebase
-gate remains authoritative. To make every selected additional scenario a hard
-gate, add `--strict-compatibility-scenarios`.
+Additional scenarios are observational by default. If the provider omits the requested item or the isolated probe fails, the sanitized v3 artifact is still written with `status: not-observed` and a categorical `reason`; the core rebase gate remains authoritative. To make every selected additional scenario a hard gate, add `--strict-compatibility-scenarios`.
 
-Provider mode reads `OPENAI_API_KEY` and `OPENAI_BASE_URL` from the process
-environment or `<initial cwd>/.env`; `--credentials-file` can select another
-ignored env file. There is no CLI argument for the key. The mode first verifies
-exact encrypted-reasoning and function-call/output replay, then compares a
-control chain with a five-turn rebase chain and restarts the proxy before turn
-three. It writes a v3 artifact only if the Responses endpoint, capability v2
-journal, rebase commit ordering, sentinel checks, exact payload digest, tool
-closure, response links, restart mapping, and provider usage gates all pass.
-In strict mode, the optional web-search scenario also requires a real
-`web_search_call` output to survive the stateless rebase and receive `real-pass`
-journal evidence. The scenario runs as a separate three-request probe so
-hosted-tool output cannot distort the core five-turn usage comparison. The
-compatibility matrix is derived from the journal for every catalogued item;
-items not emitted by the selected provider/model remain `not-observed`.
+Provider mode reads `OPENAI_API_KEY` and `OPENAI_BASE_URL` from the process environment or `<initial cwd>/.env`; `--credentials-file` can select another ignored env file. There is no CLI argument for the key. The mode first verifies exact encrypted-reasoning and function-call/output replay, then compares a control chain with a five-turn rebase chain and restarts the proxy before turn three. It writes a v3 artifact only if the Responses endpoint, capability v2 journal, rebase commit ordering, sentinel checks, exact payload digest, tool closure, response links, restart mapping, and provider usage gates all pass. In strict mode, the optional web-search scenario also requires a real `web_search_call` output to survive the stateless rebase and receive `real-pass` journal evidence. The scenario runs as a separate three-request probe so hosted-tool output cannot distort the core five-turn usage comparison. The compatibility matrix is derived from the journal for every catalogued item; items not emitted by the selected provider/model remain `not-observed`.
 
-Evidence contains only safe endpoint/model labels, an endpoint digest,
-booleans, counts, item types, payload length/digest, and provider usage totals.
-It never contains the API key, raw prompts, response IDs, encrypted payloads,
-headers, or raw provider error bodies. Authentication and unrelated schema
-failures are not retried; only 429 and 5xx receive two bounded retries. If a
-provider explicitly rejects `previous_response_id`, the proxy retries once with
-journal-derived stateless history, forces `store: false`, requests encrypted
-reasoning state, and caches the transport decision by provider/model/endpoint.
-Later turns use stateless replay directly while preserving every supported
-response output item. A 2xx response that omits explicitly requested encrypted
-reasoning receives at most two transport-level repair retries. Journal parent
-links always follow the client request (including an explicit root), never an
-inconsistent provider echo. Reused provider response IDs remain ordered journal
-occurrences, so a restart does not collapse a valid logical chain.
+Evidence contains only safe endpoint/model labels, an endpoint digest, booleans, counts, item types, payload length/digest, and provider usage totals. It never contains the API key, raw prompts, response IDs, encrypted payloads, headers, or raw provider error bodies. Authentication and unrelated schema failures are not retried; only 429 and 5xx receive two bounded retries. If a provider explicitly rejects `previous_response_id`, the proxy retries once with journal-derived stateless history, forces `store: false`, requests encrypted reasoning state, and caches the transport decision by provider/model/endpoint. Later turns use stateless replay directly while preserving every supported response output item. A 2xx response that omits explicitly requested encrypted reasoning receives at most two transport-level repair retries. Journal parent links always follow the client request (including an explicit root), never an inconsistent provider echo. Reused provider response IDs remain ordered journal occurrences, so a restart does not collapse a valid logical chain.
 
-Context-history journal writers use a session-scoped cross-process lock. A
-successful append is one complete JSONL record followed by `sync`; concurrent
-request and response writers cannot interleave their records. If a crash leaves
-one unterminated JSON/UTF-8 suffix after an otherwise canonical journal, the
-next append or effective-history restart read truncates only that suffix under
-the same lock and syncs the file. A complete canonical final record that only
-lacks its newline is preserved and normalized. Invalid canonical records,
-middle corruption, and read/write uncertainty still fail closed so the proxy
-bypasses rewriting instead of guessing history. Recovery evidence exposes only
-a reason, byte count, and SHA-256 digest, never the discarded bytes. This is
-crash-truncated tail recovery, not power-loss-level transactional append
-semantics.
+Context-history journal writers use a session-scoped cross-process lock. A successful append is one complete JSONL record followed by `sync`; concurrent request and response writers cannot interleave their records. If a crash leaves one unterminated JSON/UTF-8 suffix after an otherwise canonical journal, the next append or effective-history restart read truncates only that suffix under the same lock and syncs the file. A complete canonical final record that only lacks its newline is preserved and normalized. Invalid canonical records, middle corruption, and read/write uncertainty still fail closed so the proxy bypasses rewriting instead of guessing history. Recovery evidence exposes only a reason, byte count, and SHA-256 digest, never the discarded bytes. This is crash-truncated tail recovery, not power-loss-level transactional append semantics.
 
-Provider replay compatibility is evaluated separately from structural
-replayability. A complete tool closure or exact encrypted payload only makes an
-item a replay candidate; it does not prove that the selected provider and model
-accept that item. Capability journal v2 keys observations by provider, model,
-Responses wire/API mode, a SHA-256 endpoint identity, item type, and item schema
-version, and expires observations after a bounded TTL.
+Provider replay compatibility is evaluated separately from structural replayability. A complete tool closure or exact encrypted payload only makes an item a replay candidate; it does not prove that the selected provider and model accept that item. Capability journal v2 keys observations by provider, model, Responses wire/API mode, a SHA-256 endpoint identity, item type, and item schema version, and expires observations after a bounded TTL.
 
-The default `contextRewrite.providerCompatibilityProbe` value is
-`real_provider`. Unknown item compatibility is learned from the actual
-rebased/stateless request; an explicit rejection is cached, while a successful
-replay records support. `disabled` keeps the conservative bypass behavior and
-`mock_fixture` is reserved for fixtures. Mock evidence can drive mock tests but
-is never presented as real-provider verification. Explicit item-schema
-rejection is scoped to the named item type; encrypted-content lineage/expiry
-rejection is scoped to the exact payload digest; authentication, rate-limit,
-server, network, and ambiguous multi-item failures do not poison the capability
-cache. `program`, `program_output`, and program-issued tool outputs retain their
-fingerprint, status, and exact `caller` relationship. Doctor and session reports
-label the evidence source and whether each observation is active or expired.
+The default `contextRewrite.providerCompatibilityProbe` value is `real_provider`. Unknown item compatibility is learned from the actual rebased/stateless request; an explicit rejection is cached, while a successful replay records support. `disabled` keeps the conservative bypass behavior and `mock_fixture` is reserved for fixtures. Mock evidence can drive mock tests but is never presented as real-provider verification. Explicit item-schema rejection is scoped to the named item type; encrypted-content lineage/expiry rejection is scoped to the exact payload digest; authentication, rate-limit, server, network, and ambiguous multi-item failures do not poison the capability cache. `program`, `program_output`, and program-issued tool outputs retain their fingerprint, status, and exact `caller` relationship. Doctor and session reports label the evidence source and whether each observation is active or expired.
 
 If install finishes in degraded MCP mode, Codex stable-prefix and reduction remain usable; only the real `memory_fault_recover` tool path is unavailable until MCP startup succeeds.
 
@@ -391,20 +301,14 @@ Expected install shape:
 
 If Codex reports that hooks need review, trust the TokenPilot hooks in Codex, open a new session, and rerun the doctor.
 
-If Codex displays `Stop hook (failed)` or `PostToolUse hook (failed)` after a
-repository reorganization, rebuild and reinstall the adapter so
-`~/.codex/hooks.json` points at the current handler:
+If Codex displays `Stop hook (failed)` or `PostToolUse hook (failed)` after a repository reorganization, rebuild and reinstall the adapter so `~/.codex/hooks.json` points at the current handler:
 
 ```bash
 npm --prefix components/adapters/codex run build
 npm --prefix components/adapters/codex run install:codex
 ```
 
-The expected handler path is
-`components/adapters/codex/dist/hooks-handler.js`. The handler uses bounded
-iterative traversal for large or deeply nested tool results, and observation
-write failures are best-effort so they do not fail a successful Codex tool
-call.
+The expected handler path is `components/adapters/codex/dist/hooks-handler.js`. The handler uses bounded iterative traversal for large or deeply nested tool results, and observation write failures are best-effort so they do not fail a successful Codex tool call.
 
 ## Package Scripts
 
@@ -420,6 +324,4 @@ npm --prefix components/adapters/codex run doctor:codex
 npm --prefix components/adapters/codex run pack:release
 ```
 
-`pack:release` is the Linux/CI Bash path. On Windows, build the Codex adapter,
-shared CLI, and MCP packages first, then use `pack:release:portable`; it creates
-the same minimal archive through a temporary directory without requiring WSL.
+`pack:release` is the Linux/CI Bash path. On Windows, build the Codex adapter, shared CLI, and MCP packages first, then use `pack:release:portable`; it creates the same minimal archive through a temporary directory without requiring WSL.

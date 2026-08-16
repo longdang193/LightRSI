@@ -1,10 +1,8 @@
 # Adapter Playbook
 
-This document is the implementation checklist for adding a new TokenPilot host
-adapter inside LightMem2.
+This document is the implementation checklist for adding a new TokenPilot host adapter inside LightMem2.
 
-Use it before adding support for a new coding-agent host such as Codex CLI or
-Claude Code.
+Use it before adding support for a new coding-agent host such as Codex CLI or Claude Code.
 
 ## Design First
 
@@ -59,9 +57,7 @@ components/
 └── adapters/<host>/
 ```
 
-Shared logic belongs in `packages/foundation/*` or `packages/features/*`.
-Host-specific config, transcript parsing, command wiring, and install logic
-belong in the host adapter.
+Shared logic belongs in `packages/foundation/*` or `packages/features/*`. Host-specific config, transcript parsing, command wiring, and install logic belong in the host adapter.
 
 ## Regression Gates
 

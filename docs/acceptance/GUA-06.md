@@ -7,9 +7,7 @@
 - Providers: committed mock upstreams only
 - Secrets/API keys: none
 
-This acceptance checks context rewrite behavior through real adapter gateway
-runtimes. The reusable harness belongs to `@lightmem2/host-adapter`; host tests
-remain in their owning adapter packages.
+This acceptance checks context rewrite behavior through real adapter gateway runtimes. The reusable harness belongs to `@lightmem2/host-adapter`; host tests remain in their owning adapter packages.
 
 ## Claude Request Overlay
 
@@ -33,20 +31,15 @@ The focused acceptance test verifies:
   request bodies.
 - The second runtime observes trace evidence written by the first runtime.
 - An injected clone failure bypasses eviction, forwards the original request,
-  preserves tool closure, and records `analysis_or_apply_error` without raw
-  context in the trace.
+  preserves tool closure, and records `analysis_or_apply_error` without raw context in the trace.
 
 Claude status: **PASS** for mock non-streaming request-overlay acceptance.
 
-The restart check proves that request overlay remains safe across process
-lifetimes and that the isolated state directory is retained. Claude eviction is
-currently recomputed from each full request; this test does not claim persistent
-rewrite-plan replay or recovery.
+The restart check proves that request overlay remains safe across process lifetimes and that the isolated state directory is retained. Claude eviction is currently recomputed from each full request; this test does not claim persistent rewrite-plan replay or recovery.
 
 ## Codex Response-chain Rebase
 
-The Codex adapter already owns streaming, non-streaming, fallback, cooldown,
-epoch recovery, journal ordering, malformed closure, and restart tests under:
+The Codex adapter already owns streaming, non-streaming, fallback, cooldown, epoch recovery, journal ordering, malformed closure, and restart tests under:
 
 ```text
 components/adapters/codex/tests/
@@ -58,14 +51,12 @@ Command:
 pnpm --dir components/adapters/codex test
 ```
 
-Codex status: **PASS** for committed mock response-chain rebase tests. PR #15
-does not add or modify Codex runtime behavior.
+Codex status: **PASS** for committed mock response-chain rebase tests. PR #15 does not add or modify Codex runtime behavior.
 
 ## Architecture
 
 - Generic acceptance recording, restart orchestration, sentinel inspection,
-  fallback accounting, and multi-protocol closure checks live in
-  `@lightmem2/host-adapter`.
+  fallback accounting, and multi-protocol closure checks live in `@lightmem2/host-adapter`.
 - Claude acceptance imports the shared harness through the package API and does
   not import another adapter's source tree.
 - Each phase fails if any successful upstream request retains eviction content,
