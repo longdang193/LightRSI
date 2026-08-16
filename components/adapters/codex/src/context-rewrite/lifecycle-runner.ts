@@ -8,6 +8,7 @@ import {
   type LifecyclePlannerConfig,
   type LifecyclePlannerReasonCode,
   type TaskStateEstimator,
+  type TaskStateEstimatorOutput,
 } from "@lightmem2/eviction";
 import type {
   ContextMutationPlan,
@@ -64,6 +65,7 @@ export type CodexLifecycleRunnerResult = {
   attemptedEstimator: boolean;
   registryPersisted: boolean;
   registryChanged: boolean;
+  estimatorUsage?: TaskStateEstimatorOutput["usage"];
   registryVersionBefore?: number;
   registryVersionAfter?: number;
   preparedPlan?: CodexLifecyclePreparedPlan;
@@ -118,6 +120,7 @@ function result(params: {
   attemptedEstimator?: boolean;
   registryPersisted?: boolean;
   registryChanged?: boolean;
+  estimatorUsage?: TaskStateEstimatorOutput["usage"];
   registryVersionBefore?: number;
   registryVersionAfter?: number;
   preparedPlan?: CodexLifecyclePreparedPlan;
@@ -128,6 +131,7 @@ function result(params: {
     attemptedEstimator: params.attemptedEstimator ?? false,
     registryPersisted: params.registryPersisted ?? false,
     registryChanged: params.registryChanged ?? false,
+    ...(params.estimatorUsage ? { estimatorUsage: params.estimatorUsage } : {}),
     ...(params.registryVersionBefore !== undefined
       ? { registryVersionBefore: params.registryVersionBefore }
       : {}),
@@ -295,6 +299,8 @@ export async function runCodexLifecyclePlanner(
     });
   }
 
+  let attemptedEstimator = false;
+  let estimatorUsage: TaskStateEstimatorOutput["usage"];
   try {
     let registry;
     try {
@@ -344,6 +350,8 @@ export async function runCodexLifecyclePlanner(
       createdAt: params.createdAt,
       sourcePresetId: params.sourcePresetId,
     });
+    attemptedEstimator = planned.attemptedEstimator;
+    estimatorUsage = planned.estimatorUsage;
 
     let preparedPlan: CodexLifecyclePreparedPlan | undefined;
     const runnerReasons: CodexLifecycleRunnerReasonCode[] = [...planned.reasonCodes];
@@ -391,6 +399,7 @@ export async function runCodexLifecyclePlanner(
               "lifecycle_runner_registry_version_conflict",
             ],
             attemptedEstimator: planned.attemptedEstimator,
+            estimatorUsage: planned.estimatorUsage,
             registryVersionBefore,
             registryVersionAfter: error.actualVersion,
           });
@@ -402,6 +411,7 @@ export async function runCodexLifecyclePlanner(
             "lifecycle_runner_registry_persist_failed",
           ],
           attemptedEstimator: planned.attemptedEstimator,
+          estimatorUsage: planned.estimatorUsage,
           registryVersionBefore,
           registryVersionAfter: registryVersionBefore,
         });
@@ -414,6 +424,7 @@ export async function runCodexLifecyclePlanner(
         : planned.status,
       reasonCodes: runnerReasons,
       attemptedEstimator: planned.attemptedEstimator,
+      estimatorUsage: planned.estimatorUsage,
       registryPersisted,
       registryChanged: planned.registryChanged,
       registryVersionBefore,
@@ -426,6 +437,8 @@ export async function runCodexLifecyclePlanner(
     return result({
       status: "bypassed",
       reasonCodes: ["lifecycle_runner_failed"],
+      attemptedEstimator,
+      estimatorUsage,
     });
   } finally {
     await lock.release();

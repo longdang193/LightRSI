@@ -5,6 +5,7 @@ import {
   applyCodexContextRewrite,
   buildCodexRebaseRequest,
   executeCodexRebaseWithFallback,
+  withCodexRebaseEstimatorAccounting,
   withCodexRebaseReplayAccountingInput,
   type CodexEffectiveHistory,
   type JsonObject,
@@ -209,6 +210,38 @@ test("CDR-02 builds rebase accounting for replay cost and break-even", () => {
   assert.equal(result.accounting.fallbackExtraRequestCount, 0);
   assert.equal(result.accounting.cacheColdMissCount, 1);
   assert.equal(result.accounting.breakEvenTurn, Math.ceil(rebaseReplayChars / evictedChars));
+});
+
+test("CDR-02 includes estimator API usage in rebase cost and break-even", () => {
+  const originalPayload = baseResponsesPayload();
+  const history = effectiveHistoryFixture();
+  const result = buildCodexRebaseRequest({
+    sessionId: "codex-session-1",
+    planId: "plan-estimator-accounting",
+    baseRevision: history.revision,
+    originalPayload,
+    effectiveHistory: history,
+    currentInput: originalPayload.input,
+    mutationPlan: {
+      operations: [{ type: "evict", stableItemId: "evicted-user-1" }],
+    },
+  });
+  const withEstimator = withCodexRebaseEstimatorAccounting(result.accounting, {
+    inputTokens: 120,
+    outputTokens: 24,
+    totalTokens: 144,
+    costUsd: 0.002,
+  });
+
+  assert.equal(withEstimator.estimatorCostTokens, 144);
+  assert.equal(withEstimator.estimatorCostChars, 576);
+  assert.equal(
+    withEstimator.breakEvenTurn,
+    Math.ceil(
+      (result.accounting.rebaseReplayCostChars + 576)
+      / result.accounting.subsequentSavedCharsPerTurn,
+    ),
+  );
 });
 
 test("CDR-02 refreshes replay accounting after downstream input changes", () => {

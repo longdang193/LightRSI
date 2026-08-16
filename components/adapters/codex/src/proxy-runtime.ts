@@ -90,6 +90,7 @@ import {
   resolveCodexTaskStateEstimator,
   revalidateCodexLifecyclePreparedPlan,
   runCodexLifecyclePlanner,
+  withCodexRebaseEstimatorAccounting,
   withCodexRebaseReplayAccountingInput,
 } from "./context-rewrite/index.js";
 import type {
@@ -652,6 +653,19 @@ export async function startCodexResponsesProxy(params: {
               inputMode: estimatorResolution.config.inputMode,
               sourcePresetId: "tokenpilot",
             });
+            await appendTrace(config.stateDir, {
+              stage: "context_rewrite_lifecycle_planner_completed",
+              sessionId,
+              model,
+              status: lifecycleResult.status,
+              reasonCodes: lifecycleResult.reasonCodes,
+              attemptedEstimator: lifecycleResult.attemptedEstimator,
+              registryPersisted: lifecycleResult.registryPersisted,
+              registryChanged: lifecycleResult.registryChanged,
+              registryVersionBefore: lifecycleResult.registryVersionBefore ?? null,
+              registryVersionAfter: lifecycleResult.registryVersionAfter ?? null,
+              estimatorUsage: lifecycleResult.estimatorUsage ?? null,
+            });
             if (lifecycleResult.preparedPlan) {
               activeLifecyclePlan = codexSharedLifecyclePlan(lifecycleResult.preparedPlan.plan);
               await emitContextRewriteStage("context_rewrite_planned");
@@ -670,12 +684,16 @@ export async function startCodexResponsesProxy(params: {
                   applied.result.deferredOperationIds,
                 )
               ) {
+                const accounting = withCodexRebaseEstimatorAccounting(
+                  details.accounting,
+                  lifecycleResult.estimatorUsage,
+                );
                 lifecyclePreparedPlan = lifecycleResult.preparedPlan;
                 rebaseRequest = {
                   payload: applied.request.payload,
                   oldRevision: applied.result.previousRevision,
                   rebaseRevision: applied.result.nextRevision,
-                  accounting: details.accounting,
+                  accounting,
                 };
                 rebasePlanId = lifecycleResult.preparedPlan.plan.planId;
                 activeLifecyclePlan = {

@@ -2,6 +2,7 @@ import {
   codexProgramCallerId,
   codexReplayPairRef,
 } from "../context-history/replayability.js";
+import type { TaskStateEstimatorOutput } from "@lightmem2/eviction";
 import { cloneJson, stableInputKey } from "./shared.js";
 import type {
   CodexEffectiveHistory,
@@ -219,6 +220,25 @@ export function withCodexRebaseReplayAccountingInput(
     ...accounting,
     rebaseReplayCostChars,
     rebaseReplayCostTokens: estimatedTokens(rebaseReplayCostChars),
+    breakEvenTurn: accounting.subsequentSavedCharsPerTurn > 0
+      ? Math.ceil(totalOneTimeCost / accounting.subsequentSavedCharsPerTurn)
+      : undefined,
+  };
+}
+
+export function withCodexRebaseEstimatorAccounting(
+  accounting: CodexRebaseAccounting,
+  usage: TaskStateEstimatorOutput["usage"],
+): CodexRebaseAccounting {
+  if (!usage) return accounting;
+  const estimatorCostTokens = Math.max(0, Math.trunc(usage.totalTokens));
+  // The legacy accounting schema stores a char-equivalent alongside exact API tokens.
+  const estimatorCostChars = estimatorCostTokens * 4;
+  const totalOneTimeCost = accounting.rebaseReplayCostChars + estimatorCostChars;
+  return {
+    ...accounting,
+    estimatorCostChars,
+    estimatorCostTokens,
     breakEvenTurn: accounting.subsequentSavedCharsPerTurn > 0
       ? Math.ceil(totalOneTimeCost / accounting.subsequentSavedCharsPerTurn)
       : undefined,

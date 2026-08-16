@@ -10,6 +10,7 @@ import { reserveUnusedPort } from "@lightmem2/host-adapter";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { buildCodexEffectiveHistory } from "../src/context-history/index.js";
+import { readCodexRebaseEpochJournal } from "../src/context-rewrite/index.js";
 import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
 
@@ -144,11 +145,13 @@ async function startEstimator(
       ? {
           id: `estimator-chat-${callCount}`,
           choices: [{ message: { content: JSON.stringify(estimatorOutput) } }],
+          usage: { prompt_tokens: 120, completion_tokens: 24, total_tokens: 144 },
         }
       : {
           id: `estimator-response-${callCount}`,
           status: "completed",
           output: [responseMessage(JSON.stringify(estimatorOutput))],
+          usage: { input_tokens: 120, output_tokens: 24, total_tokens: 144 },
         }));
   });
   const port = await listen(server);
@@ -286,6 +289,19 @@ test("Codex proxy uses lifecycle planning instead of a conflicting manual plan",
     assert.equal(registry.version, 1);
     assert.deepEqual(registry.evictableTaskIds, ["task-lifecycle-evict"]);
     assert.deepEqual(registry.activeTaskIds, ["task-lifecycle-current"]);
+    const plannerTrace = lifecycleEvents.find((event) => (
+      event.stage === "context_rewrite_lifecycle_planner_completed"
+      && event.attemptedEstimator === true
+    ));
+    assert.deepEqual(plannerTrace?.estimatorUsage, {
+      inputTokens: 120,
+      outputTokens: 24,
+      totalTokens: 144,
+    });
+    const epochJournal = await readCodexRebaseEpochJournal(stateDir, sessionId);
+    const committedEpoch = epochJournal.epochs.find((epoch) => epoch.status === "committed");
+    assert.equal(committedEpoch?.accounting?.estimatorCostTokens, 144);
+    assert.equal(committedEpoch?.accounting?.estimatorCostChars, 576);
   } finally {
     await runtime?.close();
     await estimator.close();

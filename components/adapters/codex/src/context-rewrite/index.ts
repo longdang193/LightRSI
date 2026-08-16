@@ -30,6 +30,7 @@ export type {
 export {
   buildCodexRebaseRequest,
   validateCodexRebaseRequest,
+  withCodexRebaseEstimatorAccounting,
   withCodexRebaseReplayAccountingInput,
 } from "./rebase-request.js";
 export {

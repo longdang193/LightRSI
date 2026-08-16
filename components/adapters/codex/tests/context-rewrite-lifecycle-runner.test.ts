@@ -143,6 +143,12 @@ function completingEstimator(
             coveredTurnAbsIds: [`${SESSION_ID}:t3`],
           },
         ],
+        usage: {
+          inputTokens: 120,
+          outputTokens: 24,
+          totalTokens: 144,
+          costUsd: 0.002,
+        },
       };
     },
   };
@@ -167,6 +173,12 @@ test("lifecycle runner persists the planner registry before exposing a validated
   assert.equal(result.registryChanged, true);
   assert.equal(result.registryVersionBefore, 0);
   assert.equal(result.registryVersionAfter, 1);
+  assert.deepEqual(result.estimatorUsage, {
+    inputTokens: 120,
+    outputTokens: 24,
+    totalTokens: 144,
+    costUsd: 0.002,
+  });
   assert.equal(result.preparedPlan?.registryVersion, 1);
   assert.ok(result.reasonCodes.includes("mutation_plan_created"));
   assert.deepEqual(
