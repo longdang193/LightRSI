@@ -7,6 +7,8 @@ import {
   persistSessionTaskRegistry,
   SessionTaskRegistryVersionMismatchError,
   type RawSemanticTurnRecord,
+  type DeltaView,
+  type SessionTaskRegistry,
 } from "@lightmem2/history";
 import type { TaskStateEstimator } from "@lightmem2/eviction";
 import { createHash } from "node:crypto";
@@ -42,6 +44,76 @@ export type SemanticPipelineResult = {
  * Estimator failures and version mismatches leave the watermark unchanged so a
  * later turn can recover the interval safely.
  */
+export type SemanticDeltaPreparation =
+  | {
+      ok: true;
+      turnSeq: number;
+      isNewRequest: boolean;
+      registry: SessionTaskRegistry;
+      delta: DeltaView;
+    }
+  | { ok: false; turnSeq?: number; note: string };
+
+/**
+ * Prepare the (lastProcessed, now] semantic-delta materials for one Claude
+ * request: claim the per-session turn seq, persist this turn's raw record,
+ * load the registry, and rebuild the interval into a DeltaView. This is the
+ * shared "materials" step both runSemanticPipeline and the lifecycle-planner
+ * gateway wiring consume, so the turn-seq / interval logic lives in exactly one
+ * place. Returns { ok: false } (never throws for control flow) when there is
+ * nothing to process for this turn (already processed); callers early-out on it.
+ * Genuine errors still throw and are caught fail-open by the caller.
+ */
+export async function prepareSemanticDelta(params: {
+  stateDir: string;
+  sessionId: string;
+  messages: unknown[];
+}): Promise<SemanticDeltaPreparation> {
+  const { stateDir, sessionId, messages } = params;
+  const requestFingerprint = createHash("sha256")
+    .update(JSON.stringify(messages))
+    .digest("hex");
+  const { turnSeq, isNewRequest } = await claimClaudeSemanticTurn(
+    stateDir,
+    sessionId,
+    requestFingerprint,
+  );
+
+  const existingRecord = await loadRawSemanticTurnRecord(stateDir, sessionId, turnSeq);
+  if (isNewRequest || !existingRecord) {
+    const record = buildRawSemanticTurnRecord({
+      sessionId,
+      turnSeq,
+      messages: sliceClaudeMessagesForCurrentUserTurn(messages),
+    });
+    await persistRawSemanticTurnRecord(stateDir, record);
+  }
+
+  const registry = await loadSessionTaskRegistry(stateDir, sessionId);
+  const fromTurnSeqExclusive = registry.lastProcessedTurnSeq;
+  if (!isNewRequest && fromTurnSeqExclusive >= turnSeq) {
+    return { ok: false, turnSeq, note: "already_processed" };
+  }
+
+  // Load only the (lastProcessed, now] interval of persisted turn records.
+  const allSeqs = await listRawSemanticTurnSeqs(stateDir, sessionId);
+  const intervalSeqs = allSeqs.filter(
+    (seq) => seq > fromTurnSeqExclusive && seq <= turnSeq,
+  );
+  const loaded = await Promise.all(
+    intervalSeqs.map((seq) => loadRawSemanticTurnRecord(stateDir, sessionId, seq)),
+  );
+  const turns = loaded.filter((r): r is RawSemanticTurnRecord => r !== null);
+
+  const snapshot = buildRawSemanticSnapshot({ sessionId, turns });
+  const delta = buildDeltaViewFromRawSemanticSnapshot(snapshot, {
+    fromTurnSeqExclusive,
+    toTurnSeqInclusive: turnSeq,
+  });
+
+  return { ok: true, turnSeq, isNewRequest, registry, delta };
+}
+
 export async function runSemanticPipeline(params: {
   stateDir: string;
   sessionId: string;
@@ -60,48 +132,11 @@ export async function runSemanticPipeline(params: {
 }): Promise<SemanticPipelineResult> {
   const { stateDir, sessionId, messages, estimator, updateRegistryFromDelta } = params;
   try {
-    const requestFingerprint = createHash("sha256")
-      .update(JSON.stringify(messages))
-      .digest("hex");
-    const { turnSeq, isNewRequest } = await claimClaudeSemanticTurn(
-      stateDir,
-      sessionId,
-      requestFingerprint,
-    );
-
-    const existingRecord = await loadRawSemanticTurnRecord(stateDir, sessionId, turnSeq);
-    if (isNewRequest || !existingRecord) {
-      const record = buildRawSemanticTurnRecord({
-        sessionId,
-        turnSeq,
-        messages: sliceClaudeMessagesForCurrentUserTurn(messages),
-      });
-      await persistRawSemanticTurnRecord(stateDir, record);
+    const prep = await prepareSemanticDelta({ stateDir, sessionId, messages });
+    if (!prep.ok) {
+      return { ran: true, changed: false, turnSeq: prep.turnSeq, note: prep.note };
     }
-
-    const registry = await loadSessionTaskRegistry(stateDir, sessionId);
-    const fromTurnSeqExclusive = registry.lastProcessedTurnSeq;
-    if (!isNewRequest && fromTurnSeqExclusive >= turnSeq) {
-      return { ran: true, changed: false, turnSeq, note: "already_processed" };
-    }
-
-    // Load only the (lastProcessed, now] interval of persisted turn records.
-    const allSeqs = await listRawSemanticTurnSeqs(stateDir, sessionId);
-    const intervalSeqs = allSeqs.filter(
-      (seq) => seq > fromTurnSeqExclusive && seq <= turnSeq,
-    );
-    const loaded = await Promise.all(
-      intervalSeqs.map((seq) => loadRawSemanticTurnRecord(stateDir, sessionId, seq)),
-    );
-    const turns = loaded.filter(
-      (r): r is RawSemanticTurnRecord => r !== null,
-    );
-
-    const snapshot = buildRawSemanticSnapshot({ sessionId, turns });
-    const delta = buildDeltaViewFromRawSemanticSnapshot(snapshot, {
-      fromTurnSeqExclusive,
-      toTurnSeqInclusive: turnSeq,
-    });
+    const { turnSeq, registry, delta } = prep;
 
     const result = await updateRegistryFromDelta({ registry, delta, estimator });
     if (!result.changed && result.processed !== true) {

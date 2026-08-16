@@ -200,6 +200,22 @@ function buildTurnContext(
   };
 }
 
+/**
+ * Build the shared HistoryBlock[] for a Claude request, the same way
+ * analyzeClaudeEviction does internally. Exposed so the gateway lifecycle-planner
+ * wiring can feed historyBlocks into planLifecycleEviction without duplicating
+ * the segments->turnContext->blocks assembly.
+ */
+export function buildClaudeHistoryBlocks(
+  sessionId: string,
+  model: string,
+  messages: unknown[],
+): HistoryBlock[] {
+  const { segments } = buildToolResultSegments(messages);
+  const { blocks } = buildHistoryBlocks(buildTurnContext(sessionId, model, segments));
+  return blocks;
+}
+
 function selectEvictableBlocks(blocks: HistoryBlock[]): ClaudeEvictionSelection[] {
   const selections: ClaudeEvictionSelection[] = [];
   for (const block of blocks) {
