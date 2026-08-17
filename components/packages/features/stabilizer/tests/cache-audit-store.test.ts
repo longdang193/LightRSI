@@ -8,6 +8,7 @@ import {
   appendCacheAuditRecord,
   buildCacheAuditSnapshot,
   readRecentCacheAuditRecordsForSession,
+  summarizeCacheAudit,
 } from "../src/cache-audit-store.js";
 import type { StabilizerRequestEnvelope } from "../src/contracts.js";
 
@@ -90,6 +91,44 @@ test("appendCacheAuditRecord does not invent drift for a new request key in the 
   }
 });
 
+test("appendCacheAuditRecord keeps identity baseline across interleaved sessions", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-cache-audit-interleaved-"));
+  try {
+    const sessionA = envelope({
+      sessionId: "sess-interleaved-a",
+      requestPromptCacheKey: "pk-a",
+      instructions: "Shared project rules.",
+    });
+    const sessionB = envelope({
+      sessionId: "sess-interleaved-b",
+      requestPromptCacheKey: "pk-b",
+      instructions: "Shared project rules.",
+    });
+    const append = async (request: typeof sessionA) => appendCacheAuditRecord({
+      stateDir,
+      snapshot: buildCacheAuditSnapshot({
+        envelope: request.envelope,
+        sessionId: request.sessionId,
+        model: "gpt-5.4",
+        stream: false,
+        requestPromptCacheKey: request.requestPromptCacheKey,
+      }),
+      responsePromptCacheKey: request.requestPromptCacheKey,
+      usage: { input_tokens: 100, input_tokens_details: { cached_tokens: 80 } },
+      status: 200,
+    });
+
+    await append(sessionA);
+    for (let index = 0; index < 40; index += 1) await append(sessionB);
+    const secondA = await append(sessionA);
+
+    assert.equal(secondA.baselineKind, "identity");
+    assert.equal(secondA.driftReasons.length, 0);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("appendCacheAuditRecord stores per-session records and keeps same-key baseline", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-cache-audit-store-"));
   try {
@@ -138,6 +177,52 @@ test("appendCacheAuditRecord stores per-session records and keeps same-key basel
     assert.equal(records[0]?.baselineKind, "request_key");
     assert.equal(records[0]?.driftReasons?.[0]?.key, "instructions");
     assert.equal(records[0]?.driftReasons?.[0]?.kind, "segment_text_changed");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("summarizeCacheAudit reports family reuse and token metrics", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-cache-audit-summary-"));
+  try {
+    const request = envelope({
+      sessionId: "sess-family-summary",
+      requestPromptCacheKey: "pk-family",
+      instructions: "Shared project rules.",
+    });
+    const append = async (cachedTokens: number, cacheWriteTokens: number) => appendCacheAuditRecord({
+      stateDir,
+      snapshot: buildCacheAuditSnapshot({
+        envelope: request.envelope,
+        sessionId: request.sessionId,
+        model: "gpt-5.4",
+        stream: false,
+        requestPromptCacheKey: request.requestPromptCacheKey,
+        providerWirePrefixHash: "wire-family",
+        cacheFamilyId: "family-shared",
+      }),
+      responsePromptCacheKey: request.requestPromptCacheKey,
+      usage: {
+        input_tokens: 100,
+        input_tokens_details: {
+          cached_tokens: cachedTokens,
+          cache_write_tokens: cacheWriteTokens,
+        },
+      },
+      status: 200,
+    });
+
+    await append(0, 100);
+    await append(80, 20);
+    const records = await readRecentCacheAuditRecordsForSession(stateDir, request.sessionId, 8);
+    const summary = summarizeCacheAudit(records);
+
+    assert.equal(summary.familyWarmCandidates, 1);
+    assert.equal(summary.familyWarmHits, 1);
+    assert.equal(summary.inputTokens, 200);
+    assert.equal(summary.cachedInputTokens, 80);
+    assert.equal(summary.cacheWriteTokens, 120);
+    assert.equal(summary.cachedInputTokenRatioPercent, 40);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

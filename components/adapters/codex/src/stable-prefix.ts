@@ -22,6 +22,29 @@ function computeStablePromptCacheKey(model: string, stableTexts: string[]): stri
   return `lightmem2-codex-${digest}`;
 }
 
+function computeProviderWirePrefixHash(
+  model: string,
+  envelope: HostRequestEnvelope,
+  dynamicContextText: string,
+): string {
+  const firstUserIndex = findFirstUserMessageIndex(envelope.messages);
+  const boundary = firstUserIndex >= 0 ? firstUserIndex : envelope.messages.length;
+  const dynamicText = dynamicContextText.trim();
+  const prefixMessages = envelope.messages.slice(0, boundary).filter((message) => {
+    if (!dynamicText) return true;
+    return extractContentText(message.content).trim() !== dynamicText;
+  });
+  return createHash("sha256")
+    .update(JSON.stringify({
+      v: 1,
+      model,
+      instructions: envelope.instructions ?? null,
+      tools: envelope.tools ?? null,
+      messages: prefixMessages,
+    }))
+    .digest("hex");
+}
+
 type CodexPromptRewrite = ReturnType<typeof rewriteTextForStablePrefix>;
 
 function normalizeCodexAgentSeparator(text: string): string {
@@ -198,18 +221,39 @@ export function prepareCodexStablePrefix(
     instructionRewrite?.canonicalText ?? instructionText,
     rootRewrite?.canonicalText ?? candidate?.text ?? "",
   ]);
-  const nextPromptCacheKey = computeStablePromptCacheKey(envelope.model, stablePromptParts);
-  const outboundPromptCacheKey = originalPromptCacheKey || nextPromptCacheKey;
+  const nextPromptCacheKey = computeStablePromptCacheKey(envelope.model, [
+    ...stablePromptParts,
+    JSON.stringify(envelope.tools ?? null),
+  ]);
+  const providerWirePrefixHash = computeProviderWirePrefixHash(
+    envelope.model,
+    rewrittenEnvelope,
+    dynamicContextText,
+  );
+  const cacheFamilyId = `lightmem2-family-${nextPromptCacheKey.slice("lightmem2-codex-".length)}`;
+  const outboundPromptCacheKey = cacheFamilyId;
 
   const nextMetadata = {
     ...(rewrittenEnvelope.metadata ?? {}),
     originalPromptCacheKey,
     frameworkStablePromptCacheKey: nextPromptCacheKey,
+    providerWirePrefixHash,
+    cacheFamilyId,
+    providerWirePrefixBoundary: "before_first_user",
     promptCacheKey: outboundPromptCacheKey,
     promptCacheRetention: "24h",
   };
 
-  return rewrittenEnvelope !== envelope || nextMetadata.promptCacheKey !== envelope.metadata?.promptCacheKey
+  const metadataChanged =
+    nextMetadata.promptCacheKey !== envelope.metadata?.promptCacheKey ||
+    nextMetadata.frameworkStablePromptCacheKey !== envelope.metadata?.frameworkStablePromptCacheKey ||
+    nextMetadata.providerWirePrefixHash !== envelope.metadata?.providerWirePrefixHash ||
+    nextMetadata.cacheFamilyId !== envelope.metadata?.cacheFamilyId ||
+    nextMetadata.providerWirePrefixBoundary !== envelope.metadata?.providerWirePrefixBoundary ||
+    nextMetadata.promptCacheRetention !== envelope.metadata?.promptCacheRetention ||
+    nextMetadata.originalPromptCacheKey !== envelope.metadata?.originalPromptCacheKey;
+
+  return rewrittenEnvelope !== envelope || metadataChanged
     ? {
         ...rewrittenEnvelope,
         metadata: nextMetadata,

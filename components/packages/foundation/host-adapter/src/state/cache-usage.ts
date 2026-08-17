@@ -27,6 +27,30 @@ export function readCachedInputTokens(usage: unknown): number {
   return 0;
 }
 
+export function readInputTokens(usage: unknown): number {
+  const record = asRecord(usage);
+  if (!record) return 0;
+  const direct = finiteNumber(record.input_tokens);
+  if (typeof direct === "number" && direct >= 0) return direct;
+  const promptTokens = finiteNumber(record.prompt_tokens);
+  return typeof promptTokens === "number" && promptTokens >= 0 ? promptTokens : 0;
+}
+
+export function readCacheWriteTokens(usage: unknown): number {
+  const record = asRecord(usage);
+  if (!record) return 0;
+
+  const direct = finiteNumber(record.cache_write_tokens);
+  if (typeof direct === "number" && direct >= 0) return direct;
+
+  const inputDetails = asRecord(record.input_tokens_details);
+  const promptDetails = asRecord(record.prompt_tokens_details);
+  const nested =
+    finiteNumber(inputDetails?.cache_write_tokens)
+    ?? finiteNumber(promptDetails?.cache_write_tokens);
+  return typeof nested === "number" && nested >= 0 ? nested : 0;
+}
+
 export function hasCachedInputTokens(usage: unknown): boolean {
   return readCachedInputTokens(usage) > 0;
 }

@@ -58,7 +58,9 @@ test("prepareCodexStablePrefix stabilizes instructions and developer prompt whil
   assert.equal((prepared.messages[1] as any)?.metadata?.__codexOriginalRole, "developer");
   assert.match(String(prepared.messages[1]?.content ?? ""), /WORKDIR: \/repo\/demo/);
   assert.match(String(prepared.messages[1]?.content ?? ""), /AGENT_ID: agent-123/);
-  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightmem2-codex-/);
+  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightmem2-family-[0-9a-f]{24}$/);
+  assert.match(String(prepared.metadata?.providerWirePrefixHash ?? ""), /^[0-9a-f]{64}$/);
+  assert.match(String(prepared.metadata?.cacheFamilyId ?? ""), /^lightmem2-family-[0-9a-f]{24}$/);
   assert.equal(prepared.metadata?.promptCacheRetention, "24h");
 });
 
@@ -326,7 +328,7 @@ test("prepareCodexStablePrefix injects merged dynamic context into first user me
   assert.match(String(prepared.messages[1]?.content ?? ""), /please inspect the repo/);
 });
 
-test("prepareCodexStablePrefix preserves inbound prompt_cache_key for runtime forwarding", () => {
+test("prepareCodexStablePrefix preserves inbound prompt_cache_key for audit while using family key", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {
       dynamicContextTarget: "developer",
@@ -366,7 +368,7 @@ test("prepareCodexStablePrefix preserves inbound prompt_cache_key for runtime fo
     },
   }, config);
 
-  assert.equal(prepared.metadata?.promptCacheKey, "upstream-existing-key");
+  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
   assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightmem2-codex-/);
   assert.equal(prepared.metadata?.originalPromptCacheKey, "upstream-existing-key");
   assert.equal(prepared.metadata?.promptCacheRetention, "24h");
@@ -415,11 +417,15 @@ test("prepareCodexStablePrefix keeps inbound runtime keys while converging frame
   const preparedA = prepareCodexStablePrefix(makeEnvelope("legacy-key-a"), config);
   const preparedB = prepareCodexStablePrefix(makeEnvelope("legacy-key-b"), config);
 
-  assert.equal(preparedA.metadata?.promptCacheKey, "legacy-key-a");
-  assert.equal(preparedB.metadata?.promptCacheKey, "legacy-key-b");
+  assert.match(String(preparedA.metadata?.promptCacheKey ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
+  assert.equal(preparedA.metadata?.promptCacheKey, preparedB.metadata?.promptCacheKey);
+  assert.equal(preparedA.metadata?.originalPromptCacheKey, "legacy-key-a");
+  assert.equal(preparedB.metadata?.originalPromptCacheKey, "legacy-key-b");
   assert.equal(
     preparedA.metadata?.frameworkStablePromptCacheKey,
     preparedB.metadata?.frameworkStablePromptCacheKey,
   );
   assert.match(String(preparedA.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightmem2-codex-/);
+  assert.match(String(preparedA.metadata?.providerWirePrefixHash ?? ""), /^[a-f0-9]{64}$/);
+  assert.match(String(preparedA.metadata?.cacheFamilyId ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
 });

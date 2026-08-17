@@ -1,6 +1,12 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { appendJsonl, readCachedInputTokens, readRecentJsonlEntries } from "@lightmem2/host-adapter";
+import {
+  appendJsonl,
+  readCachedInputTokens,
+  readCacheWriteTokens,
+  readInputTokens,
+  readRecentJsonlEntries,
+} from "@lightmem2/host-adapter";
 import {
   extractStablePrefixContract,
   fingerprintStablePrefixEnvelope,
@@ -27,6 +33,10 @@ export type CacheAuditRecord = {
   requestPromptCacheKey: string | null;
   responsePromptCacheKey: string | null;
   cachedInputTokens: number;
+  inputTokens: number;
+  cacheWriteTokens: number;
+  providerWirePrefixHash?: string;
+  cacheFamilyId?: string;
   usage: Record<string, unknown> | null;
   status: number;
   baselineKind?: CacheAuditBaselineKind;
@@ -34,7 +44,13 @@ export type CacheAuditRecord = {
 
 export type CacheAuditSnapshot = Omit<
   CacheAuditRecord,
-  "at" | "responsePromptCacheKey" | "cachedInputTokens" | "usage" | "status"
+  | "at"
+  | "responsePromptCacheKey"
+  | "cachedInputTokens"
+  | "inputTokens"
+  | "cacheWriteTokens"
+  | "usage"
+  | "status"
 >;
 
 export type CacheAuditSummary = {
@@ -48,6 +64,14 @@ export type CacheAuditSummary = {
   warmHits: number;
   warmMisses: number;
   hitRatePercent: number;
+  familyWarmCandidates: number;
+  familyWarmHits: number;
+  familyWarmMisses: number;
+  familyHitRatePercent: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteTokens: number;
+  cachedInputTokenRatioPercent: number;
   latestSessionId?: string;
   latestFingerprint?: string;
   topEntropyKinds: Array<{ key: string; count: number }>;
@@ -99,6 +123,36 @@ function cacheIdentity(record: {
   return null;
 }
 
+function cacheFamilyIdentity(record: {
+  cacheFamilyId?: string;
+  providerWirePrefixHash?: string;
+}): string | null {
+  const familyId = record.cacheFamilyId?.trim();
+  if (familyId) return `family:${familyId}`;
+  const wirePrefixHash = record.providerWirePrefixHash?.trim();
+  return wirePrefixHash ? `wire:${wirePrefixHash}` : null;
+}
+
+function countWarmReuse(
+  records: CacheAuditRecord[],
+  identityFor: (record: CacheAuditRecord) => string | null,
+): { candidates: number; hits: number; misses: number } {
+  const seen = new Set<string>();
+  let candidates = 0;
+  let hits = 0;
+  let misses = 0;
+  for (const record of records) {
+    const identity = identityFor(record);
+    if (identity && seen.has(identity)) {
+      candidates += 1;
+      if (record.cachedInputTokens > 0) hits += 1;
+      else misses += 1;
+    }
+    if (identity) seen.add(identity);
+  }
+  return { candidates, hits, misses };
+}
+
 function topCounts(counts: Map<string, number>, limit = 5): Array<{ key: string; count: number }> {
   return Array.from(counts.entries())
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -142,23 +196,11 @@ export function summarizeCacheAudit<T extends CacheAuditRecord>(
   records: T[],
 ): CacheAuditSummary {
   const ordered = records.slice().reverse();
-  const seenCacheIdentities = new Set<string>();
-  let warmCandidates = 0;
-  let warmHits = 0;
-  let warmMisses = 0;
+  const identityReuse = countWarmReuse(ordered, cacheIdentity);
+  const familyReuse = countWarmReuse(ordered, cacheFamilyIdentity);
   let promptCacheKeyMismatchCount = 0;
   const entropyCounts = new Map<string, number>();
   const driftCounts = new Map<string, number>();
-
-  for (const record of ordered) {
-    const identity = cacheIdentity(record);
-    if (identity && seenCacheIdentities.has(identity)) {
-      warmCandidates += 1;
-      if (record.cachedInputTokens > 0) warmHits += 1;
-      else warmMisses += 1;
-    }
-    if (identity) seenCacheIdentities.add(identity);
-  }
 
   for (const record of ordered) {
     if (
@@ -176,14 +218,32 @@ export function summarizeCacheAudit<T extends CacheAuditRecord>(
     }
   }
 
-  const denominator = warmHits + warmMisses;
+  const identityDenominator = identityReuse.hits + identityReuse.misses;
+  const familyDenominator = familyReuse.hits + familyReuse.misses;
+  const inputTokens = ordered.reduce((sum, record) => sum + Math.max(0, record.inputTokens ?? 0), 0);
+  const cachedInputTokens = ordered.reduce((sum, record) => sum + Math.max(0, record.cachedInputTokens ?? 0), 0);
+  const cacheWriteTokens = ordered.reduce((sum, record) => sum + Math.max(0, record.cacheWriteTokens ?? 0), 0);
   const latest = ordered[ordered.length - 1];
   return {
     totalRecords: ordered.length,
-    warmCandidates,
-    warmHits,
-    warmMisses,
-    hitRatePercent: denominator > 0 ? Math.round((warmHits / denominator) * 1000) / 10 : 0,
+    warmCandidates: identityReuse.candidates,
+    warmHits: identityReuse.hits,
+    warmMisses: identityReuse.misses,
+    hitRatePercent: identityDenominator > 0
+      ? Math.round((identityReuse.hits / identityDenominator) * 1000) / 10
+      : 0,
+    familyWarmCandidates: familyReuse.candidates,
+    familyWarmHits: familyReuse.hits,
+    familyWarmMisses: familyReuse.misses,
+    familyHitRatePercent: familyDenominator > 0
+      ? Math.round((familyReuse.hits / familyDenominator) * 1000) / 10
+      : 0,
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteTokens,
+    cachedInputTokenRatioPercent: inputTokens > 0
+      ? Math.round((cachedInputTokens / inputTokens) * 1000) / 10
+      : 0,
     latestSessionId: latest?.sessionId,
     latestFingerprint: latest?.stablePrefixFingerprint,
     topEntropyKinds: topCounts(entropyCounts),
@@ -200,6 +260,8 @@ export function buildCacheAuditSnapshot(params: {
   stream: boolean;
   originalRequestPromptCacheKey?: string | null;
   requestPromptCacheKey?: string | null;
+  providerWirePrefixHash?: string | null;
+  cacheFamilyId?: string | null;
 }): CacheAuditSnapshot {
   const stablePrefixContract = extractStablePrefixContract(params.envelope);
   const serialized = serializeStablePrefixContract(stablePrefixContract);
@@ -209,6 +271,12 @@ export function buildCacheAuditSnapshot(params: {
     stream: params.stream,
     stablePrefixFingerprint: fingerprintStablePrefixEnvelope(params.envelope),
     stablePrefix: serialized,
+    providerWirePrefixHash: typeof params.providerWirePrefixHash === "string"
+      ? params.providerWirePrefixHash
+      : undefined,
+    cacheFamilyId: typeof params.cacheFamilyId === "string"
+      ? params.cacheFamilyId
+      : undefined,
     entropyFindings: auditStablePrefixEntropy(serialized),
     driftReasons: [],
     originalRequestPromptCacheKey:
@@ -229,7 +297,11 @@ export async function appendCacheAuditRecord<T extends CacheAuditRecord>(params:
   status: number;
 }): Promise<T> {
   await mkdir(params.stateDir, { recursive: true });
-  const previousEntries = await readRecentCacheAuditRecords<T>(params.stateDir, 32);
+  const previousEntries = await readRecentCacheAuditRecordsForSession<T>(
+    params.stateDir,
+    params.snapshot.sessionId,
+    32,
+  );
   const identity = cacheIdentity(params.snapshot);
   const previousByIdentity = previousEntries.find((entry) => {
     if (!identity) return false;
@@ -262,6 +334,8 @@ export async function appendCacheAuditRecord<T extends CacheAuditRecord>(params:
         ? params.responsePromptCacheKey
         : null,
     cachedInputTokens: readCachedInputTokens(params.usage),
+    inputTokens: readInputTokens(params.usage),
+    cacheWriteTokens: readCacheWriteTokens(params.usage),
     usage: params.usage ?? null,
     status: params.status,
     baselineKind,

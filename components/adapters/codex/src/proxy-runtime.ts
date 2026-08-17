@@ -288,6 +288,25 @@ function isLifecycleExecutionDeferredReason(reason: string | undefined): boolean
     || reason === "lifecycle_execution_snapshot_changed";
 }
 
+function computeEncodedProviderWirePrefixHash(payload: JsonObject): string | null {
+  const input = Array.isArray(payload.input) ? payload.input : [];
+  const firstUserIndex = input.findIndex((item: any) => (
+    item
+    && typeof item === "object"
+    && (item.role === "user" || (item.type === "message" && item.role === "user"))
+  ));
+  const boundary = firstUserIndex >= 0 ? firstUserIndex : input.length;
+  return createHash("sha256")
+    .update(JSON.stringify({
+      v: 2,
+      model: payload.model ?? null,
+      instructions: payload.instructions ?? null,
+      tools: payload.tools ?? null,
+      input: input.slice(0, boundary),
+    }))
+    .digest("hex");
+}
+
 function encodedRequestPayload(params: {
   codec: ReturnType<typeof createCodexResponsesPayloadCodec>;
   envelope: HostRequestEnvelope;
@@ -957,10 +976,19 @@ export async function startCodexResponsesProxy(params: {
             ? prepared.envelope.metadata.originalPromptCacheKey
             : null,
         requestPromptCacheKey:
-          typeof prepared.envelope.metadata?.frameworkStablePromptCacheKey === "string"
-            ? prepared.envelope.metadata.frameworkStablePromptCacheKey
-            : typeof prepared.envelope.metadata?.promptCacheKey === "string"
-              ? prepared.envelope.metadata.promptCacheKey
+          typeof prepared.envelope.metadata?.promptCacheKey === "string"
+            ? prepared.envelope.metadata.promptCacheKey
+            : typeof prepared.envelope.metadata?.frameworkStablePromptCacheKey === "string"
+              ? prepared.envelope.metadata.frameworkStablePromptCacheKey
+              : null,
+        providerWirePrefixHash:
+          computeEncodedProviderWirePrefixHash(payload)
+          ?? (typeof prepared.envelope.metadata?.providerWirePrefixHash === "string"
+            ? prepared.envelope.metadata.providerWirePrefixHash
+            : null),
+        cacheFamilyId:
+          typeof prepared.envelope.metadata?.cacheFamilyId === "string"
+            ? prepared.envelope.metadata.cacheFamilyId
             : null,
       });
       await appendTrace(config.stateDir, {
