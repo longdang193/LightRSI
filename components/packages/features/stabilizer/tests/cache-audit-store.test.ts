@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import {
   appendCacheAuditRecord,
   buildCacheAuditSnapshot,
   readRecentCacheAuditRecordsForSession,
+  rotateCacheAuditFileIfNeeded,
   summarizeCacheAudit,
 } from "../src/cache-audit-store.js";
 import type { StabilizerRequestEnvelope } from "../src/contracts.js";
@@ -177,6 +178,52 @@ test("appendCacheAuditRecord stores per-session records and keeps same-key basel
     assert.equal(records[0]?.baselineKind, "request_key");
     assert.equal(records[0]?.driftReasons?.[0]?.key, "instructions");
     assert.equal(records[0]?.driftReasons?.[0]?.kind, "segment_text_changed");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("audit records stay bounded and rotate oversized files", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-cache-audit-bounded-"));
+  try {
+    const first = envelope({
+      sessionId: "sess-bounded",
+      requestPromptCacheKey: "pk-bounded",
+      instructions: "x".repeat(200_000),
+    });
+    await appendCacheAuditRecord({
+      stateDir,
+      snapshot: buildCacheAuditSnapshot({
+        envelope: first.envelope,
+        sessionId: first.sessionId,
+        model: "gpt-5.4",
+        stream: false,
+        requestPromptCacheKey: first.requestPromptCacheKey,
+      }),
+      usage: { input_tokens: 100, input_tokens_details: { cached_tokens: 0 } },
+      status: 200,
+    });
+
+    const records = await readRecentCacheAuditRecordsForSession(stateDir, "sess-bounded", 1);
+    const record = records[0];
+    assert.ok(record);
+    assert.ok(JSON.stringify(record).length < 20_000);
+    assert.match(String(record.stablePrefix.stableCore[0]?.text), /^sha256:[a-f0-9]{64}$/);
+    assert.equal(
+      (record.stablePrefix.stableCore[0] as unknown as { textLength?: number })?.textLength,
+      200_000,
+    );
+    assert.deepEqual(record.usage, {
+      input_tokens: 100,
+      cached_input_tokens: 0,
+      cache_write_tokens: 0,
+    });
+
+    const auditPath = join(stateDir, "rotate.jsonl");
+    await appendFile(auditPath, "old-record\n", "utf8");
+    const rotatedPath = await rotateCacheAuditFileIfNeeded(auditPath, 1);
+    assert.ok(rotatedPath);
+    assert.equal(await readFile(rotatedPath!, "utf8"), "old-record\n");
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

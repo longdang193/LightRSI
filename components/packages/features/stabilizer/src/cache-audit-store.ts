@@ -1,4 +1,5 @@
-import { mkdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   appendJsonl,
@@ -20,6 +21,74 @@ import type { StabilizerRequestEnvelope } from "./contracts.js";
 
 export type CacheAuditBaselineKind = "identity" | "request_key" | "session" | "none";
 
+export const DEFAULT_CACHE_AUDIT_ROTATE_BYTES = 32 * 1024 * 1024;
+
+const auditFileLocks = new Map<string, Promise<void>>();
+
+async function withAuditFileLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
+  const previous = auditFileLocks.get(path) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  auditFileLocks.set(path, current);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (auditFileLocks.get(path) === current) auditFileLocks.delete(path);
+  }
+}
+
+export async function rotateCacheAuditFileIfNeeded(
+  path: string,
+  maxBytes = DEFAULT_CACHE_AUDIT_ROTATE_BYTES,
+): Promise<string | null> {
+  try {
+    if ((await stat(path)).size < maxBytes) return null;
+    const rotatedPath = `${path}.${Date.now()}.jsonl`;
+    await rename(path, rotatedPath);
+    return rotatedPath;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function compactStablePrefix(stablePrefix: ReturnType<typeof serializeStablePrefixContract>) {
+  const compact = (segments: typeof stablePrefix.stableCore) => segments.map((segment) => {
+    const text = String(segment.text ?? "");
+    const existingTextLength = (segment as typeof segment & { textLength?: number }).textLength;
+    const isCompact = text.startsWith("sha256:") && typeof existingTextLength === "number";
+    return {
+      key: segment.key,
+      role: segment.role,
+      source: segment.source,
+      text: isCompact ? text : `sha256:${createHash("sha256").update(text).digest("hex")}`,
+      textLength: isCompact ? existingTextLength : text.length,
+    };
+  });
+  return {
+    schemaVersion: stablePrefix.schemaVersion,
+    stableCore: compact(stablePrefix.stableCore),
+    semiStableContext: compact(stablePrefix.semiStableContext),
+  };
+}
+
+function compactUsage(usage: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!usage) return null;
+  const compacted: Record<string, unknown> = {
+    input_tokens: readInputTokens(usage),
+    cached_input_tokens: readCachedInputTokens(usage),
+    cache_write_tokens: readCacheWriteTokens(usage),
+  };
+  const outputTokens = usage.output_tokens;
+  if (typeof outputTokens === "number" && Number.isFinite(outputTokens)) {
+    compacted.output_tokens = outputTokens;
+  }
+  return compacted;
+}
 export type CacheAuditRecord = {
   at: string;
   sessionId: string;
@@ -315,6 +384,7 @@ export async function appendCacheAuditRecord<T extends CacheAuditRecord>(params:
   const previous = previousByIdentity
     ?? previousByRequestPromptCacheKey
     ?? (normalizedRequestPromptCacheKey ? undefined : previousBySession);
+  const compactedStablePrefix = compactStablePrefix(params.snapshot.stablePrefix);
   const baselineKind: CacheAuditBaselineKind =
     previousByIdentity
       ? "identity"
@@ -326,8 +396,9 @@ export async function appendCacheAuditRecord<T extends CacheAuditRecord>(params:
   const record = {
     at: new Date().toISOString(),
     ...params.snapshot,
+    stablePrefix: compactedStablePrefix,
     driftReasons: previous
-      ? diffStablePrefixSerialized(previous.stablePrefix, params.snapshot.stablePrefix)
+      ? diffStablePrefixSerialized(compactStablePrefix(previous.stablePrefix), compactedStablePrefix)
       : [],
     responsePromptCacheKey:
       typeof params.responsePromptCacheKey === "string" && params.responsePromptCacheKey.trim()
@@ -336,13 +407,18 @@ export async function appendCacheAuditRecord<T extends CacheAuditRecord>(params:
     cachedInputTokens: readCachedInputTokens(params.usage),
     inputTokens: readInputTokens(params.usage),
     cacheWriteTokens: readCacheWriteTokens(params.usage),
-    usage: params.usage ?? null,
+    usage: compactUsage(params.usage),
     status: params.status,
     baselineKind,
   } satisfies CacheAuditRecord;
+  const auditPath = cacheAuditPath(params.stateDir);
+  const sessionPath = cacheAuditSessionPath(params.stateDir, params.snapshot.sessionId);
   await Promise.all([
-    appendJsonl(cacheAuditPath(params.stateDir), record),
-    appendJsonl(cacheAuditSessionPath(params.stateDir, params.snapshot.sessionId), record),
+    withAuditFileLock(auditPath, async () => {
+      await rotateCacheAuditFileIfNeeded(auditPath);
+      await appendJsonl(auditPath, record);
+    }),
+    withAuditFileLock(sessionPath, () => appendJsonl(sessionPath, record)),
   ]);
-  return record as T;
+  return record as unknown as T;
 }
