@@ -398,6 +398,8 @@ export type CodexSharedGoldenTask = {
 export type CodexSharedGoldenFixture = {
   id: string;
   tasks: CodexSharedGoldenTask[];
+  expectedEvictTaskIds?: string[];
+  expectedEvictItemIds?: string[];
 };
 
 export type CodexSharedGoldenDecision = {
@@ -452,12 +454,14 @@ export async function runCodexSharedGoldenFixture(
   const taskIdsByItemId = Object.fromEntries(
     fixture.tasks.flatMap((task) => task.items.map((item) => [item.id, [task.id]])),
   );
-  const evictableTasks = fixture.tasks.filter((task) => (
-    task.status === "completed" && task.current !== true
-  ));
-  const activeTasks = fixture.tasks.filter((task) => (
-    task.status !== "completed" || task.current === true
-  ));
+  const selectedTaskIds = new Set(fixture.expectedEvictTaskIds ?? fixture.tasks
+    .filter((task) => task.status === "completed" && task.current !== true)
+    .map((task) => task.id));
+  const selectedItemIds = fixture.expectedEvictItemIds
+    ? new Set(fixture.expectedEvictItemIds)
+    : undefined;
+  const evictableTasks = fixture.tasks.filter((task) => selectedTaskIds.has(task.id));
+  const activeTasks = fixture.tasks.filter((task) => !selectedTaskIds.has(task.id));
   const request: CodexSharedBackendRequest = {
     sessionId,
     payload: {
@@ -489,7 +493,9 @@ export async function runCodexSharedGoldenFixture(
     baseRevision: snapshot.revision,
     sourceModuleId: "gua-02",
     operations: evictableTasks.map((task) => {
-      const targetItemIds = task.items.map((item) => item.id);
+      const targetItemIds = task.items
+        .map((item) => item.id)
+        .filter((itemId) => selectedItemIds?.has(itemId) ?? true);
       return {
         id: `gua-02-op-${task.id}`,
         type: "remove",
@@ -510,17 +516,17 @@ export async function runCodexSharedGoldenFixture(
   const validation = await codexSharedContextRewriteBackend.validate({ snapshot, plan });
   const applied = await codexSharedContextRewriteBackend.apply({ snapshot, plan, request });
   const appliedOperationIds = new Set(applied.result.appliedOperationIds);
-  const selectedTaskIds = evictableTasks
+  const appliedTaskIds = evictableTasks
     .filter((task) => appliedOperationIds.has(`gua-02-op-${task.id}`))
     .map((task) => task.id);
   const selectedItems = new Set(plan.operations
     .filter((operation) => appliedOperationIds.has(operation.id))
     .flatMap((operation) => operation.targetItemIds));
-  const selectedTasks = new Set(selectedTaskIds);
+  const selectedTasks = new Set(appliedTaskIds);
   return {
     hostId: "codex",
     fixtureId: fixture.id,
-    selectedTaskIds,
+    selectedTaskIds: appliedTaskIds,
     keptTaskIds: fixture.tasks.map((task) => task.id).filter((taskId) => !selectedTasks.has(taskId)),
     selectedItemIds: allItems.map((item) => item.id).filter((itemId) => selectedItems.has(itemId)),
     keptItemIds: allItems.map((item) => item.id).filter((itemId) => !selectedItems.has(itemId)),

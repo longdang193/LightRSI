@@ -24,6 +24,11 @@ import {
   createOpenClawReferenceBackend,
   type OpenClawReferenceBackendRequest,
 } from "./reference-backend.js";
+import {
+  observeLifecycleFixture,
+  readLifecycleFixtures,
+  type LifecycleFixture,
+} from "./lifecycle-fixture-support.js";
 
 type GoldenItem = {
   id: string;
@@ -85,7 +90,8 @@ function sorted(values: readonly string[]): string[] {
 }
 
 function completedTasks(fixture: GoldenFixture): GoldenTask[] {
-  return fixture.tasks.filter((task) => task.status === "completed" && task.current !== true);
+  const selected = new Set(fixture.expected.evict_task_ids);
+  return fixture.tasks.filter((task) => selected.has(task.id));
 }
 
 function buildPlan(params: {
@@ -105,7 +111,10 @@ function buildPlan(params: {
     baseRevision: params.snapshot.revision,
     sourceModuleId: "gua-02",
     operations: completedTasks(params.fixture).map((task) => {
-      const targetItemIds = task.items.map((item) => params.stableIdByLogicalId.get(item.id)!);
+      const expectedItems = new Set(params.fixture.expected.evict_item_ids);
+      const targetItemIds = task.items
+        .filter((item) => expectedItems.has(item.id))
+        .map((item) => params.stableIdByLogicalId.get(item.id)!);
       return {
         id: `gua-02-op-${task.id}`,
         type: params.operationType,
@@ -371,63 +380,141 @@ async function runOpenClawFixture(fixture: GoldenFixture): Promise<BackendDecisi
   });
 }
 
+function lifecycleItem(fixture: LifecycleFixture, stableId: string): GoldenItem {
+  const item = fixture.input.snapshot.items.find((candidate) => candidate.stableId === stableId)!;
+  const marker = fixture.expected.evictItemIds.includes(stableId) ? "EVICT_ME" : "KEEP_ME";
+  if (item.kind === "tool_call") {
+    return {
+      id: stableId,
+      kind: "tool_call",
+      tool_name: "fixture_tool",
+      tool_call_id: item.callId,
+      arguments: { marker: `${marker}_${stableId}` },
+    };
+  }
+  if (item.kind === "tool_result") {
+    return {
+      id: stableId,
+      kind: "tool_result",
+      tool_name: "fixture_tool",
+      tool_call_id: item.callId,
+      result: `${marker}_${stableId}`,
+    };
+  }
+  return {
+    id: stableId,
+    kind: item.kind,
+    role: item.role ?? (item.kind === "assistant" ? "assistant" : "user"),
+    content: `${marker}_${stableId}`,
+  };
+}
+
+function lifecycleGoldenFixture(fixture: LifecycleFixture): GoldenFixture {
+  const currentTaskIds = new Set(fixture.input.currentTaskIds ?? []);
+  const tasks: GoldenTask[] = Object.values(fixture.input.registry.tasks).map((task) => ({
+    id: task.taskId,
+    status: task.lifecycle === "blocked" || task.unresolvedQuestions.length > 0
+      ? "unresolved"
+      : task.lifecycle === "active"
+        ? "active"
+        : "completed",
+    ...(currentTaskIds.has(task.taskId) ? { current: true } : {}),
+    items: fixture.input.snapshot.items
+      .filter((item) => item.taskIds?.includes(task.taskId))
+      .map((item) => lifecycleItem(fixture, item.stableId)),
+  }));
+  return {
+    schema: "lightmem2.context-rewrite-golden/v1",
+    id: `lifecycle-${fixture.id}`,
+    description: fixture.description,
+    tasks,
+    expectedEvictTaskIds: fixture.expected.evictTaskIds,
+    expectedEvictItemIds: fixture.expected.evictItemIds,
+    expected: {
+      evict_task_ids: fixture.expected.evictTaskIds,
+      keep_task_ids: fixture.expected.keepTaskIds,
+      evict_item_ids: fixture.expected.evictItemIds,
+      keep_item_ids: fixture.expected.keepItemIds,
+    },
+  };
+}
+
+async function runAllBackends(fixture: GoldenFixture): Promise<BackendDecision[]> {
+  const openclaw = await runOpenClawFixture(fixture);
+  const claude = await runClaudeFixture(fixture);
+  const codexRaw = await runCodexSharedGoldenFixture({
+    ...fixture,
+    expectedEvictTaskIds: fixture.expected.evict_task_ids,
+    expectedEvictItemIds: fixture.expected.evict_item_ids,
+  });
+  const codex: BackendDecision = {
+    hostId: "codex",
+    mode: codexRaw.result.mode,
+    selectedTaskIds: codexRaw.selectedTaskIds,
+    keptTaskIds: codexRaw.keptTaskIds,
+    selectedItemIds: codexRaw.selectedItemIds,
+    keptItemIds: codexRaw.keptItemIds,
+    validation: codexRaw.validation,
+    result: codexRaw.result,
+  };
+  return [openclaw, claude, codex];
+}
+
+function assertBackendDecisions(fixture: GoldenFixture, decisions: BackendDecision[]): void {
+  for (const decision of decisions) {
+    assert.equal(decision.validation.valid, true, `${fixture.id}/${decision.hostId} validation`);
+    assert.deepEqual(
+      sorted(decision.selectedTaskIds),
+      sorted(fixture.expected.evict_task_ids),
+      `${fixture.id}/${decision.hostId} selected tasks`,
+    );
+    assert.deepEqual(
+      sorted(decision.keptTaskIds),
+      sorted(fixture.expected.keep_task_ids),
+      `${fixture.id}/${decision.hostId} kept tasks`,
+    );
+    assert.deepEqual(
+      sorted(decision.selectedItemIds),
+      sorted(fixture.expected.evict_item_ids),
+      `${fixture.id}/${decision.hostId} selected items`,
+    );
+    assert.deepEqual(
+      sorted(decision.keptItemIds),
+      sorted(fixture.expected.keep_item_ids),
+      `${fixture.id}/${decision.hostId} kept items`,
+    );
+    assert.equal(
+      decision.result.applied,
+      fixture.expected.evict_task_ids.length > 0,
+      `${fixture.id}/${decision.hostId} apply outcome`,
+    );
+    assert.equal(decision.result.fallbackUsed, false);
+  }
+  assert.deepEqual(
+    decisions.map((decision) => sorted(decision.selectedTaskIds)),
+    decisions.map(() => sorted(fixture.expected.evict_task_ids)),
+    `${fixture.id} cross-host task targets`,
+  );
+  assert.deepEqual(
+    decisions.map((decision) => sorted(decision.selectedItemIds)),
+    decisions.map(() => sorted(fixture.expected.evict_item_ids)),
+    `${fixture.id} cross-host item targets`,
+  );
+}
+
 test("GUA-02 runs all three independent backends against the same logical target sets", async () => {
   for (const fixtureFile of fixtureFiles) {
     const fixture = readFixture(fixtureFile);
-    const openclaw = await runOpenClawFixture(fixture);
-    const claude = await runClaudeFixture(fixture);
-    const codexRaw = await runCodexSharedGoldenFixture(fixture);
-    const codex: BackendDecision = {
-      hostId: "codex",
-      mode: codexRaw.result.mode,
-      selectedTaskIds: codexRaw.selectedTaskIds,
-      keptTaskIds: codexRaw.keptTaskIds,
-      selectedItemIds: codexRaw.selectedItemIds,
-      keptItemIds: codexRaw.keptItemIds,
-      validation: codexRaw.validation,
-      result: codexRaw.result,
-    };
-    const decisions = [openclaw, claude, codex];
+    assertBackendDecisions(fixture, await runAllBackends(fixture));
+  }
+});
 
-    for (const decision of decisions) {
-      assert.equal(decision.validation.valid, true, `${fixture.id}/${decision.hostId} validation`);
-      assert.deepEqual(
-        sorted(decision.selectedTaskIds),
-        sorted(fixture.expected.evict_task_ids),
-        `${fixture.id}/${decision.hostId} selected tasks`,
-      );
-      assert.deepEqual(
-        sorted(decision.keptTaskIds),
-        sorted(fixture.expected.keep_task_ids),
-        `${fixture.id}/${decision.hostId} kept tasks`,
-      );
-      assert.deepEqual(
-        sorted(decision.selectedItemIds),
-        sorted(fixture.expected.evict_item_ids),
-        `${fixture.id}/${decision.hostId} selected items`,
-      );
-      assert.deepEqual(
-        sorted(decision.keptItemIds),
-        sorted(fixture.expected.keep_item_ids),
-        `${fixture.id}/${decision.hostId} kept items`,
-      );
-      assert.equal(
-        decision.result.applied,
-        fixture.expected.evict_task_ids.length > 0,
-        `${fixture.id}/${decision.hostId} apply outcome`,
-      );
-      assert.equal(decision.result.fallbackUsed, false);
-    }
-
-    assert.deepEqual(
-      decisions.map((decision) => sorted(decision.selectedTaskIds)),
-      decisions.map(() => sorted(fixture.expected.evict_task_ids)),
-      `${fixture.id} cross-host task targets`,
-    );
-    assert.deepEqual(
-      decisions.map((decision) => sorted(decision.selectedItemIds)),
-      decisions.map(() => sorted(fixture.expected.evict_item_ids)),
-      `${fixture.id} cross-host item targets`,
-    );
+test("GUA lifecycle planner targets remain identical through all three Host mappings", async () => {
+  for (const lifecycleFixture of readLifecycleFixtures()) {
+    const observed = await observeLifecycleFixture(lifecycleFixture);
+    assert.deepEqual(observed.evictTaskIds, sorted(lifecycleFixture.expected.evictTaskIds));
+    assert.deepEqual(observed.evictItemIds, sorted(lifecycleFixture.expected.evictItemIds));
+    const fixture = lifecycleGoldenFixture(lifecycleFixture);
+    assertBackendDecisions(fixture, await runAllBackends(fixture));
   }
 });
