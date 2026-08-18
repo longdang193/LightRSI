@@ -1,6 +1,6 @@
 # Host Adapters
 
-A host adapter is the **integration layer** between an agent host (OpenClaw, Codex, Claude Code) and the LightMem2 core runtime. It translates host-specific events, APIs, and configuration into the standardized format that plugins expect.
+A host adapter is the **integration layer** between an agent host (OpenClaw, Codex, Claude Code) and the LightRSI core runtime. It translates host-specific events, APIs, and configuration into the standardized format that plugins expect.
 
 ## Why Adapters Exist
 
@@ -36,7 +36,7 @@ The adapter abstracts these differences so plugins only deal with one consistent
 ├────────────────────────────────────────────┤
 │  5. CLI surface                             │
 │     Exposes host-specific commands through  │
-│     the shared lightmem2 CLI                │
+│     the shared lightrsi CLI                │
 └────────────────────────────────────────────┘
 ```
 

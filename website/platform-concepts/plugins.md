@@ -1,6 +1,6 @@
 # Plugins
 
-Plugins are **reusable agent capabilities** that run on the LightMem2 platform. Each plugin provides one well-scoped capability — context management, memory, or future features — and works across all supported hosts.
+Plugins are **reusable agent capabilities** that run on the LightRSI platform. Each plugin provides one well-scoped capability — context management, memory, or future features — and works across all supported hosts.
 
 ## Plugin Model
 

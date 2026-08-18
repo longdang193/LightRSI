@@ -1,6 +1,6 @@
 # Contributing
 
-LightMem2 is still moving quickly. The most useful contributions are usually:
+LightRSI is still moving quickly. The most useful contributions are usually:
 
 - Host adapter fixes for real agent workflows
 - Install and onboarding improvements
@@ -13,8 +13,8 @@ LightMem2 is still moving quickly. The most useful contributions are usually:
 Clone the repository and build the shared packages:
 
 ```bash
-git clone https://github.com/zjunlp/LightMem2.git
-cd LightMem2
+git clone https://github.com/zjunlp/LightRSI.git
+cd LightRSI
 corepack enable
 pnpm install
 pnpm build
@@ -24,9 +24,9 @@ pnpm typecheck
 If you are changing the standalone CLI path, also run:
 
 ```bash
-pnpm lightmem2:build
-pnpm lightmem2:typecheck
-pnpm lightmem2:test
+pnpm lightrsi:build
+pnpm lightrsi:typecheck
+pnpm lightrsi:test
 ```
 
 ## Before Opening a PR
@@ -44,10 +44,10 @@ When reporting a bug, include:
 - **Install path**: Default or custom config path
 - **Exact commands**: What you ran
 - **Config**: Relevant config snippets (with sensitive values redacted)
-- **Doctor / Status output**: Output from `lightmem2 <host> doctor` and `lightmem2 <host> status`
+- **Doctor / Status output**: Output from `lightrsi <host> doctor` and `lightrsi <host> status`
 - **Logs**: Any relevant log output or screenshots for visual or runtime-specific issues
 
 ## Community
 
-- Use [GitHub Issues](https://github.com/zjunlp/LightMem2/issues) for actionable bugs and feature requests.
+- Use [GitHub Issues](https://github.com/zjunlp/LightRSI/issues) for actionable bugs and feature requests.
 - Use [Discord](https://discord.gg/gHdVfWz3) for setup help, debugging, and discussion.

@@ -4,7 +4,7 @@ No formal manifest specification exists. TokenPilot uses JSON configuration per 
 
 - Repository path: `components/tokenpilot/`
 - Namespace: `tokenpilot` (for plugin id and persisted state)
-- CLI namespace: `lightmem2`
+- CLI namespace: `lightrsi`
 
 ## Related Pages
 

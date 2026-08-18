@@ -2,9 +2,9 @@
 
 TokenPilot provides the following observability surfaces from the source repository:
 
-- `lightmem2 report` — shows the latest available report across hosts
-- `lightmem2 visual` — opens the shared browser visual and lets you switch hosts and sessions
-- `lightmem2 <host> doctor` — adapter self-check
+- `lightrsi report` — shows the latest available report across hosts
+- `lightrsi visual` — opens the shared browser visual and lets you switch hosts and sessions
+- `lightrsi <host> doctor` — adapter self-check
 
 Runtime state files are persisted under host-specific state directories:
 

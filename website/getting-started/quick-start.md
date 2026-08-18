@@ -1,20 +1,20 @@
 # Quick Start
 
-A minimal path from clone to a verified running session. You will have LightMem2 installed with TokenPilot active in under 5 minutes.
+A minimal path from clone to a verified running session. You will have LightRSI installed with TokenPilot active in under 5 minutes.
 
 ## 1. Clone and Build
 
 ```bash
-git clone https://github.com/zjunlp/LightMem2.git
-cd LightMem2
+git clone https://github.com/zjunlp/LightRSI.git
+cd LightRSI
 corepack enable
 pnpm install
 pnpm build
-pnpm lightmem2:build
-pnpm lightmem2:install
+pnpm lightrsi:build
+pnpm lightrsi:install
 ```
 
-The last command installs the `lightmem2` CLI entrypoint at `~/.local/bin/lightmem2`. Make sure `~/.local/bin` is on your `PATH`.
+The last command installs the `lightrsi` CLI entrypoint at `~/.local/bin/lightrsi`. Make sure `~/.local/bin` is on your `PATH`.
 
 ## 2. Pick Your Host
 
@@ -49,8 +49,8 @@ Open or restart your host, then start a new session.
 
 ::: code-group
 ```text [OpenClaw]
-Use a lightmem2/<model> model like lightmem2/gpt-5.4-mini
-Run: /lightmem2 status
+Use a lightrsi/<model> model like lightrsi/gpt-5.4-mini
+Run: /lightrsi status
 ```
 
 ```text [Codex]
@@ -70,17 +70,17 @@ Run the doctor command to confirm everything is healthy:
 
 ::: code-group
 ```bash [OpenClaw]
-/lightmem2 doctor
+/lightrsi doctor
 # Or outside OpenClaw:
-lightmem2 openclaw doctor
+lightrsi openclaw doctor
 ```
 
 ```bash [Codex]
-lightmem2 codex doctor
+lightrsi codex doctor
 ```
 
 ```bash [Claude Code]
-lightmem2 claude-code doctor
+lightrsi claude-code doctor
 ```
 :::
 
@@ -98,15 +98,15 @@ After a few turns, check your report:
 
 ::: code-group
 ```bash [OpenClaw]
-/lightmem2 report
+/lightrsi report
 ```
 
 ```bash [Codex]
-lightmem2 codex report
+lightrsi codex report
 ```
 
 ```bash [Claude Code]
-lightmem2 claude-code report
+lightrsi claude-code report
 ```
 :::
 
@@ -117,7 +117,7 @@ If you see token and cost metrics instead of "No TokenPilot session stats yet", 
 Open the built-in visual inspector to see your session in real time:
 
 ```bash
-lightmem2 visual
+lightrsi visual
 ```
 
 This opens a browser view showing stable-prefix, reduction, and eviction snapshots.

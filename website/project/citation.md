@@ -1,6 +1,6 @@
 # Citation
 
-Please cite our papers if you use LightMem2 or TokenPilot in your work.
+Please cite our papers if you use LightRSI or TokenPilot in your work.
 
 ## TokenPilot
 
@@ -15,7 +15,7 @@ Please cite our papers if you use LightMem2 or TokenPilot in your work.
 }
 ```
 
-**Links**: [arXiv](https://arxiv.org/abs/2606.17016) · [GitHub](https://github.com/zjunlp/LightMem2)
+**Links**: [arXiv](https://arxiv.org/abs/2606.17016) · [GitHub](https://github.com/zjunlp/LightRSI)
 
 ## LightMem
 

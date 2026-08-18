@@ -5,7 +5,7 @@ The visual inspector is a **browser-based dashboard** that shows TokenPilot's re
 ## Opening the Inspector
 
 ```bash
-lightmem2 visual
+lightrsi visual
 ```
 
 This starts a local web server and opens your default browser.
@@ -13,15 +13,15 @@ This starts a local web server and opens your default browser.
 You can also open it per-host:
 
 ```bash
-lightmem2 openclaw visual
-lightmem2 codex visual
-lightmem2 claude-code visual
+lightrsi openclaw visual
+lightrsi codex visual
+lightrsi claude-code visual
 ```
 
 Or inside OpenClaw:
 
 ```text
-/lightmem2 visual
+/lightrsi visual
 ```
 
 ## Views
@@ -80,7 +80,7 @@ If the inspector doesn't open:
 1. Make sure TokenPilot has run at least one session
 2. Check that the local server port isn't blocked
 3. Try a different browser
-4. Run `lightmem2 doctor` to verify TokenPilot is healthy
+4. Run `lightrsi doctor` to verify TokenPilot is healthy
 
 ## Next
 

@@ -15,7 +15,7 @@ This command:
 - Writes `~/.codex/tokenpilot.json`
 - Registers hooks in `~/.codex/hooks.json`
 - Registers the shared `tokenpilot_memory_fault_recover` MCP server
-- Creates the `lightmem2` CLI entrypoint at `~/.local/bin/lightmem2`
+- Creates the `lightrsi` CLI entrypoint at `~/.local/bin/lightrsi`
 
 ### Custom Paths
 
@@ -40,8 +40,8 @@ After install, these files are created or modified:
 ## Verification
 
 ```bash
-lightmem2 codex status
-lightmem2 codex doctor
+lightrsi codex status
+lightrsi codex doctor
 ```
 
 Expected output:
@@ -60,7 +60,7 @@ Expected output:
 4. In another terminal, verify:
 
 ```bash
-lightmem2 codex doctor
+lightrsi codex doctor
 ```
 
 ::: warning Proxy may not start before first trusted session Install success does not guarantee the proxy is already running. If `doctor` still reports `proxy healthy: no` after trusting hooks and opening a new Codex session, use the manual fallback:
@@ -75,21 +75,21 @@ tokenpilot-codex start
 All commands use the standalone CLI:
 
 ```bash
-lightmem2 codex status
-lightmem2 codex report
-lightmem2 codex doctor
-lightmem2 codex visual
-lightmem2 codex session <session-id> report
-lightmem2 codex reduction status
-lightmem2 codex stabilizer target developer
-lightmem2 codex mode normal
-lightmem2 codex reduction mode balanced
-lightmem2 codex help
+lightrsi codex status
+lightrsi codex report
+lightrsi codex doctor
+lightrsi codex visual
+lightrsi codex session <session-id> report
+lightrsi codex reduction status
+lightrsi codex stabilizer target developer
+lightrsi codex mode normal
+lightrsi codex reduction mode balanced
+lightrsi codex help
 ```
 
 ## PATH Setup
 
-If `lightmem2` is not found after install:
+If `lightrsi` is not found after install:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"

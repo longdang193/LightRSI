@@ -1,6 +1,6 @@
 # TokenPilot Overview
 
-TokenPilot is the first official LightMem2 plugin. It is a **cache-aware context runtime** that reduces token usage and cost in long-running agent sessions.
+TokenPilot is the first official LightRSI plugin. It is a **cache-aware context runtime** that reduces token usage and cost in long-running agent sessions.
 
 ## What TokenPilot Does
 

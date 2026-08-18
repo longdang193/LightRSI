@@ -1,9 +1,9 @@
  import { defineConfig } from 'vitepress'
 
 export default defineConfig({
-  title: 'LightMem2',
-  description: 'An open plugin platform for long-running AI agents',
-  base: '/LightMem2/',
+  title: 'LightRSI',
+  description: 'A modular runtime for recursive improvement in long-running LLM agents',
+  base: '/LightRSI/',
   lastUpdated: true,
   cleanUrls: true,
   ignoreDeadLinks: false,
@@ -11,15 +11,15 @@ export default defineConfig({
   head: [
     ['link', { rel: 'icon', href: '/images/favicon.svg' }],
     ['meta', { name: 'theme-color', content: '#7C5CFF' }],
-    ['meta', { property: 'og:title', content: 'LightMem2' }],
-    ['meta', { property: 'og:description', content: 'An open plugin platform for long-running AI agents' }],
+    ['meta', { property: 'og:title', content: 'LightRSI' }],
+    ['meta', { property: 'og:description', content: 'A modular runtime for recursive improvement in long-running LLM agents' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
   ],
 
   themeConfig: {
-    logo: { src: '/images/logo.svg', alt: 'LightMem2' },
-    siteTitle: 'LightMem2',
+    logo: { src: '/images/logo.svg', alt: 'LightRSI' },
+    siteTitle: 'LightRSI',
 
     search: {
       provider: 'local',
@@ -30,7 +30,7 @@ export default defineConfig({
 
     nav: [
       { text: 'Home', link: '/' },
-      { text: 'Getting Started', link: '/getting-started/what-is-lightmem2' },
+      { text: 'Getting Started', link: '/getting-started/what-is-lightrsi' },
       { text: 'Platform Concepts', link: '/platform-concepts/core-runtime' },
       { text: 'Plugin Catalog', link: '/plugin-catalog/overview' },
       { text: 'Hosts', link: '/hosts/compatibility' },
@@ -42,7 +42,7 @@ export default defineConfig({
           { text: 'Host Adapter Development', link: '/host-adapter-development/adapter-architecture' },
           { text: 'Development', link: '/development/repository-structure' },
           { text: 'Project', link: '/project/changelog' },
-          { text: 'GitHub', link: 'https://github.com/zjunlp/LightMem2' },
+          { text: 'GitHub', link: 'https://github.com/zjunlp/LightRSI' },
           { text: 'Paper', link: 'https://arxiv.org/abs/2606.17016' },
         ],
       },
@@ -53,9 +53,9 @@ export default defineConfig({
         {
           text: 'Getting Started',
           items: [
-            { text: 'What is LightMem2', link: '/getting-started/what-is-lightmem2' },
+            { text: 'What is LightRSI', link: '/getting-started/what-is-lightrsi' },
             { text: 'Quick Start', link: '/getting-started/quick-start' },
-            { text: 'Install LightMem2', link: '/getting-started/install-lightmem2' },
+            { text: 'Install LightRSI', link: '/getting-started/install-lightrsi' },
             { text: 'Install Your First Plugin', link: '/getting-started/install-first-plugin' },
           ],
         },
@@ -176,7 +176,7 @@ export default defineConfig({
     },
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/zjunlp/LightMem2' },
+      { icon: 'github', link: 'https://github.com/zjunlp/LightRSI' },
     ],
 
     footer: {
@@ -185,7 +185,7 @@ export default defineConfig({
     },
 
     editLink: {
-      pattern: 'https://github.com/zjunlp/LightMem2/edit/main/website/:path',
+      pattern: 'https://github.com/zjunlp/LightRSI/edit/main/website/:path',
       text: 'Edit this page on GitHub',
     },
 

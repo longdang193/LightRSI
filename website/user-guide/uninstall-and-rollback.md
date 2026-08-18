@@ -8,5 +8,5 @@ During installation, TokenPilot creates `.tokenpilot.bak` backup files alongside
 
 ## Next
 
-- [Install LightMem2](/getting-started/install-lightmem2) — fresh install
+- [Install LightRSI](/getting-started/install-lightrsi) — fresh install
 - [Troubleshooting](/plugin-catalog/tokenpilot/troubleshooting) — problems before uninstalling

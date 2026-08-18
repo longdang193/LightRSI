@@ -1,6 +1,6 @@
-# Install LightMem2
+# Install LightRSI
 
-This page covers the LightMem2 platform installation — the shared runtime that all plugins need. After this, install your first plugin (e.g., TokenPilot).
+This page covers the LightRSI platform installation — the shared runtime that all plugins need. After this, install your first plugin (e.g., TokenPilot).
 
 ## Prerequisites
 
@@ -16,8 +16,8 @@ No cloud services, API keys, or external dependencies are required.
 ## Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/zjunlp/LightMem2.git
-cd LightMem2
+git clone https://github.com/zjunlp/LightRSI.git
+cd LightRSI
 ```
 
 ## Step 2: Enable Corepack and Install
@@ -40,11 +40,11 @@ This builds the shared packages (`runtime-core`, `kernel`, `layers`, `host-adapt
 ## Step 4: Build and Install the CLI
 
 ```bash
-pnpm lightmem2:build
-pnpm lightmem2:install
+pnpm lightrsi:build
+pnpm lightrsi:install
 ```
 
-The first command builds the shared `lightmem2` CLI. The second installs it to `~/.local/bin/lightmem2`.
+The first command builds the shared `lightrsi` CLI. The second installs it to `~/.local/bin/lightrsi`.
 
 ::: warning PATH notice Make sure `~/.local/bin` is on your `PATH`. Add this to your shell config if needed:
 
@@ -56,13 +56,13 @@ export PATH="$HOME/.local/bin:$PATH"
 ## Verify Installation
 
 ```bash
-lightmem2 --help
+lightrsi --help
 ```
 
 You should see the top-level command listing.
 
 ```bash
-lightmem2 context
+lightrsi context
 ```
 
 This shows your current default host, pinned session, and config target.
@@ -71,7 +71,7 @@ This shows your current default host, pinned session, and config target.
 
 | Component | Location | Purpose |
 | :-- | :-- | :-- |
-| `lightmem2` CLI | `~/.local/bin/lightmem2` | Standalone CLI for all hosts |
+| `lightrsi` CLI | `~/.local/bin/lightrsi` | Standalone CLI for all hosts |
 | Shared packages | `node_modules/` (workspace) | Runtime engine, types, contracts |
 | Host adapter code | `components/tokenpilot/adapters/` | Per-host integration code |
 

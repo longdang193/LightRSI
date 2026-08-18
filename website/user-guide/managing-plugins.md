@@ -1,11 +1,11 @@
 # Managing Plugins
 
-Plugins are the core unit of functionality in LightMem2. This page covers how to list and manage installed plugins.
+Plugins are the core unit of functionality in LightRSI. This page covers how to list and manage installed plugins.
 
 ## List Installed Plugins
 
 ```bash
-lightmem2 status
+lightrsi status
 ```
 
 Shows all installed plugins and their state.
@@ -13,25 +13,25 @@ Shows all installed plugins and their state.
 ## Switching the Default Host
 
 ```bash
-lightmem2 use openclaw
-lightmem2 use codex
-lightmem2 use claude-code
+lightrsi use openclaw
+lightrsi use codex
+lightrsi use claude-code
 ```
 
-This sets the default host for hostless commands like `lightmem2 report`.
+This sets the default host for hostless commands like `lightrsi report`.
 
 ## Pinning a Session
 
 ```bash
-lightmem2 use codex session <session-id>
+lightrsi use codex session <session-id>
 ```
 
-Subsequent `lightmem2 report` and `lightmem2 visual` commands will target this session.
+Subsequent `lightrsi report` and `lightrsi visual` commands will target this session.
 
 ## Checking Current Context
 
 ```bash
-lightmem2 context
+lightrsi context
 ```
 
 Shows:

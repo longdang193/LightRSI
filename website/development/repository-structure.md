@@ -1,9 +1,9 @@
 # Repository Structure
 
-The LightMem2 repository is organized around the plugin platform and its components.
+The LightRSI repository is organized around the plugin platform and its components.
 
 ```text
-LightMem2/
+LightRSI/
 ├── components/
 │   └── tokenpilot/              # TokenPilot plugin
 │       ├── adapters/            # Host-specific integration
@@ -11,7 +11,7 @@ LightMem2/
 │       │   ├── codex/           #   Codex CLI proxy + hooks adapter
 │       │   └── claude-code/     #   Claude Code gateway + MCP adapter
 │       ├── products/
-│       │   ├── cli/             #   Shared lightmem2 CLI
+│       │   ├── cli/             #   Shared lightrsi CLI
 │       │   └── mcp/             #   Shared MCP recovery server
 │       └── packages/
 │           ├── host-adapter/    #   Shared adapter contracts
@@ -37,7 +37,7 @@ Benchmark tasks, runners, profiles, and analysis are maintained in the separate 
 | `components/tokenpilot/packages/runtime-core/` | Plugin execution engine |
 | `components/tokenpilot/packages/layers/` | Stateful processing (history, decision, memory) |
 | `components/tokenpilot/adapters/` | One adapter per host |
-| `components/tokenpilot/products/cli/` | The `lightmem2` CLI |
+| `components/tokenpilot/products/cli/` | The `lightrsi` CLI |
 | `components/tokenpilot/products/mcp/` | Shared MCP server |
 
 ## Workspace

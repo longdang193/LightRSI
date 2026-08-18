@@ -1,6 +1,6 @@
 # Core Runtime
 
-The LightMem2 core runtime is the **host-independent execution engine** that loads, manages, and runs plugins. It sits between the agent host and the plugins, providing a consistent environment regardless of which host the user is running.
+The LightRSI core runtime is the **host-independent execution engine** that loads, manages, and runs plugins. It sits between the agent host and the plugins, providing a consistent environment regardless of which host the user is running.
 
 ## Responsibilities
 

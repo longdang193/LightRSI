@@ -8,14 +8,14 @@ Each plugin exposes configuration that can be tuned for your needs.
 
 ```bash
 # Mode presets
-lightmem2 mode conservative
-lightmem2 mode normal
-lightmem2 mode aggressive
+lightrsi mode conservative
+lightrsi mode normal
+lightrsi mode aggressive
 
 # Individual settings
-lightmem2 stabilizer target developer
-lightmem2 reduction mode balanced
-lightmem2 eviction on
+lightrsi stabilizer target developer
+lightrsi reduction mode balanced
+lightrsi eviction on
 ```
 
 ### Via Config File

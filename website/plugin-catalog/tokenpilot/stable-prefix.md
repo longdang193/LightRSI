@@ -26,12 +26,12 @@ The `user` target (used in aggressive mode) puts dynamic content further from th
 
 ```bash
 # Toggle stabilizer
-lightmem2 stabilizer on
-lightmem2 stabilizer off
+lightrsi stabilizer on
+lightrsi stabilizer off
 
 # Change target
-lightmem2 stabilizer target developer
-lightmem2 stabilizer target user
+lightrsi stabilizer target developer
+lightrsi stabilizer target user
 ```
 
 ## Next

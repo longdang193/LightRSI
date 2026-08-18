@@ -1,6 +1,6 @@
 # Plugin Catalog
 
-LightMem2 plugins provide reusable agent capabilities. Each plugin is independently installable and works across supported hosts.
+LightRSI plugins provide reusable agent capabilities. Each plugin is independently installable and works across supported hosts.
 
 ## Available Plugins
 

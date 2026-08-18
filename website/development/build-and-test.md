@@ -1,6 +1,6 @@
 # Build and Test
 
-Commands for building, typechecking, and testing LightMem2.
+Commands for building, typechecking, and testing LightRSI.
 
 ## Build
 
@@ -9,8 +9,8 @@ Commands for building, typechecking, and testing LightMem2.
 pnpm build
 
 # Build the CLI specifically
-pnpm lightmem2:build
-pnpm lightmem2:install
+pnpm lightrsi:build
+pnpm lightrsi:install
 
 # Build specific adapter
 npm --prefix components/tokenpilot/adapters/openclaw run build
@@ -32,7 +32,7 @@ npm --prefix components/tokenpilot/packages/runtime-core run typecheck
 
 ```bash
 # Run all tests
-pnpm lightmem2:test
+pnpm lightrsi:test
 
 # Run tests for specific package
 npm --prefix components/tokenpilot/products/cli test

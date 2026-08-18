@@ -1,6 +1,6 @@
 # Host Compatibility
 
-LightMem2 supports three agent hosts. Each host has a different integration style, but the plugin behavior is consistent across all of them.
+LightRSI supports three agent hosts. Each host has a different integration style, but the plugin behavior is consistent across all of them.
 
 ## Supported Hosts
 
@@ -19,7 +19,7 @@ LightMem2 supports three agent hosts. Each host has a different integration styl
 | Context Eviction | ✅ | — | — |
 | Visual Inspector | ✅ | ✅ | ✅ |
 | Session Reports | ✅ | ✅ | ✅ |
-| In-session Commands | ✅ (`/lightmem2`) | — (standalone CLI) | — (standalone CLI) |
+| In-session Commands | ✅ (`/lightrsi`) | — (standalone CLI) | — (standalone CLI) |
 | Standalone CLI | ✅ | ✅ | ✅ |
 | MCP Recovery Server | ✅ | ✅ | ✅ |
 | `mode conservative` | ✅ | ✅ | ✅ |

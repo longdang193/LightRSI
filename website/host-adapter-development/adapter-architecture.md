@@ -4,7 +4,7 @@ Host adapters are the integration layer between a specific coding-agent host and
 
 ## Current Adapters
 
-From [HOSTS.md](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/HOSTS.md):
+From [HOSTS.md](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/HOSTS.md):
 
 | Host | Status | Integration Mode | Install Surface |
 | :-- | :-- | :-- | :-- |
@@ -14,7 +14,7 @@ From [HOSTS.md](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpi
 
 ## Adapter Responsibilities
 
-From [adapters/README.md](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/adapters/README.md):
+From [adapters/README.md](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/adapters/README.md):
 
 Keep these inside the adapter:
 - Host install and uninstall flow
@@ -43,5 +43,5 @@ Host-agnostic logic lives in shared packages under `components/tokenpilot/packag
 - [Adding a New Host](./adding-new-host.md)
 - [Configuration Integration](./configuration-integration.md)
 - [Hook and Proxy Integration](./hook-proxy-integration.md)
-- [Adapter Playbook](https://github.com/zjunlp/LightMem2/blob/main/docs/adapter-playbook.md)
-- [HOSTS.md](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/HOSTS.md)
+- [Adapter Playbook](https://github.com/zjunlp/LightRSI/blob/main/docs/adapter-playbook.md)
+- [HOSTS.md](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/HOSTS.md)

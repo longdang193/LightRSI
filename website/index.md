@@ -2,19 +2,19 @@
 layout: home
 
 hero:
-  name: "LightMem2"
-  text: "Open Plugin Platform for Long-Running AI Agents"
-  tagline: A modular framework for agent memory and context management
+  name: "LightRSI"
+  text: "Runtime for Recursive Improvement in Long-Running Agents"
+  tagline: Build, evaluate, and safely deploy improvement loops across agent hosts
   actions:
     - theme: brand
       text: Get Started
-      link: /getting-started/what-is-lightmem2
+      link: /getting-started/what-is-lightrsi
     - theme: alt
       text: Quick Start
       link: /getting-started/quick-start
     - theme: alt
       text: View on GitHub
-      link: https://github.com/zjunlp/LightMem2
+      link: https://github.com/zjunlp/LightRSI
 
 features:
   - title: Cache-Efficient Context

@@ -1,6 +1,6 @@
 # Build Your First Plugin
 
-There is no standalone plugin SDK in the current repository. The only reference implementation is **TokenPilot**, located at [`components/tokenpilot/`](https://github.com/zjunlp/LightMem2/tree/main/components/tokenpilot) in the monorepo.
+There is no standalone plugin SDK in the current repository. The only reference implementation is **TokenPilot**, located at [`components/tokenpilot/`](https://github.com/zjunlp/LightRSI/tree/main/components/tokenpilot) in the monorepo.
 
 See the [TokenPilot overview](/plugin-catalog/tokenpilot/overview) for the reference implementation.
 
