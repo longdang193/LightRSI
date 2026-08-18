@@ -15,14 +15,6 @@ A modular runtime for recursive improvement in long-running LLM agents
 </p>
 
 <p align="center">
-  <img src="./figs/LightRSI.png" alt="LightRSI overview" width="860">
-</p>
-
-<p align="center">
-LightRSI is a modular runtime for building, evaluating, and safely deploying recursive improvement loops in long-running LLM agents. Its current implementation focuses on context and agentic memory.
-</p>
-
-<p align="center">
   <strong><span style="font-size:1.35em;">95.7% fewer input tokens</span></strong>
 &nbsp;&nbsp;|&nbsp;&nbsp;
   <strong><span style="font-size:1.35em;">87.0% lower cost</span></strong>
@@ -389,8 +381,6 @@ Benchmark tasks, runners, profiles, and analysis are maintained in the separate 
 Experiment entrypoints:
 
 - [TokenPilot reproduction guide](https://github.com/Xubqpanda/TokenPilot/blob/main/README.md)
-- [PinchBench benchmark](https://github.com/Xubqpanda/TokenPilot/tree/main/benchmarks/pinchbench)
-- [Claw-Eval benchmark](https://github.com/Xubqpanda/TokenPilot/tree/main/benchmarks/claw-eval)
 
 
 <span id='commands'/>
