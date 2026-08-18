@@ -22,8 +22,8 @@ Supported:
 - stable-prefix rewriting
 - request-time reduction
 - lightweight session-state and ux-effects tracking
-- shared browser visual via `lightmem2 claude-code visual`
-- standalone `lightmem2 claude-code ...` command surface
+- shared browser visual via `lightrsi claude-code visual`
+- standalone `lightrsi claude-code ...` command surface
 - local read-only Claude Code skill bridge for `status` / `report` / `doctor` / `visual`
 
 Current limitations:
@@ -41,14 +41,14 @@ For a release archive, extract it and run the bundled installer directly:
 node /path/to/package/dist/install-claude-code.js
 ```
 
-The release archive is self-contained: its hooks, recovery MCP server, `lightmem2` command, and `tokenpilot-claude-code` command all run from the extracted package directory. Keep that directory in place after installation.
+The release archive is self-contained: its hooks, recovery MCP server, `lightrsi` command, and `tokenpilot-claude-code` command all run from the extracted package directory. Keep that directory in place after installation.
 
 For a source checkout, build the adapter first:
 
 Build the adapter:
 
 ```bash
-cd /path/to/LightMem2
+cd /path/to/LightRSI
 npm --prefix components/adapters/claude-code run build
 ```
 
@@ -63,11 +63,11 @@ export TOKENPILOT_CLAUDE_CODE_CONFIG="/path/to/tokenpilot.json"
 Then install:
 
 ```bash
-cd /path/to/LightMem2
+cd /path/to/LightRSI
 npm --prefix components/adapters/claude-code run install:claude-code
 ```
 
-If `lightmem2` is not found after install, make sure `~/.local/bin` is on your `PATH`.
+If `lightrsi` is not found after install, make sure `~/.local/bin` is on your `PATH`.
 
 The installer will:
 
@@ -83,19 +83,19 @@ The installer will:
 
 The installed Claude Code skill bridge currently creates these explicit skills:
 
-- `lightmem2-status`
-- `lightmem2-report`
-- `lightmem2-doctor`
-- `lightmem2-visual`
+- `lightrsi-status`
+- `lightrsi-report`
+- `lightrsi-doctor`
+- `lightrsi-visual`
 
-These are host entry points, not a separate runtime implementation. They call the existing `lightmem2 claude-code ...` CLI surface underneath.
+These are host entry points, not a separate runtime implementation. They call the existing `lightrsi claude-code ...` CLI surface underneath.
 
 ## Verify
 
 You can run the adapter doctor immediately after install:
 
 ```bash
-cd /path/to/LightMem2
+cd /path/to/LightRSI
 npm --prefix components/adapters/claude-code run doctor:claude-code
 ```
 
@@ -106,21 +106,21 @@ Then use the first real-session path:
 3. In another terminal, verify through the shared CLI:
 
 ```bash
-lightmem2 claude-code status
-lightmem2 claude-code doctor
-lightmem2 claude-code report
-lightmem2 claude-code mode normal
-lightmem2 claude-code reduction status
-lightmem2 claude-code stabilizer target developer
+lightrsi claude-code status
+lightrsi claude-code doctor
+lightrsi claude-code report
+lightrsi claude-code mode normal
+lightrsi claude-code reduction status
+lightrsi claude-code stabilizer target developer
 ```
 
-The Claude Code gateway is now auto-started from the installed `SessionStart` hook. After the first Claude Code session starts, `lightmem2 claude-code doctor` should report `proxy healthy: yes` without a separate manual start step.
+The Claude Code gateway is now auto-started from the installed `SessionStart` hook. After the first Claude Code session starts, `lightrsi claude-code doctor` should report `proxy healthy: yes` without a separate manual start step.
 
 Expected first-run shape:
 
-- `lightmem2 claude-code doctor` reports `proxy healthy: yes`
-- `lightmem2 claude-code status` shows `stabilizer` and `reduction` enabled
-- after a few turns, `lightmem2 claude-code report` no longer says `No TokenPilot session stats yet.`
+- `lightrsi claude-code doctor` reports `proxy healthy: yes`
+- `lightrsi claude-code status` shows `stabilizer` and `reduction` enabled
+- after a few turns, `lightrsi claude-code report` no longer says `No TokenPilot session stats yet.`
 
 Claude Code currently supports `mode conservative` and `mode normal`. `mode aggressive` is not available on the current adapter.
 
@@ -129,21 +129,21 @@ Claude Code currently supports `mode conservative` and `mode normal`. `mode aggr
 Claude Code command surface:
 
 ```bash
-lightmem2 claude-code status
-lightmem2 claude-code report
-lightmem2 claude-code doctor
-lightmem2 claude-code visual
-lightmem2 claude-code mode conservative
-lightmem2 claude-code mode normal
-lightmem2 claude-code stabilizer on
-lightmem2 claude-code stabilizer off
-lightmem2 claude-code stabilizer target developer
-lightmem2 claude-code stabilizer target user
-lightmem2 claude-code reduction on
-lightmem2 claude-code reduction off
-lightmem2 claude-code reduction mode light
-lightmem2 claude-code reduction mode balanced
-lightmem2 claude-code reduction pass toolPayloadTrim off
+lightrsi claude-code status
+lightrsi claude-code report
+lightrsi claude-code doctor
+lightrsi claude-code visual
+lightrsi claude-code mode conservative
+lightrsi claude-code mode normal
+lightrsi claude-code stabilizer on
+lightrsi claude-code stabilizer off
+lightrsi claude-code stabilizer target developer
+lightrsi claude-code stabilizer target user
+lightrsi claude-code reduction on
+lightrsi claude-code reduction off
+lightrsi claude-code reduction mode light
+lightrsi claude-code reduction mode balanced
+lightrsi claude-code reduction pass toolPayloadTrim off
 ```
 
 Supported reduction passes:
@@ -156,10 +156,10 @@ Supported reduction passes:
 
 Not supported:
 
-- `lightmem2 claude-code settings ...`
-- `lightmem2 claude-code eviction ...`
-- `lightmem2 claude-code mode aggressive`
-- `lightmem2 claude-code stabilizer hook ...`
+- `lightrsi claude-code settings ...`
+- `lightrsi claude-code eviction ...`
+- `lightrsi claude-code mode aggressive`
+- `lightrsi claude-code stabilizer hook ...`
 
 ## Doctor Coverage
 
@@ -180,7 +180,7 @@ Doctor checks report whether:
 
 ## Report And Visual
 
-`lightmem2 claude-code report` and `lightmem2 claude-code visual` intentionally serve different purposes:
+`lightrsi claude-code report` and `lightrsi claude-code visual` intentionally serve different purposes:
 
 - `report`
   - savings-oriented summary from `ux-effects`
@@ -194,7 +194,7 @@ Current visual data includes:
 - recent cache-audit summaries
 - browser-side host and session selection through the shared visual surface
 
-Claude Code still persists lightweight observability state from gateway + hooks, but `lightmem2 claude-code visual` now opens the shared browser visual surface rather than a text-only view.
+Claude Code still persists lightweight observability state from gateway + hooks, but `lightrsi claude-code visual` now opens the shared browser visual surface rather than a text-only view.
 
 ## Runtime Files
 

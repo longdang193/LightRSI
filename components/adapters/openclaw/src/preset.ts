@@ -1,7 +1,7 @@
 import {
   createTokenPilotHostBinding,
   initializeTokenPilotPreset,
-} from "@lightmem2/tokenpilot";
+} from "@lightrsi/tokenpilot";
 
 export const OPENCLAW_TOKENPILOT_HOST_BINDING = createTokenPilotHostBinding({
   hostId: "openclaw",

@@ -1,6 +1,6 @@
-# Contributing to LightMem2
+# Contributing to LightRSI
 
-LightMem2 is still moving quickly. The most useful contributions are usually:
+LightRSI is still moving quickly. The most useful contributions are usually:
 
 - host adapter fixes for real agent workflows
 - install and onboarding improvements
@@ -11,8 +11,8 @@ LightMem2 is still moving quickly. The most useful contributions are usually:
 ## Quick Start
 
 ```bash
-git clone https://github.com/zjunlp/LightMem2.git
-cd LightMem2
+git clone https://github.com/zjunlp/LightRSI.git
+cd LightRSI
 corepack enable
 pnpm install
 pnpm build
@@ -22,9 +22,9 @@ pnpm typecheck
 If you are changing the standalone CLI path, also run:
 
 ```bash
-pnpm lightmem2:build
-pnpm lightmem2:typecheck
-pnpm lightmem2:test
+pnpm lightrsi:build
+pnpm lightrsi:typecheck
+pnpm lightrsi:test
 ```
 
 ## Before Opening a PR

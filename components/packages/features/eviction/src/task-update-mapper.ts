@@ -3,7 +3,7 @@ import type {
   SessionTaskRegistryPatch,
   TaskLifecycle,
   TaskState,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 import type { SemanticTaskUpdate, TaskStateTransition } from "./types.js";
 
 export type RejectedTaskUpdate = {

@@ -7,9 +7,9 @@
     "sessionId": "session-2",
     "sessionMode": "single"
   },
-  "model": "lightmem2/gpt-5.4-mini",
+  "model": "lightrsi/gpt-5.4-mini",
   "stream": true,
-  "instructions": "System bootstrap.\nYour working directory is: /tmp/demo/project\nRuntime: agent=main | model=lightmem2/gpt-5.4-mini",
+  "instructions": "System bootstrap.\nYour working directory is: /tmp/demo/project\nRuntime: agent=main | model=lightrsi/gpt-5.4-mini",
   "messages": [
     {
       "role": "user",

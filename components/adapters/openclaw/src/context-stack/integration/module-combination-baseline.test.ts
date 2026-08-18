@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { __testHooks } from "../../plugin-test-support.js";
-import { readSessionModuleObservationSummary } from "@lightmem2/product-surface";
+import { readSessionModuleObservationSummary } from "@lightrsi/product-surface";
 import {
   MODULE_COMBINATIONS,
   buildModuleCombinationConfig,

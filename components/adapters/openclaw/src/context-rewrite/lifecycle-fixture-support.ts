@@ -9,7 +9,7 @@ import {
   type LifecyclePlannerStatus,
   type TaskStateEstimator,
   type TaskStateEstimatorOutput,
-} from "@lightmem2/eviction";
+} from "@lightrsi/eviction";
 
 export type FixtureEstimator = {
   kind: "output" | "throw" | "must_not_run";
@@ -48,7 +48,7 @@ export type LifecycleFixture = {
 };
 
 type LifecycleFixtureFile = {
-  schema: "lightmem2.lifecycle-planner-fixtures/v1";
+  schema: "lightrsi.lifecycle-planner-fixtures/v1";
   cases: LifecycleFixture[];
 };
 
@@ -267,7 +267,7 @@ export function readLifecycleFixtures(): LifecycleFixture[] {
     if (pattern.test(raw)) throw new Error("lifecycle fixtures must remain sanitized");
   }
   const parsed = JSON.parse(raw) as LifecycleFixtureFile;
-  if (parsed.schema !== "lightmem2.lifecycle-planner-fixtures/v1") {
+  if (parsed.schema !== "lightrsi.lifecycle-planner-fixtures/v1") {
     throw new Error(`unsupported lifecycle fixture schema: ${String(parsed.schema)}`);
   }
   return expandedMatrix(parsed.cases);

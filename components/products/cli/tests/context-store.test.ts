@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -10,7 +10,7 @@ import {
 } from "../src/context-store.js";
 
 test("context store reads empty state by default and persists updates", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-context-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-context-"));
   const file = join(dir, "cli-context.json");
   try {
     const empty = await readCliContextState(file);
@@ -60,7 +60,7 @@ test("context store reads empty state by default and persists updates", async ()
 });
 
 test("context store falls back cleanly when the persisted file is invalid JSON", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-context-invalid-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-context-invalid-"));
   const file = join(dir, "cli-context.json");
   try {
     await writeFile(file, "{not-valid-json", "utf8");
@@ -72,6 +72,24 @@ test("context store falls back cleanly when the persisted file is invalid JSON",
     const recovered = await readCliContextState(file);
     assert.equal(recovered.lastActiveHost, "codex");
     assert.equal(recovered.lastSessionByHost?.codex, "sess-recovered");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("context store reads legacy LightMem2 state only when canonical state is absent", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-context-legacy-"));
+  const canonical = join(dir, ".lightrsi", "state", "cli-context.json");
+  const legacy = join(dir, ".lightmem2", "state", "cli-context.json");
+  try {
+    await mkdir(join(dir, ".lightmem2", "state"), { recursive: true });
+    await writeFile(legacy, JSON.stringify({ lastActiveHost: "codex" }), { encoding: "utf8", flag: "wx" });
+    const migrated = await readCliContextState(canonical, legacy);
+    assert.equal(migrated.lastActiveHost, "codex");
+
+    await writeCliContextState({ lastActiveHost: "claude-code" }, canonical);
+    const canonicalState = await readCliContextState(canonical, legacy);
+    assert.equal(canonicalState.lastActiveHost, "claude-code");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

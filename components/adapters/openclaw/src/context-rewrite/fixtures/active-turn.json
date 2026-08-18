@@ -1,5 +1,5 @@
 {
-  "schema": "lightmem2.context-rewrite-golden/v1",
+  "schema": "lightrsi.context-rewrite-golden/v1",
   "id": "active-turn",
   "description": "The current user turn must remain available even when an older completed task is evicted.",
   "tasks": [

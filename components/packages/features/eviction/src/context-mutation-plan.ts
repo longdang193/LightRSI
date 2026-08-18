@@ -4,8 +4,8 @@ import {
   type ContextMutationOperation,
   type ContextMutationPlan,
   type ModelContextSnapshot,
-} from "@lightmem2/host-adapter";
-import type { SessionTaskRegistry } from "@lightmem2/history";
+} from "@lightrsi/host-adapter";
+import type { SessionTaskRegistry } from "@lightrsi/history";
 
 import type { EvictionBlock, EvictionDecision, EvictionInstruction } from "./types.js";
 

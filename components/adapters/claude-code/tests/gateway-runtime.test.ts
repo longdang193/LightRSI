@@ -9,9 +9,9 @@ import {
   assertRecoveryProtocolText,
   assertStablePrefixRewrite,
   type HostGatewayForwarder,
-} from "@lightmem2/host-adapter";
-import { loadSessionTaskRegistry, persistSessionTaskRegistry } from "@lightmem2/history";
-import { readVisualSessionData, readVisualSessionList } from "@lightmem2/product-surface";
+} from "@lightrsi/host-adapter";
+import { loadSessionTaskRegistry, persistSessionTaskRegistry } from "@lightrsi/history";
+import { readVisualSessionData, readVisualSessionList } from "@lightrsi/product-surface";
 import { normalizeTokenPilotClaudeCodeConfig } from "../src/config.js";
 import { startClaudeCodeGatewayRuntime } from "../src/gateway-runtime.js";
 import { createConsoleLogger } from "../src/logger.js";
@@ -77,7 +77,7 @@ async function startTestJsonServer(handler: (
 }
 
 test("gateway runtime serves health and forwards Claude Messages requests", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-"));
   const proxyPort = await reserveUnusedPort();
   const seenPayloads: unknown[] = [];
   const forwarder: HostGatewayForwarder = {
@@ -153,7 +153,7 @@ test("gateway runtime serves health and forwards Claude Messages requests", asyn
 });
 
 test("gateway runtime proxies Claude model discovery and count_tokens for Anthropic-compatible upstreams", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-probes-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-probes-"));
   const proxyPort = await reserveUnusedPort();
   const seenRequests: Array<{ method: string; url: string; auth?: string; xApiKey?: string }> = [];
   const upstream = await startTestJsonServer((req, body) => {
@@ -267,7 +267,7 @@ test("gateway runtime proxies Claude model discovery and count_tokens for Anthro
 });
 
 test("gateway runtime synthesizes a local model list when DeepSeek anthropic /v1/models is unavailable", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-model-fallback-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-model-fallback-"));
   const proxyPort = await reserveUnusedPort();
   const upstream = await startTestJsonServer((req, body) => {
     if (req.method === "GET" && req.url === "/anthropic/v1/models") {
@@ -324,7 +324,7 @@ test("gateway runtime synthesizes a local model list when DeepSeek anthropic /v1
 });
 
 test("gateway runtime synthesizes configured third-party model ids when upstream model discovery is unavailable", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-generic-models-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-generic-models-"));
   const proxyPort = await reserveUnusedPort();
   const seenRequests: Array<{ method: string; url: string; body?: { model?: string } }> = [];
   const upstream = await startTestJsonServer((req, body) => {
@@ -400,7 +400,7 @@ test("gateway runtime synthesizes configured third-party model ids when upstream
 });
 
 test("gateway runtime records session-state and ux-effects after a reduced request", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-state-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-state-"));
   const proxyPort = await reserveUnusedPort();
   const longToolPayload = `payload\n${"line\n".repeat(800)}`;
   const forwarder: HostGatewayForwarder = {
@@ -509,7 +509,7 @@ test("gateway runtime records session-state and ux-effects after a reduced reque
 });
 
 test("gateway runtime reuses the latest real Claude hook session when request markers are absent", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-session-merge-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-session-merge-"));
   const proxyPort = await reserveUnusedPort();
   const stateDir = join(dir, "state");
   const longToolPayload = `payload\n${"line\n".repeat(800)}`;
@@ -592,7 +592,7 @@ test("gateway runtime reuses the latest real Claude hook session when request ma
 });
 
 test("gateway runtime reuses disclosed read paths from prior Claude session snapshot", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-disclosed-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-disclosed-"));
   const proxyPort = await reserveUnusedPort();
   const codePayload = `
 export function loadConfig(file: string) {
@@ -706,7 +706,7 @@ export function saveConfig(file: string, text: string) {
 });
 
 test("gateway runtime does not record ux-effects when reduced request fails upstream", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-failed-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-failed-"));
   const proxyPort = await reserveUnusedPort();
   const longToolPayload = `payload\n${"line\n".repeat(800)}`;
   const forwarder: HostGatewayForwarder = {
@@ -774,7 +774,7 @@ test("gateway runtime does not record ux-effects when reduced request fails upst
 });
 
 test("gateway runtime applies stable-prefix rewrite before forwarding", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-stable-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-stable-"));
   const proxyPort = await reserveUnusedPort();
   const seenPayloads: Record<string, unknown>[] = [];
   const forwarder: HostGatewayForwarder = {
@@ -834,7 +834,7 @@ test("gateway runtime applies stable-prefix rewrite before forwarding", async ()
     assert.equal(requestResp.status, 200);
     assert.equal(seenPayloads.length, 1);
     assert.equal(seenPayloads[0]?.model, "claude-sonnet-4-6");
-    assert.match(String(seenPayloads[0]?.prompt_cache_key ?? ""), /^lightmem2-claude-/);
+    assert.match(String(seenPayloads[0]?.prompt_cache_key ?? ""), /^lightrsi-claude-/);
     assert.match(String(seenPayloads[0]?.system ?? ""), /Your working directory is: \/tmp\/demo/);
     assert.doesNotMatch(String(seenPayloads[0]?.system ?? ""), /Runtime: agent=agent-123\s*\|/);
     assert.match(
@@ -857,7 +857,7 @@ test("gateway runtime applies stable-prefix rewrite before forwarding", async ()
 });
 
 test("gateway runtime supports developer-targeted stable-prefix injection", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-devtarget-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-devtarget-"));
   const proxyPort = await reserveUnusedPort();
   const seenPayloads: Record<string, unknown>[] = [];
   const forwarder: HostGatewayForwarder = {
@@ -929,7 +929,7 @@ test("gateway runtime supports developer-targeted stable-prefix injection", asyn
     assert.equal(visual.stability.length, 1);
     assert.equal(visual.stability[0]?.dynamicContextTarget, "developer");
     assert.match(visual.stability[0]?.developerForwarded ?? "", /WORKDIR: \/tmp\/demo/);
-    assert.match(String(seenPayloads[0]?.prompt_cache_key ?? ""), /^lightmem2-claude-/);
+    assert.match(String(seenPayloads[0]?.prompt_cache_key ?? ""), /^lightrsi-claude-/);
   } finally {
     await runtime.close();
     await rm(dir, { recursive: true, force: true });
@@ -937,7 +937,7 @@ test("gateway runtime supports developer-targeted stable-prefix injection", asyn
 });
 
 test("gateway runtime reuses the same Claude prompt_cache_key for the same stable prefix", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-cache-key-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-cache-key-"));
   const proxyPort = await reserveUnusedPort();
   const seenPayloads: Record<string, unknown>[] = [];
   const forwarder: HostGatewayForwarder = {
@@ -1006,7 +1006,7 @@ test("gateway runtime reuses the same Claude prompt_cache_key for the same stabl
 });
 
 test("gateway runtime preserves inbound Claude prompt_cache_key while converging framework stable keys for diagnostics", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-force-cache-key-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-force-cache-key-"));
   const proxyPort = await reserveUnusedPort();
   const seenPayloads: Record<string, unknown>[] = [];
   const forwarder: HostGatewayForwarder = {
@@ -1078,7 +1078,7 @@ test("gateway runtime preserves inbound Claude prompt_cache_key while converging
 });
 
 test("gateway runtime caches unsupported prompt_cache_key for Anthropic-compatible upstreams and skips retry later", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-capability-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-capability-"));
   const proxyPort = await reserveUnusedPort();
   const seenRequests: Array<Record<string, unknown>> = [];
   const upstream = await startTestJsonServer((_req, body) => {
@@ -1177,7 +1177,7 @@ test("gateway runtime caches unsupported prompt_cache_key for Anthropic-compatib
 });
 
 test("gateway eviction preserves tool closure and the active user turn", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-eviction-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-eviction-"));
   const proxyPort = await reserveUnusedPort();
   const seenPayloads: Array<Record<string, unknown>> = [];
   const forwarder: HostGatewayForwarder = {
@@ -1275,7 +1275,7 @@ test("gateway eviction preserves tool closure and the active user turn", async (
 });
 
 test("gateway relocates a persisted plan onto shifted history across turns", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-reloc-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-reloc-"));
   const proxyPort = await reserveUnusedPort();
   const seenPayloads: Array<Record<string, unknown>> = [];
   const forwarder: HostGatewayForwarder = {
@@ -1392,7 +1392,7 @@ test("gateway relocates a persisted plan onto shifted history across turns", asy
 });
 
 test("gateway runs the semantic pipeline when an estimator is injected, and stays fail-open when it throws", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-semantic-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-semantic-"));
   const proxyPort = await reserveUnusedPort();
   const forwarder: HostGatewayForwarder = {
     async request() {
@@ -1449,7 +1449,7 @@ test("gateway runs the semantic pipeline when an estimator is injected, and stay
 });
 
 test("gateway persists a task registry when the injected estimator returns updates", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-gateway-semantic-ok-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-semantic-ok-"));
   const proxyPort = await reserveUnusedPort();
   const forwarder: HostGatewayForwarder = {
     async request() {
@@ -1525,7 +1525,7 @@ test("gateway persists a task registry when the injected estimator returns updat
 });
 
 test("lifecycle estimator rewrites the real Claude upstream payload", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-lifecycle-e2e-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-lifecycle-e2e-"));
   const proxyPort = await reserveUnusedPort();
   const seenPayloads: Array<Record<string, unknown>> = [];
   const bigToolResult = "EVICT_ME_" + "x".repeat(5000);
@@ -1632,7 +1632,7 @@ test("lifecycle estimator rewrites the real Claude upstream payload", async () =
 });
 
 test("lifecycle registry persistence failure bypasses the plan and heuristic fallback", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-lifecycle-cas-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-lifecycle-cas-"));
   const proxyPort = await reserveUnusedPort();
   const seenPayloads: Array<Record<string, unknown>> = [];
   const bigToolResult = "EVICT_ME_" + "x".repeat(5000);

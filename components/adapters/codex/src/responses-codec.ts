@@ -6,7 +6,7 @@ import type {
   HostResponseEnvelope,
   HostSessionContext,
   HostSessionResolver,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 
 function normalizeSessionId(value: unknown): string | undefined {
   const text = String(value ?? "").trim();

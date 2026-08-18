@@ -1,12 +1,12 @@
 import {
   readLatestUxEffect,
   readUxSessionAggregate,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import {
   buildBaseSessionOverview,
   resolveBaseSessionTopology,
   renderSessionReport,
-} from "@lightmem2/product-surface";
+} from "@lightrsi/product-surface";
 import { readRecentCodexCacheAuditRecordsForSession, summarizeCodexCacheAudit } from "./cache-audit.js";
 import {
   formatCodexRebaseCapabilityStatus,

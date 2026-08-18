@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { archiveContent, readArchive } from "@lightmem2/artifact-store";
+import { archiveContent, readArchive } from "@lightrsi/artifact-store";
 
 const CLAUDE_ARCHIVE_SCHEMA_VERSION = 1 as const;
 
@@ -24,7 +24,7 @@ function archiveDirFor(stateDir: string): string {
  * Archive a single tool_result's original content before it is replaced by a
  * pointer stub. Returns an opaque ref (archive://claude/<digest>) plus the
  * dataKey the agent uses with memory_fault_recover. Reuses the shared
- * @lightmem2/artifact-store; never invents its own file format.
+ * @lightrsi/artifact-store; never invents its own file format.
  *
  * Throws on failure — callers MUST treat a throw as "do not evict this item"
  * (bypass), because a stub without a successful archive would delete context
@@ -80,8 +80,8 @@ export async function recoverClaudeToolResult(
   return entry?.originalText;
 }
 
-import type { ContextMutationPlan } from "@lightmem2/host-adapter";
-import type { ModelContextSnapshot } from "@lightmem2/host-adapter";
+import type { ContextMutationPlan } from "@lightrsi/host-adapter";
+import type { ModelContextSnapshot } from "@lightrsi/host-adapter";
 import { collectEvictableToolResults } from "./backend.js";
 import { claudeContextRewriteBackend } from "./backend.js";
 

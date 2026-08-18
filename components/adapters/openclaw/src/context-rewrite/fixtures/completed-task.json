@@ -1,5 +1,5 @@
 {
-  "schema": "lightmem2.context-rewrite-golden/v1",
+  "schema": "lightrsi.context-rewrite-golden/v1",
   "id": "completed-task",
   "description": "A completed task may be evicted while the active task remains available.",
   "tasks": [

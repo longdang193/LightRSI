@@ -4,8 +4,8 @@ import test from "node:test";
 import {
   planLifecycleEviction,
   type TaskStateEstimator,
-} from "@lightmem2/eviction";
-import { createEmptySessionTaskRegistry } from "@lightmem2/history";
+} from "@lightrsi/eviction";
+import { createEmptySessionTaskRegistry } from "@lightrsi/history";
 
 import type {
   CodexEffectiveHistoryItem,
@@ -59,7 +59,7 @@ function sourceView(params: {
 
 function pendingRequest(overrides: Partial<CodexRequestJournalEntry> = {}): CodexRequestJournalEntry {
   return {
-    schema: "lightmem2.codex.context-history.request/v1",
+    schema: "lightrsi.codex.context-history.request/v1",
     kind: "request",
     requestId: "request-current",
     sessionId: SESSION_ID,

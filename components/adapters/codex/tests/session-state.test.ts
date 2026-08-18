@@ -19,7 +19,7 @@ import {
 } from "../src/session-state.js";
 
 test("session-state persists snapshots and recent turn bindings per session", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-session-state-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-session-state-"));
   try {
     await upsertCodexSessionSnapshot(stateDir, "session-a", {
       codexSessionId: "019f-session-a",
@@ -77,7 +77,7 @@ test("session-state persists snapshots and recent turn bindings per session", as
 });
 
 test("session-state resolves prompt_cache_key session mappings", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-prompt-cache-session-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-prompt-cache-session-"));
   try {
     await indexCodexPromptCacheKeySession(stateDir, "pk-session-a", "codex-synth-a");
     const resolved = await resolveCodexSessionIdByPromptCacheKey(stateDir, "pk-session-a");
@@ -91,7 +91,7 @@ test("session-state resolves prompt_cache_key session mappings", async () => {
 });
 
 test("session-state resolves host codex session aliases", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-session-alias-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-session-alias-"));
   try {
     await indexCodexHostSessionAlias(stateDir, "019f-real-codex-session", "codex-synth-a");
     const resolved = await resolveCodexSessionAlias(stateDir, "019f-real-codex-session");
@@ -105,7 +105,7 @@ test("session-state resolves host codex session aliases", async () => {
 });
 
 test("session-state resolves canonical codex session ids through host aliases", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-session-canonical-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-session-canonical-"));
   try {
     await indexCodexHostSessionAlias(stateDir, "019f-real-codex-session", "codex-synth-a");
 
@@ -120,7 +120,7 @@ test("session-state resolves canonical codex session ids through host aliases", 
 });
 
 test("session-state can merge hook snapshot metadata into the synthesized proxy session", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-session-merge-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-session-merge-"));
   try {
     await upsertCodexSessionSnapshot(stateDir, "019f-hook-session", {
       codexSessionId: "019f-hook-session",

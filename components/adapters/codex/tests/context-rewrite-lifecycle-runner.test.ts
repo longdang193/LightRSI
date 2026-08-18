@@ -8,11 +8,11 @@ import {
   loadSessionTaskRegistry,
   persistSessionTaskRegistry,
   sessionTaskRegistryPath,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 import type {
   LifecyclePlannerConfig,
   TaskStateEstimator,
-} from "@lightmem2/eviction";
+} from "@lightrsi/eviction";
 
 import type {
   CodexEffectiveHistoryItem,
@@ -38,7 +38,7 @@ const PLANNER_CONFIG: LifecyclePlannerConfig = {
 };
 
 async function tempStateDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "lightmem2-codex-lifecycle-runner-"));
+  return mkdtemp(join(tmpdir(), "lightrsi-codex-lifecycle-runner-"));
 }
 
 function effective(stableItemId: string, item: JsonObject): CodexEffectiveHistoryItem {

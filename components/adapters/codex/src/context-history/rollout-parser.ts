@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
-import { buildTurnAbsId } from "@lightmem2/history";
+import { buildTurnAbsId } from "@lightrsi/history";
 
 import {
   asJsonObject,

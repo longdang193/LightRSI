@@ -1,15 +1,15 @@
 {
-  "name": "@lightmem2/openclaw-adapter",
+  "name": "@lightrsi/openclaw-adapter",
   "version": "0.1.0-beta.1",
-  "description": "LightMem2 adapter for OpenClaw, currently binding the TokenPilot preset.",
-  "lightmem2": {
+  "description": "LightRSI adapter for OpenClaw, currently binding the TokenPilot preset.",
+  "lightrsi": {
     "role": "adapter"
   },
   "main": "dist/index.js",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zjunlp/LightMem2.git",
+    "url": "https://github.com/zjunlp/LightRSI.git",
     "directory": "components/adapters/openclaw"
   },
   "files": [
@@ -27,17 +27,17 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@lightmem2/artifact-store": "workspace:*",
-    "@lightmem2/tokenpilot": "workspace:*",
-    "@lightmem2/eviction": "workspace:*",
-    "@lightmem2/host-adapter": "workspace:*",
-    "@lightmem2/history": "workspace:*",
-    "@lightmem2/kernel": "workspace:*",
-    "@lightmem2/memory": "workspace:*",
-    "@lightmem2/product-surface": "workspace:*",
-    "@lightmem2/reduction": "workspace:*",
-    "@lightmem2/runtime-core": "workspace:*",
-    "@lightmem2/stabilizer": "workspace:*"
+    "@lightrsi/artifact-store": "workspace:*",
+    "@lightrsi/tokenpilot": "workspace:*",
+    "@lightrsi/eviction": "workspace:*",
+    "@lightrsi/host-adapter": "workspace:*",
+    "@lightrsi/history": "workspace:*",
+    "@lightrsi/kernel": "workspace:*",
+    "@lightrsi/memory": "workspace:*",
+    "@lightrsi/product-surface": "workspace:*",
+    "@lightrsi/reduction": "workspace:*",
+    "@lightrsi/runtime-core": "workspace:*",
+    "@lightrsi/stabilizer": "workspace:*"
   },
   "scripts": {
     "build": "tsx build.ts",

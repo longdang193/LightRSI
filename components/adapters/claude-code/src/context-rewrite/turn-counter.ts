@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { writeJsonFileAtomic } from "@lightmem2/host-adapter";
-import { listRawSemanticTurnSeqs } from "@lightmem2/history";
+import { writeJsonFileAtomic } from "@lightrsi/host-adapter";
+import { listRawSemanticTurnSeqs } from "@lightrsi/history";
 
 const TURN_COUNTER_SCHEMA_VERSION = 1 as const;
 

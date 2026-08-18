@@ -41,7 +41,7 @@ type ReasoningReplayFixture = {
 };
 
 async function withTempState(fn: (stateDir: string) => Promise<void>): Promise<void> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-reasoning-replay-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-reasoning-replay-"));
   try {
     await fn(stateDir);
   } finally {

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import type { ContextSegment, RuntimeTurnContext } from "@lightmem2/kernel";
+import type { ContextSegment, RuntimeTurnContext } from "@lightrsi/kernel";
 import { classifyReadStates } from "../src/reduction/read-state-compaction.js";
 import { readStateCompactionPass } from "../src/passes/pass-read-state-compaction.js";
 import { resolveReductionPasses, runReductionBeforeCall } from "../src/reduction/pipeline.js";
@@ -682,7 +682,7 @@ export function saveConfig(file: string, text: string) {
   assert.ok(first);
   assert.ok(second);
   assert.match(first?.text ?? "", /\[code outlined lines=/);
-  assert.match(first?.text ?? "", /body elided by LightMem2/);
+  assert.match(first?.text ?? "", /body elided by LightRSI/);
   assert.match(second?.text ?? "", /export function loadConfig/);
   assert.doesNotMatch(second?.text ?? "", /\[code outlined lines=/);
 });

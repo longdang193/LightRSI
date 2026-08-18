@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createServer } from "node:net";
-import { LIGHTMEM2_VERSION } from "@lightmem2/kernel";
+import { LIGHTRSI_VERSION } from "@lightrsi/kernel";
 import {
   DEFAULT_TOKENPILOT_MCP_INSTALL_PROBE_TIMEOUT_MS,
   DEFAULT_TOKENPILOT_MCP_STARTUP_TIMEOUT_SEC,
@@ -26,7 +26,7 @@ import {
   defaultCodexSkillBridgeDir,
   installCommandSkillBridge,
 } from "../../shared/command-skill-bridge.js";
-import { installLightmem2CliBin } from "../../shared/cli-bin-install.js";
+import { installLightRsiCliBin } from "../../shared/cli-bin-install.js";
 import { rememberCliHostPathOverrides } from "../../shared/cli-context.js";
 import { installHostCliBin } from "../../shared/host-cli-bin-install.js";
 
@@ -158,7 +158,7 @@ function isCodexAdapterRoot(candidate: string): boolean {
   }
   try {
     const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
-    return parsed.name === "@lightmem2/codex-adapter";
+    return parsed.name === "@lightrsi/codex-adapter";
   } catch {
     return false;
   }
@@ -474,7 +474,7 @@ export async function installCodexTokenPilot(params?: {
     host: "codex",
     style: "codex",
   });
-  const cliBin = await installLightmem2CliBin({
+  const cliBin = await installLightRsiCliBin({
     adapterRoot: adapterRootFromHere(),
     binDir: params?.cliBinDir,
   });
@@ -501,7 +501,7 @@ export async function installCodexTokenPilot(params?: {
     : await probeTokenPilotMcpServer(mcpProbeServer, {
       timeoutMs: DEFAULT_TOKENPILOT_MCP_INSTALL_PROBE_TIMEOUT_MS,
       clientName: "tokenpilot-codex-install",
-      clientVersion: LIGHTMEM2_VERSION,
+      clientVersion: LIGHTRSI_VERSION,
     });
   return {
     codexConfigPath,

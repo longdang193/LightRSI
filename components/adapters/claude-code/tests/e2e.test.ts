@@ -13,8 +13,8 @@ import {
   startMockCachingJsonUpstream,
   withTempHome,
   type HostGatewayForwarder,
-} from "@lightmem2/host-adapter";
-import { readVisualSessionData, readVisualSessionList } from "@lightmem2/product-surface";
+} from "@lightrsi/host-adapter";
+import { readVisualSessionData, readVisualSessionList } from "@lightrsi/product-surface";
 import { MEMORY_FAULT_RECOVER_TOOL_NAME, handleMcpRequest } from "../../../products/mcp/src/index.js";
 import {
   defaultTokenPilotClaudeCodeConfigPath,
@@ -35,7 +35,7 @@ function extractToolResultText(block: Record<string, unknown> | undefined): stri
 }
 
 test("Claude Code host e2e wires install, gateway reduction, report/visual, and MCP recovery together", async () => {
-  await withTempHome("lightmem2-claude-e2e-", async (homeDir) => {
+  await withTempHome("lightrsi-claude-e2e-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".claude", "tokenpilot-state", "tokenpilot");
     const configPath = defaultTokenPilotClaudeCodeConfigPath();
@@ -192,7 +192,7 @@ test("Claude Code host e2e wires install, gateway reduction, report/visual, and 
         optimizedTurns: 1,
       },
       visual: {
-        header: "LightMem2 visual:",
+        header: "LightRSI visual:",
         sessionId: "sess-e2e-1",
         requiredPatterns: [
           /host=claude-code/,
@@ -219,7 +219,7 @@ test("Claude Code host e2e wires install, gateway reduction, report/visual, and 
 });
 
 test("Claude Code CLI report and visual return clear empty-state messages before any runtime data exists", async () => {
-  await withTempHome("lightmem2-claude-cli-empty-state-", async (homeDir) => {
+  await withTempHome("lightrsi-claude-cli-empty-state-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".claude", "tokenpilot-state", "tokenpilot");
     const configPath = defaultTokenPilotClaudeCodeConfigPath();
@@ -239,13 +239,13 @@ test("Claude Code CLI report and visual return clear empty-state messages before
     assert.equal(report.text, "No TokenPilot session stats yet.");
 
     const visual = await handleCommand({ args: "visual" });
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /host=claude-code/);
   });
 });
 
 test("Claude Code cold and warm requests expose prompt cache hit usage when stable prefix stays fixed", async () => {
-  await withTempHome("lightmem2-claude-cache-warm-", async (homeDir) => {
+  await withTempHome("lightrsi-claude-cache-warm-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".claude", "tokenpilot-state", "tokenpilot");
     const configPath = defaultTokenPilotClaudeCodeConfigPath();
@@ -375,7 +375,7 @@ test("Claude Code cold and warm requests expose prompt cache hit usage when stab
 });
 
 test("Claude Code preserves different inbound prompt_cache_key values upstream while audit still tracks the same stable request family", async () => {
-  await withTempHome("lightmem2-claude-force-key-rewrite-", async (homeDir) => {
+  await withTempHome("lightrsi-claude-force-key-rewrite-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".claude", "tokenpilot-state", "tokenpilot");
     const configPath = defaultTokenPilotClaudeCodeConfigPath();
@@ -474,7 +474,7 @@ test("Claude Code preserves different inbound prompt_cache_key values upstream w
 });
 
 test("Claude Code cache audit reports cold start when stable prefix changes and rotates the stable request key", async () => {
-  await withTempHome("lightmem2-claude-cache-drift-", async (homeDir) => {
+  await withTempHome("lightrsi-claude-cache-drift-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".claude", "tokenpilot-state", "tokenpilot");
     const configPath = defaultTokenPilotClaudeCodeConfigPath();

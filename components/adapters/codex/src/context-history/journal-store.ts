@@ -3,6 +3,8 @@ import { join } from "node:path";
 import {
   CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA,
   CODEX_CONTEXT_HISTORY_RESPONSE_SCHEMA,
+  isCodexContextHistoryRequestSchema,
+  isCodexContextHistoryResponseSchema,
   type CodexContextHistoryJournalEntry,
   type CodexJournalStatus,
   type CodexRequestJournalEntry,
@@ -209,10 +211,10 @@ function canonicalContextHistoryJournalEntry(
   const status = canonicalStatus(entry.status);
   const observedAt = canonicalTimestamp(entry.observedAt);
   if (!sessionId || sessionId !== expectedSessionId || !status || !observedAt) return undefined;
-  if (entry.schema === CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA) {
+  if (isCodexContextHistoryRequestSchema(entry.schema)) {
     return canonicalRequestEntry(entry, sessionId, status, observedAt);
   }
-  if (entry.schema === CODEX_CONTEXT_HISTORY_RESPONSE_SCHEMA) {
+  if (isCodexContextHistoryResponseSchema(entry.schema)) {
     return canonicalResponseEntry(entry, sessionId, status, observedAt);
   }
   return undefined;

@@ -8,7 +8,7 @@ import { readCliContextState } from "../src/context-store.js";
 import { dispatchCli } from "../src/dispatch.js";
 
 test("dispatch supports context inspection and use host flow", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-dispatch-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-dispatch-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -18,7 +18,7 @@ test("dispatch supports context inspection and use host flow", async () => {
     const useHost = await dispatchCli(["use", "openclaw"]);
     assert.equal(useHost.text, "Default host = openclaw");
 
-    const persisted = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
+    const persisted = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
     assert.equal(persisted.lastActiveHost, "openclaw");
 
     const context1 = await dispatchCli(["context"]);
@@ -34,7 +34,7 @@ test("dispatch supports context inspection and use host flow", async () => {
 });
 
 test("dispatch routes codex host commands through the shared CLI bridge", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-codex-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-codex-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -64,7 +64,7 @@ test("dispatch routes codex host commands through the shared CLI bridge", async 
 });
 
 test("dispatch remembers custom codex config paths for later host commands without env vars", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-codex-custom-path-memory-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-codex-custom-path-memory-"));
   const originalHome = process.env.HOME;
   const originalCodexConfigPath = process.env.CODEX_CONFIG_PATH;
   const originalHooksConfigPath = process.env.CODEX_HOOKS_CONFIG_PATH;
@@ -116,7 +116,7 @@ test("dispatch remembers custom codex config paths for later host commands witho
 });
 
 test("dispatch routes claude-code host commands through the shared CLI bridge", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-claude-code-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-claude-code-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -143,7 +143,7 @@ test("dispatch routes claude-code host commands through the shared CLI bridge", 
 });
 
 test("dispatch remembers custom claude-code config paths for later host commands without env vars", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-claude-custom-path-memory-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-claude-custom-path-memory-"));
   const originalHome = process.env.HOME;
   const originalSettingsPath = process.env.CLAUDE_CODE_SETTINGS_PATH;
   const originalMcpConfigPath = process.env.CLAUDE_CODE_MCP_CONFIG_PATH;
@@ -182,7 +182,7 @@ test("dispatch remembers custom claude-code config paths for later host commands
 });
 
 test("dispatch uses the default host and latest resolved codex session for hostless report", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-codex-default-report-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-codex-default-report-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -225,7 +225,7 @@ test("dispatch uses the default host and latest resolved codex session for hostl
     assert.match(report.text, /TokenPilot report:/);
     assert.match(report.text, /session: codex-session-1/);
 
-    const persisted = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
+    const persisted = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
     assert.equal(persisted.lastActiveHost, "codex");
     assert.equal(persisted.lastSessionByHost?.codex, "codex-session-1");
   } finally {
@@ -239,7 +239,7 @@ test("dispatch uses the default host and latest resolved codex session for hostl
 });
 
 test("dispatch hostless report prefers the host with the latest stats over lastActiveHost", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-report-latest-host-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-report-latest-host-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -315,7 +315,7 @@ test("dispatch hostless report prefers the host with the latest stats over lastA
     assert.match(report.text, /Showing latest TokenPilot report from Codex/);
     assert.match(report.text, /session: codex-session-latest/);
 
-    const persisted = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
+    const persisted = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
     assert.equal(persisted.lastActiveHost, "codex");
     assert.equal(persisted.lastSessionByHost?.codex, "codex-session-latest");
   } finally {
@@ -326,7 +326,7 @@ test("dispatch hostless report prefers the host with the latest stats over lastA
 });
 
 test("dispatch explicit host report does not fallback to another host", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-report-explicit-host-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-report-explicit-host-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -372,7 +372,7 @@ test("dispatch explicit host report does not fallback to another host", async ()
 });
 
 test("dispatch canonicalizes pinned codex host session ids before persisting CLI context", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-codex-canonical-context-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-codex-canonical-context-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -383,7 +383,7 @@ test("dispatch canonicalizes pinned codex host session ids before persisting CLI
     const useContext = await dispatchCli(["use", "codex", "session", "codex-host-session-1"]);
     assert.equal(useContext.text, "Default context = codex / codex-synth-session-1");
 
-    const persisted = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
+    const persisted = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
     assert.equal(persisted.lastActiveHost, "codex");
     assert.equal(persisted.lastSessionByHost?.codex, "codex-synth-session-1");
   } finally {
@@ -397,7 +397,7 @@ test("dispatch canonicalizes pinned codex host session ids before persisting CLI
 });
 
 test("dispatch uses the pinned default claude-code session for hostless visual", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-claude-default-visual-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-claude-default-visual-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -441,7 +441,7 @@ test("dispatch uses the pinned default claude-code session for hostless visual",
     assert.equal(useContext.text, "Default context = claude-code / claude-session-pinned");
 
     const visual = await dispatchCli(["visual"]);
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /host=claude-code/);
     assert.match(visual.text, /session=claude-session-pinned/);
     assert.match(visual.text, /Claude Code: 0 session snapshots/);
@@ -456,7 +456,7 @@ test("dispatch uses the pinned default claude-code session for hostless visual",
 });
 
 test("dispatch keeps top-level visual multi-host even when a default host is selected", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-default-host-visual-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-default-host-visual-"));
   const originalHome = process.env.HOME;
   const originalConfigPath = process.env.OPENCLAW_CONFIG_PATH;
   process.env.HOME = dir;
@@ -533,7 +533,7 @@ test("dispatch keeps top-level visual multi-host even when a default host is sel
     assert.equal(useHost.text, "Default context = openclaw / openclaw-session-1");
 
     const visual = await dispatchCli(["visual"]);
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /host=openclaw/);
     assert.match(visual.text, /session=openclaw-session-1/);
     assert.match(visual.text, /OpenClaw: 1 session snapshots/);
@@ -555,7 +555,7 @@ test("dispatch keeps top-level visual multi-host even when a default host is sel
 });
 
 test("dispatch uses the default openclaw host and latest session for hostless report", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-openclaw-default-report-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-openclaw-default-report-"));
   const originalHome = process.env.HOME;
   const originalConfigPath = process.env.OPENCLAW_CONFIG_PATH;
   process.env.HOME = dir;
@@ -607,7 +607,7 @@ test("dispatch uses the default openclaw host and latest session for hostless re
     assert.match(report.text, /TokenPilot report:/);
     assert.match(report.text, /session: openclaw-session-1/);
 
-    const persisted = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
+    const persisted = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
     assert.equal(persisted.lastActiveHost, "openclaw");
     assert.equal(persisted.lastSessionByHost?.openclaw, "openclaw-session-1");
   } finally {
@@ -625,8 +625,8 @@ test("dispatch uses the default openclaw host and latest session for hostless re
   }
 });
 
-test("dispatch exposes standalone lightmem2 visual when no default host is selected", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-standalone-visual-"));
+test("dispatch exposes standalone lightrsi visual when no default host is selected", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-standalone-visual-"));
   const originalHome = process.env.HOME;
   const originalConfigPath = process.env.OPENCLAW_CONFIG_PATH;
   process.env.HOME = dir;
@@ -701,7 +701,7 @@ test("dispatch exposes standalone lightmem2 visual when no default host is selec
     );
 
     const visual = await dispatchCli(["visual"]);
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /OpenClaw: 1 session snapshots/);
     assert.match(visual.text, /Codex: 0 session snapshots/);
     assert.match(visual.text, /Claude Code: 0 session snapshots/);

@@ -1,4 +1,4 @@
-import type { HostRequestEnvelope } from "@lightmem2/host-adapter";
+import type { HostRequestEnvelope } from "@lightrsi/host-adapter";
 import {
   appendCacheAuditRecord,
   buildCacheAuditSnapshot,
@@ -8,7 +8,7 @@ import {
   type CacheAuditRecord,
   type CacheAuditSnapshot,
   type CacheAuditSummary,
-} from "@lightmem2/stabilizer";
+} from "@lightrsi/stabilizer";
 
 export type ClaudeCodeCacheAuditRecord = CacheAuditRecord;
 export type ClaudeCodeCacheAuditSummary = CacheAuditSummary;

@@ -28,11 +28,11 @@ export {
 export {
   loadOrderedTurnAnchors,
   loadSegmentAnchorByCallId,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 export {
   isReductionPassEnabled,
   type ReductionPassToggles,
-} from "@lightmem2/reduction";
+} from "@lightrsi/reduction";
 export { applyToolResultPersistPolicy } from "./request-preprocessing/tool-results-persist-policy.js";
 export {
   applyRootPromptRewriteToChatMessages,

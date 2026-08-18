@@ -5,7 +5,7 @@ import { mkdir } from "node:fs/promises";
 import {
   findFirstMessageText,
   prepareObservedBeforeCall,
-} from "@lightmem2/product-surface";
+} from "@lightrsi/product-surface";
 import {
   countTextWithPreciseTokens,
   createStaticStatePathResolver,
@@ -18,8 +18,8 @@ import {
   sendJsonResponse,
   startHostGatewayRuntimeServer,
   setForwardResponseHeaders,
-} from "@lightmem2/host-adapter";
-import { configureStatePathResolver } from "@lightmem2/artifact-store";
+} from "@lightrsi/host-adapter";
+import { configureStatePathResolver } from "@lightrsi/artifact-store";
 import type { TokenPilotCodexConfig } from "./config.js";
 import {
   defaultCodexConfigPath,
@@ -39,7 +39,7 @@ import {
 import {
   buildStabilityVisualSnapshotFromEnvelopes,
   canonicalizeEnvelopeTools,
-} from "@lightmem2/stabilizer";
+} from "@lightrsi/stabilizer";
 import { prepareCodexStablePrefix } from "./stable-prefix.js";
 import {
   requestUpstreamResponses,
@@ -510,7 +510,7 @@ export async function startCodexResponsesProxy(params: {
       if (inboundPromptCacheKey) {
         if (
           inboundPromptCacheKey !== sessionId
-          && !inboundPromptCacheKey.startsWith("lightmem2-codex-")
+          && !inboundPromptCacheKey.startsWith("lightrsi-codex-")
         ) {
           await mergeCodexSessionSnapshot(config.stateDir, inboundPromptCacheKey, sessionId);
           await indexCodexHostSessionAlias(config.stateDir, inboundPromptCacheKey, sessionId);

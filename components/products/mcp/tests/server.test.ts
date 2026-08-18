@@ -4,8 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { archiveContent } from "@lightmem2/artifact-store";
-import { LIGHTMEM2_VERSION } from "@lightmem2/kernel";
+import { archiveContent } from "@lightrsi/artifact-store";
+import { LIGHTRSI_VERSION } from "@lightrsi/kernel";
 import {
   encodeMcpMessage,
   handleMcpRequest,
@@ -18,7 +18,7 @@ import {
 } from "../src/index.js";
 
 test("resolveMemoryFaultRecover restores archived content across sessions", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-mcp-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-mcp-"));
   try {
     await archiveContent({
       sessionId: "session-a",
@@ -43,7 +43,7 @@ test("resolveMemoryFaultRecover restores archived content across sessions", asyn
 });
 
 test("resolveMemoryFaultRecover can restore only a requested line window", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-mcp-lines-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-mcp-lines-"));
   try {
     await archiveContent({
       sessionId: "session-lines",
@@ -81,7 +81,7 @@ test("resolveMemoryFaultRecover can restore only a requested line window", async
 });
 
 test("handleMcpRequest returns tools/list and tools/call responses", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-mcp-rpc-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-mcp-rpc-"));
   try {
     await archiveContent({
       sessionId: "session-b",
@@ -128,7 +128,7 @@ test("handleMcpRequest marks archive miss as tool error", async () => {
         arguments: { dataKey: "missing-key" },
       },
     },
-    { stateDir: join(tmpdir(), "lightmem2-no-such-state") },
+    { stateDir: join(tmpdir(), "lightrsi-no-such-state") },
   );
 
   assert.equal(response?.result?.isError, true);
@@ -138,7 +138,7 @@ test("handleMcpRequest marks archive miss as tool error", async () => {
 
 test("probeTokenPilotMcpServer completes initialize handshake", async () => {
   const spec = resolveTokenPilotMcpProbeServerSpec({
-    stateDir: join(tmpdir(), "lightmem2-mcp-probe-state"),
+    stateDir: join(tmpdir(), "lightrsi-mcp-probe-state"),
     requireBuild: false,
   });
   const result = await probeTokenPilotMcpServer(spec, {
@@ -155,7 +155,7 @@ test("probeTokenPilotMcpServer completes initialize handshake", async () => {
 
 test("install MCP spec always resolves to built runtime entry", () => {
   const spec = resolveTokenPilotMcpServerSpec({
-    stateDir: join(tmpdir(), "lightmem2-mcp-install-state"),
+    stateDir: join(tmpdir(), "lightrsi-mcp-install-state"),
   });
 
   assert.equal(spec.command, process.execPath);
@@ -166,7 +166,7 @@ test("install MCP spec always resolves to built runtime entry", () => {
 
 test("probe MCP spec can fall back to source entry when dist is unavailable", () => {
   const spec = resolveTokenPilotMcpProbeServerSpec({
-    stateDir: join(tmpdir(), "lightmem2-mcp-probe-fallback-state"),
+    stateDir: join(tmpdir(), "lightrsi-mcp-probe-fallback-state"),
     requireBuild: false,
   });
 
@@ -223,7 +223,7 @@ function tryExtractContentLengthBody(stdout: string): string | null {
 
 test("MCP server responds to newline-delimited JSON-RPC stdio", async () => {
   const spec = resolveTokenPilotMcpProbeServerSpec({
-    stateDir: join(tmpdir(), "lightmem2-mcp-newline-state"),
+    stateDir: join(tmpdir(), "lightrsi-mcp-newline-state"),
     requireBuild: false,
   });
   const child = spawn(spec.command, spec.args, {
@@ -263,7 +263,7 @@ test("MCP server responds to newline-delimited JSON-RPC stdio", async () => {
     const firstLine = response.trim().split("\n")[0] ?? "";
     const parsed = JSON.parse(firstLine) as { result?: { serverInfo?: { name?: string; version?: string } } };
     assert.equal(parsed.result?.serverInfo?.name, "tokenpilot-memory-fault-recover");
-    assert.equal(parsed.result?.serverInfo?.version, LIGHTMEM2_VERSION);
+    assert.equal(parsed.result?.serverInfo?.version, LIGHTRSI_VERSION);
   } finally {
     child.kill();
   }
@@ -271,7 +271,7 @@ test("MCP server responds to newline-delimited JSON-RPC stdio", async () => {
 
 test("MCP server remains compatible with content-length framing", async () => {
   const spec = resolveTokenPilotMcpProbeServerSpec({
-    stateDir: join(tmpdir(), "lightmem2-mcp-content-length-state"),
+    stateDir: join(tmpdir(), "lightrsi-mcp-content-length-state"),
     requireBuild: false,
   });
   const child = spawn(spec.command, spec.args, {

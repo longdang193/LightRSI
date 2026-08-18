@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareBeforeCall } from "@lightmem2/host-adapter";
-import { canonicalizeEnvelopeTools } from "@lightmem2/stabilizer";
+import { prepareBeforeCall } from "@lightrsi/host-adapter";
+import { canonicalizeEnvelopeTools } from "@lightrsi/stabilizer";
 import {
   createClaudeMessagesPayloadCodec,
   extractMessagesInputText,
@@ -156,6 +156,6 @@ test("claude stable prefix preserves inbound prompt_cache_key for encode while s
 
   assert.equal(typeof encoded.prompt_cache_key, "string");
   assert.equal(encoded.prompt_cache_key, "legacy-key-a");
-  assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightmem2-claude-/);
+  assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightrsi-claude-/);
   assert.equal(prepared.metadata?.originalPromptCacheKey, "legacy-key-a");
 });

@@ -6,7 +6,7 @@ import {
   pluginStateSubdir,
   pluginStateSubdirCandidates,
   pluginStateSubdirWriteTargets,
-} from "@lightmem2/artifact-store";
+} from "@lightrsi/artifact-store";
 
 export type RecentTurnBinding = {
   userMessage: string;

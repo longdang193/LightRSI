@@ -7,20 +7,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 SRC_HOME="${SRC_HOME:-$(dirname "${REPO_ROOT}")}"
-SMOKE_HOME="${SMOKE_HOME:-/tmp/lightmem2-smoke-home}"
+SMOKE_HOME="${SMOKE_HOME:-/tmp/lightrsi-smoke-home}"
 GATEWAY_PORT="${GATEWAY_PORT:-28890}"
 PROXY_PORT="${PROXY_PORT:-17690}"
-UPSTREAM_BASE_URL="${LIGHTMEM2_BASE_URL:-${TOKENPILOT_BASE_URL:-}}"
-UPSTREAM_API_KEY="${LIGHTMEM2_API_KEY:-${TOKENPILOT_API_KEY:-}}"
-UPSTREAM_HTTP_PROXY="${LIGHTMEM2_UPSTREAM_HTTP_PROXY:-${TOKENPILOT_UPSTREAM_HTTP_PROXY:-}}"
-UPSTREAM_HTTPS_PROXY="${LIGHTMEM2_UPSTREAM_HTTPS_PROXY:-${TOKENPILOT_UPSTREAM_HTTPS_PROXY:-$UPSTREAM_HTTP_PROXY}}"
-UPSTREAM_NO_PROXY="${LIGHTMEM2_UPSTREAM_NO_PROXY:-${TOKENPILOT_UPSTREAM_NO_PROXY:-127.0.0.1,localhost}}"
+UPSTREAM_BASE_URL="${LIGHTRSI_BASE_URL:-${LIGHTMEM2_BASE_URL:-${TOKENPILOT_BASE_URL:-}}}"
+UPSTREAM_API_KEY="${LIGHTRSI_API_KEY:-${LIGHTMEM2_API_KEY:-${TOKENPILOT_API_KEY:-}}}"
+UPSTREAM_HTTP_PROXY="${LIGHTRSI_UPSTREAM_HTTP_PROXY:-${LIGHTMEM2_UPSTREAM_HTTP_PROXY:-${TOKENPILOT_UPSTREAM_HTTP_PROXY:-}}}"
+UPSTREAM_HTTPS_PROXY="${LIGHTRSI_UPSTREAM_HTTPS_PROXY:-${LIGHTMEM2_UPSTREAM_HTTPS_PROXY:-${TOKENPILOT_UPSTREAM_HTTPS_PROXY:-$UPSTREAM_HTTP_PROXY}}}"
+UPSTREAM_NO_PROXY="${LIGHTRSI_UPSTREAM_NO_PROXY:-${LIGHTMEM2_UPSTREAM_NO_PROXY:-${TOKENPILOT_UPSTREAM_NO_PROXY:-127.0.0.1,localhost}}}"
 STAMP="$(date +%s)"
 RUNTIME_HOME="${SMOKE_HOME}/${STAMP}"
 LOG_FILE="${RUNTIME_HOME}/gateway.log"
 
 if [[ -z "${UPSTREAM_BASE_URL}" || -z "${UPSTREAM_API_KEY}" ]]; then
-  echo "Missing upstream config. Set LIGHTMEM2_BASE_URL and LIGHTMEM2_API_KEY first." >&2
+  echo "Missing upstream config. Set LIGHTRSI_BASE_URL and LIGHTRSI_API_KEY first." >&2
   exit 2
 fi
 
@@ -63,7 +63,7 @@ providers['tokenpilot'] = {
         },
     ],
 }
-providers['lightmem2'] = {
+providers['lightrsi'] = {
     'baseUrl': f"http://127.0.0.1:{int(${PROXY_PORT@Q})}/v1",
     'apiKey': 'tokenpilot-local',
     'api': 'openai-responses',
@@ -81,7 +81,7 @@ providers['lightmem2'] = {
         },
     ],
 }
-obj.setdefault('agents', {}).setdefault('defaults', {}).setdefault('model', {})['primary'] = 'lightmem2/gpt-5.4-mini'
+obj.setdefault('agents', {}).setdefault('defaults', {}).setdefault('model', {})['primary'] = 'lightrsi/gpt-5.4-mini'
 obj['agents']['defaults']['model']['fallbacks'] = []
 with open(p, 'w', encoding='utf-8') as f:
     json.dump(obj, f, indent=2, ensure_ascii=False)
@@ -94,9 +94,9 @@ nohup env \
   HOME="${RUNTIME_HOME}" \
   XDG_CACHE_HOME="${RUNTIME_HOME}/.cache" \
   XDG_CONFIG_HOME="${RUNTIME_HOME}/.config" \
-  LIGHTMEM2_UPSTREAM_HTTP_PROXY="${UPSTREAM_HTTP_PROXY}" \
-  LIGHTMEM2_UPSTREAM_HTTPS_PROXY="${UPSTREAM_HTTPS_PROXY}" \
-  LIGHTMEM2_UPSTREAM_NO_PROXY="${UPSTREAM_NO_PROXY}" \
+  LIGHTRSI_UPSTREAM_HTTP_PROXY="${UPSTREAM_HTTP_PROXY}" \
+  LIGHTRSI_UPSTREAM_HTTPS_PROXY="${UPSTREAM_HTTPS_PROXY}" \
+  LIGHTRSI_UPSTREAM_NO_PROXY="${UPSTREAM_NO_PROXY}" \
   TOKENPILOT_UPSTREAM_HTTP_PROXY="${UPSTREAM_HTTP_PROXY}" \
   TOKENPILOT_UPSTREAM_HTTPS_PROXY="${UPSTREAM_HTTPS_PROXY}" \
   TOKENPILOT_UPSTREAM_NO_PROXY="${UPSTREAM_NO_PROXY}" \

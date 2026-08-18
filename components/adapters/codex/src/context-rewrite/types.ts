@@ -40,7 +40,8 @@ export type CodexRebaseRequestResult = {
   accounting: CodexRebaseAccounting;
 };
 
-export const CODEX_REBASE_EPOCH_SCHEMA = "lightmem2.codex.rebase-epoch/v1";
+export const CODEX_REBASE_EPOCH_SCHEMA = "lightrsi.codex.rebase-epoch/v1";
+export const LIGHTMEM2_CODEX_REBASE_EPOCH_SCHEMA = "lightmem2.codex.rebase-epoch/v1";
 
 export type CodexRebaseEpochStatus = "pending" | "committed" | "failed" | "rolled_back";
 
@@ -114,7 +115,8 @@ export type CodexRebaseEpochStoreParams = {
   newRevision?: string;
 };
 
-export const CODEX_REBASE_COOLDOWN_SCHEMA = "lightmem2.codex.rebase-cooldown/v1";
+export const CODEX_REBASE_COOLDOWN_SCHEMA = "lightrsi.codex.rebase-cooldown/v1";
+export const LIGHTMEM2_CODEX_REBASE_COOLDOWN_SCHEMA = "lightmem2.codex.rebase-cooldown/v1";
 
 export type CodexRebaseCooldown = {
   schema: typeof CODEX_REBASE_COOLDOWN_SCHEMA;
@@ -138,8 +140,10 @@ export type CodexRebaseCooldownStoreParams = {
   now?: string;
 };
 
-export const CODEX_REBASE_CAPABILITY_SCHEMA = "lightmem2.codex.rebase-capability/v2";
-export const CODEX_REBASE_CAPABILITY_LEGACY_SCHEMA = "lightmem2.codex.rebase-capability/v1";
+export const CODEX_REBASE_CAPABILITY_SCHEMA = "lightrsi.codex.rebase-capability/v2";
+export const CODEX_REBASE_CAPABILITY_LEGACY_SCHEMA = "lightrsi.codex.rebase-capability/v1";
+export const LIGHTMEM2_CODEX_REBASE_CAPABILITY_SCHEMA = "lightmem2.codex.rebase-capability/v2";
+export const LIGHTMEM2_CODEX_REBASE_CAPABILITY_LEGACY_SCHEMA = "lightmem2.codex.rebase-capability/v1";
 export const CODEX_REBASE_CAPABILITY_DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 export const CODEX_REBASE_WIRE_MODE = "responses";
 export const CODEX_REBASE_API_VERSION = "responses/v1";

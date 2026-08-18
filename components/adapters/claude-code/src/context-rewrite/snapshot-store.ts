@@ -1,7 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { writeJsonFileAtomic } from "@lightmem2/host-adapter";
-import type { ModelContextSnapshot } from "@lightmem2/host-adapter";
+import { writeJsonFileAtomic } from "@lightrsi/host-adapter";
+import type { ModelContextSnapshot } from "@lightrsi/host-adapter";
 
 const SNAPSHOT_STORE_SCHEMA_VERSION = 1 as const;
 

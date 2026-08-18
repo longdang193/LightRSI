@@ -4,7 +4,7 @@ import {
   prependTextToContent,
   replaceContentText,
   rewriteTextForStablePrefix,
-} from "@lightmem2/stabilizer";
+} from "@lightrsi/stabilizer";
 
 export type RootPromptRewrite = {
   canonicalPromptText: string;

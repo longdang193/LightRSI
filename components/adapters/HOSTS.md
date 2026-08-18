@@ -1,6 +1,6 @@
 # TokenPilot Host Integrations
 
-TokenPilot is now structured as a reusable LightMem2 component with multiple host adapters. Shared runtime logic lives under `packages/` and `products/`, while host-specific install surfaces and runtime wiring live under `adapters/<host>/`.
+TokenPilot is now structured as a reusable LightRSI component with multiple host adapters. Shared runtime logic lives under `packages/` and `products/`, while host-specific install surfaces and runtime wiring live under `adapters/<host>/`.
 
 ## Adapter Inventory
 
@@ -25,7 +25,7 @@ Legend:
 | Stable-prefix rewriting | yes | yes | yes |
 | Before-call reduction | yes | yes | yes |
 | Real MCP-backed `memory_fault_recover` | yes | yes | yes |
-| Standalone `lightmem2 <host> ...` CLI | yes | yes | yes |
+| Standalone `lightrsi <host> ...` CLI | yes | yes | yes |
 | `status` / `doctor` / `report` | yes | yes | yes |
 | `visual` | yes | yes | yes |
 | `mode conservative` / `mode normal` | yes | yes | yes |
@@ -49,7 +49,7 @@ Legend:
 
 - uses Codex config mutation, hook registration, and a local OpenAI-compatible Responses proxy
 - preserves the current active Codex provider name and reroutes that provider's `base_url` through the local proxy
-- uses the standalone `lightmem2 codex ...` CLI surface instead of in-host slash commands
+- uses the standalone `lightrsi codex ...` CLI surface instead of in-host slash commands
 - supports stable-prefix, reduction, opt-in estimator-driven response-chain eviction, report, doctor, browser visual, and real MCP recovery
 - first successful verification usually comes after hooks are trusted and a new Codex session triggers `SessionStart`
 - intentionally does not expose `settings`, `eviction`, or `mode aggressive`
@@ -57,14 +57,14 @@ Legend:
 ### Claude Code
 
 - uses local Anthropic-compatible gateway routing plus lightweight hooks for observability
-- uses the standalone `lightmem2 claude-code ...` CLI surface instead of in-host slash commands
+- uses the standalone `lightrsi claude-code ...` CLI surface instead of in-host slash commands
 - supports stable-prefix, reduction, report, doctor, browser visual, and real MCP recovery
 - first successful verification usually comes after a new Claude Code session triggers `SessionStart`
 - intentionally does not expose `settings`, `eviction`, or `mode aggressive`
 
 ### Shared Visual Surface
 
-- `lightmem2 visual` now provides a standalone browser visual entrypoint
+- `lightrsi visual` now provides a standalone browser visual entrypoint
 - the shared visual can switch between `openclaw`, `codex`, and `claude-code` hosts
 - today, the browser visual is backed by snapshot data; OpenClaw still has the richest dataset, while Codex and Claude Code now route their `visual` commands into the shared browser surface
 

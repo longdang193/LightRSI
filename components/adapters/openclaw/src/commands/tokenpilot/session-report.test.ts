@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 
 import { handleReport } from "./session-report.js";
 import { upsertOpenClawSessionSummary } from "../../session/session-summary.js";
-import { appendModuleObservation } from "@lightmem2/product-surface";
+import { appendModuleObservation } from "@lightrsi/product-surface";
 
 test("openclaw handleReport includes recent metrics and recovery aggregates when details are enabled", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-adapter-report-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-adapter-report-"));
   const sessionId = "123e4567-e89b-12d3-a456-426614174000";
   const namespacedDir = join(dir, "tokenpilot");
   try {
@@ -168,7 +168,7 @@ test("openclaw handleReport includes recent metrics and recovery aggregates when
 });
 
 test("openclaw handleReport renders eviction-only diagnostics without reduction aggregates", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-adapter-report-eviction-only-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-adapter-report-eviction-only-"));
   const sessionId = "123e4567-e89b-12d3-a456-426614174001";
   try {
     await appendModuleObservation(dir, {

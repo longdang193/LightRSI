@@ -12,7 +12,7 @@ import {
 } from "../src/index.js";
 
 test("shared trace store appends timestamped event records", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-host-trace-store-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-trace-store-"));
   try {
     await appendEventTrace(stateDir, {
       stage: "proxy_before_call",
@@ -39,7 +39,7 @@ test("shared trace store appends timestamped event records", async () => {
 });
 
 test("shared ux store records latest effect and session aggregate", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-host-ux-store-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-ux-store-"));
   try {
     await recordUxEffect(stateDir, {
       at: "2026-06-28T12:10:00.000Z",
@@ -78,7 +78,7 @@ test("shared ux store records latest effect and session aggregate", async () => 
 });
 
 test("shared ux store keeps token and char aggregates independently", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-host-ux-store-mixed-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-ux-store-mixed-"));
   try {
     await recordUxEffect(stateDir, {
       at: "2026-06-28T12:10:00.000Z",

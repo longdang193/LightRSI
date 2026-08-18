@@ -58,7 +58,7 @@ test("prepareCodexStablePrefix stabilizes instructions and developer prompt whil
   assert.equal((prepared.messages[1] as any)?.metadata?.__codexOriginalRole, "developer");
   assert.match(String(prepared.messages[1]?.content ?? ""), /WORKDIR: \/repo\/demo/);
   assert.match(String(prepared.messages[1]?.content ?? ""), /AGENT_ID: agent-123/);
-  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightmem2-codex-/);
+  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightrsi-codex-/);
   assert.equal(prepared.metadata?.promptCacheRetention, "24h");
 });
 
@@ -367,7 +367,7 @@ test("prepareCodexStablePrefix preserves inbound prompt_cache_key for runtime fo
   }, config);
 
   assert.equal(prepared.metadata?.promptCacheKey, "upstream-existing-key");
-  assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightmem2-codex-/);
+  assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightrsi-codex-/);
   assert.equal(prepared.metadata?.originalPromptCacheKey, "upstream-existing-key");
   assert.equal(prepared.metadata?.promptCacheRetention, "24h");
 });
@@ -421,5 +421,5 @@ test("prepareCodexStablePrefix keeps inbound runtime keys while converging frame
     preparedA.metadata?.frameworkStablePromptCacheKey,
     preparedB.metadata?.frameworkStablePromptCacheKey,
   );
-  assert.match(String(preparedA.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightmem2-codex-/);
+  assert.match(String(preparedA.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightrsi-codex-/);
 });

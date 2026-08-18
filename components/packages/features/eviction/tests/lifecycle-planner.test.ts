@@ -6,11 +6,11 @@ import {
   type DeltaView,
   type HistoryBlock,
   type SessionTaskRegistry,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
   type ModelContextSnapshot,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 
 import {
   planLifecycleEviction,

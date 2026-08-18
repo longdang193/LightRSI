@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { pluginStateSubdirCandidates } from "@lightmem2/artifact-store";
+import { pluginStateSubdirCandidates } from "@lightrsi/artifact-store";
 
 export type RecentReductionMetrics = {
   sampledTurns: number;

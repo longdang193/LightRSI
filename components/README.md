@@ -1,6 +1,6 @@
 # Components
 
-This directory contains the shared packages, feature modules, presets, products, and host adapters that make up LightMem2.
+This directory contains the shared packages, feature modules, presets, products, and host adapters that make up LightRSI.
 
 The current public repository ships one component:
 
@@ -10,7 +10,7 @@ The current public repository ships one component:
 
 ## Component And Adapter Split
 
-LightMem2 separates:
+LightRSI separates:
 
 - component packages
   - reusable runtime logic
@@ -80,17 +80,17 @@ Current preset bindings:
 
 ## Naming Boundary
 
-At the repository level, the framework name is `LightMem2`.
+At the repository level, the framework name is `LightRSI`.
 
-Workspace npm packages use the `@lightmem2` scope:
+Workspace npm packages use the `@lightrsi` scope:
 
 | Layer | Package identities |
 | :-- | :-- |
-| Foundation | `@lightmem2/kernel`, `@lightmem2/runtime-core`, `@lightmem2/host-adapter`, `@lightmem2/history`, `@lightmem2/artifact-store`, `@lightmem2/product-surface` |
-| Features | `@lightmem2/stabilizer`, `@lightmem2/reduction`, `@lightmem2/eviction`, `@lightmem2/memory` |
-| Preset | `@lightmem2/tokenpilot` |
-| Products | `@lightmem2/cli`, `@lightmem2/mcp` |
-| Adapters | `@lightmem2/openclaw-adapter`, `@lightmem2/codex-adapter`, `@lightmem2/claude-code-adapter` |
+| Foundation | `@lightrsi/kernel`, `@lightrsi/runtime-core`, `@lightrsi/host-adapter`, `@lightrsi/history`, `@lightrsi/artifact-store`, `@lightrsi/product-surface` |
+| Features | `@lightrsi/stabilizer`, `@lightrsi/reduction`, `@lightrsi/eviction`, `@lightrsi/memory` |
+| Preset | `@lightrsi/tokenpilot` |
+| Products | `@lightrsi/cli`, `@lightrsi/mcp` |
+| Adapters | `@lightrsi/openclaw-adapter`, `@lightrsi/codex-adapter`, `@lightrsi/claude-code-adapter` |
 
 These names define workspace ownership. They do not imply that every internal package is independently published; release entrypoints and their public export contracts are versioned separately.
 
@@ -102,4 +102,4 @@ Source ownership follows the same boundary:
   its display name, `/tokenpilot` command, and compatibility aliases
 - adapters own host-specific compatibility paths and environment bridges
 
-At the current runtime-compatibility layer, the shipped component still uses the established `tokenpilot` namespace for plugin id and persisted state. On OpenClaw, the current public session model prefix is `lightmem2/<model>`, while Codex CLI and Claude Code use the standalone `lightmem2 <host> ...` command surface. That boundary is intentional for now so the repo can move toward a multi-component layout without breaking the current working paths.
+At the current runtime-compatibility layer, the shipped component still uses the established `tokenpilot` namespace for plugin id and persisted state. On OpenClaw, the current public session model prefix is `lightrsi/<model>`, while Codex CLI and Claude Code use the standalone `lightrsi <host> ...` command surface. That boundary is intentional for now so the repo can move toward a multi-component layout without breaking the current working paths.

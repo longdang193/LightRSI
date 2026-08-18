@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildDeltaViewFromRawSemanticSnapshot } from "@lightmem2/history";
+import { buildDeltaViewFromRawSemanticSnapshot } from "@lightrsi/history";
 import {
   buildRawSemanticTurnRecord,
   buildRawSemanticSnapshot,

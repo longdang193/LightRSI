@@ -1,4 +1,4 @@
-import type { ContextSegment, RuntimeTurnContext, RuntimeTurnResult } from "@lightmem2/kernel";
+import type { ContextSegment, RuntimeTurnContext, RuntimeTurnResult } from "@lightrsi/kernel";
 
 export type BuiltinReductionPassId =
   | "read_state_compaction"

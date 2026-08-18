@@ -4,8 +4,8 @@ import {
   type ContextItemKind,
   type ContextItemRef,
   type ModelContextSnapshot,
-} from "@lightmem2/host-adapter";
-import type { RuntimeMessage } from "@lightmem2/kernel";
+} from "@lightrsi/host-adapter";
+import type { RuntimeMessage } from "@lightrsi/kernel";
 
 const CLAUDE_HOST_ID = "claude-code";
 

@@ -2,7 +2,7 @@ import type {
   ProductCommandRegistrar,
   ProductSurfaceConfigAdapter,
   ProductSurfaceHostBridge,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import { createProductSurfaceCommandHandler } from "./commands.js";
 import type { ProductSurfaceIdentity } from "./identity.js";
 

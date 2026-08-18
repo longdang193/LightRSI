@@ -543,7 +543,7 @@ function summarizeCodeLike(
           "[outlined definitions; re-read with a line range to inspect a specific body]",
           ...outlineEntries.map((entry) => entry.signature),
           ...outlineEntries.flatMap((entry) => entry.docLine ? [entry.docLine] : []),
-          ...outlineEntries.map(() => "    # ... (body elided by LightMem2; request a specific line range to inspect it)"),
+          ...outlineEntries.map(() => "    # ... (body elided by LightRSI; request a specific line range to inspect it)"),
         ]
       : []),
     ...(alerts.length > 0

@@ -1,10 +1,10 @@
-import type { ContextSegment } from "@lightmem2/kernel";
+import type { ContextSegment } from "@lightrsi/kernel";
 import type { ReductionPassHandler } from "../reduction/types.js";
 import {
   archiveContent,
   buildRecoveryHint,
   buildRecoveryContextSafePatch,
-} from "@lightmem2/artifact-store";
+} from "@lightrsi/artifact-store";
 import {
   analyzeReadStateCompaction,
   isReadOutputSegment,

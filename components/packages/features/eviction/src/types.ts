@@ -3,7 +3,7 @@ import type {
   DeltaView,
   SessionTaskRegistry,
   TaskLifecycle,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 
 export type EvictionPolicy = "noop" | "lru" | "lfu" | "gdsf" | "model_scored" | (string & {});
 

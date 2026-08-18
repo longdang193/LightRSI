@@ -166,7 +166,7 @@ test("semantic mapping preserves the original call ID and rejects missing call p
 });
 
 test("semantic mapping consumes a real journal effective-history view across restart", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-semantic-mapping-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-semantic-mapping-"));
   const sessionId = "codex-semantic-journal-session";
   try {
     await appendCodexRequestJournalEntry({

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { reserveUnusedPort } from "@lightmem2/host-adapter";
+import { reserveUnusedPort } from "@lightrsi/host-adapter";
 
 import { normalizeTokenPilotCodexConfig } from "./config.js";
 import {
@@ -25,7 +25,7 @@ import type { CodexRebaseAccounting } from "./context-rewrite/types.js";
 import { resolveCodexSessionIdByResponseId } from "./session-state.js";
 
 export const CODEX_REBASE_PROVIDER_SMOKE_EVIDENCE_SCHEMA =
-  "lightmem2.codex.context-rebase-provider-smoke-evidence/v3";
+  "lightrsi.codex.context-rebase-provider-smoke-evidence/v3";
 const PROVIDER_SMOKE_MAX_OUTPUT_TOKENS = 2_048;
 
 export const CODEX_PROVIDER_SMOKE_SCENARIOS = ["core", "web-search"] as const;
@@ -761,7 +761,7 @@ async function runControlConversation(params: {
   continuationTurns: number;
   marker: string;
 }): Promise<ProviderConversationResult> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-control-state-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-control-state-"));
   let runtime: CodexProxyRuntime | undefined;
   try {
     const config = buildProviderSmokeConfig({
@@ -907,7 +907,7 @@ async function runWebSearchCompatibilityScenario(params: {
   verifiedItemTypes: string[];
   rejectedItemTypes: string[];
 }> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-web-search-state-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-web-search-state-"));
   const sessionId = `codex-provider-web-search-${randomUUID()}`;
   const values = syntheticConversationValues(params.marker);
   let runtime: CodexProxyRuntime | undefined;
@@ -997,7 +997,7 @@ async function runRebaseConversation(params: {
   continuationTurns: number;
   marker: string;
 }): Promise<ProviderRebaseResult> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-rebase-state-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-rebase-state-"));
   const sessionId = `codex-provider-rebase-${randomUUID()}`;
   const values = syntheticConversationValues(params.marker);
   const currentInput = `CURRENT_INPUT_${params.marker}`;
@@ -1451,6 +1451,6 @@ export async function runCodexRebaseProviderSmoke(
   assertProviderEvidence(evidence);
   const outputDir = options.outputDir
     ? resolve(options.outputDir)
-    : await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-smoke-evidence-"));
+    : await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-smoke-evidence-"));
   return { ...await writeEvidence(outputDir, evidence), evidence };
 }

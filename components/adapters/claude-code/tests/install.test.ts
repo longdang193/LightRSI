@@ -1,14 +1,33 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { lstat, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { readCliContextState } from "../../../products/cli/src/context-store.js";
-import { installClaudeCodeTokenPilot, resolveClaudeCodeHookCommandForInstall } from "../src/install.js";
+import {
+  installClaudeCodeTokenPilot as installClaudeCodeTokenPilotBase,
+  resolveClaudeCodeHookCommandForInstall,
+} from "../src/install.js";
 import { proxyBaseUrlForPort } from "../src/config.js";
 
+function installClaudeCodeTokenPilot(
+  params: NonNullable<Parameters<typeof installClaudeCodeTokenPilotBase>[0]>,
+) {
+  const testRoot = dirname(
+    params.settingsPath
+      ?? process.env.CLAUDE_CODE_SETTINGS_PATH
+      ?? params.tokenPilotConfigPath
+      ?? process.env.TOKENPILOT_CLAUDE_CODE_CONFIG
+      ?? tmpdir(),
+  );
+  return installClaudeCodeTokenPilotBase({
+    ...params,
+    cliContextPath: params.cliContextPath ?? join(testRoot, ".lightrsi", "state", "cli-context.json"),
+  });
+}
+
 test("installClaudeCodeTokenPilot writes settings, MCP config, and backups existing files", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-install-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-install-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -16,9 +35,12 @@ test("installClaudeCodeTokenPilot writes settings, MCP config, and backups exist
     const mcpConfigPath = join(dir, ".claude.json");
     const tokenPilotConfigPath = join(dir, "tokenpilot.json");
     const cliBinDir = join(dir, "bin");
+    const legacySkillDir = join(dir, "skills", "lightmem2-doctor");
 
     await writeFile(settingsPath, `${JSON.stringify({ env: { KEEP_ME: "1" } }, null, 2)}\n`, "utf8");
     await writeFile(mcpConfigPath, `${JSON.stringify({ mcpServers: { existing: { command: "node" } } }, null, 2)}\n`, "utf8");
+    await mkdir(legacySkillDir, { recursive: true });
+    await writeFile(join(legacySkillDir, "SKILL.md"), "legacy", "utf8");
 
     const result = await installClaudeCodeTokenPilot({
       settingsPath,
@@ -59,13 +81,13 @@ test("installClaudeCodeTokenPilot writes settings, MCP config, and backups exist
     assert.equal(typeof mcp.mcpServers?.existing?.command, "string");
     assert.equal(result.hooksInstalled, true);
     assert.deepEqual(result.commandSkillNames, [
-      "lightmem2-status",
-      "lightmem2-report",
-      "lightmem2-doctor",
-      "lightmem2-visual",
+      "lightrsi-status",
+      "lightrsi-report",
+      "lightrsi-doctor",
+      "lightrsi-visual",
     ]);
     assert.equal(result.cliBinInstalled, true);
-    assert.equal(result.cliBinPath, join(cliBinDir, "lightmem2"));
+    assert.equal(result.cliBinPath, join(cliBinDir, "lightrsi"));
     assert.equal(result.cliBinDir, cliBinDir);
     assert.equal(result.cliBinDirOnPath, false);
     assert.equal(result.hostCliBinPath, join(cliBinDir, "tokenpilot-claude-code"));
@@ -78,14 +100,15 @@ test("installClaudeCodeTokenPilot writes settings, MCP config, and backups exist
     assert.equal(result.expectedMcpStartupTimeoutSec, 90);
     assert.equal(result.mcpProbe.ok, true);
     assert.equal(result.mcpProbe.degraded, false);
-    const cliContext = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
+    const cliContext = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
     assert.equal(cliContext.configPathsByHost?.["claude-code"]?.tokenPilotConfigPath, tokenPilotConfigPath);
     assert.equal(cliContext.configPathsByHost?.["claude-code"]?.hostConfigPath, settingsPath);
     assert.equal(cliContext.configPathsByHost?.["claude-code"]?.hostAuxConfigPath, mcpConfigPath);
 
-    const skillRaw = await readFile(join(result.commandSkillsDir, "lightmem2-doctor", "SKILL.md"), "utf8");
-    assert.match(skillRaw, /lightmem2 claude-code doctor/);
+    const skillRaw = await readFile(join(result.commandSkillsDir, "lightrsi-doctor", "SKILL.md"), "utf8");
+    assert.match(skillRaw, /lightrsi claude-code doctor/);
     assert.match(skillRaw, /disable-model-invocation:\s*true/);
+    await assert.rejects(stat(legacySkillDir), { code: "ENOENT" });
   } finally {
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
@@ -94,7 +117,7 @@ test("installClaudeCodeTokenPilot writes settings, MCP config, and backups exist
 });
 
 test("installClaudeCodeTokenPilot reports degraded MCP mode when probe is skipped", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-install-skip-probe-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-install-skip-probe-"));
   try {
     const result = await installClaudeCodeTokenPilot({
       settingsPath: join(dir, "settings.json"),
@@ -112,7 +135,7 @@ test("installClaudeCodeTokenPilot reports degraded MCP mode when probe is skippe
 });
 
 test("installClaudeCodeTokenPilot honors custom environment-configured paths", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-install-env-paths-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-install-env-paths-"));
   const originalSettingsPath = process.env.CLAUDE_CODE_SETTINGS_PATH;
   const originalMcpConfigPath = process.env.CLAUDE_CODE_MCP_CONFIG_PATH;
   const originalTokenPilotConfigPath = process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
@@ -139,7 +162,7 @@ test("installClaudeCodeTokenPilot honors custom environment-configured paths", a
 });
 
 test("installClaudeCodeTokenPilot preserves custom Claude upstream from settings", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-install-custom-upstream-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-install-custom-upstream-"));
   try {
     const settingsPath = join(dir, "settings.json");
     const tokenPilotConfigPath = join(dir, "tokenpilot.json");
@@ -172,7 +195,7 @@ test("installClaudeCodeTokenPilot preserves custom Claude upstream from settings
 });
 
 test("installClaudeCodeTokenPilot rewrites top-level deepseek model to a Claude-visible model and remembers the upstream model", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-install-root-model-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-install-root-model-"));
   try {
     const settingsPath = join(dir, "settings.json");
     const tokenPilotConfigPath = join(dir, "tokenpilot.json");
@@ -211,7 +234,7 @@ test("installClaudeCodeTokenPilot rewrites top-level deepseek model to a Claude-
 });
 
 test("installClaudeCodeTokenPilot preserves generic Anthropic-compatible model ids for later proxy discovery", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-install-generic-models-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-install-generic-models-"));
   try {
     const settingsPath = join(dir, "settings.json");
     const tokenPilotConfigPath = join(dir, "tokenpilot.json");
@@ -256,7 +279,7 @@ test("installClaudeCodeTokenPilot preserves generic Anthropic-compatible model i
 });
 
 test("installClaudeCodeTokenPilot does not override an explicit TokenPilot upstream", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-install-keep-upstream-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-install-keep-upstream-"));
   try {
     const settingsPath = join(dir, "settings.json");
     const tokenPilotConfigPath = join(dir, "tokenpilot.json");

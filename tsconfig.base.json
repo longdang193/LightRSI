@@ -12,40 +12,40 @@
         "esModuleInterop": true,
         "baseUrl": ".",
         "paths": {
-            "@lightmem2/kernel": [
+            "@lightrsi/kernel": [
                 "components/packages/foundation/kernel/src/index.ts"
             ],
-            "@lightmem2/artifact-store": [
+            "@lightrsi/artifact-store": [
                 "components/packages/foundation/artifact-store/src/index.ts"
             ],
-            "@lightmem2/tokenpilot": [
+            "@lightrsi/tokenpilot": [
                 "components/presets/tokenpilot/src/index.ts"
             ],
-            "@lightmem2/history": [
+            "@lightrsi/history": [
                 "components/packages/foundation/history/src/index.ts"
             ],
-            "@lightmem2/memory": [
+            "@lightrsi/memory": [
                 "components/packages/features/memory/src/index.ts"
             ],
-            "@lightmem2/runtime-core": [
+            "@lightrsi/runtime-core": [
                 "components/packages/foundation/runtime-core/src/index.ts"
             ],
-            "@lightmem2/reduction": [
+            "@lightrsi/reduction": [
                 "components/packages/features/reduction/src/index.ts"
             ],
-            "@lightmem2/eviction": [
+            "@lightrsi/eviction": [
                 "components/packages/features/eviction/src/index.ts"
             ],
-            "@lightmem2/host-adapter": [
+            "@lightrsi/host-adapter": [
                 "components/packages/foundation/host-adapter/src/index.ts"
             ],
-            "@lightmem2/stabilizer": [
+            "@lightrsi/stabilizer": [
                 "components/packages/features/stabilizer/src/index.ts"
             ],
-            "@lightmem2/product-surface": [
+            "@lightrsi/product-surface": [
                 "components/packages/foundation/product-surface/src/index.ts"
             ],
-            "@lightmem2/mcp": [
+            "@lightrsi/mcp": [
                 "components/products/mcp/src/index.ts"
             ]
         },

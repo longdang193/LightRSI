@@ -1,4 +1,4 @@
-import { defaultPluginStateDir, pluginStateSubdir } from "@lightmem2/artifact-store";
+import { defaultPluginStateDir, pluginStateSubdir } from "@lightrsi/artifact-store";
 import type {
   NormalizedPluginHostConfig,
   NormalizedPluginRuntimeConfig,
@@ -12,9 +12,12 @@ function isTruthyEnv(value: string): boolean {
   return value === "1" || value === "true" || value === "yes" || value === "on";
 }
 
-function envValue(lightmem2Key: string, tokenpilotKey?: string): string {
-  const next = String(process.env[lightmem2Key] ?? "").trim();
+function envValue(lightrsiKey: string, tokenpilotKey?: string): string {
+  const next = String(process.env[lightrsiKey] ?? "").trim();
   if (next) return next;
+  const legacyKey = lightrsiKey.replace(/^LIGHTRSI_/, "LIGHTMEM2_");
+  const legacy = String(process.env[legacyKey] ?? "").trim();
+  if (legacy) return legacy;
   return tokenpilotKey ? String(process.env[tokenpilotKey] ?? "").trim() : "";
 }
 
@@ -67,28 +70,28 @@ function normalizeMethodConfig(
   const reductionPasses = reduction.passes ?? {};
   const reductionPassOptions = reduction.passOptions ?? {};
 
-  const envMemoryEmbeddingEnabled = envValue("LIGHTMEM2_MEMORY_EMBEDDING_ENABLED", "TOKENPILOT_MEMORY_EMBEDDING_ENABLED").toLowerCase();
-  const envMemoryEmbeddingBaseUrl = envValue("LIGHTMEM2_MEMORY_EMBEDDING_BASE_URL", "TOKENPILOT_MEMORY_EMBEDDING_BASE_URL");
-  const envMemoryEmbeddingApiKey = envValue("LIGHTMEM2_MEMORY_EMBEDDING_API_KEY", "TOKENPILOT_MEMORY_EMBEDDING_API_KEY");
-  const envMemoryEmbeddingModel = envValue("LIGHTMEM2_MEMORY_EMBEDDING_MODEL", "TOKENPILOT_MEMORY_EMBEDDING_MODEL");
-  const envMemoryEmbeddingInstruction = envValue("LIGHTMEM2_MEMORY_EMBEDDING_QUERY_INSTRUCTION", "TOKENPILOT_MEMORY_EMBEDDING_QUERY_INSTRUCTION");
+  const envMemoryEmbeddingEnabled = envValue("LIGHTRSI_MEMORY_EMBEDDING_ENABLED", "TOKENPILOT_MEMORY_EMBEDDING_ENABLED").toLowerCase();
+  const envMemoryEmbeddingBaseUrl = envValue("LIGHTRSI_MEMORY_EMBEDDING_BASE_URL", "TOKENPILOT_MEMORY_EMBEDDING_BASE_URL");
+  const envMemoryEmbeddingApiKey = envValue("LIGHTRSI_MEMORY_EMBEDDING_API_KEY", "TOKENPILOT_MEMORY_EMBEDDING_API_KEY");
+  const envMemoryEmbeddingModel = envValue("LIGHTRSI_MEMORY_EMBEDDING_MODEL", "TOKENPILOT_MEMORY_EMBEDDING_MODEL");
+  const envMemoryEmbeddingInstruction = envValue("LIGHTRSI_MEMORY_EMBEDDING_QUERY_INSTRUCTION", "TOKENPILOT_MEMORY_EMBEDDING_QUERY_INSTRUCTION");
 
-  const envTaskStateEstimatorEnabled = envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED", "TOKENPILOT_TASK_STATE_ESTIMATOR_ENABLED").toLowerCase();
-  const envTaskStateEstimatorBaseUrl = envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL", "TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL");
-  const envTaskStateEstimatorApiKey = envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY", "TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY");
-  const envTaskStateEstimatorModel = envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL", "TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL");
-  const envTaskStateEstimatorTimeoutMs = Number.parseInt(envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_TIMEOUT_MS", "TOKENPILOT_TASK_STATE_ESTIMATOR_TIMEOUT_MS"), 10);
-  const envTaskStateEstimatorBatchTurns = Number.parseInt(envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_BATCH_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_BATCH_TURNS"), 10);
-  const envTaskStateEstimatorEvictionLookaheadTurns = Number.parseInt(envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS"), 10);
+  const envTaskStateEstimatorEnabled = envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED", "TOKENPILOT_TASK_STATE_ESTIMATOR_ENABLED").toLowerCase();
+  const envTaskStateEstimatorBaseUrl = envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL", "TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL");
+  const envTaskStateEstimatorApiKey = envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY", "TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY");
+  const envTaskStateEstimatorModel = envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL", "TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL");
+  const envTaskStateEstimatorTimeoutMs = Number.parseInt(envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_TIMEOUT_MS", "TOKENPILOT_TASK_STATE_ESTIMATOR_TIMEOUT_MS"), 10);
+  const envTaskStateEstimatorBatchTurns = Number.parseInt(envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_BATCH_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_BATCH_TURNS"), 10);
+  const envTaskStateEstimatorEvictionLookaheadTurns = Number.parseInt(envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS"), 10);
   const envTaskStateEstimatorCompletedSummaryMaxRawTurns = Number.parseInt(
-    envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_COMPLETED_SUMMARY_MAX_RAW_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_COMPLETED_SUMMARY_MAX_RAW_TURNS"),
+    envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_COMPLETED_SUMMARY_MAX_RAW_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_COMPLETED_SUMMARY_MAX_RAW_TURNS"),
     10,
   );
-  const envTaskStateEstimatorInputMode = envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_INPUT_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_INPUT_MODE");
-  const envTaskStateEstimatorLifecycleMode = envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_LIFECYCLE_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_LIFECYCLE_MODE");
-  const envTaskStateEstimatorEvidenceMode = envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_EVIDENCE_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVIDENCE_MODE");
-  const envTaskStateEstimatorEvictionPromotionPolicy = envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_EVICTION_PROMOTION_POLICY", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVICTION_PROMOTION_POLICY");
-  const envTaskStateEstimatorEvictionPromotionHotTailSize = Number.parseInt(envValue("LIGHTMEM2_TASK_STATE_ESTIMATOR_EVICTION_PROMOTION_HOT_TAIL_SIZE", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVICTION_PROMOTION_HOT_TAIL_SIZE"), 10);
+  const envTaskStateEstimatorInputMode = envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_INPUT_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_INPUT_MODE");
+  const envTaskStateEstimatorLifecycleMode = envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_LIFECYCLE_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_LIFECYCLE_MODE");
+  const envTaskStateEstimatorEvidenceMode = envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_EVIDENCE_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVIDENCE_MODE");
+  const envTaskStateEstimatorEvictionPromotionPolicy = envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_EVICTION_PROMOTION_POLICY", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVICTION_PROMOTION_POLICY");
+  const envTaskStateEstimatorEvictionPromotionHotTailSize = Number.parseInt(envValue("LIGHTRSI_TASK_STATE_ESTIMATOR_EVICTION_PROMOTION_HOT_TAIL_SIZE", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVICTION_PROMOTION_HOT_TAIL_SIZE"), 10);
 
   const normalizedEvidenceMode =
     taskStateEstimator.evidenceMode === "two_state" || envTaskStateEstimatorEvidenceMode === "two_state"

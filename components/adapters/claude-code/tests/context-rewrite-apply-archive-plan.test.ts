@@ -39,7 +39,7 @@ function setup(bigBody: string) {
 }
 
 test("on archive success, records archiveRef and keeps the item targeted", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-apply-archive-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-apply-archive-"));
   const big = "EVICT_ME_" + "x".repeat(4000);
   const { snapshot, plan, request, toolResultId } = setup(big);
 
@@ -55,7 +55,7 @@ test("on archive success, records archiveRef and keeps the item targeted", async
 });
 
 test("on archive FAILURE, the item is dropped from targets (bypass) and no ref recorded", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-apply-archive-fail-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-apply-archive-fail-"));
   const big = "EVICT_ME_" + "x".repeat(4000);
   const { snapshot, plan, request, toolResultId } = setup(big);
 

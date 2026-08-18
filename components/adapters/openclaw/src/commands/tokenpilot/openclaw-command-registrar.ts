@@ -1,4 +1,4 @@
-import type { ProductCommandRegistrar, ProductCommandSpec } from "@lightmem2/host-adapter";
+import type { ProductCommandRegistrar, ProductCommandSpec } from "@lightrsi/host-adapter";
 
 export function createOpenClawCommandRegistrar(api: any): ProductCommandRegistrar {
   return {

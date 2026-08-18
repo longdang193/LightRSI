@@ -3,12 +3,12 @@ import {
   type DeltaView,
   type HistoryBlock,
   type SessionTaskRegistry,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 import type {
   ContextMutationPlan,
   ModelContextSnapshot,
-} from "@lightmem2/host-adapter";
-import { MODEL_CONTEXT_REWRITE_SCHEMA_VERSION } from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
+import { MODEL_CONTEXT_REWRITE_SCHEMA_VERSION } from "@lightrsi/host-adapter";
 
 import { buildContextMutationPlanFromEviction } from "./context-mutation-plan.js";
 import { analyzeEvictionFromTaskRegistry } from "./planning/analyzer.js";

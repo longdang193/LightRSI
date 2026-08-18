@@ -4,7 +4,7 @@ import { PassThrough, Readable, Writable } from "node:stream";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readSessionModuleObservationSummary } from "@lightmem2/product-surface";
+import { readSessionModuleObservationSummary } from "@lightrsi/product-surface";
 
 import { handleNonStreamingProxyResponse, handleStreamingProxyResponse } from "./proxy-runtime-response.js";
 
@@ -64,7 +64,7 @@ function createMockResponse() {
 }
 
 test("handleNonStreamingProxyResponse forwards reduced JSON response and records ux", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-non-stream-observation-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-non-stream-observation-"));
   const recordedUx: any[] = [];
   const traces: any[] = [];
   const reductionCalls: any[] = [];
@@ -175,7 +175,7 @@ test("handleNonStreamingProxyResponse forwards reduced JSON response and records
 });
 
 test("handleNonStreamingProxyResponse does not record savings when transport fails", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-failed-observation-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-failed-observation-"));
   try {
     await assert.rejects(
       handleNonStreamingProxyResponse({
@@ -300,7 +300,7 @@ test("handleNonStreamingProxyResponse skips reduction effects when module is dis
 });
 
 test("handleStreamingProxyResponse forwards stream and records stream ux after finish", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-stream-observation-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-stream-observation-"));
   const recordedUx: any[] = [];
   const traces: any[] = [];
   const stream = Readable.from([
@@ -390,7 +390,7 @@ test("handleStreamingProxyResponse forwards stream and records stream ux after f
 });
 
 test("handleStreamingProxyResponse does not record savings when transport fails", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-failed-stream-observation-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-failed-stream-observation-"));
   try {
     await assert.rejects(
       handleStreamingProxyResponse({
@@ -436,7 +436,7 @@ test("handleStreamingProxyResponse does not record savings when transport fails"
 });
 
 test("handleStreamingProxyResponse records cache-audit response prompt_cache_key and usage from SSE stream", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-stream-cache-audit-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-stream-cache-audit-"));
   const stream = Readable.from([
     Buffer.from('data: {"response":{"prompt_cache_key":"pk-stream-2"}}\n\n'),
     Buffer.from('data: {"usage":{"input_tokens":120,"input_tokens_details":{"cached_tokens":80}}}\n\n'),

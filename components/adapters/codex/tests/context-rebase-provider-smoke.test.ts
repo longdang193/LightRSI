@@ -252,7 +252,7 @@ test("payload-specific rejection does not become item-wide incompatibility", () 
 
 test("provider smoke emits sanitized real-chain, capability v2, matrix, and usage evidence", async () => {
   const provider = await startProviderFixture();
-  const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-smoke-test-"));
+  const outputDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-smoke-test-"));
   const previousKey = process.env.OPENAI_API_KEY;
   const previousCli = process.env.CODEX_CLI_VERSION;
   process.env.OPENAI_API_KEY = "provider-smoke-test-key-not-secret";
@@ -337,7 +337,7 @@ test("provider smoke emits sanitized real-chain, capability v2, matrix, and usag
 
 test("optional provider scenarios record not-observed evidence without blocking core", async () => {
   const provider = await startProviderFixture({ omitWebSearchCall: true });
-  const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-optional-smoke-test-"));
+  const outputDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-optional-smoke-test-"));
   const previousKey = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = "provider-smoke-test-key-not-secret";
   try {
@@ -398,7 +398,7 @@ test("strict provider scenarios keep selected optional probes as evidence gates"
 
 test("optional provider probe failures remain sanitized evidence", async () => {
   const provider = await startProviderFixture({ rejectWebSearchWithSecret: true });
-  const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-failed-optional-smoke-test-"));
+  const outputDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-failed-optional-smoke-test-"));
   const previousKey = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = "provider-smoke-test-key-not-secret";
   try {
@@ -430,7 +430,7 @@ test("optional provider probe failures remain sanitized evidence", async () => {
 
 test("provider smoke accepts journal-backed stateless continuation roots", async () => {
   const provider = await startProviderFixture({ rejectChainReferences: true });
-  const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-stateless-smoke-test-"));
+  const outputDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-stateless-smoke-test-"));
   const previousKey = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = "provider-smoke-test-key-not-secret";
   try {

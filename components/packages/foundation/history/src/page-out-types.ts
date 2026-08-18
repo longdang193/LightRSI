@@ -1,4 +1,4 @@
-import type { TranscriptTurn } from "@lightmem2/kernel";
+import type { TranscriptTurn } from "@lightrsi/kernel";
 
 export type CanonicalMessageRole = "system" | "user" | "assistant" | "tool";
 

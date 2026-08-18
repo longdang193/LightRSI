@@ -13,7 +13,7 @@ import {
 } from "../src/session-state.js";
 
 test("claude-code session-state persists snapshots and recent turn bindings per session", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-claude-session-state-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-claude-session-state-"));
   try {
     await upsertClaudeCodeSessionSnapshot(stateDir, "claude-session-a", {
       workspaceHint: "/tmp/workspace-a",

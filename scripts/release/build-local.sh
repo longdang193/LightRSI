@@ -70,9 +70,9 @@ node - "${OUTPUT_DIR}/release-manifest.json" "${VERSION}" "${COMMIT}" "${BUILT_A
 const fs = require("node:fs");
 const [path, version, commit, builtAt, dirty, ...archives] = process.argv.slice(2);
 const packageByFile = {
-  openclaw: "@lightmem2/openclaw-adapter",
-  codex: "@lightmem2/codex-adapter",
-  "claude-code": "@lightmem2/claude-code-adapter",
+  openclaw: "@lightrsi/openclaw-adapter",
+  codex: "@lightrsi/codex-adapter",
+  "claude-code": "@lightrsi/claude-code-adapter",
 };
 const hostForArchive = (archive) => {
   if (archive.includes("openclaw")) return "openclaw";
@@ -81,7 +81,7 @@ const hostForArchive = (archive) => {
   throw new Error(`Unknown adapter archive: ${archive}`);
 };
 fs.writeFileSync(path, `${JSON.stringify({
-  product: "LightMem2",
+  product: "LightRSI",
   version,
   tag: `v${version}`,
   commit,
@@ -106,7 +106,7 @@ CODEX_ARCHIVE="${ARCHIVE_NAMES[1]}"
 CLAUDE_ARCHIVE="${ARCHIVE_NAMES[2]}"
 
 cat > "${OUTPUT_DIR}/RELEASE_NOTES.md" <<EOF
-# LightMem2 v${VERSION}
+# LightRSI v${VERSION}
 
 Commit: \`${COMMIT}\`
 Dirty worktree: \`${DIRTY}\`

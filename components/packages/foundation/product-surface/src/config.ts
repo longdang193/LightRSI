@@ -1,4 +1,4 @@
-import type { ProductSurfaceConfigAdapter } from "@lightmem2/host-adapter";
+import type { ProductSurfaceConfigAdapter } from "@lightrsi/host-adapter";
 
 export const REDUCTION_PASS_PATHS: Record<string, string[]> = {
   readStateCompaction: ["reduction", "passes", "readStateCompaction"],

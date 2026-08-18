@@ -15,10 +15,10 @@ if (!process.argv[2] || !["codex", "claude-code"].includes(host) || !expectedVer
   throw new Error("Usage: node smoke-host-package.mjs <archive.tgz> <codex|claude-code> <version>");
 }
 
-const expectedPackageName = `@lightmem2/${host}-adapter`;
+const expectedPackageName = `@lightrsi/${host}-adapter`;
 const installEntry = host === "codex" ? "install-codex.js" : "install-claude-code.js";
 const hostCliName = host === "codex" ? "tokenpilot-codex" : "tokenpilot-claude-code";
-const extractDir = await mkdtemp(join(tmpdir(), `lightmem2-${host}-release-smoke-`));
+const extractDir = await mkdtemp(join(tmpdir(), `lightrsi-${host}-release-smoke-`));
 
 try {
   await execFileAsync("tar", ["-xzf", archivePath, "-C", extractDir]);
@@ -32,7 +32,7 @@ try {
   assert.equal(manifest.version, expectedVersion);
   assert.equal(manifest.dependencies, undefined);
   assert.equal(manifest.devDependencies, undefined);
-  for (const file of ["index.js", "cli.js", "hooks-handler.js", installEntry, "lightmem2.js", "mcp-server.js"]) {
+  for (const file of ["index.js", "cli.js", "hooks-handler.js", installEntry, "lightrsi.js", "lightmem2.js", "mcp-server.js"]) {
     await readFile(join(distDir, file));
   }
 
@@ -69,12 +69,13 @@ try {
   assert.match(installedConfig, new RegExp(join(distDir, "hooks-handler.js").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(installedConfig, new RegExp(join(distDir, "mcp-server.js").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
-  assert.equal(await readlink(join(binDir, "lightmem2")), join(distDir, "lightmem2.js"));
+  assert.equal(await readlink(join(binDir, "lightrsi")), join(distDir, "lightrsi.js"));
+  assert.equal(await readlink(join(binDir, "lightmem2")), join(distDir, "lightrsi.js"));
   assert.equal(await readlink(join(binDir, hostCliName)), join(distDir, "cli.js"));
 
   const skillsRoot = host === "codex" ? join(homeDir, ".codex", "skills") : join(homeDir, ".claude", "skills");
-  const skill = await readFile(join(skillsRoot, "lightmem2-doctor", "SKILL.md"), "utf8");
-  assert.match(skill, new RegExp(join(distDir, "lightmem2.js").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const skill = await readFile(join(skillsRoot, "lightrsi-doctor", "SKILL.md"), "utf8");
+  assert.match(skill, new RegExp(join(distDir, "lightrsi.js").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
   const loaded = await import(join(distDir, "index.js"));
   assert.ok(Object.keys(loaded).length > 0);

@@ -12,7 +12,7 @@ import {
 import { formatClaudeCodeDoctorReport, inspectClaudeCodeDoctor } from "../src/doctor.js";
 
 test("inspectClaudeCodeDoctor reports missing settings honestly", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-doctor-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-doctor-"));
   try {
     const settingsPath = join(dir, "settings.json");
     const mcpConfigPath = join(dir, ".claude.json");
@@ -53,7 +53,7 @@ test("inspectClaudeCodeDoctor reports missing settings honestly", async () => {
 });
 
 test("inspectClaudeCodeDoctor reports estimator env fallback", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-doctor-estimator-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-doctor-estimator-"));
   try {
     const report = await inspectClaudeCodeDoctor({
       config: normalizeTokenPilotClaudeCodeConfig({ stateDir: join(dir, "state") }),
@@ -61,10 +61,10 @@ test("inspectClaudeCodeDoctor reports estimator env fallback", async () => {
       mcpConfigPath: join(dir, ".claude.json"),
       tokenPilotConfigPath: join(dir, "tokenpilot.json"),
       env: {
-        LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
-        LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
-        LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
-        LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "m-env",
+        LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "true",
+        LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
+        LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
+        LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: "m-env",
       },
     });
     assert.equal(report.overlayTaskStateEstimatorEnabled, true);
@@ -75,7 +75,7 @@ test("inspectClaudeCodeDoctor reports estimator env fallback", async () => {
 });
 
 test("inspectClaudeCodeDoctor detects gateway routing from settings env", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-doctor-env-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-doctor-env-"));
   try {
     const proxyPort = 18778;
     const stateDir = join(dir, "state");
@@ -149,7 +149,7 @@ test("inspectClaudeCodeDoctor detects gateway routing from settings env", async 
 });
 
 test("inspectClaudeCodeDoctor reports partial hook installs explicitly", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-doctor-partial-hooks-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-doctor-partial-hooks-"));
   try {
     const proxyPort = 18779;
     const stateDir = join(dir, "state");
@@ -206,7 +206,7 @@ test("inspectClaudeCodeDoctor reports partial hook installs explicitly", async (
 });
 
 test("inspectClaudeCodeDoctor detects hook command drift explicitly", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-doctor-hook-drift-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-doctor-hook-drift-"));
   try {
     const proxyPort = 18780;
     const stateDir = join(dir, "state");
@@ -259,7 +259,7 @@ test("inspectClaudeCodeDoctor detects hook command drift explicitly", async () =
 });
 
 test("inspectClaudeCodeDoctor detects MCP command and args drift explicitly", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-doctor-mcp-drift-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-doctor-mcp-drift-"));
   try {
     const proxyPort = 18781;
     const stateDir = join(dir, "state");
@@ -309,12 +309,12 @@ test("inspectClaudeCodeDoctor detects MCP command and args drift explicitly", as
 test("formatClaudeCodeDoctorReport includes remediation hints for drifted installs", async () => {
   const report = await inspectClaudeCodeDoctor({
     config: normalizeTokenPilotClaudeCodeConfig({
-      stateDir: join(tmpdir(), "lightmem2-claude-doctor-remediation-state"),
+      stateDir: join(tmpdir(), "lightrsi-claude-doctor-remediation-state"),
       proxyPort: 18782,
     }),
-    settingsPath: join(tmpdir(), "lightmem2-missing-settings.json"),
-    tokenPilotConfigPath: join(tmpdir(), "lightmem2-missing-tokenpilot.json"),
-    mcpConfigPath: join(tmpdir(), "lightmem2-missing-claude.json"),
+    settingsPath: join(tmpdir(), "lightrsi-missing-settings.json"),
+    tokenPilotConfigPath: join(tmpdir(), "lightrsi-missing-tokenpilot.json"),
+    mcpConfigPath: join(tmpdir(), "lightrsi-missing-claude.json"),
   });
   const text = formatClaudeCodeDoctorReport(report);
   assert.match(text, /Suggested fixes:/);

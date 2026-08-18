@@ -4,13 +4,13 @@ import type {
   HostGatewayHttpResponse,
   HostGatewayStreamResponse,
   HostGatewayUpstreamConfig,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import {
   buildGatewayForwardHeaders,
   readJsonFile,
   resolveGatewayRequestUrl,
   writeJsonFileAtomic,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import { join } from "node:path";
 import type { TokenPilotClaudeCodeConfig } from "./config.js";
 

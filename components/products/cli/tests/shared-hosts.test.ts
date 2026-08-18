@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ProductSurfaceConfigAdapter } from "@lightmem2/host-adapter";
-import type { CacheAuditRecord } from "@lightmem2/stabilizer";
+import type { ProductSurfaceConfigAdapter } from "@lightrsi/host-adapter";
+import type { CacheAuditRecord } from "@lightrsi/stabilizer";
 import {
   buildSessionReportResult,
   resolvePreferredSessionId,

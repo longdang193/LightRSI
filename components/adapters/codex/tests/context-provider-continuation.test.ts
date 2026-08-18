@@ -21,7 +21,7 @@ import {
 } from "../src/context-rewrite/types.js";
 
 async function withTempState(run: (stateDir: string) => Promise<void>): Promise<void> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-provider-continuation-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-provider-continuation-"));
   try {
     await run(stateDir);
   } finally {

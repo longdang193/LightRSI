@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { writeJsonFileAtomic } from "@lightmem2/host-adapter";
+import { writeJsonFileAtomic } from "@lightrsi/host-adapter";
 
 const SESSION_MAP_SCHEMA_VERSION = 1 as const;
 

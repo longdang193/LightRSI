@@ -1,4 +1,4 @@
-import type { ContextSegment } from "@lightmem2/kernel";
+import type { ContextSegment } from "@lightrsi/kernel";
 
 export type HistoryBlockType =
   | "tool_result"

@@ -1,4 +1,4 @@
-import type { RuntimeTurnContext } from "@lightmem2/kernel";
+import type { RuntimeTurnContext } from "@lightrsi/kernel";
 import { buildHistoryBlocks } from "./chunking.js";
 import { deriveHistoryLifecycle } from "./lifecycle.js";
 import { scoreHistoryBlocks } from "./scoring.js";

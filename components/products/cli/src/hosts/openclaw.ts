@@ -3,8 +3,8 @@ import { dirname } from "node:path";
 import type {
   ProductSurfaceConfigAdapter,
   ProductSurfaceHostBridge,
-} from "@lightmem2/host-adapter";
-import { handleVisual as handleSharedVisual } from "@lightmem2/product-surface";
+} from "@lightrsi/host-adapter";
+import { handleVisual as handleSharedVisual } from "@lightrsi/product-surface";
 import { readLatestUxEffect, readSessionUxAggregate } from "../../../../adapters/openclaw/src/context-stack/integration/ux-effects.js";
 import {
   readRecentOpenClawCacheAuditRecordsForSession,

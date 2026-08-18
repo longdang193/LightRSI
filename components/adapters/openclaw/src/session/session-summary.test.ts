@@ -11,7 +11,7 @@ import {
 } from "./session-summary.js";
 
 test("openclaw session summary persists and builds overview rows", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-adapter-session-summary-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-adapter-session-summary-"));
   try {
     await upsertOpenClawSessionSummary(dir, "sess-1", {
       sessionKey: "agent:test",

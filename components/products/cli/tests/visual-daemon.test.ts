@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { resolveCliEntryPathFromHostModule } from "../src/hosts/visual-daemon.js";
 
 test("resolveCliEntryPathFromHostModule finds dist/cli.js from a src host module path", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-visual-daemon-src-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-visual-daemon-src-"));
   try {
     const distDir = join(dir, "dist");
     const srcHostsDir = join(dir, "src", "hosts");
@@ -22,7 +22,7 @@ test("resolveCliEntryPathFromHostModule finds dist/cli.js from a src host module
 });
 
 test("resolveCliEntryPathFromHostModule recovers from an old wrong products/cli/cli.js path", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-visual-daemon-wrong-cli-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-visual-daemon-wrong-cli-"));
   try {
     const distDir = join(dir, "dist");
     await mkdir(distDir, { recursive: true });

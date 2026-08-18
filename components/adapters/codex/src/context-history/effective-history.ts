@@ -1,4 +1,4 @@
-import { buildTurnAbsId } from "@lightmem2/history";
+import { buildTurnAbsId } from "@lightrsi/history";
 import { readCodexContextHistoryJournalRecoveringTail } from "./journal-append.js";
 import { codexReplayabilityForItem, codexReplayPairRef } from "./replayability.js";
 import { cloneJson, hashJson } from "./shared.js";

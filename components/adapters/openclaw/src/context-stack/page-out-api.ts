@@ -17,7 +17,7 @@ export {
   saveCanonicalState,
   annotateCanonicalMessagesWithTaskAnchors,
   sortedRegistryTurnAnchors,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 export { rewriteCanonicalState, syncCanonicalStateFromTranscript } from "./page-out/canonical-rewrite-adapter.js";
 export { applyCanonicalEviction } from "./page-out/canonical-eviction-adapter.js";
 export { createSessionTopologyManager } from "../session/topology.js";

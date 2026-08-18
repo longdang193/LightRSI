@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import {
   assertReductionMarkerText,
   assertStablePrefixRewrite,
-} from "@lightmem2/host-adapter";
-import { readSessionModuleObservationSummary } from "@lightmem2/product-surface";
+} from "@lightrsi/host-adapter";
+import { readSessionModuleObservationSummary } from "@lightrsi/product-surface";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -313,7 +313,7 @@ test("applyProxyReductionToInput still runs with policy-only before-call modules
     },
   });
 
-  const { createPolicyModule } = await import("@lightmem2/tokenpilot");
+  const { createPolicyModule } = await import("@lightrsi/tokenpilot");
 
   const payload: any = {
     model: "tokenpilot/gpt-5.4-mini",
@@ -566,7 +566,7 @@ test("prepareProxyRequest falls back to system root prompt for stability view", 
 });
 
 test("prepareProxyRequest does not roll back payload mutations made after stable rewrite", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-request-observation-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-request-observation-"));
   const cfg = hooks.normalizeConfig({
     stateDir,
     modules: {

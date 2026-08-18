@@ -30,7 +30,7 @@ function normalizeModelForCounter(model: string): string {
   const trimmed = String(model || "").trim().toLowerCase();
   if (!trimmed) return "";
   if (trimmed.startsWith("tokenpilot/")) return trimmed.slice("tokenpilot/".length);
-  if (trimmed.startsWith("lightmem2/")) return trimmed.slice("lightmem2/".length);
+  if (trimmed.startsWith("lightrsi/")) return trimmed.slice("lightrsi/".length);
   return trimmed;
 }
 

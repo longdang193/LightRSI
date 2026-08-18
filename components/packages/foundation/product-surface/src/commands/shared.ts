@@ -4,7 +4,7 @@ import type {
   ProductSurfacePayload,
   ProductSurfaceConfigAdapter,
   ProductSurfaceHostBridge,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import type { ProductSurfaceIdentity } from "../identity.js";
 
 export type ProductSurfaceActionHandler = (

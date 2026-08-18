@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createEmptySessionTaskRegistry } from "@lightmem2/history";
+import { createEmptySessionTaskRegistry } from "@lightrsi/history";
 import { mapTaskUpdatesToRegistryPatch } from "../src/task-update-mapper.js";
 
 const SESSION = "sess-mapper";

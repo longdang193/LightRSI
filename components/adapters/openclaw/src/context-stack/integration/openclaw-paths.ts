@@ -45,7 +45,8 @@ export function resolveOpenClawTokenPilotStateDirCandidates(explicitStateDir?: s
 
 export function resolveDefaultOpenClawTokenPilotStateDir(): string {
   const explicit =
-    String(process.env.LIGHTMEM2_STATE_DIR ?? "").trim()
+    String(process.env.LIGHTRSI_STATE_DIR ?? "").trim()
+    || String(process.env.LIGHTMEM2_STATE_DIR ?? "").trim()
     || String(process.env.TOKENPILOT_STATE_DIR ?? "").trim();
   if (explicit) return explicit;
 

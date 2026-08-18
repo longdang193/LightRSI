@@ -1,8 +1,8 @@
 # TokenPilot Preset
 
-TokenPilot is the current public runtime preset inside LightMem2. It targets a practical long-running-session problem: prompt history grows, tool outputs accumulate, cache reuse becomes unstable, and shared sessions become increasingly expensive.
+TokenPilot is the current public runtime preset inside LightRSI. It targets a practical long-running-session problem: prompt history grows, tool outputs accumulate, cache reuse becomes unstable, and shared sessions become increasingly expensive.
 
-Within the current LightMem2 runtime path, TokenPilot primarily addresses this through:
+Within the current LightRSI runtime path, TokenPilot primarily addresses this through:
 
 - stable-prefix rewriting
 - observation reduction before large tool outputs poison later turns
@@ -10,7 +10,7 @@ Within the current LightMem2 runtime path, TokenPilot primarily addresses this t
 
 The preset owns the verified composition contract, not the feature implementations. `components/packages/features/` remains reusable by future presets, while each host adapter explicitly declares its supported TokenPilot feature subset.
 
-The preset also owns `TOKENPILOT_PRODUCT_SURFACE_IDENTITY`, which binds the TokenPilot display name, primary `/tokenpilot` command, and the existing `/lightmem2` and `/tp` compatibility aliases to the generic product-surface runtime.
+The preset also owns `TOKENPILOT_PRODUCT_SURFACE_IDENTITY`, which binds the TokenPilot display name, primary `/tokenpilot` command, and the existing `/lightrsi` and `/tp` compatibility aliases to the generic product-surface runtime.
 
 ## Where It Fits
 
@@ -19,17 +19,17 @@ Use the root [README.md](../../../README.md) for the fastest first-run path:
 - `OpenClaw`
   - install the repo
   - install the plugin
-  - open a `lightmem2/<model>` session
-  - verify with `/lightmem2 status`
+  - open a `lightrsi/<model>` session
+  - verify with `/lightrsi status`
 - `Codex CLI`
   - install the adapter
   - trust hooks if Codex asks for review
   - open a new Codex session to trigger `SessionStart`
-  - verify with `lightmem2 codex doctor`
+  - verify with `lightrsi codex doctor`
 - `Claude Code`
   - install the adapter
   - open a new Claude Code session to trigger `SessionStart`
-  - verify with `lightmem2 claude-code doctor`
+  - verify with `lightrsi claude-code doctor`
 
 Use [components/README.md](../../README.md) if you want the framework-level component index before diving into TokenPilot-specific details.
 
@@ -43,11 +43,11 @@ Use this component README when you need TokenPilot-specific details:
 - host integration boundary
 - standalone CLI usage
 
-For compatibility, the current OpenClaw adapter also accepts the `lightmem2` command and model namespace aliases in addition to the established `tokenpilot` ones.
+For compatibility, the current OpenClaw adapter also accepts the `lightrsi` command and model namespace aliases in addition to the established `tokenpilot` ones.
 
 ## Component And Adapter Boundary
 
-Within LightMem2, `TokenPilot` is a thin preset rather than the owner of shared packages or host adapters. It composes Stabilizer, Reduction, and Eviction.
+Within LightRSI, `TokenPilot` is a thin preset rather than the owner of shared packages or host adapters. It composes Stabilizer, Reduction, and Eviction.
 
 In the current public repo:
 
@@ -60,7 +60,7 @@ In the current public repo:
 - `components/adapters/claude-code/`
   - Claude Code adapter with gateway routing and MCP-backed recovery
 - `components/products/cli/`
-  - standalone `lightmem2` CLI surface for hosts without native slash commands
+  - standalone `lightrsi` CLI surface for hosts without native slash commands
 - `components/products/mcp/`
   - shared stdio MCP surface for internal archive recovery
 
@@ -99,7 +99,7 @@ Host state discovery is also adapter-owned. The shared CLI and Visual surface co
 
 ## Host Integrations
 
-TokenPilot is being structured as a reusable LightMem2 component with host adapters, rather than as a permanently OpenClaw-only implementation.
+TokenPilot is being structured as a reusable LightRSI component with host adapters, rather than as a permanently OpenClaw-only implementation.
 
 Host integration index:
 
@@ -117,7 +117,7 @@ Supported host adapters:
 
 Shared product surfaces:
 
-- `lightmem2 visual`: standalone browser visual entrypoint with multi-host selection
+- `lightrsi visual`: standalone browser visual entrypoint with multi-host selection
 
 Use [HOSTS.md](../../adapters/HOSTS.md) for the current capability matrix and host-specific boundaries.
 
@@ -136,23 +136,23 @@ Use [HOSTS.md](../../adapters/HOSTS.md) for the current capability matrix and ho
 Standalone CLI equivalents:
 
 ```bash
-lightmem2 visual
-lightmem2 openclaw status
-lightmem2 openclaw report
-lightmem2 openclaw doctor
-lightmem2 openclaw visual
-lightmem2 openclaw mode normal
+lightrsi visual
+lightrsi openclaw status
+lightrsi openclaw report
+lightrsi openclaw doctor
+lightrsi openclaw visual
+lightrsi openclaw mode normal
 ```
 
 Current Codex CLI equivalents:
 
 ```bash
-lightmem2 codex status
-lightmem2 codex report
-lightmem2 codex doctor
-lightmem2 codex mode normal
-lightmem2 codex reduction status
-lightmem2 codex stabilizer target user
+lightrsi codex status
+lightrsi codex report
+lightrsi codex doctor
+lightrsi codex mode normal
+lightrsi codex reduction status
+lightrsi codex stabilizer target user
 ```
 
 Recommended first-run order for Codex:
@@ -160,35 +160,35 @@ Recommended first-run order for Codex:
 1. `npm --prefix components/adapters/codex run install:codex`
 2. trust hooks in Codex if prompted
 3. open a new Codex session
-4. `lightmem2 codex doctor`
-5. `lightmem2 codex status`
-6. after a few turns, `lightmem2 codex report`
+4. `lightrsi codex doctor`
+5. `lightrsi codex status`
+6. after a few turns, `lightrsi codex report`
 
 Current Claude Code CLI equivalents:
 
 ```bash
-lightmem2 claude-code status
-lightmem2 claude-code report
-lightmem2 claude-code doctor
-lightmem2 claude-code visual
-lightmem2 claude-code mode normal
-lightmem2 claude-code reduction status
-lightmem2 claude-code stabilizer target developer
+lightrsi claude-code status
+lightrsi claude-code report
+lightrsi claude-code doctor
+lightrsi claude-code visual
+lightrsi claude-code mode normal
+lightrsi claude-code reduction status
+lightrsi claude-code stabilizer target developer
 ```
 
 Recommended first-run order for Claude Code:
 
 1. `npm --prefix components/adapters/claude-code run install:claude-code`
 2. open a new Claude Code session
-3. `lightmem2 claude-code doctor`
-4. `lightmem2 claude-code status`
-5. after a few turns, `lightmem2 claude-code report`
+3. `lightrsi claude-code doctor`
+4. `lightrsi claude-code status`
+5. after a few turns, `lightrsi claude-code report`
 
 Notes:
 
-- `lightmem2 visual` opens the shared browser visual surface and can switch hosts from the sidebar
-- `lightmem2 openclaw visual` remains the OpenClaw-scoped browser visual entrypoint
-- `lightmem2 codex visual` and `lightmem2 claude-code visual` now open the shared browser visual preselected to that host and session
+- `lightrsi visual` opens the shared browser visual surface and can switch hosts from the sidebar
+- `lightrsi openclaw visual` remains the OpenClaw-scoped browser visual entrypoint
+- `lightrsi codex visual` and `lightrsi claude-code visual` now open the shared browser visual preselected to that host and session
 
 ### Stabilizer
 
@@ -241,13 +241,13 @@ Commands:
 
 Codex currently supports only:
 
-- `lightmem2 codex mode conservative`
-- `lightmem2 codex mode normal`
+- `lightrsi codex mode conservative`
+- `lightrsi codex mode normal`
 
 Claude Code currently supports only:
 
-- `lightmem2 claude-code mode conservative`
-- `lightmem2 claude-code mode normal`
+- `lightrsi claude-code mode conservative`
+- `lightrsi claude-code mode normal`
 
 ## Configuration
 

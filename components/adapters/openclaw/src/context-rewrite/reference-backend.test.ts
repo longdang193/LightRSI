@@ -8,11 +8,11 @@ import test from "node:test";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
   type ContextMutationPlan,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import {
   createEmptySessionTaskRegistry,
   persistSessionTaskRegistry,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 
 import {
   createOpenClawReferenceBackend,

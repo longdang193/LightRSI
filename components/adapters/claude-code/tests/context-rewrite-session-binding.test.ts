@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { HostGatewayForwarder } from "@lightmem2/host-adapter";
+import type { HostGatewayForwarder } from "@lightrsi/host-adapter";
 import { normalizeTokenPilotClaudeCodeConfig } from "../src/config.js";
 import { startClaudeCodeGatewayRuntime } from "../src/gateway-runtime.js";
 import { createConsoleLogger } from "../src/logger.js";
@@ -72,7 +72,7 @@ async function sendSynthRequest(baseUrl: string, synthId: string, turn: number):
 }
 
 test("gateway binds a synthetic session id to the real hook session and persists it", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-session-binding-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-session-binding-"));
   const stateDir = join(dir, "state");
   const proxyPort = await reserveUnusedPort();
   const synthId = "claude-synth-binding-test";

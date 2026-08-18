@@ -1,8 +1,8 @@
 {
-  "name": "@lightmem2/reduction",
+  "name": "@lightrsi/reduction",
   "version": "0.1.0-beta.1",
   "private": true,
-  "lightmem2": {
+  "lightrsi": {
     "role": "feature"
   },
   "type": "module",
@@ -14,7 +14,7 @@
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
-    "@lightmem2/artifact-store": "workspace:*",
-    "@lightmem2/kernel": "workspace:*"
+    "@lightrsi/artifact-store": "workspace:*",
+    "@lightrsi/kernel": "workspace:*"
   }
 }

@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  lightmem2-ci:
+  lightrsi-ci:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 

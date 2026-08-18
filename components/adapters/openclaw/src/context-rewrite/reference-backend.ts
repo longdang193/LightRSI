@@ -10,8 +10,8 @@ import {
   type ContextRewriteValidation,
   type ModelContextRewriteBackend,
   type ModelContextSnapshot,
-} from "@lightmem2/host-adapter";
-import { estimateMessagesChars, type CanonicalTranscriptState } from "@lightmem2/history";
+} from "@lightrsi/host-adapter";
+import { estimateMessagesChars, type CanonicalTranscriptState } from "@lightrsi/history";
 
 import { rewriteCanonicalState } from "../context-stack/page-out/canonical-rewrite-adapter.js";
 

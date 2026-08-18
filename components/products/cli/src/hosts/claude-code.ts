@@ -5,12 +5,12 @@ import {
   ProductSurfaceHostBridge,
   readLatestUxEffect,
   readUxSessionAggregate,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import {
   getNestedValue,
   formatDisplayValue,
   formatOnOff,
-} from "@lightmem2/product-surface";
+} from "@lightrsi/product-surface";
 import {
   defaultClaudeCodeMcpConfigPath,
   defaultClaudeCodeSettingsPath,

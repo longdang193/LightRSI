@@ -15,9 +15,9 @@ const allowedDependencies = {
 
 // Remove each exception as its implementation moves to the correct owner.
 const knownBoundaryDebt = new Set([
-  "@lightmem2/host-adapter -> @lightmem2/stabilizer",
-  "@lightmem2/product-surface -> @lightmem2/stabilizer",
-  "@lightmem2/runtime-core -> @lightmem2/reduction",
+  "@lightrsi/host-adapter -> @lightrsi/stabilizer",
+  "@lightrsi/product-surface -> @lightrsi/stabilizer",
+  "@lightrsi/runtime-core -> @lightrsi/reduction",
 ]);
 
 async function findPackageFiles(directory) {
@@ -44,7 +44,7 @@ const packages = await Promise.all(
     return {
       manifest,
       packageFile,
-      role: manifest.lightmem2?.role,
+      role: manifest.lightrsi?.role,
     };
   }),
 );
@@ -56,7 +56,7 @@ const edges = [];
 for (const entry of packages) {
   const relativeFile = path.relative(rootDir, entry.packageFile);
   if (!validRoles.has(entry.role)) {
-    errors.push(`${relativeFile}: missing or invalid lightmem2.role`);
+    errors.push(`${relativeFile}: missing or invalid lightrsi.role`);
     continue;
   }
 

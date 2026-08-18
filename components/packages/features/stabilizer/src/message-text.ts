@@ -4,10 +4,10 @@ export {
   extractContentText,
   prependTextToContent,
   replaceContentText,
-} from "@lightmem2/kernel";
+} from "@lightrsi/kernel";
 import {
   extractContentText,
-} from "@lightmem2/kernel";
+} from "@lightrsi/kernel";
 
 const SENDER_METADATA_BLOCK_RE =
   /(?:^|\n{1,2})Sender\s+\(untrusted metadata\):\s*```json\s*[\s\S]*?```(?:\n{1,2}|$)/gi;

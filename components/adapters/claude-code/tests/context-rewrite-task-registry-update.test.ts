@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createEmptySessionTaskRegistry } from "@lightmem2/history";
-import type { DeltaView } from "@lightmem2/history";
-import type { TaskStateEstimator } from "@lightmem2/eviction";
+import { createEmptySessionTaskRegistry } from "@lightrsi/history";
+import type { DeltaView } from "@lightrsi/history";
+import type { TaskStateEstimator } from "@lightrsi/eviction";
 import { updateRegistryFromDelta } from "../src/context-rewrite/task-registry-update.js";
 
 const SESSION = "sess-reg-update";

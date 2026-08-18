@@ -5,7 +5,7 @@ export const TEST_PRODUCT_SURFACE_IDENTITY = {
   commandName: "tokenpilot",
   aliases: [
     { name: "tokenpilot", description: "Primary test command." },
-    { name: "lightmem2", description: "Framework alias." },
+    { name: "lightrsi", description: "Framework alias." },
     { name: "tp", description: "Short alias." },
   ],
 } as const satisfies ProductSurfaceIdentity;

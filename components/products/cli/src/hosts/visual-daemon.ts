@@ -72,7 +72,7 @@ export function resolveCliEntryPathFromHostModule(hostModulePath: string): strin
 }
 
 export function sharedVisualRootDir(): string {
-  return join(homedir(), ".lightmem2", "state");
+  return join(homedir(), ".lightrsi", "state");
 }
 
 export function sharedVisualPidPath(): string {

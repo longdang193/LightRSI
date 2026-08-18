@@ -15,13 +15,13 @@ if (!process.argv[2] || !expectedVersion) {
   throw new Error("Usage: node smoke-openclaw-package.mjs <archive.tgz> <version>");
 }
 
-const extractDir = await mkdtemp(join(tmpdir(), "lightmem2-release-smoke-"));
+const extractDir = await mkdtemp(join(tmpdir(), "lightrsi-release-smoke-"));
 try {
   await execFileAsync("tar", ["-xzf", archivePath, "-C", extractDir]);
   const packageDir = join(extractDir, "package");
   const manifest = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8"));
 
-  assert.equal(manifest.name, "@lightmem2/openclaw-adapter");
+  assert.equal(manifest.name, "@lightrsi/openclaw-adapter");
   assert.equal(manifest.version, expectedVersion);
   assert.equal(manifest.dependencies, undefined);
   assert.equal(manifest.devDependencies, undefined);

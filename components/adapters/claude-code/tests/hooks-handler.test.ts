@@ -11,7 +11,7 @@ import { readClaudeCodeDaemonStatus } from "../src/daemon.js";
 import { runClaudeCodeHooksHandler } from "../src/hooks-handler.js";
 
 test("hooks-handler entry function records Claude Code observability events", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-hooks-handler-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-hooks-handler-"));
   try {
     const stateDir = join(dir, "state");
     const configPath = join(dir, "tokenpilot.json");
@@ -52,7 +52,7 @@ test("hooks-handler entry function records Claude Code observability events", as
 });
 
 test("hooks-handler SessionStart auto-starts the Claude Code gateway daemon", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-hooks-autostart-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-hooks-autostart-"));
   try {
     const stateDir = join(dir, "state");
     const configPath = join(dir, "tokenpilot.json");

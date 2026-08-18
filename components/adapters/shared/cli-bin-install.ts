@@ -3,7 +3,7 @@ import { chmod, link, mkdir, symlink, unlink } from "node:fs/promises";
 import { join, resolve, delimiter } from "node:path";
 
 function cliDistPathFromAdapterRoot(adapterRoot: string): string {
-  const bundledPath = resolve(adapterRoot, "dist", "lightmem2.js");
+  const bundledPath = resolve(adapterRoot, "dist", "lightrsi.js");
   if (existsSync(bundledPath)) return bundledPath;
   return resolve(adapterRoot, "..", "..", "products", "cli", "dist", "cli.js");
 }
@@ -20,7 +20,7 @@ async function createCliLink(targetPath: string, binPath: string): Promise<void>
   }
 }
 
-export async function installLightmem2CliBin(params: {
+export async function installLightRsiCliBin(params: {
   adapterRoot: string;
   homeDir?: string;
   binDir?: string;
@@ -34,7 +34,8 @@ export async function installLightmem2CliBin(params: {
   const homeDir = params.homeDir ?? process.env.HOME ?? process.env.USERPROFILE ?? "";
   const binDir = params.binDir ?? join(homeDir, ".local", "bin");
   const cliDistPath = cliDistPathFromAdapterRoot(params.adapterRoot);
-  const binPath = join(binDir, "lightmem2");
+  const binPath = join(binDir, "lightrsi");
+  const legacyBinPath = join(binDir, "lightmem2");
   const binDirOnPath = String(process.env.PATH ?? "")
     .split(delimiter)
     .filter(Boolean)
@@ -55,6 +56,9 @@ export async function installLightmem2CliBin(params: {
   await unlink(binPath).catch(() => undefined);
   await createCliLink(cliDistPath, binPath);
   await chmod(binPath, 0o755).catch(() => undefined);
+  await unlink(legacyBinPath).catch(() => undefined);
+  await createCliLink(cliDistPath, legacyBinPath);
+  await chmod(legacyBinPath, 0o755).catch(() => undefined);
 
   return {
     installed: true,

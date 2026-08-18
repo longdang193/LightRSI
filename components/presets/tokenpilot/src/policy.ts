@@ -8,7 +8,7 @@ import {
   type ApiFamily,
   type RuntimeModule,
   type RuntimeTurnContext,
-} from "@lightmem2/kernel";
+} from "@lightrsi/kernel";
 import {
   analyzePolicyLocality,
   type LocalityActionHint,
@@ -25,7 +25,7 @@ import {
   analyzePathTruncation,
   analyzeImageDownsample,
   analyzeLineNumberStrip,
-} from "@lightmem2/reduction";
+} from "@lightrsi/reduction";
 import {
   analyzeEvictionFromTaskRegistry,
   createApiTaskStateEstimator,
@@ -36,7 +36,7 @@ import {
   type TaskStateEstimator,
   type TaskStateEstimatorApiConfig,
   type TaskStateTransition,
-} from "@lightmem2/eviction";
+} from "@lightrsi/eviction";
 import {
   applySessionTaskRegistryPatch,
   buildDeltaViewFromRawSemanticSnapshot,
@@ -52,7 +52,7 @@ import {
   type SessionTaskRegistry,
   type TaskLifecycle,
   type TaskState,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 
 export type PolicyModuleConfig = {
   localityEnabled?: boolean;

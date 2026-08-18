@@ -1,5 +1,5 @@
-import { createProductSurfaceCommandHandler } from "@lightmem2/product-surface";
-import { TOKENPILOT_PRODUCT_SURFACE_IDENTITY } from "@lightmem2/tokenpilot";
+import { createProductSurfaceCommandHandler } from "@lightrsi/product-surface";
+import { TOKENPILOT_PRODUCT_SURFACE_IDENTITY } from "@lightrsi/tokenpilot";
 import type { CliHostPathOverrides } from "../context-store.js";
 import { createClaudeCodeCliBridge } from "./claude-code.js";
 import { createCodexCliBridge } from "./codex.js";

@@ -7,7 +7,7 @@
 - Providers: committed mock upstreams only
 - Secrets/API keys: none
 
-This acceptance checks context rewrite behavior through real adapter gateway runtimes. The reusable harness belongs to `@lightmem2/host-adapter`; host tests remain in their owning adapter packages.
+This acceptance checks context rewrite behavior through real adapter gateway runtimes. The reusable harness belongs to `@lightrsi/host-adapter`; host tests remain in their owning adapter packages.
 
 ## Claude Request Overlay
 
@@ -64,7 +64,7 @@ It remains the cross-host target-set oracle. GUA-06 complements it with real Cla
 
 ## Architecture
 
-- Generic acceptance recording, restart orchestration, sentinel inspection, fallback accounting, and multi-protocol closure checks live in `@lightmem2/host-adapter`.
+- Generic acceptance recording, restart orchestration, sentinel inspection, fallback accounting, and multi-protocol closure checks live in `@lightrsi/host-adapter`.
 - Claude and Codex acceptance import the shared harness through the package API and do not import another adapter's source tree.
 - Each scored phase fails if any successful upstream request retains eviction content, loses required content, or breaks tool protocol closure.
 

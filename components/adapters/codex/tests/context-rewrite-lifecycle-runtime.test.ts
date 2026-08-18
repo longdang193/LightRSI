@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { loadSessionTaskRegistry } from "@lightmem2/history";
-import { reserveUnusedPort } from "@lightmem2/host-adapter";
+import { loadSessionTaskRegistry } from "@lightrsi/history";
+import { reserveUnusedPort } from "@lightrsi/host-adapter";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { buildCodexEffectiveHistory } from "../src/context-history/index.js";
@@ -167,7 +167,7 @@ function requestInputText(payload: JsonObject | undefined): string {
 }
 
 test("Codex proxy uses lifecycle planning instead of a conflicting manual plan", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-lifecycle-runtime-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-lifecycle-runtime-"));
   const sessionId = "codex-lifecycle-runtime-session";
   const upstream = await startLifecycleUpstream();
   const estimator = await startEstimator(sessionId);
@@ -311,7 +311,7 @@ test("Codex proxy uses lifecycle planning instead of a conflicting manual plan",
 });
 
 test("Codex proxy does not fall back to a manual plan when lifecycle config is incomplete", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-lifecycle-incomplete-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-lifecycle-incomplete-"));
   const sessionId = "codex-lifecycle-incomplete-session";
   const upstream = await startLifecycleUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
@@ -385,7 +385,7 @@ test("Codex proxy does not fall back to a manual plan when lifecycle config is i
 });
 
 test("Codex proxy does not consume a completed request retry twice", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-lifecycle-retry-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-lifecycle-retry-"));
   const sessionId = "codex-lifecycle-retry-session";
   const upstream = await startLifecycleUpstream({ firstResponseToolCall: false });
   const estimator = await startEstimator(sessionId, "noop");
@@ -465,7 +465,7 @@ test("Codex proxy does not consume a completed request retry twice", async () =>
 });
 
 test("Codex proxy keeps the original chain when the estimator fails", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-lifecycle-estimator-fail-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-lifecycle-estimator-fail-"));
   const sessionId = "codex-lifecycle-estimator-fail-session";
   const upstream = await startLifecycleUpstream({ firstResponseToolCall: false });
   const estimator = await startEstimator(sessionId, "fail");

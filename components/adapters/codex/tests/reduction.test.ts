@@ -15,14 +15,14 @@ import { loadCodexSessionSnapshot, upsertCodexSessionSnapshot } from "../src/ses
 
 const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
-const originalLightmem2StateDir = process.env.LIGHTMEM2_STATE_DIR;
+const originalLightRsiStateDir = process.env.LIGHTRSI_STATE_DIR;
 let reductionSuiteHome = "";
 
 before(async () => {
-  reductionSuiteHome = await mkdtemp(join(tmpdir(), "lightmem2-codex-reduction-suite-"));
+  reductionSuiteHome = await mkdtemp(join(tmpdir(), "lightrsi-codex-reduction-suite-"));
   process.env.HOME = reductionSuiteHome;
   process.env.USERPROFILE = reductionSuiteHome;
-  process.env.LIGHTMEM2_STATE_DIR = join(reductionSuiteHome, ".lightmem2", "state");
+  process.env.LIGHTRSI_STATE_DIR = join(reductionSuiteHome, ".lightrsi", "state");
 });
 
 after(async () => {
@@ -30,8 +30,8 @@ after(async () => {
   else process.env.HOME = originalHome;
   if (originalUserProfile === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = originalUserProfile;
-  if (originalLightmem2StateDir === undefined) delete process.env.LIGHTMEM2_STATE_DIR;
-  else process.env.LIGHTMEM2_STATE_DIR = originalLightmem2StateDir;
+  if (originalLightRsiStateDir === undefined) delete process.env.LIGHTRSI_STATE_DIR;
+  else process.env.LIGHTRSI_STATE_DIR = originalLightRsiStateDir;
   if (reductionSuiteHome) {
     await rm(reductionSuiteHome, { recursive: true, force: true });
   }
@@ -135,7 +135,7 @@ test("reduceCodexRequestEnvelope trims large tool output and preserves developer
 });
 
 test("applyBeforeCallReductionToPayload reuses disclosed read paths from session snapshot", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-reduction-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-reduction-"));
   try {
     const config = normalizeTokenPilotCodexConfig({
       stateDir: join(dir, "state"),

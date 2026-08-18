@@ -1,4 +1,4 @@
-import type { RuntimeTurnContext } from "@lightmem2/kernel";
+import type { RuntimeTurnContext } from "@lightrsi/kernel";
 
 export type ProxyReductionBinding =
   | {

@@ -1,4 +1,4 @@
-import type { ProductSurfaceConfigAdapter } from "@lightmem2/host-adapter";
+import type { ProductSurfaceConfigAdapter } from "@lightrsi/host-adapter";
 
 export function ensureClaudeCodePluginConfig(config: Record<string, unknown>): Record<string, unknown> {
   return config;

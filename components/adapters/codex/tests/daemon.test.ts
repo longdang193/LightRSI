@@ -4,12 +4,12 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { reserveUnusedPort } from "@lightmem2/host-adapter";
+import { reserveUnusedPort } from "@lightrsi/host-adapter";
 import { daemonPaths, startDaemon, stopDaemon } from "../src/daemon.js";
 import { normalizeTokenPilotCodexConfig, writeTokenPilotCodexConfig } from "../src/config.js";
 
 test("startDaemon replaces a stale pid when the configured proxy port is unhealthy", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-daemon-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-daemon-"));
   let dummy: ReturnType<typeof spawn> | undefined;
   try {
     const proxyPort = await reserveUnusedPort();

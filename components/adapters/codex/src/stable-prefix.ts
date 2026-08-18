@@ -5,8 +5,8 @@ import {
   extractContentText,
   findFirstUserMessageIndex,
   rewriteTextForStablePrefix,
-} from "@lightmem2/stabilizer";
-import type { HostRequestEnvelope } from "@lightmem2/host-adapter";
+} from "@lightrsi/stabilizer";
+import type { HostRequestEnvelope } from "@lightrsi/host-adapter";
 import type { TokenPilotCodexConfig } from "./config.js";
 
 function computeStablePromptCacheKey(model: string, stableTexts: string[]): string {
@@ -19,7 +19,7 @@ function computeStablePromptCacheKey(model: string, stableTexts: string[]): stri
     }))
     .digest("hex")
     .slice(0, 24);
-  return `lightmem2-codex-${digest}`;
+  return `lightrsi-codex-${digest}`;
 }
 
 type CodexPromptRewrite = ReturnType<typeof rewriteTextForStablePrefix>;

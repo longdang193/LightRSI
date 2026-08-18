@@ -1,13 +1,13 @@
 <p align="center">
-  <img src="./figs/LightMem2_logo.png" alt="LightMem2 logo" width="220">
+  <img src="./figs/LightRSI_logo.png" alt="LightRSI logo" width="220">
 </p>
 
 <p align="center">
-A modular framework for long-running agent memory and context management
+A modular runtime for recursive improvement in long-running LLM agents
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Framework-LightMem2-black" alt="framework">
+  <img src="https://img.shields.io/badge/Framework-LightRSI-black" alt="framework">
   <img src="https://img.shields.io/badge/Hosts-OpenClaw%20%7C%20Codex%20%7C%20Claude%20Code-green" alt="hosts">
   <img src="https://img.shields.io/badge/Component-TokenPilot-blue" alt="component">
   <img src="https://img.shields.io/badge/Package%20Manager-pnpm-informational" alt="pnpm">
@@ -15,11 +15,11 @@ A modular framework for long-running agent memory and context management
 </p>
 
 <p align="center">
-  <img src="./figs/LightMem2.png" alt="LightMem2 overview" width="860">
+  <img src="./figs/LightRSI.png" alt="LightRSI overview" width="860">
 </p>
 
 <p align="center">
-LightMem2 is a lightweight runtime framework for long-running LLM agents. It reduces context growth and serving cost in real shared-session workloads.
+LightRSI is a modular runtime for building, evaluating, and safely deploying recursive improvement loops in long-running LLM agents. Its current implementation focuses on context and agentic memory.
 </p>
 
 <p align="center">
@@ -45,7 +45,7 @@ LightMem2 is a lightweight runtime framework for long-running LLM agents. It red
 
 ## 🧩 Components
 
-LightMem2 is intended to host multiple long-running-agent components over time.
+LightRSI separates reusable improvement capabilities from shared runtime infrastructure and host-specific integration. TokenPilot is the first production preset; memory writeback, model adaptation, and agent-architecture evolution can build on the same runtime boundaries over time.
 
 | Component | What It Does | How It Works | Effect |
 | :-- | :-- | :-- | :-- |
@@ -84,13 +84,13 @@ LightMem2 is intended to host multiple long-running-agent components over time.
 Clone the repository and build the shared packages:
 
 ```bash
-git clone https://github.com/zjunlp/LightMem2.git
-cd LightMem2
+git clone https://github.com/zjunlp/LightRSI.git
+cd LightRSI
 corepack enable
 pnpm install
 pnpm build
-pnpm lightmem2:build
-pnpm lightmem2:install
+pnpm lightrsi:build
+pnpm lightrsi:install
 ```
 
 ### 2. Pick Your Host
@@ -113,7 +113,7 @@ This installs the current TokenPilot OpenClaw adapter, updates `~/.openclaw/open
 If your OpenClaw home or config path is not under the default `~/.openclaw`, set:
 
 ```bash
-export LIGHTMEM2_OPENCLAW_HOME="/path/to/openclaw-home"
+export LIGHTRSI_OPENCLAW_HOME="/path/to/openclaw-home"
 export OPENCLAW_CONFIG_PATH="/path/to/openclaw.json"
 ```
 
@@ -137,7 +137,7 @@ npm --prefix components/adapters/codex run build
 npm --prefix components/adapters/codex run install:codex
 ```
 
-This keeps your current active Codex provider name, reroutes that provider through the local TokenPilot proxy, writes `~/.codex/tokenpilot.json`, registers hooks in `~/.codex/hooks.json`, registers the shared `tokenpilot_memory_fault_recover` MCP server, and creates the standalone `lightmem2` CLI entrypoint at `~/.local/bin/lightmem2`.
+This keeps your current active Codex provider name, reroutes that provider through the local TokenPilot proxy, writes `~/.codex/tokenpilot.json`, registers hooks in `~/.codex/hooks.json`, registers the shared `tokenpilot_memory_fault_recover` MCP server, and creates the standalone `lightrsi` CLI entrypoint at `~/.local/bin/lightrsi`.
 
 If your Codex config files are not under the default `~/.codex`, set:
 
@@ -154,7 +154,7 @@ npm --prefix components/adapters/codex run build
 npm --prefix components/adapters/codex run install:codex
 ```
 
-If `lightmem2` is not found after install, make sure `~/.local/bin` is on your `PATH`.
+If `lightrsi` is not found after install, make sure `~/.local/bin` is on your `PATH`.
 
 </details>
 
@@ -187,7 +187,7 @@ npm --prefix components/adapters/claude-code run build
 npm --prefix components/adapters/claude-code run install:claude-code
 ```
 
-If `lightmem2` is not found after install, make sure `~/.local/bin` is on your `PATH`.
+If `lightrsi` is not found after install, make sure `~/.local/bin` is on your `PATH`.
 
 </details>
 
@@ -203,11 +203,11 @@ Pick your host and open the matching one-pass setup below.
 <br>
 
 1. Start or restart OpenClaw.
-2. Open a session with a `lightmem2/<model>` model such as `lightmem2/gpt-5.4-mini`.
+2. Open a session with a `lightrsi/<model>` model such as `lightrsi/gpt-5.4-mini`.
 3. Run:
 
 ```text
-/lightmem2 status
+/lightrsi status
 ```
 
 You should see a status block similar to:
@@ -222,22 +222,22 @@ You should see a status block similar to:
 For a fuller runtime summary, run:
 
 ```text
-/lightmem2 report
-/lightmem2 doctor
-/lightmem2 visual
-/lightmem2 mode normal
+/lightrsi report
+/lightrsi doctor
+/lightrsi visual
+/lightrsi mode normal
 ```
 
-`/lightmem2 doctor` is the quickest integration self-check for the current OpenClaw adapter surface. `/lightmem2 visual` opens the local visual inspector for stability, reduction, and eviction snapshots. `/lightmem2 mode <conservative|normal|aggressive>` switches preset runtime behavior.
+`/lightrsi doctor` is the quickest integration self-check for the current OpenClaw adapter surface. `/lightrsi visual` opens the local visual inspector for stability, reduction, and eviction snapshots. `/lightrsi mode <conservative|normal|aggressive>` switches preset runtime behavior.
 
 You can also use the standalone CLI outside OpenClaw:
 
 ```bash
-lightmem2 openclaw status
-lightmem2 openclaw report
-lightmem2 openclaw doctor
-lightmem2 openclaw visual
-lightmem2 openclaw mode normal
+lightrsi openclaw status
+lightrsi openclaw report
+lightrsi openclaw doctor
+lightrsi openclaw visual
+lightrsi openclaw mode normal
 ```
 
 </details>
@@ -256,19 +256,19 @@ The current Codex path uses the standalone CLI plus Codex hooks.
 5. In another terminal, verify the adapter:
 
 ```bash
-lightmem2 codex status
-lightmem2 codex doctor
-lightmem2 codex report
-lightmem2 codex mode normal
-lightmem2 codex reduction status
-lightmem2 codex stabilizer target user
+lightrsi codex status
+lightrsi codex doctor
+lightrsi codex report
+lightrsi codex mode normal
+lightrsi codex reduction status
+lightrsi codex stabilizer target user
 ```
 
 Expected first-run shape:
 
-- `lightmem2 codex doctor` reports `proxy healthy: yes`
-- `lightmem2 codex status` shows `stabilizer` and `reduction` enabled
-- after a few turns, `lightmem2 codex report` no longer says `No TokenPilot session stats yet.`
+- `lightrsi codex doctor` reports `proxy healthy: yes`
+- `lightrsi codex status` shows `stabilizer` and `reduction` enabled
+- after a few turns, `lightrsi codex report` no longer says `No TokenPilot session stats yet.`
 
 Install success does not always mean the proxy is already running before the first trusted session. If doctor still reports `proxy healthy: no` after trusting hooks and opening a new Codex session, use the manual fallback:
 
@@ -293,19 +293,19 @@ The current Claude Code path also uses the standalone CLI, but routes requests t
 4. In another terminal, verify the adapter:
 
 ```bash
-lightmem2 claude-code status
-lightmem2 claude-code doctor
-lightmem2 claude-code report
-lightmem2 claude-code mode normal
-lightmem2 claude-code reduction status
-lightmem2 claude-code stabilizer target developer
+lightrsi claude-code status
+lightrsi claude-code doctor
+lightrsi claude-code report
+lightrsi claude-code mode normal
+lightrsi claude-code reduction status
+lightrsi claude-code stabilizer target developer
 ```
 
 Expected first-run shape:
 
-- `lightmem2 claude-code doctor` reports `proxy healthy: yes`
-- `lightmem2 claude-code status` shows `stabilizer` and `reduction` enabled
-- after a few turns, `lightmem2 claude-code report` no longer says `No TokenPilot session stats yet.`
+- `lightrsi claude-code doctor` reports `proxy healthy: yes`
+- `lightrsi claude-code status` shows `stabilizer` and `reduction` enabled
+- after a few turns, `lightrsi claude-code report` no longer says `No TokenPilot session stats yet.`
 
 Like Codex, install success does not guarantee that the gateway is already healthy before the first real session triggers `SessionStart`.
 
@@ -319,7 +319,7 @@ Like Codex, install success does not guarantee that the gateway is already healt
 The screenshots below come from the built-in visual inspector opened with:
 
 ```text
-lightmem2 visual
+lightrsi visual
 ```
 
 <details>
@@ -359,7 +359,7 @@ At a high level:
   - shared CLI, Visual launcher, and MCP recovery surfaces
 
 ```text
-LightMem2/
+LightRSI/
 ├── components/
 │   ├── packages/
 │   │   ├── foundation/           # contracts, runtime, host, history, artifact, product infrastructure
@@ -371,7 +371,7 @@ LightMem2/
 │   │   ├── codex/                # Codex CLI adapter
 │   │   └── claude-code/          # Claude Code adapter
 │   └── products/
-│       ├── cli/                  # shared lightmem2 CLI and browser visual launcher
+│       ├── cli/                  # shared lightrsi CLI and browser visual launcher
 │       └── mcp/                  # shared memory_fault_recover MCP server
 ├── docs/                         # Public-facing notes and smoke helpers for the current runtime path
 ├── website/                      # Documentation site
@@ -384,7 +384,7 @@ TokenPilot is now a preset rather than a source-code parent directory. Each adap
 
 ## 🧪 Experiment Reproduction
 
-Benchmark tasks, runners, profiles, and analysis are maintained in the separate [TokenPilot experiment repository](https://github.com/Xubqpanda/TokenPilot). LightMem2 contains the runtime and plugin platform; it no longer vendors the experiment harness.
+Benchmark tasks, runners, profiles, and analysis are maintained in the separate [TokenPilot experiment repository](https://github.com/Xubqpanda/TokenPilot). LightRSI contains the runtime and plugin platform; it no longer vendors the experiment harness.
 
 Experiment entrypoints:
 
@@ -402,20 +402,20 @@ Use the basic commands first, then the session-aware and advanced ones when you 
 Shared standalone CLI patterns:
 
 ```bash
-lightmem2 report
-lightmem2 visual
-lightmem2 use openclaw
-lightmem2 use codex session <session-id>
-lightmem2 context
-lightmem2 <host> session <session-id> report
+lightrsi report
+lightrsi visual
+lightrsi use openclaw
+lightrsi use codex session <session-id>
+lightrsi context
+lightrsi <host> session <session-id> report
 ```
 
-- `lightmem2 report` shows the latest available report across hosts
-- `lightmem2 visual` opens the shared browser visual and lets you switch hosts and sessions
-- `lightmem2 use <host>` sets the default host for hostless CLI commands
-- `lightmem2 use <host> session <session-id>` pins the default session for later `report` and `visual`
-- `lightmem2 context` shows the current default host, pinned session, and remembered config target
-- `lightmem2 <host> session <session-id> report` reads one specific session directly
+- `lightrsi report` shows the latest available report across hosts
+- `lightrsi visual` opens the shared browser visual and lets you switch hosts and sessions
+- `lightrsi use <host>` sets the default host for hostless CLI commands
+- `lightrsi use <host> session <session-id>` pins the default session for later `report` and `visual`
+- `lightrsi context` shows the current default host, pinned session, and remembered config target
+- `lightrsi <host> session <session-id> report` reads one specific session directly
 
 Pick your host for the command surface below.
 
@@ -427,26 +427,26 @@ Pick your host for the command surface below.
 Inside an OpenClaw session:
 
 ```text
-/lightmem2 status
-/lightmem2 report
-/lightmem2 doctor
-/lightmem2 visual
-/lightmem2 mode normal
-/lightmem2 stabilizer target developer
-/lightmem2 reduction mode balanced
-/lightmem2 eviction on
-/lightmem2 help
+/lightrsi status
+/lightrsi report
+/lightrsi doctor
+/lightrsi visual
+/lightrsi mode normal
+/lightrsi stabilizer target developer
+/lightrsi reduction mode balanced
+/lightrsi eviction on
+/lightrsi help
 ```
 
 Outside OpenClaw, the standalone CLI supports the same host directly:
 
 ```bash
-lightmem2 openclaw status
-lightmem2 openclaw report
-lightmem2 openclaw doctor
-lightmem2 openclaw visual
-lightmem2 openclaw mode normal
-lightmem2 openclaw session <session-id> report
+lightrsi openclaw status
+lightrsi openclaw report
+lightrsi openclaw doctor
+lightrsi openclaw visual
+lightrsi openclaw mode normal
+lightrsi openclaw session <session-id> report
 ```
 
 Useful OpenClaw-only controls:
@@ -466,16 +466,16 @@ Useful OpenClaw-only controls:
 Use the standalone CLI:
 
 ```bash
-lightmem2 codex status
-lightmem2 codex report
-lightmem2 codex doctor
-lightmem2 codex visual
-lightmem2 codex session <session-id> report
-lightmem2 codex reduction status
-lightmem2 codex stabilizer target developer
-lightmem2 codex mode normal
-lightmem2 codex reduction mode balanced
-lightmem2 codex help
+lightrsi codex status
+lightrsi codex report
+lightrsi codex doctor
+lightrsi codex visual
+lightrsi codex session <session-id> report
+lightrsi codex reduction status
+lightrsi codex stabilizer target developer
+lightrsi codex mode normal
+lightrsi codex reduction mode balanced
+lightrsi codex help
 ```
 
 Useful Codex controls:
@@ -496,16 +496,16 @@ Useful Codex controls:
 Use the standalone CLI:
 
 ```bash
-lightmem2 claude-code status
-lightmem2 claude-code report
-lightmem2 claude-code doctor
-lightmem2 claude-code visual
-lightmem2 claude-code session <session-id> report
-lightmem2 claude-code reduction status
-lightmem2 claude-code stabilizer target developer
-lightmem2 claude-code mode normal
-lightmem2 claude-code reduction mode balanced
-lightmem2 claude-code help
+lightrsi claude-code status
+lightrsi claude-code report
+lightrsi claude-code doctor
+lightrsi claude-code visual
+lightrsi claude-code session <session-id> report
+lightrsi claude-code reduction status
+lightrsi claude-code stabilizer target developer
+lightrsi claude-code mode normal
+lightrsi claude-code reduction mode balanced
+lightrsi claude-code help
 ```
 
 Useful Claude Code controls:
@@ -523,7 +523,7 @@ Useful Claude Code controls:
 
 ## 📁 Experimental Results
 
-The tables below summarize the current LightMem2 runtime path, implemented today through the TokenPilot component, on **PinchBench** and **Claw-Eval**.
+The tables below summarize the current LightRSI runtime path, implemented today through the TokenPilot component, on **PinchBench** and **Claw-Eval**.
 
 `Isolated` mode evaluates each task in a fresh session, focusing on single-task behavior without cross-task history carryover. `Continuous` mode evaluates longer-running shared-session workflows, where context accumulation and cache reuse matter much more.
 
@@ -546,7 +546,7 @@ PinchBench logs and output bundles: [PinchBench Result](https://drive.google.com
 | AgentSwing | 78.4 | 89.8 | 71.9 | 80.2 | 79.5 | 83.5 | 80.8 | 83.7 | 77.9 | 92.5 | 65.7 | 35.0 | 4.534 | 7.129 | 0.241 | 6.77 |
 | Keep-Last-N | 80.4 | 86.0 | 70.0 | 82.4 | 80.1 | 77.6 | 78.3 | 91.5 | 84.3 | 92.5 | 70.1 | 87.8 | 12.813 | 2.657 | 0.291 | 4.26 |
 | MemOS | 79.4 | 84.2 | 54.4 | 83.1 | 82.3 | 78.2 | 81.1 | 97.2 | 77.6 | 92.5 | 85.9 | 80.2 | 29.018 | 4.573 | 0.492 | 7.81 |
-| **LightMem2** | **81.0** | 89.0 | 71.2 | 80.0 | 72.6 | 88.9 | 85.3 | 95.2 | 79.4 | 95.0 | 95.2 | 58.0 | 8.893 | 1.933 | 0.244 | **3.22** |
+| **LightRSI** | **81.0** | 89.0 | 71.2 | 80.0 | 72.6 | 88.9 | 85.3 | 95.2 | 79.4 | 95.0 | 95.2 | 58.0 | 8.893 | 1.933 | 0.244 | **3.22** |
 
 #### Continuous Mode
 
@@ -562,7 +562,7 @@ PinchBench logs and output bundles: [PinchBench Result](https://drive.google.com
 | AgentSwing | 78.5 | 86.3 | 67.3 | 89.0 | 79.1 | 82.4 | 87.4 | 68.1 | 72.4 | 93.8 | 61.7 | 83.8 | 12.680 | 5.476 | 0.314 | 6.47 |
 | Keep-Last-N | 79.1 | 86.3 | 67.0 | 87.8 | 87.0 | 77.0 | 85.4 | 77.3 | 75.9 | 95.0 | 56.8 | 75.1 | 18.117 | 4.481 | 0.209 | 5.66 |
 | MemOS | 80.9 | 87.5 | 59.0 | 85.4 | 87.1 | 82.0 | 81.0 | 95.0 | 78.1 | 92.5 | 87.4 | 84.1 | 30.859 | 8.939 | 0.308 | 10.41 |
-| **LightMem2** | **81.3** | 76.7 | 76.9 | 90.6 | 84.1 | 86.0 | 85.6 | 89.1 | 73.6 | 95.0 | 77.2 | 80.1 | 8.551 | 1.549 | 0.219 | **2.79** |
+| **LightRSI** | **81.3** | 76.7 | 76.9 | 90.6 | 84.1 | 86.0 | 85.6 | 89.1 | 73.6 | 95.0 | 77.2 | 80.1 | 8.551 | 1.549 | 0.219 | **2.79** |
 
 PinchBench abbreviations: Prod=Productivity, Res=Research, Write=Writing, Code=Coding, Anal=Analysis, CSV=CSV Analysis, Log=Log Analysis, Meet=Meeting Analysis, Mem=Memory, Skill=Skills, Integ=Integrations.
 
@@ -583,7 +583,7 @@ Claw-Eval logs and output bundles: [Claw-Eval Result](https://drive.google.com/d
 | AgentSwing | 60.9 | 64.2 | 66.5 | 44.1 | 45.7 | 67.8 | 52.8 | 85.8 | 57.2 | 25.6 | 53.6 | 68.8 | 4.580 | 3.585 | 0.194 | 3.91 |
 | Keep-Last-N | 61.8 | 67.1 | 73.8 | 44.7 | 21.6 | 54.5 | 63.6 | 86.2 | 38.4 | 39.4 | 55.0 | 69.1 | 4.229 | 1.845 | 0.186 | 2.54 |
 | MemOS | 61.6 | 64.7 | 74.2 | 40.9 | 25.2 | 71.2 | 32.0 | 73.6 | 80.2 | 20.0 | 56.2 | 74.6 | 12.582 | 2.709 | 0.363 | 4.61 |
-| **LightMem2** | 63.1 | 68.1 | 75.4 | 47.0 | 22.3 | 71.8 | 65.0 | 72.0 | 47.8 | 37.0 | 45.6 | 69.9 | 4.436 | 1.154 | 0.239 | **2.27** |
+| **LightRSI** | 63.1 | 68.1 | 75.4 | 47.0 | 22.3 | 71.8 | 65.0 | 72.0 | 47.8 | 37.0 | 45.6 | 69.9 | 4.436 | 1.154 | 0.239 | **2.27** |
 
 #### Continuous Mode
 
@@ -599,7 +599,7 @@ Claw-Eval logs and output bundles: [Claw-Eval Result](https://drive.google.com/d
 | AgentSwing | 62.2 | 67.6 | 66.5 | 48.6 | 36.8 | 70.0 | 63.8 | 90.7 | 31.7 | 22.4 | 41.0 | 72.8 | 53.776 | 10.027 | 0.907 | 15.63 |
 | Keep-Last-N | 60.7 | 65.3 | 74.0 | 35.5 | 20.8 | 54.1 | 73.6 | 91.9 | 35.7 | 59.5 | 42.4 | 64.7 | 44.812 | 9.106 | 0.780 | 13.70 |
 | MemOS | 57.7 | 55.9 | 65.0 | 56.3 | 22.2 | 44.8 | 64.6 | 68.8 | 89.0 | 20.0 | 39.6 | 71.5 | 49.742 | 25.432 | 0.293 | 24.12 |
-| **LightMem2** | 60.8 | 58.8 | 61.8 | 52.5 | 32.1 | 64.2 | 57.3 | 89.2 | 65.8 | 76.8 | 45.2 | 70.9 | 21.430 | 9.928 | 0.338 | **10.58** |
+| **LightRSI** | 60.8 | 58.8 | 61.8 | 52.5 | 32.1 | 64.2 | 57.3 | 89.2 | 65.8 | 76.8 | 45.2 | 70.9 | 21.430 | 9.928 | 0.338 | **10.58** |
 
 Claw-Eval abbreviations: Wkfl=Workflow, Ops=Ops, Fin=Finance, Off=Office QA, Comm=Communication, Prod=Productivity, Oprn=Operations, Safe=Safety, Term=Terminal, MM=Multimodal, Oth=Others.
 
@@ -607,7 +607,7 @@ Claw-Eval abbreviations: Wkfl=Workflow, Ops=Ops, Fin=Finance, Off=Office QA, Com
 
 ## 📄 Citation
 
-Please cite our paper if you use LightMem2 in your work.
+Please cite our paper if you use LightRSI in your work.
 
 ```bibtex
 @article{xu2026tokenpilot,
@@ -637,8 +637,8 @@ We welcome bug fixes, host adapter improvements, onboarding fixes, tests, and do
 
 ## 🎉Contributors
 
-<a href="https://github.com/zjunlp/LightMem2/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=zjunlp/LightMem2" />
+<a href="https://github.com/zjunlp/LightRSI/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=zjunlp/LightRSI" />
 </a>
 
 We thank all the contributors to this project, more contributors are welcome!
@@ -650,7 +650,6 @@ We thank all the contributors to this project, more contributors are welcome!
 ### LightMem Series
 This repository belongs to ZJUNLP LightMem series, focusing on solving context bloat, excessive token consumption and low cache utilization for long-running LLM agents:
 - [LightMem](https://github.com/zjunlp/LightMem) — A lightweight and efficient memory management framework designed for Large Language Models and AI Agents
-- [LightMem2](https://github.com/zjunlp/LightMem2) —  A modular framework for long-running agent memory and context management
 - [LightMem-Ego](https://github.com/zjunlp/LightMem-Ego) — A lightweight streaming multimodal memory system for everyday-life assistance
 ### Other Related Projects
 

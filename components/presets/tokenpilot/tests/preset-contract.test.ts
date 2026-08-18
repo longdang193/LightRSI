@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RuntimeModuleRegistry } from "@lightmem2/runtime-core";
+import { RuntimeModuleRegistry } from "@lightrsi/runtime-core";
 import {
   TOKENPILOT_FEATURE_MODULE_IDS,
   TOKENPILOT_HISTORY_MODULE_ORDER,
@@ -38,7 +38,7 @@ test("TokenPilot preset owns its product surface identity and compatibility alia
   assert.equal(TOKENPILOT_PRODUCT_SURFACE_IDENTITY.commandName, "tokenpilot");
   assert.deepEqual(
     TOKENPILOT_PRODUCT_SURFACE_IDENTITY.aliases.map(({ name }) => name),
-    ["tokenpilot", "lightmem2", "tp"],
+    ["tokenpilot", "lightrsi", "tp"],
   );
 });
 

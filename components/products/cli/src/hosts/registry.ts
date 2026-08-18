@@ -1,5 +1,5 @@
-import type { VisualHostSource } from "@lightmem2/product-surface";
-import { ProductHostRegistry, type ProductHostRegistration } from "@lightmem2/product-surface";
+import type { VisualHostSource } from "@lightrsi/product-surface";
+import { ProductHostRegistry, type ProductHostRegistration } from "@lightrsi/product-surface";
 import { CLAUDE_CODE_PRODUCT_HOST_REGISTRATION } from "../../../../adapters/claude-code/src/product-registration.js";
 import { CODEX_PRODUCT_HOST_REGISTRATION } from "../../../../adapters/codex/src/product-registration.js";
 import { OPENCLAW_PRODUCT_HOST_REGISTRATION } from "../../../../adapters/openclaw/src/product-registration.js";

@@ -1,4 +1,4 @@
-import type { RuntimeTurnContext, RuntimeTurnResult } from "@lightmem2/kernel";
+import type { RuntimeTurnContext, RuntimeTurnResult } from "@lightrsi/kernel";
 import { resolveReductionPass, execOutputTruncationBeforeCallPass } from "./registry.js";
 import type {
   ReductionMetadata,

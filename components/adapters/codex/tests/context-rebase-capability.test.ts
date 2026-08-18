@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -27,7 +27,7 @@ import {
 async function withTempState(
   fn: (stateDir: string) => Promise<void>,
 ): Promise<void> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-capability-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-capability-"));
   try {
     await fn(stateDir);
   } finally {
@@ -158,6 +158,31 @@ test("CDR-05 Provider Compatibility supports supported, unsupported, and revalid
       stateDir,
       payload: { input: [{ type: "reasoning", encrypted_content: "exact" }] },
       now: "2026-08-06T00:03:00.000Z",
+    });
+    assert.equal(result.decisions[0]?.status, "verified_supported");
+  });
+});
+
+test("CDR-05 Provider Compatibility reads the LightMem2 v2 schema as canonical evidence", async () => {
+  await withTempState(async (stateDir) => {
+    await appendCapability({
+      stateDir,
+      itemType: "message",
+      status: "verified_supported",
+      observedAt: "2026-08-06T00:00:00.000Z",
+      ttlMs: 60_000,
+    });
+    const path = codexRebaseCapabilityJournalPath(stateDir);
+    const canonical = await readFile(path, "utf8");
+    await writeFile(path, canonical.replaceAll(CODEX_REBASE_CAPABILITY_SCHEMA, "lightmem2.codex.rebase-capability/v2"), "utf8");
+
+    const journal = await readCodexRebaseCapabilityJournal(stateDir);
+    assert.equal(journal.malformedLineCount, 0);
+    assert.equal(journal.capabilities[0]?.schema, CODEX_REBASE_CAPABILITY_SCHEMA);
+    const result = await decisionsFor({
+      stateDir,
+      payload: { input: [{ role: "user", content: "current" }] },
+      now: "2026-08-06T00:00:30.000Z",
     });
     assert.equal(result.decisions[0]?.status, "verified_supported");
   });

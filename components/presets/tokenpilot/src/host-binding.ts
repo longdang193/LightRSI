@@ -1,4 +1,4 @@
-import { registerStabilizerProductSurfaceContribution } from "@lightmem2/stabilizer";
+import { registerStabilizerProductSurfaceContribution } from "@lightrsi/stabilizer";
 import {
   TOKENPILOT_FEATURE_MODULE_IDS,
   TOKENPILOT_PRESET_ID,

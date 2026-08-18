@@ -1,12 +1,12 @@
 import {
   mapTaskUpdatesToRegistryPatch,
   type TaskStateEstimator,
-} from "@lightmem2/eviction";
+} from "@lightrsi/eviction";
 import {
   applySessionTaskRegistryPatch,
   type DeltaView,
   type SessionTaskRegistry,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 
 export type UpdateRegistryResult = {
   registry: SessionTaskRegistry;

@@ -15,7 +15,7 @@ import {
   type AcceptanceHostRuntime,
   type AcceptanceSentinels,
   type HostGatewayForwarder,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 
 import { normalizeTokenPilotClaudeCodeConfig } from "../src/config.js";
 import { startClaudeCodeGatewayRuntime } from "../src/gateway-runtime.js";
@@ -163,7 +163,7 @@ test("GUA-06 accepts Claude request eviction across five requests and a process 
 });
 
 test("GUA-06 independently accepts Claude rewrite failure bypass", async () => {
-  const environment = createTemporaryAcceptanceEnvironment("lightmem2-gua06-claude-bypass-");
+  const environment = createTemporaryAcceptanceEnvironment("lightrsi-gua06-claude-bypass-");
   const upstream = new MockUpstreamRecorder();
   const sentinels = createAcceptanceSentinels(TEST_UUID);
   const payload = createClaudeAcceptancePayload(sentinels);
@@ -230,7 +230,7 @@ test("GUA-06 independently accepts Claude rewrite failure bypass", async () => {
 });
 
 test("GUA-06 bypasses Claude rewrite when the persisted plan store is corrupt", async () => {
-  const environment = createTemporaryAcceptanceEnvironment("lightmem2-gua06-claude-plan-store-");
+  const environment = createTemporaryAcceptanceEnvironment("lightrsi-gua06-claude-plan-store-");
   const upstream = new MockUpstreamRecorder();
   const sentinels = createAcceptanceSentinels(TEST_UUID);
   const payload = createClaudeAcceptancePayload(sentinels);

@@ -19,7 +19,7 @@ import { appendCodexRecentTurnBinding, upsertCodexSessionSnapshot } from "../src
 import { renderCodexSessionReport } from "../src/session-report.js";
 
 test("CDR-07 Codex session report renders rebase state", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-report-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-report-"));
   try {
     await upsertCodexSessionSnapshot(dir, "sess-rebase-report", {
       latestResponseId: "resp-new",
@@ -90,7 +90,7 @@ test("CDR-07 Codex session report renders rebase state", async () => {
 });
 
 test("CDR-07 Codex session report renders rebase accounting and break-even", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-report-accounting-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-report-accounting-"));
   try {
     await upsertCodexSessionSnapshot(dir, "sess-rebase-accounting", {
       latestResponseId: "resp-new",
@@ -144,7 +144,7 @@ test("CDR-07 Codex session report renders rebase accounting and break-even", asy
 });
 
 test("CDR-07 Codex session report surfaces rebase journal read errors", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-report-error-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-report-error-"));
   try {
     await upsertCodexSessionSnapshot(dir, "sess-rebase-report-error", {
       latestResponseId: "resp-error",

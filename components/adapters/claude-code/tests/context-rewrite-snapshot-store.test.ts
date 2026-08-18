@@ -13,7 +13,7 @@ import {
 const SESSION = "sess-snap";
 
 async function tempStateDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "lightmem2-snap-store-"));
+  return mkdtemp(join(tmpdir(), "lightrsi-snap-store-"));
 }
 
 function sampleSnapshot(revision: string) {

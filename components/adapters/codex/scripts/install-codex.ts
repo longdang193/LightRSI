@@ -14,9 +14,9 @@ installCodexTokenPilot({
   console.log(`Recovery MCP startup timeout: ${result.expectedMcpStartupTimeoutSec}s`);
   console.log(`Command skills dir: ${result.commandSkillsDir}`);
   console.log(`Command skills: ${result.commandSkillNames.join(", ")}`);
-  console.log(`lightmem2 CLI bin: ${result.cliBinInstalled ? `installed at ${result.cliBinPath}` : `skipped (missing build at ${result.cliBinPath})`}`);
+  console.log(`lightrsi CLI bin: ${result.cliBinInstalled ? `installed at ${result.cliBinPath}` : `skipped (missing build at ${result.cliBinPath})`}`);
   if (!result.cliBinDirOnPath) {
-    console.log(`lightmem2 CLI PATH note: add ${result.cliBinDir} to PATH if 'lightmem2' is unavailable.`);
+    console.log(`lightrsi CLI PATH note: add ${result.cliBinDir} to PATH if 'lightrsi' is unavailable.`);
   }
   if (result.hostCliBinPath) {
     console.log(`tokenpilot-codex CLI bin: installed at ${result.hostCliBinPath}`);

@@ -9,8 +9,8 @@ import {
   type ContextRewriteResult,
   type ContextRewriteValidation,
   type ModelContextSnapshot,
-} from "@lightmem2/host-adapter";
-import type { RuntimeMessage } from "@lightmem2/kernel";
+} from "@lightrsi/host-adapter";
+import type { RuntimeMessage } from "@lightrsi/kernel";
 
 import {
   claudeContextRewriteBackend,
@@ -424,7 +424,7 @@ function lifecycleGoldenFixture(fixture: LifecycleFixture): GoldenFixture {
       .map((item) => lifecycleItem(fixture, item.stableId)),
   }));
   return {
-    schema: "lightmem2.context-rewrite-golden/v1",
+    schema: "lightrsi.context-rewrite-golden/v1",
     id: `lifecycle-${fixture.id}`,
     description: fixture.description,
     tasks,

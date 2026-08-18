@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { StatePathResolver } from "@lightmem2/host-adapter";
+import type { StatePathResolver } from "@lightrsi/host-adapter";
 
 export const PLUGIN_STATE_DIRNAME = "tokenpilot-plugin-state";
 export const PLUGIN_NAMESPACE_DIR = "tokenpilot";
@@ -34,9 +34,9 @@ export function defaultPluginStateDir(): string {
   if (statePathResolver) {
     return statePathResolver.defaultStateDir();
   }
-  const lightmem2StateDir = process.env.LIGHTMEM2_STATE_DIR;
-  if (typeof lightmem2StateDir === "string" && lightmem2StateDir.trim().length > 0) {
-    return lightmem2StateDir.trim();
+  const lightrsiStateDir = process.env.LIGHTRSI_STATE_DIR ?? process.env.LIGHTMEM2_STATE_DIR;
+  if (typeof lightrsiStateDir === "string" && lightrsiStateDir.trim().length > 0) {
+    return lightrsiStateDir.trim();
   }
   const envStateDir = process.env.TOKENPILOT_STATE_DIR;
   if (typeof envStateDir === "string" && envStateDir.trim().length > 0) {
@@ -55,9 +55,9 @@ export function pluginStateDirCandidates(explicitStateDir?: string): string[] {
   if (explicitStateDir && explicitStateDir.trim().length > 0) {
     return [explicitStateDir.trim()];
   }
-  const lightmem2StateDir = process.env.LIGHTMEM2_STATE_DIR;
-  if (typeof lightmem2StateDir === "string" && lightmem2StateDir.trim().length > 0) {
-    return [lightmem2StateDir.trim()];
+  const lightrsiStateDir = process.env.LIGHTRSI_STATE_DIR ?? process.env.LIGHTMEM2_STATE_DIR;
+  if (typeof lightrsiStateDir === "string" && lightrsiStateDir.trim().length > 0) {
+    return [lightrsiStateDir.trim()];
   }
   const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
   return [join(homeDir, DEFAULT_HOST_NEUTRAL_STATE_ROOT, PLUGIN_STATE_DIRNAME)];

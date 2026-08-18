@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { TaskStateEstimatorApiConfig } from "@lightmem2/eviction";
+import type { TaskStateEstimatorApiConfig } from "@lightrsi/eviction";
 import type { CodexContextRewriteConfig, CodexMutationPlan } from "./context-rewrite/types.js";
 
 export type CodexProviderConfig = {

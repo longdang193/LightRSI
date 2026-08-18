@@ -1,35 +1,36 @@
 {
-  "name": "@lightmem2/codex-adapter",
+  "name": "@lightrsi/codex-adapter",
   "version": "0.1.0-beta.1",
   "description": "TokenPilot adapter for Codex via an OpenAI-compatible Responses proxy.",
-  "lightmem2": {
+  "lightrsi": {
     "role": "adapter"
   },
   "main": "dist/index.js",
   "bin": {
     "tokenpilot-codex": "dist/cli.js",
+    "lightrsi-install-codex": "dist/install-codex.js",
     "lightmem2-install-codex": "dist/install-codex.js"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zjunlp/LightMem2.git",
+    "url": "https://github.com/zjunlp/LightRSI.git",
     "directory": "components/adapters/codex"
   },
   "engines": {
     "node": ">=22.13.0"
   },
   "dependencies": {
-    "@lightmem2/artifact-store": "workspace:*",
-    "@lightmem2/eviction": "workspace:*",
-    "@lightmem2/history": "workspace:*",
-    "@lightmem2/host-adapter": "workspace:*",
-    "@lightmem2/kernel": "workspace:*",
-    "@lightmem2/mcp": "workspace:*",
-    "@lightmem2/product-surface": "workspace:*",
-    "@lightmem2/reduction": "workspace:*",
-    "@lightmem2/stabilizer": "workspace:*",
-    "@lightmem2/tokenpilot": "workspace:*"
+    "@lightrsi/artifact-store": "workspace:*",
+    "@lightrsi/eviction": "workspace:*",
+    "@lightrsi/history": "workspace:*",
+    "@lightrsi/host-adapter": "workspace:*",
+    "@lightrsi/kernel": "workspace:*",
+    "@lightrsi/mcp": "workspace:*",
+    "@lightrsi/product-surface": "workspace:*",
+    "@lightrsi/reduction": "workspace:*",
+    "@lightrsi/stabilizer": "workspace:*",
+    "@lightrsi/tokenpilot": "workspace:*"
   },
   "scripts": {
     "build": "tsx build.ts",
