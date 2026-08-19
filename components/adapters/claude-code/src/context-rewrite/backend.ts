@@ -6,8 +6,8 @@ import {
   type ContextRewriteValidation,
   type ModelContextRewriteBackend,
   type ModelContextSnapshot,
-} from "@lightmem2/host-adapter";
-import type { RuntimeMessage } from "@lightmem2/kernel";
+} from "@lightrsi/host-adapter";
+import type { RuntimeMessage } from "@lightrsi/kernel";
 import { buildClaudeContextSnapshot } from "./snapshot.js";
 
 const CLAUDE_HOST_ID = "claude-code";

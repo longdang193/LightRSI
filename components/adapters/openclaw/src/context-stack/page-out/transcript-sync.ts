@@ -2,7 +2,7 @@
 import {
   loadRawSemanticTurnRecord,
   persistRawSemanticTurnRecord,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 import { readTranscriptMessagesForSession, transcriptMessageStableId } from "./transcript-io.js";
 import {
   dedupeRawSemanticMessages,

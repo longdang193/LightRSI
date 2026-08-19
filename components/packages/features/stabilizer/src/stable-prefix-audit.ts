@@ -27,6 +27,19 @@ export type StablePrefixDriftReason = {
 };
 
 type SerializedSegment = SerializedStablePrefixContract["stableCore"][number];
+const ABSOLUTE_PATH_TOKEN_RE = /(?:[A-Za-z]:[\\/]|\/)[^\s"'`\)\]}]+/g;
+
+function hasUnnormalizedAbsolutePath(text: string): boolean {
+  for (const match of text.matchAll(ABSOLUTE_PATH_TOKEN_RE)) {
+    const index = match.index ?? 0;
+    if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(match[0])) continue;
+    const prefix = text.slice(0, index);
+    if (/[A-Za-z][A-Za-z0-9+.-]*:$/.test(prefix)) continue;
+    if (/<[A-Z0-9_]+>$/.test(prefix)) continue;
+    return true;
+  }
+  return false;
+}
 
 function collectSegments(
   serialized: SerializedStablePrefixContract,
@@ -59,7 +72,7 @@ export function auditStablePrefixEntropy(
         detail: "UUID-like value detected in stable prefix",
       });
     }
-    if (/(?:^|[\s:(])(?:[A-Za-z]:[\\/]|\/)[^\s)\]}]+/.test(text) && !text.includes("<WORKDIR>")) {
+    if (hasUnnormalizedAbsolutePath(text)) {
       findings.push({
         kind: "abs_path",
         segmentKey: segment.key,

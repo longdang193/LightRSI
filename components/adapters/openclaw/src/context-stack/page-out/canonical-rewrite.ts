@@ -4,7 +4,7 @@ import {
   syncCanonicalStateFromTranscript,
   type CanonicalTranscriptState,
   type RewriteCanonicalStateParams,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 import { applyCanonicalEviction } from "./canonical-eviction.js";
 
 export { syncCanonicalStateFromTranscript, type CanonicalTranscriptState };

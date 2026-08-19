@@ -3,11 +3,11 @@ import test from "node:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { persistRawSemanticTurnRecord } from "@lightmem2/history";
+import { persistRawSemanticTurnRecord } from "@lightrsi/history";
 import { readClaudeTurnSeq, bumpClaudeTurnSeq } from "../src/context-rewrite/turn-counter.js";
 
 async function tempStateDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "lightmem2-turn-counter-"));
+  return mkdtemp(join(tmpdir(), "lightrsi-turn-counter-"));
 }
 
 test("readClaudeTurnSeq returns 0 when no counter exists yet", async () => {

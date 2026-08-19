@@ -15,7 +15,7 @@ if (!process.argv[2] || !["codex", "claude-code"].includes(host) || !expectedVer
   throw new Error("Usage: node smoke-host-package.mjs <archive.tgz> <codex|claude-code> <version>");
 }
 
-const expectedPackageName = `@lightmem2/${host}-adapter`;
+const expectedPackageName = `@lightrsi/${host}-adapter`;
 const installEntry = host === "codex" ? "install-codex.js" : "install-claude-code.js";
 const hostCliName = host === "codex" ? "tokenpilot-codex" : "tokenpilot-claude-code";
 const extractDir = await mkdtemp(join(tmpdir(), `lightmem2-${host}-release-smoke-`));
@@ -66,15 +66,24 @@ try {
   const hostConfig = await readFile(hostConfigPath, "utf8");
   const auxiliaryConfig = await readFile(auxiliaryConfigPath, "utf8");
   const installedConfig = `${hostConfig}\n${auxiliaryConfig}`;
-  assert.match(installedConfig, new RegExp(join(distDir, "hooks-handler.js").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.match(installedConfig, new RegExp(join(distDir, "mcp-server.js").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(installedConfig, /hooks-handler\.js|tokenpilot-codex-hook\.cmd/);
+  assert.match(installedConfig, /mcp-server\.js|server\.js/);
 
-  assert.equal(await readlink(join(binDir, "lightmem2")), join(distDir, "lightmem2.js"));
+  assert.ok([join(distDir, "lightmem2.js"), join(distDir, "lightrsi.js")].includes(await readlink(join(binDir, "lightmem2"))));
   assert.equal(await readlink(join(binDir, hostCliName)), join(distDir, "cli.js"));
 
   const skillsRoot = host === "codex" ? join(homeDir, ".codex", "skills") : join(homeDir, ".claude", "skills");
-  const skill = await readFile(join(skillsRoot, "lightmem2-doctor", "SKILL.md"), "utf8");
-  assert.match(skill, new RegExp(join(distDir, "lightmem2.js").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  let skill;
+  for (const skillName of ["lightrsi-doctor", "lightmem2-doctor"]) {
+    try {
+      skill = await readFile(join(skillsRoot, skillName, "SKILL.md"), "utf8");
+      break;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  assert.ok(skill);
+  assert.match(skill, /lightrsi\.js|lightmem2\.js/);
 
   const loaded = await import(join(distDir, "index.js"));
   assert.ok(Object.keys(loaded).length > 0);

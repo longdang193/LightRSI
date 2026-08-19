@@ -6,6 +6,7 @@ import { TextDecoder } from "node:util";
 
 import {
   codexContextHistoryJournalPath,
+  MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES,
   parseCodexContextHistoryJournalLine,
   parseCodexContextHistoryJournalText,
   readCodexContextHistoryJournal,
@@ -31,6 +32,7 @@ export type CodexContextHistoryJournalTailRecoveryResult = {
     | "complete_record_missing_newline"
     | "invalid_trailing_record"
     | "invalid_prefix"
+    | "oversized"
     | "read_error";
   recoveredByteCount: number;
   tailSha256?: string;
@@ -325,7 +327,7 @@ async function syncAppendNewline(path: string): Promise<void> {
 
 async function journalTailState(
   path: string,
-): Promise<"missing" | "terminated" | "unterminated" | "read_error"> {
+): Promise<"missing" | "terminated" | "unterminated" | "oversized" | "read_error"> {
   let handle: Awaited<ReturnType<typeof open>>;
   try {
     handle = await open(path, "r");
@@ -335,6 +337,7 @@ async function journalTailState(
   try {
     const fileStat = await handle.stat();
     if (!fileStat.isFile()) return "read_error";
+    if (fileStat.size > MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES) return "oversized";
     if (fileStat.size === 0) return "terminated";
     const lastByte = Buffer.allocUnsafe(1);
     const read = await handle.read(lastByte, 0, 1, fileStat.size - 1);
@@ -359,6 +362,9 @@ export async function recoverCodexContextHistoryJournalTailLocked(
   const tailState = await journalTailState(path);
   if (tailState === "missing" || tailState === "terminated") {
     return { status: "not_needed", recoveredByteCount: 0 };
+  }
+  if (tailState === "oversized") {
+    return { status: "blocked", reason: "oversized", recoveredByteCount: 0 };
   }
   if (tailState === "read_error") {
     return { status: "blocked", reason: "read_error", recoveredByteCount: 0 };
@@ -449,7 +455,9 @@ export async function appendCodexContextHistoryJournalEntryLocked(
   await mkdir(dirname(path), { recursive: true });
   await recoverCodexContextHistoryJournalTailLocked(stateDir, sessionId);
   const current = await readCodexContextHistoryJournal(stateDir, sessionId);
-  if (current.readError || current.malformedLineCount > 0) {
+  if (current.oversized) {
+    await quarantineOversizedCodexContextHistoryJournalLocked(stateDir, sessionId);
+  } else if (current.readError || current.malformedLineCount > 0) {
     throw new Error(`Refusing to append to invalid Codex context-history journal for session ${sessionId}`);
   }
   const handle = await open(path, "a");
@@ -458,6 +466,25 @@ export async function appendCodexContextHistoryJournalEntryLocked(
     await handle.sync();
   } finally {
     await handle.close();
+  }
+}
+
+export async function quarantineOversizedCodexContextHistoryJournalLocked(
+  stateDir: string,
+  sessionId: string,
+): Promise<string | undefined> {
+  const path = codexContextHistoryJournalPath(stateDir, sessionId);
+  const quarantinePath = `${path}.oversized-${Date.now()}-${randomUUID()}.jsonl`;
+  try {
+    await rename(path, quarantinePath);
+    return quarantinePath;
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return undefined;
+    throw new Error(
+      `Unable to quarantine oversized Codex context-history journal (${MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES} bytes): ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
 }
 

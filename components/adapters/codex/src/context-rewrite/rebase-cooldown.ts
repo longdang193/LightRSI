@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { appendJsonl } from "@lightmem2/host-adapter";
+import { appendJsonl } from "@lightrsi/host-adapter";
 import {
   CODEX_REBASE_COOLDOWN_SCHEMA,
+  isCodexRebaseCooldownSchema,
   type CodexRebaseCooldown,
   type CodexRebaseCooldownNotice,
 } from "./types.js";
@@ -37,7 +38,7 @@ function timestampMs(value: unknown): number | undefined {
 function isCodexRebaseCooldown(value: unknown): value is CodexRebaseCooldown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const entry = value as Record<string, unknown>;
-  return entry.schema === CODEX_REBASE_COOLDOWN_SCHEMA
+  return isCodexRebaseCooldownSchema(entry.schema)
     && typeof entry.sessionId === "string"
     && typeof entry.planId === "string"
     && typeof entry.reason === "string"

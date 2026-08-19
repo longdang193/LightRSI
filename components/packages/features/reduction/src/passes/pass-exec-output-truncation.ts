@@ -1,9 +1,9 @@
-import type { ContextSegment, RuntimeTurnContext } from "@lightmem2/kernel";
+import type { ContextSegment, RuntimeTurnContext } from "@lightrsi/kernel";
 import type { ReductionPassHandler } from "../reduction/types.js";
 import {
   archiveContent,
   buildRecoveryHint,
-} from "@lightmem2/artifact-store";
+} from "@lightrsi/artifact-store";
 
 // =============================================================================
 // Per-Tool Threshold Configuration

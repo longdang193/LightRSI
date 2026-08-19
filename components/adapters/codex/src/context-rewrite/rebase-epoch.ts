@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
-import { appendJsonl } from "@lightmem2/host-adapter";
+import { appendJsonl } from "@lightrsi/host-adapter";
 import {
   CODEX_REBASE_EPOCH_SCHEMA,
+  isCodexRebaseEpochSchema,
   type CodexRebaseEpoch,
   type CodexRebaseAccounting,
   type CodexRebaseEpochStatus,
@@ -231,7 +232,7 @@ function canonicalCodexRebaseAccounting(value: unknown): CodexRebaseAccounting |
 function canonicalCodexRebaseEpoch(value: unknown): CodexRebaseEpoch | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const entry = value as Record<string, unknown>;
-  if (entry.schema !== CODEX_REBASE_EPOCH_SCHEMA
+  if (!isCodexRebaseEpochSchema(entry.schema)
     || !isNonBlankString(entry.epochId)
     || !isNonBlankString(entry.sessionId)
     || !isNonBlankString(entry.planId)

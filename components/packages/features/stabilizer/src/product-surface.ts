@@ -1,9 +1,9 @@
-import { extractContentText } from "@lightmem2/kernel";
+import { extractContentText } from "@lightrsi/kernel";
 import {
   registerProductSurfaceCacheAuditContribution,
   type ProductSurfaceCacheAuditRecord,
   type StabilityVisualSnapshot,
-} from "@lightmem2/product-surface";
+} from "@lightrsi/product-surface";
 import type { StabilizerRequestEnvelope } from "./contracts.js";
 import { diagnoseCacheAudit } from "./cache-audit-diagnosis.js";
 import {

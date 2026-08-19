@@ -1,10 +1,10 @@
-import { createTurnAnchor, buildTurnAbsId } from "@lightmem2/history";
+import { createTurnAnchor, buildTurnAbsId } from "@lightrsi/history";
 import type {
   RawSemanticTurnRecord,
   RawSemanticMessageRecord,
   RawSemanticToolCallRecord,
   RawSemanticToolResultRecord,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 
 const SUMMARY_MAX = 200;
 
@@ -145,7 +145,7 @@ export function buildRawSemanticTurnRecord(params: {
   };
 }
 
-import type { RawSemanticSnapshot } from "@lightmem2/history";
+import type { RawSemanticSnapshot } from "@lightrsi/history";
 
 /**
  * Assemble a RawSemanticSnapshot from per-turn records by concatenating their
@@ -155,7 +155,7 @@ import type { RawSemanticSnapshot } from "@lightmem2/history";
  */
 export function buildRawSemanticSnapshot(params: {
   sessionId: string;
-  turns: import("@lightmem2/history").RawSemanticTurnRecord[];
+  turns: import("@lightrsi/history").RawSemanticTurnRecord[];
 }): RawSemanticSnapshot {
   const { sessionId, turns } = params;
   const ordered = [...turns].sort((a, b) => a.turnSeq - b.turnSeq);

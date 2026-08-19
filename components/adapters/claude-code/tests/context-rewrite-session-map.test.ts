@@ -10,7 +10,7 @@ import {
 } from "../src/context-rewrite/session-map.js";
 
 async function tempStateDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "lightmem2-session-map-"));
+  return mkdtemp(join(tmpdir(), "lightrsi-session-map-"));
 }
 
 test("readSessionMap returns empty map when file is missing", async () => {

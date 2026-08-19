@@ -20,6 +20,8 @@ function record(overrides: Partial<ClaudeCodeCacheAuditRecord>): ClaudeCodeCache
     requestPromptCacheKey: "req-1",
     responsePromptCacheKey: "req-1",
     cachedInputTokens: 0,
+    inputTokens: 100,
+    cacheWriteTokens: 0,
     usage: { input_tokens: 100 },
     status: 200,
     ...overrides,

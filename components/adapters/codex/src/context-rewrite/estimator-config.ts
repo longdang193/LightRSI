@@ -2,7 +2,7 @@ import {
   createApiTaskStateEstimator,
   type TaskStateEstimator,
   type TaskStateEstimatorApiConfig,
-} from "@lightmem2/eviction";
+} from "@lightrsi/eviction";
 
 export type CodexEstimatorStatus = "disabled" | "incomplete" | "ready";
 export type CodexEstimatorRequiredField = "baseUrl" | "apiKey" | "model";
@@ -52,11 +52,12 @@ export type ResolveCodexEstimatorOptions = {
   createEstimator?: (config: TaskStateEstimatorApiConfig) => TaskStateEstimator;
 };
 
+const LIGHTRSI_PREFIX = "LIGHTRSI_TASK_STATE_ESTIMATOR_";
 const LIGHTMEM2_PREFIX = "LIGHTMEM2_TASK_STATE_ESTIMATOR_";
 const TOKENPILOT_PREFIX = "TOKENPILOT_TASK_STATE_ESTIMATOR_";
 
 function envValue(env: EstimatorEnvironment, suffix: string): string | undefined {
-  for (const prefix of [LIGHTMEM2_PREFIX, TOKENPILOT_PREFIX]) {
+  for (const prefix of [LIGHTRSI_PREFIX, LIGHTMEM2_PREFIX, TOKENPILOT_PREFIX]) {
     const value = env[`${prefix}${suffix}`]?.trim();
     if (value) return value;
   }

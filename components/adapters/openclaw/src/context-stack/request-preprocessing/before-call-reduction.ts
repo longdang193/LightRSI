@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { resolveReductionPasses, runReductionBeforeCall } from "@lightmem2/reduction";
-import type { ContextSegment, RuntimeModule } from "@lightmem2/kernel";
+import { resolveReductionPasses, runReductionBeforeCall } from "@lightrsi/reduction";
+import type { ContextSegment, RuntimeModule } from "@lightrsi/kernel";
 import type { ProxyReductionBinding } from "./reduction-context-types.js";
 
 export type BeforeCallPassToggles = {

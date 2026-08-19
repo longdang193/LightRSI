@@ -1,4 +1,4 @@
-import type { RuntimeContentBlock, RuntimeMessage, RuntimeToolCall, RuntimeToolResult } from "@lightmem2/kernel";
+import type { RuntimeContentBlock, RuntimeMessage, RuntimeToolCall, RuntimeToolResult } from "@lightrsi/kernel";
 
 export type HostMessage = RuntimeMessage;
 

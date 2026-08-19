@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { LIGHTMEM2_VERSION } from "@lightmem2/kernel";
+import { LIGHTMEM2_VERSION } from "@lightrsi/kernel";
 import {
   buildRecoveryContextSafePatch,
   MEMORY_FAULT_RECOVER_TOOL_NAME,
@@ -10,7 +10,7 @@ import {
   renderRecoveredArchive,
   resolveArchivePathAcrossSessions,
   resolveRecoveryStateDir,
-} from "@lightmem2/artifact-store";
+} from "@lightrsi/artifact-store";
 import { TOKENPILOT_RECOVERY_MCP_PRODUCT } from "./product-registration.js";
 
 export { TOKENPILOT_RECOVERY_MCP_PRODUCT } from "./product-registration.js";
@@ -18,7 +18,7 @@ export { TOKENPILOT_RECOVERY_MCP_PRODUCT } from "./product-registration.js";
 export const TOKENPILOT_MCP_SERVER_NAME = "tokenpilot_memory_fault_recover";
 export const DEFAULT_TOKENPILOT_MCP_STARTUP_TIMEOUT_SEC = 90;
 export const DEFAULT_TOKENPILOT_MCP_INSTALL_PROBE_TIMEOUT_MS = 15_000;
-export { MEMORY_FAULT_RECOVER_TOOL_NAME } from "@lightmem2/artifact-store";
+export { MEMORY_FAULT_RECOVER_TOOL_NAME } from "@lightrsi/artifact-store";
 
 export type TokenPilotMcpServerSpec = {
   serverName: string;
@@ -67,7 +67,7 @@ function isTokenPilotMcpPackageRoot(candidate: string): boolean {
   }
   try {
     const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
-    return parsed.name === "@lightmem2/mcp";
+    return parsed.name === "@lightrsi/mcp";
   } catch {
     return false;
   }
@@ -132,7 +132,7 @@ export function resolveTokenPilotMcpServerSpec(params?: {
   const distEntryPath = join(packageRoot, "dist", "server.js");
   if (params?.requireBuild !== false && !existsSync(distEntryPath)) {
     throw new Error(
-      `TokenPilot MCP server is not built yet: ${distEntryPath}. Run \`pnpm --dir <repo> --filter @lightmem2/mcp build\` first.`,
+      `TokenPilot MCP server is not built yet: ${distEntryPath}. Run \`pnpm --dir <repo> --filter @lightrsi/mcp build\` first.`,
     );
   }
   return buildTokenPilotMcpServerSpec(distEntryPath, params?.stateDir);
@@ -177,7 +177,7 @@ export function resolveTokenPilotMcpProbeServerSpec(params?: {
   }
   if (params?.requireBuild !== false) {
     throw new Error(
-      `TokenPilot MCP server is not built yet: ${distEntryPath}. Run \`pnpm --dir <repo> --filter @lightmem2/mcp build\` first.`,
+      `TokenPilot MCP server is not built yet: ${distEntryPath}. Run \`pnpm --dir <repo> --filter @lightrsi/mcp build\` first.`,
     );
   }
   return buildTokenPilotMcpServerSpec(distEntryPath, params?.stateDir);

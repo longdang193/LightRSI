@@ -18,7 +18,7 @@ test("dispatch supports context inspection and use host flow", async () => {
     const useHost = await dispatchCli(["use", "openclaw"]);
     assert.equal(useHost.text, "Default host = openclaw");
 
-    const persisted = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
+    const persisted = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
     assert.equal(persisted.lastActiveHost, "openclaw");
 
     const context1 = await dispatchCli(["context"]);
@@ -225,7 +225,7 @@ test("dispatch uses the default host and latest resolved codex session for hostl
     assert.match(report.text, /TokenPilot report:/);
     assert.match(report.text, /session: codex-session-1/);
 
-    const persisted = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
+    const persisted = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
     assert.equal(persisted.lastActiveHost, "codex");
     assert.equal(persisted.lastSessionByHost?.codex, "codex-session-1");
   } finally {
@@ -315,7 +315,7 @@ test("dispatch hostless report prefers the host with the latest stats over lastA
     assert.match(report.text, /Showing latest TokenPilot report from Codex/);
     assert.match(report.text, /session: codex-session-latest/);
 
-    const persisted = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
+    const persisted = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
     assert.equal(persisted.lastActiveHost, "codex");
     assert.equal(persisted.lastSessionByHost?.codex, "codex-session-latest");
   } finally {
@@ -383,7 +383,7 @@ test("dispatch canonicalizes pinned codex host session ids before persisting CLI
     const useContext = await dispatchCli(["use", "codex", "session", "codex-host-session-1"]);
     assert.equal(useContext.text, "Default context = codex / codex-synth-session-1");
 
-    const persisted = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
+    const persisted = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
     assert.equal(persisted.lastActiveHost, "codex");
     assert.equal(persisted.lastSessionByHost?.codex, "codex-synth-session-1");
   } finally {
@@ -441,7 +441,7 @@ test("dispatch uses the pinned default claude-code session for hostless visual",
     assert.equal(useContext.text, "Default context = claude-code / claude-session-pinned");
 
     const visual = await dispatchCli(["visual"]);
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /host=claude-code/);
     assert.match(visual.text, /session=claude-session-pinned/);
     assert.match(visual.text, /Claude Code: 0 session snapshots/);
@@ -533,7 +533,7 @@ test("dispatch keeps top-level visual multi-host even when a default host is sel
     assert.equal(useHost.text, "Default context = openclaw / openclaw-session-1");
 
     const visual = await dispatchCli(["visual"]);
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /host=openclaw/);
     assert.match(visual.text, /session=openclaw-session-1/);
     assert.match(visual.text, /OpenClaw: 1 session snapshots/);
@@ -607,7 +607,7 @@ test("dispatch uses the default openclaw host and latest session for hostless re
     assert.match(report.text, /TokenPilot report:/);
     assert.match(report.text, /session: openclaw-session-1/);
 
-    const persisted = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
+    const persisted = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
     assert.equal(persisted.lastActiveHost, "openclaw");
     assert.equal(persisted.lastSessionByHost?.openclaw, "openclaw-session-1");
   } finally {
@@ -701,7 +701,7 @@ test("dispatch exposes standalone lightmem2 visual when no default host is selec
     );
 
     const visual = await dispatchCli(["visual"]);
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /OpenClaw: 1 session snapshots/);
     assert.match(visual.text, /Codex: 0 session snapshots/);
     assert.match(visual.text, /Claude Code: 0 session snapshots/);

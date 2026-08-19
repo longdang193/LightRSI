@@ -1,4 +1,4 @@
-import { defaultPluginStateDir, pluginStateSubdir } from "@lightmem2/artifact-store";
+import { defaultPluginStateDir, pluginStateSubdir } from "@lightrsi/artifact-store";
 import type {
   NormalizedPluginHostConfig,
   NormalizedPluginRuntimeConfig,

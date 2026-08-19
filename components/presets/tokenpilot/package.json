@@ -1,8 +1,8 @@
 {
-  "name": "@lightmem2/tokenpilot",
+  "name": "@lightrsi/tokenpilot",
   "version": "0.1.0-beta.1",
   "private": true,
-  "lightmem2": {
+  "lightrsi": {
     "role": "preset"
   },
   "type": "module",
@@ -14,12 +14,12 @@
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
-    "@lightmem2/eviction": "workspace:*",
-    "@lightmem2/history": "workspace:*",
-    "@lightmem2/kernel": "workspace:*",
-    "@lightmem2/product-surface": "workspace:*",
-    "@lightmem2/reduction": "workspace:*",
-    "@lightmem2/runtime-core": "workspace:*",
-    "@lightmem2/stabilizer": "workspace:*"
+    "@lightrsi/eviction": "workspace:*",
+    "@lightrsi/history": "workspace:*",
+    "@lightrsi/kernel": "workspace:*",
+    "@lightrsi/product-surface": "workspace:*",
+    "@lightrsi/reduction": "workspace:*",
+    "@lightrsi/runtime-core": "workspace:*",
+    "@lightrsi/stabilizer": "workspace:*"
   }
 }

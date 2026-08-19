@@ -11,7 +11,7 @@ import {
 const SESSION = "sess-archive";
 
 async function tempStateDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "lightmem2-archive-"));
+  return mkdtemp(join(tmpdir(), "lightrsi-archive-"));
 }
 
 test("archives a tool_result and returns an opaque ref + dataKey", async () => {

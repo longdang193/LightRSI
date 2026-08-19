@@ -1,3 +1,9 @@
+import { homedir } from "node:os";
+
+export function userHomeDirectory(): string {
+  return process.env.HOME?.trim() || process.env.USERPROFILE?.trim() || homedir();
+}
+
 export * from "./model/host-message.js";
 export * from "./model/host-request.js";
 export * from "./model/host-response.js";

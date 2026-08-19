@@ -1,4 +1,4 @@
-import type { ApiFamily, RuntimeTurnContext } from "@lightmem2/kernel";
+import type { ApiFamily, RuntimeTurnContext } from "@lightrsi/kernel";
 
 export const ROUTING_TIERS = ["simple", "standard", "complex", "reasoning"] as const;
 export type RoutingTier = (typeof ROUTING_TIERS)[number];
@@ -47,7 +47,7 @@ export type {
   ReductionDecision,
   ReductionInstruction,
   ReductionStrategy,
-} from "@lightmem2/reduction";
+} from "@lightrsi/reduction";
 
 export type {
   EvictionBlock,
@@ -60,4 +60,4 @@ export type {
   TaskStateEstimatorInput,
   TaskStateEstimatorOutput,
   TaskStateTransition,
-} from "@lightmem2/eviction";
+} from "@lightrsi/eviction";

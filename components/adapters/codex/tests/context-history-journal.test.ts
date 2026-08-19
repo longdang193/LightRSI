@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -12,10 +12,36 @@ import {
   buildCodexEffectiveHistory,
   codexContextHistoryJournalPath,
   codexContextHistoryJournalLockPath,
+  MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES,
   loadCodexContextHistoryJournal,
   readCodexContextHistoryJournal,
   recoverCodexContextHistoryJournalTail,
 } from "../src/context-history/index.js";
+
+test("CDH-01 quarantines an oversized journal before appending new history", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-context-history-oversized-"));
+  const sessionId = "oversized-session";
+  const path = codexContextHistoryJournalPath(stateDir, sessionId);
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, Buffer.alloc(MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES + 1, 0x20));
+
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-after-quarantine",
+      payload: { model: "combo-high", input: [{ role: "user", content: "fresh" }] },
+      status: "pending",
+    });
+
+    const entries = await readCodexContextHistoryJournal(stateDir, sessionId);
+    assert.equal(entries.malformedLineCount, 0);
+    assert.equal(entries.entries.length, 1);
+    assert.equal((await readdir(dirname(path))).filter((name) => name.includes(".oversized-")).length, 1);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
 
 async function withTempState(
   fn: (stateDir: string) => Promise<void>,

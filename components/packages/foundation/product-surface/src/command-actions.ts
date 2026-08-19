@@ -1,4 +1,4 @@
-import type { ProductSurfaceConfigAdapter, ProductSurfaceHostBridge } from "@lightmem2/host-adapter";
+import type { ProductSurfaceConfigAdapter, ProductSurfaceHostBridge } from "@lightrsi/host-adapter";
 import type { ProductSurfaceIdentity } from "./identity.js";
 import { createEvictionHandler } from "./commands/runtime-eviction.js";
 import { createModeHandler } from "./commands/runtime-mode.js";

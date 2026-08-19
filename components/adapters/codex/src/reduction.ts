@@ -1,12 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import type { HostPayloadCodec, HostRequestEnvelope } from "@lightmem2/host-adapter";
-import type { ContextSegment, RuntimeTurnContext } from "@lightmem2/kernel";
+import type { HostPayloadCodec, HostRequestEnvelope } from "@lightrsi/host-adapter";
+import type { ContextSegment, RuntimeTurnContext } from "@lightrsi/kernel";
 import {
   analyzeExecOutputTruncation,
   analyzeToolPayloadTrim,
   resolveReductionPasses,
   runReductionBeforeCall,
-} from "@lightmem2/reduction";
+} from "@lightrsi/reduction";
 import type { TokenPilotCodexConfig } from "./config.js";
 import { loadCodexSessionSnapshot } from "./session-state.js";
 

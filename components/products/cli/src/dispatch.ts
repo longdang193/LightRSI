@@ -1,4 +1,4 @@
-import type { ProductCommandResult } from "@lightmem2/host-adapter";
+import type { ProductCommandResult } from "@lightrsi/host-adapter";
 import {
   readCliContextState,
   updateCliContextState,
@@ -62,7 +62,7 @@ async function resolveTarget(argv: string[]): Promise<{
   if (parseBooleanContextCommand(argv)) {
     const state = await readCliContextState();
     const lines = [
-      "LightMem2 CLI context:",
+      "LightRSI CLI context:",
       `- lastActiveHost: ${state.lastActiveHost ?? "(unset)"}`,
       ...CLI_HOSTS.map((host) => `- ${host.hostId} session: ${state.lastSessionByHost?.[host.hostId] ?? "(unset)"}`),
       ...CLI_HOSTS.map((host) => {

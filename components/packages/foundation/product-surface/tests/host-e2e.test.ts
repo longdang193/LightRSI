@@ -5,7 +5,7 @@ import type {
   ProductSurfaceConfigAdapter,
   ProductSurfaceHostBridge,
   ProductCommandSpec,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import { registerProductSurfaceCommands } from "../src/index.js";
 import { TEST_PRODUCT_SURFACE_IDENTITY } from "./product-identity-fixture.js";
 

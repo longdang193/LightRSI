@@ -1,4 +1,4 @@
-import type { ContextSegment } from "@lightmem2/kernel";
+import type { ContextSegment } from "@lightrsi/kernel";
 import type { ReductionPassHandler } from "../reduction/types.js";
 
 type HtmlSlimmingOptions = {

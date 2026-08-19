@@ -33,10 +33,10 @@ test("returns undefined when enabled but missing apiKey", () => {
 test("assembles from env when config is absent", () => {
   const estimator = resolveClaudeTaskStateEstimator({
     env: {
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "m-env",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: "m-env",
     },
   });
   assert.ok(estimator);
@@ -50,10 +50,10 @@ test("normalized config preserves env enablement when enabled is absent", () => 
       evictionLookaheadTurns: 3,
     },
     env: {
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "m-env",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: "m-env",
     },
   });
   assert.ok(estimator);
@@ -63,10 +63,10 @@ test("explicit false disables env-configured estimator", () => {
   const estimator = resolveClaudeTaskStateEstimator({
     config: { enabled: false },
     env: {
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "m-env",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: "m-env",
     },
   });
   assert.equal(estimator, undefined);
@@ -76,10 +76,10 @@ test("config inspection follows env fallback without exposing credentials", () =
   const status = inspectClaudeTaskStateEstimatorConfig({
     config: {},
     env: {
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "m-env",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL: "https://api.example.com",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY: "sk-env",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: "m-env",
     },
   });
   assert.deepEqual(status, { enabled: true, configured: true });
@@ -98,11 +98,37 @@ test("falls back to TOKENPILOT_ env names", () => {
   assert.ok(estimator);
 });
 
+test("reads legacy LIGHTMEM2_ env names before TOKENPILOT_ names", () => {
+  const estimator = resolveClaudeTaskStateEstimator({
+    env: {
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://legacy.example.com",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "legacy-key",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "legacy-model",
+      TOKENPILOT_TASK_STATE_ESTIMATOR_ENABLED: "false",
+    },
+  });
+  assert.ok(estimator);
+});
+
+test("prefers LIGHTRSI_ env names over legacy platform names", () => {
+  const estimator = resolveClaudeTaskStateEstimator({
+    env: {
+      LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "false",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://legacy.example.com",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "legacy-key",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "legacy-model",
+    },
+  });
+  assert.equal(estimator, undefined);
+});
+
 test("explicit config wins over env", () => {
   // env disables, config enables + configures → config wins → estimator built
   const estimator = resolveClaudeTaskStateEstimator({
     config: { enabled: true, baseUrl: "https://cfg.example.com", apiKey: "sk-cfg", model: "m-cfg" },
-    env: { LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "false" },
+    env: { LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "false" },
   });
   assert.ok(estimator);
 });
@@ -142,7 +168,7 @@ test("config estimator fields win over env fallback", () => {
       evictionLookaheadTurns: 7,
     },
     env: {
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS: "99",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS: "99",
     },
   });
   // config-present wins; the estimator assembles without throwing.

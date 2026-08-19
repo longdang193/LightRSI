@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
   type ContextMutationPlan,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 
 import type { CodexEffectiveHistoryItem, JsonObject } from "../src/context-history/types.js";
 import {

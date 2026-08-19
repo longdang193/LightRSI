@@ -2,7 +2,7 @@ import {
   codexProgramCallerId,
   codexReplayPairRef,
 } from "../context-history/replayability.js";
-import type { TaskStateEstimatorOutput } from "@lightmem2/eviction";
+import type { TaskStateEstimatorOutput } from "@lightrsi/eviction";
 import { cloneJson, stableInputKey } from "./shared.js";
 import type {
   CodexEffectiveHistory,

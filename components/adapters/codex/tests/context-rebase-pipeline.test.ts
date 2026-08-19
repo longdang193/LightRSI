@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { reserveUnusedPort } from "@lightmem2/host-adapter";
+import { reserveUnusedPort } from "@lightrsi/host-adapter";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import {

@@ -7,7 +7,7 @@ import type {
   HostSessionResolver,
   HostStreamCodec,
   HostStreamSnapshot,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 
 type OpenClawHostAdapterDeps = {
   resolveSessionIdForPayload?: ((payload: any) => string | undefined) | undefined;

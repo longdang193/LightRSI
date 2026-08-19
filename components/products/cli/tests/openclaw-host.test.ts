@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { createProductSurfaceCommandHandler } from "@lightmem2/product-surface";
-import { TOKENPILOT_PRODUCT_SURFACE_IDENTITY } from "@lightmem2/tokenpilot";
+import { createProductSurfaceCommandHandler } from "@lightrsi/product-surface";
+import { TOKENPILOT_PRODUCT_SURFACE_IDENTITY } from "@lightrsi/tokenpilot";
 import { createOpenClawCliBridge } from "../src/hosts/openclaw.js";
 
 test("openclaw CLI bridge reports empty-state and supported shared commands", async () => {

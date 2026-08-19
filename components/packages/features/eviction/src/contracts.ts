@@ -1,4 +1,4 @@
-import type { CanonicalTranscriptState } from "@lightmem2/history";
+import type { CanonicalTranscriptState } from "@lightrsi/history";
 
 export type LifecyclePlanningResult = {
   enabled: boolean;

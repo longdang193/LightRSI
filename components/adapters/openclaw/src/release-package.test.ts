@@ -23,12 +23,12 @@ test("release package loads without monorepo workspace dependencies", async () =
       },
     });
     archivePath = result.stdout.trim().split("\n").at(-1) ?? "";
-    assert.match(archivePath, /lightmem2-openclaw-adapter-.*\.tgz$/);
+    assert.match(archivePath, /lightrsi-openclaw-adapter-.*\.tgz$/);
 
     await execFileAsync("tar", ["-xzf", archivePath, "-C", extractDir]);
     const installedDir = join(extractDir, "package");
     const manifest = JSON.parse(await readFile(join(installedDir, "package.json"), "utf8"));
-    assert.equal(manifest.name, "@lightmem2/openclaw-adapter");
+    assert.equal(manifest.name, "@lightrsi/openclaw-adapter");
     assert.equal(manifest.dependencies, undefined);
     assert.equal(manifest.devDependencies, undefined);
 

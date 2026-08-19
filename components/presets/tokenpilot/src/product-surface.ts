@@ -1,4 +1,4 @@
-import type { ProductSurfaceIdentity } from "@lightmem2/product-surface";
+import type { ProductSurfaceIdentity } from "@lightrsi/product-surface";
 
 export const TOKENPILOT_PRODUCT_SURFACE_IDENTITY = {
   displayName: "TokenPilot",

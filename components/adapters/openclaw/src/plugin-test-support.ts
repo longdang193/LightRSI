@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createPolicyModule } from "@lightmem2/tokenpilot";
+import { createPolicyModule } from "@lightrsi/tokenpilot";
 import {
   estimatePayloadInputChars,
   extractInputText,
@@ -48,8 +48,8 @@ import {
   createOpenClawPayloadCodec,
   createOpenClawSessionResolver,
 } from "./context-stack/integration/openclaw-host-adapter.js";
-import { isReductionPassEnabled } from "@lightmem2/reduction";
-import { loadOrderedTurnAnchors, loadSegmentAnchorByCallId } from "@lightmem2/history";
+import { isReductionPassEnabled } from "@lightrsi/reduction";
+import { loadOrderedTurnAnchors, loadSegmentAnchorByCallId } from "@lightrsi/history";
 import {
   appendJsonl,
   appendForwardedInputDump,
@@ -63,7 +63,7 @@ import {
   appendStabilityVisualSnapshot,
   readVisualSessionData,
   readVisualSessionList,
-} from "@lightmem2/product-surface";
+} from "@lightrsi/product-surface";
 
 export const TEST_WORKSPACE_DIR = "/tmp/lightmem2-openclaw-adapter-plugin-tests";
 

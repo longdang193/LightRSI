@@ -16,7 +16,7 @@ export async function renderClaudeCodeSessionVisual(
 
   const bindings = await loadClaudeCodeRecentTurnBindings(stateDir, topology.sessionId, 8);
   const lines = [
-    "TokenPilot Claude Code visual:",
+    "LightRSI visual:",
     `- session: ${topology.sessionId}`,
     `- model: ${topology.latestModel ?? "unknown"}`,
     `- workspace: ${topology.workspaceHint ?? "unknown"}`,

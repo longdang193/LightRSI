@@ -5,7 +5,7 @@ import {
   startVisualServer,
   readVisualSessionList,
   type VisualHostSource,
-} from "@lightmem2/product-surface";
+} from "@lightrsi/product-surface";
 import { resolveCliVisualHosts } from "./registry.js";
 import {
   ensureDetachedVisualDaemon,
@@ -79,7 +79,7 @@ export async function handleStandaloneVisualCommandWithSelection(params: {
   }));
   return {
     text: [
-      `LightMem2 visual: ${query.toString()}`,
+      `LightRSI visual: ${query.toString()}`,
       `- hosts: ${hosts.length}`,
       ...hostLines,
       "- open this URL in your browser, then switch hosts from the sidebar",

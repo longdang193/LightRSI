@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TaskStateEstimator } from "@lightmem2/eviction";
+import type { TaskStateEstimator } from "@lightrsi/eviction";
 import {
   codexEstimatorDiagnostic,
   codexEstimatorStatusView,

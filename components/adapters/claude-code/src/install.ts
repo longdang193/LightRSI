@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { LIGHTMEM2_VERSION } from "@lightmem2/kernel";
+import { LIGHTRSI_VERSION } from "@lightrsi/kernel";
 import {
   DEFAULT_TOKENPILOT_MCP_INSTALL_PROBE_TIMEOUT_MS,
   DEFAULT_TOKENPILOT_MCP_STARTUP_TIMEOUT_SEC,
@@ -25,7 +25,7 @@ import {
   defaultClaudeCodeSkillBridgeDir,
   installCommandSkillBridge,
 } from "../../shared/command-skill-bridge.js";
-import { installLightmem2CliBin } from "../../shared/cli-bin-install.js";
+import { installLightRsiCliBin } from "../../shared/cli-bin-install.js";
 import { rememberCliHostPathOverrides } from "../../shared/cli-context.js";
 import { installHostCliBin } from "../../shared/host-cli-bin-install.js";
 import { rewriteInstalledClaudeVisibleModel } from "./provider-profile.js";
@@ -44,7 +44,7 @@ function isClaudeCodeAdapterRoot(candidate: string): boolean {
   }
   try {
     const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
-    return parsed.name === "@lightmem2/claude-code-adapter";
+    return parsed.name === "@lightrsi/claude-code-adapter";
   } catch {
     return false;
   }
@@ -81,17 +81,20 @@ function adapterRootFromHere(moduleDir = __dirname): string {
   return join(process.cwd(), "components", "adapters", "claude-code");
 }
 
-function shellQuote(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+function shellQuote(value: string, platform = process.platform): string {
+  const escaped = platform === "win32"
+    ? value.replace(/"/g, "\\\"")
+    : value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+  return `"${escaped}"`;
 }
 
-function tokenPilotHookCommand(adapterRoot: string): string {
+function tokenPilotHookCommand(adapterRoot: string, platform = process.platform): string {
   const distHandler = resolve(adapterRoot, "dist", "hooks-handler.js");
   if (existsSync(distHandler)) {
-    return `${shellQuote(process.execPath)} ${shellQuote(distHandler)}`;
+    return `${shellQuote(process.execPath, platform)} ${shellQuote(distHandler, platform)}`;
   }
   const srcHandler = resolve(adapterRoot, "src", "hooks-handler.ts");
-  return `${shellQuote(process.execPath)} --import tsx ${shellQuote(srcHandler)}`;
+  return `${shellQuote(process.execPath, platform)} --import tsx ${shellQuote(srcHandler, platform)}`;
 }
 
 export function resolveClaudeCodeHookCommandForInstall(moduleDir = __dirname): string {
@@ -172,6 +175,7 @@ export async function installClaudeCodeTokenPilot(params?: {
   mcpConfigPath?: string;
   probeMcp?: boolean;
   cliBinDir?: string;
+  cliContextPath?: string;
 }): Promise<{
   settingsPath: string;
   mcpConfigPath: string;
@@ -303,7 +307,7 @@ export async function installClaudeCodeTokenPilot(params?: {
     host: "claude-code",
     style: "claude",
   });
-  const cliBin = await installLightmem2CliBin({
+  const cliBin = await installLightRsiCliBin({
     adapterRoot: adapterRootFromHere(),
     binDir: params?.cliBinDir,
   });
@@ -318,7 +322,7 @@ export async function installClaudeCodeTokenPilot(params?: {
     tokenPilotConfigPath,
     hostConfigPath: settingsPath,
     hostAuxConfigPath: mcpConfigPath,
-  });
+  }, params?.cliContextPath);
   const mcpProbe = params?.probeMcp === false
     ? {
       ok: false,
@@ -329,7 +333,7 @@ export async function installClaudeCodeTokenPilot(params?: {
     : await probeTokenPilotMcpServer(mcpProbeServer, {
       timeoutMs: DEFAULT_TOKENPILOT_MCP_INSTALL_PROBE_TIMEOUT_MS,
       clientName: "tokenpilot-claude-code-install",
-      clientVersion: LIGHTMEM2_VERSION,
+      clientVersion: LIGHTRSI_VERSION,
     });
   return {
     settingsPath,

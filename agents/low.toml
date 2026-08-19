@@ -1,0 +1,17 @@
+name = "low"
+model_provider = "9router"
+model = "combo-low"
+rank = 10
+description = """
+Lower-cost capability profile.
+Use when current task contract is bounded, low-complexity, and low-risk, regardless
+of task function.
+"""
+
+developer_instructions = """
+Complete only delegated narrow task.
+
+Do not expand scope, make architectural decisions, perform broad refactors, or
+spawn child agents unless parent explicitly requests it. Return concise result to
+parent.
+"""

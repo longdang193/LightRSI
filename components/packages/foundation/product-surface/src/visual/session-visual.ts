@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { defaultPluginStateDir } from "@lightmem2/artifact-store";
+import { defaultPluginStateDir } from "@lightrsi/artifact-store";
 import {
   readVisualSessionData,
   readVisualSessionDataWithOptions,
@@ -321,7 +321,7 @@ export async function handleVisual(
   const visualServer = await ensureVisualServer(stateDir);
   const sessions = await readVisualSessionList(stateDir);
   const lines = [
-    `LightMem2 visual: ${visualServer.url}`,
+    `LightRSI visual: ${visualServer.url}`,
     `- sessions with snapshots: ${sessions.length}`,
     "- open this URL in your browser to inspect reduction and eviction before/after views",
   ];

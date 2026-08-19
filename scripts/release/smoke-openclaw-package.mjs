@@ -21,7 +21,7 @@ try {
   const packageDir = join(extractDir, "package");
   const manifest = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8"));
 
-  assert.equal(manifest.name, "@lightmem2/openclaw-adapter");
+  assert.equal(manifest.name, "@lightrsi/openclaw-adapter");
   assert.equal(manifest.version, expectedVersion);
   assert.equal(manifest.dependencies, undefined);
   assert.equal(manifest.devDependencies, undefined);

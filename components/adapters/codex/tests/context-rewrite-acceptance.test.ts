@@ -12,8 +12,8 @@ import {
   type AcceptancePhase,
   type AcceptanceSentinels,
   type MockUpstreamResponse,
-} from "@lightmem2/host-adapter";
-import { loadSessionTaskRegistry } from "@lightmem2/history";
+} from "@lightrsi/host-adapter";
+import { loadSessionTaskRegistry } from "@lightrsi/history";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { createConsoleLogger } from "../src/logger.js";

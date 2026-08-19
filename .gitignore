@@ -14,8 +14,8 @@ components/adapters/claude-code/*.tgz
 release-artifacts/
 
 # Local-only logo exports
-figs/lightmem2_logo_long_running.png
-figs/lightmem2_logo_long_running.svg
+figs/lightrsi_logo_long_running.png
+figs/lightrsi_logo_long_running.svg
 website/public/images/logo-long-running.png
 website/public/images/logo-long-running.svg
 

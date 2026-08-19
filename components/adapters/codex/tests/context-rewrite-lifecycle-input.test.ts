@@ -4,8 +4,8 @@ import test from "node:test";
 import {
   planLifecycleEviction,
   type TaskStateEstimator,
-} from "@lightmem2/eviction";
-import { createEmptySessionTaskRegistry } from "@lightmem2/history";
+} from "@lightrsi/eviction";
+import { createEmptySessionTaskRegistry } from "@lightrsi/history";
 
 import type {
   CodexEffectiveHistoryItem,
@@ -20,6 +20,7 @@ import {
   buildCodexLifecycleInput,
   codexSharedContextRewriteBackend,
 } from "../src/context-rewrite/index.js";
+import { resolveCodexTaskStateEstimator } from "../src/context-rewrite/estimator-config.js";
 
 const SESSION_ID = "codex-lifecycle-input-session";
 
@@ -56,6 +57,34 @@ function sourceView(params: {
     reasonCodes: params.reasonCodes ?? [],
   };
 }
+
+test("estimator environment uses LightRSI, LightMem2, then TokenPilot precedence", () => {
+  const result = resolveCodexTaskStateEstimator({
+    env: {
+      LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL: "https://lightrsi.example",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://lightmem2.example",
+      TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL: "https://tokenpilot.example",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: "lightrsi-model",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "lightmem2-model",
+      TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL: "tokenpilot-model",
+    },
+  });
+
+  assert.equal(result.config.baseUrl, "https://lightrsi.example");
+  assert.equal(result.config.model, "lightrsi-model");
+});
+
+test("estimator environment falls back through compatibility prefixes", () => {
+  const result = resolveCodexTaskStateEstimator({
+    env: {
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://lightmem2.example",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "lightmem2-model",
+    },
+  });
+
+  assert.equal(result.config.baseUrl, "https://lightmem2.example");
+  assert.equal(result.config.model, "lightmem2-model");
+});
 
 function pendingRequest(overrides: Partial<CodexRequestJournalEntry> = {}): CodexRequestJournalEntry {
   return {

@@ -56,7 +56,7 @@ function runPack(packageDir, cacheDir) {
 }
 
 async function main() {
-  const packDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-pack-"));
+  const packDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-pack-"));
   try {
     const packageDir = join(packDir, "package");
     const distDir = join(packageDir, "dist");
@@ -64,6 +64,10 @@ async function main() {
     for (const file of ["index.js", "cli.js", "hooks-handler.js", "install-codex.js"]) {
       await copyFile(join(adapterDir, "dist", file), join(distDir, file));
     }
+    await copyFile(
+      resolve(repoRoot, "components/products/cli/dist/cli.js"),
+      join(distDir, "lightrsi.js"),
+    );
     await copyFile(
       resolve(repoRoot, "components/products/cli/dist/cli.js"),
       join(distDir, "lightmem2.js"),

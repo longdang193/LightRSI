@@ -1,7 +1,7 @@
 import {
   appendContextRewriteEvent,
   type ContextRewriteEventInput,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 
 type CodexContextRewriteEventInput = Omit<
   ContextRewriteEventInput,

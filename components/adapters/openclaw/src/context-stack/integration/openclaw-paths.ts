@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { userHomeDirectory } from "@lightrsi/host-adapter";
 import { join } from "node:path";
 
 export function resolveOpenClawStateRoot(): string {
@@ -7,7 +7,7 @@ export function resolveOpenClawStateRoot(): string {
     String(process.env.OPENCLAW_STATE_DIR ?? "").trim()
     || String(process.env.OPENCLAW_HOME ?? "").trim();
   if (explicit) return explicit;
-  return join(homedir(), ".openclaw");
+  return join(userHomeDirectory(), ".openclaw");
 }
 
 export function resolveOpenClawConfigPath(): string {

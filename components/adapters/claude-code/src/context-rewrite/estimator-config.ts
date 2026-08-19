@@ -1,9 +1,10 @@
-import { createApiTaskStateEstimator, type TaskStateEstimator } from "@lightmem2/eviction";
+import { createApiTaskStateEstimator, type TaskStateEstimator } from "@lightrsi/eviction";
 
-// Read an env var by primary name, falling back to a secondary (TOKENPILOT_) name,
-// mirroring OpenClaw's config-normalize convention.
+// Prefer the current platform namespace, then the previous platform namespace,
+// and finally the preset-specific compatibility namespace.
 function envValue(env: NodeJS.ProcessEnv, primary: string, fallback: string): string {
-  const raw = env[primary] ?? env[fallback] ?? "";
+  const legacy = primary.replace(/^LIGHTRSI_/, "LIGHTMEM2_");
+  const raw = env[primary] ?? env[legacy] ?? env[fallback] ?? "";
   return typeof raw === "string" ? raw.trim() : "";
 }
 
@@ -41,20 +42,20 @@ function resolveEstimatorConnection(params?: {
   const config = params?.config ?? {};
   const env = params?.env ?? process.env;
   const enabled =
-    config.enabled ?? isTruthy(envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED", "TOKENPILOT_TASK_STATE_ESTIMATOR_ENABLED"));
+    config.enabled ?? isTruthy(envValue(env, "LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED", "TOKENPILOT_TASK_STATE_ESTIMATOR_ENABLED"));
   const baseUrlRaw =
     config.baseUrl && config.baseUrl.trim().length > 0
       ? config.baseUrl.trim()
-      : envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL", "TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL");
+      : envValue(env, "LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL", "TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL");
   const baseUrl = baseUrlRaw ? baseUrlRaw.replace(/\/+$/, "") : "";
   const apiKey =
     config.apiKey && config.apiKey.trim().length > 0
       ? config.apiKey.trim()
-      : envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY", "TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY");
+      : envValue(env, "LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY", "TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY");
   const model =
     config.model && config.model.trim().length > 0
       ? config.model.trim()
-      : envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL", "TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL");
+      : envValue(env, "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL", "TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL");
   return {
     enabled,
     configured: Boolean(baseUrl && apiKey && model),
@@ -98,31 +99,31 @@ export function resolveClaudeTaskStateEstimator(params?: {
   // (createApiTaskStateEstimator throws without all three).
   if (!connection.configured) return undefined;
 
-  const timeoutRaw = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_TIMEOUT_MS", "TOKENPILOT_TASK_STATE_ESTIMATOR_TIMEOUT_MS");
+  const timeoutRaw = envValue(env, "LIGHTRSI_TASK_STATE_ESTIMATOR_TIMEOUT_MS", "TOKENPILOT_TASK_STATE_ESTIMATOR_TIMEOUT_MS");
   const parsedTimeout = Number.parseInt(timeoutRaw, 10);
   const requestTimeoutMs =
     config.requestTimeoutMs ?? (Number.isFinite(parsedTimeout) ? Math.max(1000, parsedTimeout) : undefined);
 
-  const batchTurnsRaw = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_BATCH_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_BATCH_TURNS");
+  const batchTurnsRaw = envValue(env, "LIGHTRSI_TASK_STATE_ESTIMATOR_BATCH_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_BATCH_TURNS");
   const parsedBatchTurns = Number.parseInt(batchTurnsRaw, 10);
   const batchTurns =
     config.batchTurns ?? (Number.isFinite(parsedBatchTurns) ? Math.max(1, parsedBatchTurns) : undefined);
 
-  const lookaheadRaw = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS");
+  const lookaheadRaw = envValue(env, "LIGHTRSI_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVICTION_LOOKAHEAD_TURNS");
   const parsedLookahead = Number.parseInt(lookaheadRaw, 10);
   const evictionLookaheadTurns =
     config.evictionLookaheadTurns ?? (Number.isFinite(parsedLookahead) ? Math.max(1, parsedLookahead) : undefined);
 
-  const envInputMode = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_INPUT_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_INPUT_MODE");
+  const envInputMode = envValue(env, "LIGHTRSI_TASK_STATE_ESTIMATOR_INPUT_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_INPUT_MODE");
   const inputMode =
     config.inputMode ??
     (envInputMode === "sliding_window" || envInputMode === "completed_summary_plus_active_turns" ? envInputMode : undefined);
 
-  const envLifecycleMode = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_LIFECYCLE_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_LIFECYCLE_MODE");
+  const envLifecycleMode = envValue(env, "LIGHTRSI_TASK_STATE_ESTIMATOR_LIFECYCLE_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_LIFECYCLE_MODE");
   const lifecycleMode =
     config.lifecycleMode ?? (envLifecycleMode === "decoupled" || envLifecycleMode === "coupled" ? envLifecycleMode : undefined);
 
-  const envEvidenceMode = envValue(env, "LIGHTMEM2_TASK_STATE_ESTIMATOR_EVIDENCE_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVIDENCE_MODE");
+  const envEvidenceMode = envValue(env, "LIGHTRSI_TASK_STATE_ESTIMATOR_EVIDENCE_MODE", "TOKENPILOT_TASK_STATE_ESTIMATOR_EVIDENCE_MODE");
   const evidenceMode =
     config.evidenceMode ?? (envEvidenceMode === "two_state" || envEvidenceMode === "three_state" ? envEvidenceMode : undefined);
 

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createPromptingDistiller } from "@lightmem2/memory";
+import { createPromptingDistiller } from "@lightrsi/memory";
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");

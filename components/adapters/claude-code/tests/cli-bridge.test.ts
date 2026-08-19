@@ -11,7 +11,7 @@ import {
 } from "../src/config.js";
 
 test("claude-code cli bridge exposes only the supported Claude Code command surface", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-bridge-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-bridge-"));
   const originalHome = process.env.HOME;
   const originalConfigPath = process.env.OPENCLAW_CONFIG_PATH;
   process.env.HOME = dir;
@@ -44,7 +44,7 @@ test("claude-code cli bridge exposes only the supported Claude Code command surf
     assert.match(doctor.text, /TokenPilot Claude Code doctor:/);
 
     const visual = await handleCommand({ args: "visual" });
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /host=claude-code/);
 
     const report = await handleCommand({ args: "report" });
@@ -98,7 +98,7 @@ test("claude-code cli bridge exposes only the supported Claude Code command surf
 });
 
 test("claude-code cli bridge follows custom config env paths instead of the default home paths", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-bridge-custom-paths-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-bridge-custom-paths-"));
   const originalHome = process.env.HOME;
   const originalSettingsPath = process.env.CLAUDE_CODE_SETTINGS_PATH;
   const originalMcpConfigPath = process.env.CLAUDE_CODE_MCP_CONFIG_PATH;
@@ -145,11 +145,13 @@ test("claude-code cli bridge follows custom config env paths instead of the defa
 });
 
 test("claude-code cli bridge visual opens the shared browser visual pinned to the Claude session", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-bridge-visual-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-bridge-visual-"));
   const originalHome = process.env.HOME;
   const originalConfigPath = process.env.OPENCLAW_CONFIG_PATH;
+  const originalTokenPilotConfigPath = process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
   process.env.HOME = dir;
   process.env.OPENCLAW_CONFIG_PATH = join(dir, ".openclaw", "openclaw.json");
+  process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = join(dir, ".claude", "tokenpilot.json");
   try {
     const stateDir = join(dir, ".claude", "tokenpilot-state", "tokenpilot");
     const codexStateDir = join(dir, ".codex", "tokenpilot-state", "tokenpilot");
@@ -223,7 +225,7 @@ test("claude-code cli bridge visual opens the shared browser visual pinned to th
 
     const { handleCommand } = createClaudeCodeCliBridge({ host: "claude-code" });
     const visual = await handleCommand({ args: "visual" });
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /host=claude-code/);
     assert.match(visual.text, /session=session-1/);
     assert.match(visual.text, /Claude Code: 0 session snapshots/);
@@ -238,14 +240,21 @@ test("claude-code cli bridge visual opens the shared browser visual pinned to th
     } else {
       process.env.OPENCLAW_CONFIG_PATH = originalConfigPath;
     }
+    if (originalTokenPilotConfigPath === undefined) {
+      delete process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
+    } else {
+      process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = originalTokenPilotConfigPath;
+    }
     await rm(dir, { recursive: true, force: true });
   }
 });
 
 test("claude-code cli bridge report explains when a session has no recorded savings yet", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-bridge-report-empty-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-bridge-report-empty-"));
   const originalHome = process.env.HOME;
+  const originalTokenPilotConfigPath = process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
   process.env.HOME = dir;
+  process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = join(dir, ".claude", "tokenpilot.json");
   try {
     const stateDir = join(dir, ".claude", "tokenpilot-state", "tokenpilot");
     await mkdir(join(stateDir, "ux-effects"), { recursive: true });
@@ -272,12 +281,17 @@ test("claude-code cli bridge report explains when a session has no recorded savi
     } else {
       process.env.HOME = originalHome;
     }
+    if (originalTokenPilotConfigPath === undefined) {
+      delete process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
+    } else {
+      process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = originalTokenPilotConfigPath;
+    }
     await rm(dir, { recursive: true, force: true });
   }
 });
 
 test("claude-code cli bridge persists only supported settings across reload", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-bridge-persist-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-bridge-persist-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -307,9 +321,11 @@ test("claude-code cli bridge persists only supported settings across reload", as
 });
 
 test("claude-code mode writes only claude-supported fields", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-bridge-mode-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-bridge-mode-"));
   const originalHome = process.env.HOME;
+  const originalTokenPilotConfigPath = process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
   process.env.HOME = dir;
+  process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = join(dir, ".claude", "tokenpilot.json");
   try {
     const bridge = createClaudeCodeCliBridge({ host: "claude-code" });
 
@@ -339,6 +355,11 @@ test("claude-code mode writes only claude-supported fields", async () => {
       delete process.env.HOME;
     } else {
       process.env.HOME = originalHome;
+    }
+    if (originalTokenPilotConfigPath === undefined) {
+      delete process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
+    } else {
+      process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = originalTokenPilotConfigPath;
     }
     await rm(dir, { recursive: true, force: true });
   }

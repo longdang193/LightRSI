@@ -3,8 +3,8 @@ import {
   applyCanonicalEviction as applyCanonicalEvictionBase,
   computeClosureDeferredTaskInfo,
   type EvictionHelpers,
-} from "@lightmem2/eviction";
-import { pluginStateSubdir } from "@lightmem2/artifact-store";
+} from "@lightrsi/eviction";
+import { pluginStateSubdir } from "@lightrsi/artifact-store";
 
 export { computeClosureDeferredTaskInfo, type EvictionHelpers };
 

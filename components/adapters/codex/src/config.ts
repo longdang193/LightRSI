@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { userHomeDirectory } from "@lightrsi/host-adapter";
 import { dirname, join, resolve } from "node:path";
-import type { TaskStateEstimatorApiConfig } from "@lightmem2/eviction";
+import type { TaskStateEstimatorApiConfig } from "@lightrsi/eviction";
 import type { CodexContextRewriteConfig, CodexMutationPlan } from "./context-rewrite/types.js";
 
 export type CodexProviderConfig = {
@@ -57,19 +57,19 @@ type NormalizeCodexConfigOptions = {
 };
 
 export function expandHomePath(value: string): string {
-  if (value === "~") return homedir();
-  if (value.startsWith("~/")) return join(homedir(), value.slice(2));
+  if (value === "~") return userHomeDirectory();
+  if (value.startsWith("~/")) return join(userHomeDirectory(), value.slice(2));
   return value;
 }
 
 export function defaultCodexConfigPath(): string {
-  return join(homedir(), ".codex", "config.toml");
+  return join(userHomeDirectory(), ".codex", "config.toml");
 }
 
 export function defaultTokenPilotConfigPath(): string {
   return process.env.TOKENPILOT_CODEX_CONFIG
     ? resolve(process.env.TOKENPILOT_CODEX_CONFIG)
-    : join(homedir(), ".codex", "tokenpilot.json");
+    : join(userHomeDirectory(), ".codex", "tokenpilot.json");
 }
 
 export function defaultStateDir(configPath = defaultTokenPilotConfigPath()): string {
@@ -79,7 +79,7 @@ export function defaultStateDir(configPath = defaultTokenPilotConfigPath()): str
 export function defaultHooksConfigPath(): string {
   return process.env.CODEX_HOOKS_CONFIG_PATH
     ? resolve(process.env.CODEX_HOOKS_CONFIG_PATH)
-    : join(homedir(), ".codex", "hooks.json");
+    : join(userHomeDirectory(), ".codex", "hooks.json");
 }
 
 export function resolvedCodexConfigPath(): string {

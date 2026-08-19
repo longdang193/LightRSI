@@ -9,8 +9,8 @@ import {
   type RawSemanticTurnRecord,
   type DeltaView,
   type SessionTaskRegistry,
-} from "@lightmem2/history";
-import type { TaskStateEstimator } from "@lightmem2/eviction";
+} from "@lightrsi/history";
+import type { TaskStateEstimator } from "@lightrsi/eviction";
 import { createHash } from "node:crypto";
 import {
   buildRawSemanticTurnRecord,
@@ -153,11 +153,11 @@ export async function runSemanticPipeline(params: {
   messages: unknown[];
   estimator: TaskStateEstimator;
   updateRegistryFromDelta: (args: {
-    registry: import("@lightmem2/history").SessionTaskRegistry;
-    delta: import("@lightmem2/history").DeltaView;
+    registry: import("@lightrsi/history").SessionTaskRegistry;
+    delta: import("@lightrsi/history").DeltaView;
     estimator: TaskStateEstimator;
   }) => Promise<{
-    registry: import("@lightmem2/history").SessionTaskRegistry;
+    registry: import("@lightrsi/history").SessionTaskRegistry;
     changed: boolean;
     processed?: boolean;
     note?: string;

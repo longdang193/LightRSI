@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { reserveUnusedPort } from "@lightmem2/host-adapter";
+import { reserveUnusedPort } from "@lightrsi/host-adapter";
 
 import { normalizeTokenPilotCodexConfig } from "./config.js";
 import {
@@ -21,7 +21,7 @@ import type { CodexRebaseAccounting } from "./context-rewrite/types.js";
 import { resolveCodexSessionIdByResponseId } from "./session-state.js";
 
 export const CODEX_REBASE_SMOKE_EVIDENCE_SCHEMA =
-  "lightmem2.codex.context-rebase-smoke-evidence/v1";
+  "lightrsi.codex.context-rebase-smoke-evidence/v1";
 
 export type CodexRebaseSmokeAccountingEvidence = {
   plannedSavedChars: number;
@@ -375,7 +375,7 @@ function toolClosureEvidence(input: JsonObject[]): {
 }
 
 async function runHappyPath(model: string): Promise<CodexRebaseSmokeEvidence["happyPath"]> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-smoke-state-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-smoke-state-"));
   const marker = randomUUID();
   const evictSentinel = `EVICT_ME_${marker}`;
   const keepSentinel = `KEEP_ME_${marker}`;
@@ -559,7 +559,7 @@ async function runHappyPath(model: string): Promise<CodexRebaseSmokeEvidence["ha
 }
 
 async function runFallbackPath(model: string): Promise<CodexRebaseSmokeEvidence["fallback"]> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-fallback-smoke-state-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-fallback-smoke-state-"));
   const evictSentinel = `EVICT_ME_${randomUUID()}`;
   const sessionId = `codex-rebase-fallback-smoke-${randomUUID()}`;
   const upstream = await startMockUpstream({ prefix: "resp-fallback", rejectRebase: true });
@@ -630,7 +630,7 @@ async function runModuleCombination(params: {
   reduction: boolean;
   rewrite: boolean;
 }): Promise<CodexRebaseSmokeEvidence["moduleMatrix"][number]> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-module-matrix-state-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-module-matrix-state-"));
   const sessionId = `codex-module-matrix-${randomUUID()}`;
   const evictSentinel = `EVICT_ME_${randomUUID()}`;
   const longToolOutput = `HEAD\n${"line\n".repeat(600)}`;
@@ -782,7 +782,7 @@ export async function runCodexRebaseMockSmoke(
   };
   const outputDir = options.outputDir
     ? resolve(options.outputDir)
-    : await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-smoke-evidence-"));
+    : await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-smoke-evidence-"));
   const artifact = await writeEvidence(outputDir, evidence);
   return { ...artifact, evidence };
 }

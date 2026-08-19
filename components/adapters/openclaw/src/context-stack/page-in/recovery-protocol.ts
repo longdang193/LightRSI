@@ -1,8 +1,8 @@
 import {
   appendRecoveryProtocolText,
   stripInternalPayloadFields,
-} from "@lightmem2/host-adapter";
-import { MEMORY_FAULT_RECOVER_TOOL_NAME } from "@lightmem2/artifact-store";
+} from "@lightrsi/host-adapter";
+import { MEMORY_FAULT_RECOVER_TOOL_NAME } from "@lightrsi/artifact-store";
 
 export const MEMORY_FAULT_PROTOCOL_INSTRUCTIONS = [
   "[Recovery Protocol]",

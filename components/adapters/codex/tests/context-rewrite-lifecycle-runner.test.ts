@@ -8,11 +8,11 @@ import {
   loadSessionTaskRegistry,
   persistSessionTaskRegistry,
   sessionTaskRegistryPath,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 import type {
   LifecyclePlannerConfig,
   TaskStateEstimator,
-} from "@lightmem2/eviction";
+} from "@lightrsi/eviction";
 
 import type {
   CodexEffectiveHistoryItem,

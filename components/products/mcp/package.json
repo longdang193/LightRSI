@@ -1,8 +1,8 @@
 {
-  "name": "@lightmem2/mcp",
+  "name": "@lightrsi/mcp",
   "version": "0.1.0-beta.1",
   "private": true,
-  "lightmem2": {
+  "lightrsi": {
     "role": "product"
   },
   "type": "commonjs",
@@ -13,10 +13,10 @@
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
-    "@lightmem2/artifact-store": "workspace:*",
-    "@lightmem2/kernel": "workspace:*",
-    "@lightmem2/tokenpilot": "workspace:*",
-    "@lightmem2/product-surface": "workspace:*"
+    "@lightrsi/artifact-store": "workspace:*",
+    "@lightrsi/kernel": "workspace:*",
+    "@lightrsi/tokenpilot": "workspace:*",
+    "@lightrsi/product-surface": "workspace:*"
   },
   "devDependencies": {
     "esbuild": "^0.25.10",

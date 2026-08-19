@@ -14,8 +14,8 @@ import {
   startMockCachingJsonUpstream,
   startMockJsonUpstream,
   withTempHome,
-} from "@lightmem2/host-adapter";
-import { readVisualSessionData, readVisualSessionList } from "@lightmem2/product-surface";
+} from "@lightrsi/host-adapter";
+import { readVisualSessionData, readVisualSessionList } from "@lightrsi/product-surface";
 import { MEMORY_FAULT_RECOVER_TOOL_NAME, handleMcpRequest } from "../../../products/mcp/src/index.js";
 import { createCodexCliBridge } from "../../../products/cli/src/hosts/codex.js";
 import {

@@ -5,7 +5,7 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
-import { type HostGatewayForwarder } from "@lightmem2/host-adapter";
+import { type HostGatewayForwarder } from "@lightrsi/host-adapter";
 import { normalizeTokenPilotClaudeCodeConfig } from "../src/config.js";
 import { startClaudeCodeGatewayRuntime } from "../src/gateway-runtime.js";
 import { createConsoleLogger } from "../src/logger.js";
@@ -34,7 +34,7 @@ async function reserveUnusedPort(): Promise<number> {
 // requestStream must receive the evicted (stubbed) tool_result exactly like the
 // non-streaming path does.
 test("gateway overlay applies on the streaming path", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-stream-overlay-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-stream-overlay-"));
   const proxyPort = await reserveUnusedPort();
   const seenStreamPayloads: Array<Record<string, unknown>> = [];
   const forwarder: HostGatewayForwarder = {

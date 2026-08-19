@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   extractContentText,
-} from "@lightmem2/kernel";
+} from "@lightrsi/kernel";
 import {
   prepareBeforeCallWithReductionSummary,
   recordUxEffect,
@@ -9,7 +9,7 @@ import {
   type HostRequestEnvelope,
   type PreparedBeforeCallResult,
   type UxCountMode,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import {
   appendReductionVisualSnapshot,
   appendStabilityVisualSnapshot,

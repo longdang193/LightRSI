@@ -11,7 +11,7 @@ import {
 const SESSION = "sess-hist";
 
 async function tempStateDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "lightmem2-overlay-hist-"));
+  return mkdtemp(join(tmpdir(), "lightrsi-overlay-hist-"));
 }
 
 function sampleEntry(overrides: Partial<Parameters<typeof appendOverlayHistory>[1]> = {}) {

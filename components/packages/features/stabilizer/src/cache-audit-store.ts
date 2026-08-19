@@ -7,7 +7,7 @@ import {
   readCacheWriteTokens,
   readInputTokens,
   readRecentJsonlEntries,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import {
   extractStablePrefixContract,
   fingerprintStablePrefixEnvelope,

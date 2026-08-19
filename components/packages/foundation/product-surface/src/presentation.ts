@@ -1,4 +1,4 @@
-import type { ProductSurfaceConfigAdapter } from "@lightmem2/host-adapter";
+import type { ProductSurfaceConfigAdapter } from "@lightrsi/host-adapter";
 import { productCommand, type ProductSurfaceIdentity } from "./identity.js";
 import {
   OBSERVABLE_FEATURE_MODULE_IDS,

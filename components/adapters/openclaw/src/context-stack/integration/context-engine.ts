@@ -1,11 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { rewriteCanonicalState, syncCanonicalStateFromTranscript } from "../page-out/canonical-rewrite-adapter.js";
-import { estimateMessagesChars, saveCanonicalState } from "@lightmem2/history";
-import { appendModuleObservation } from "@lightmem2/product-surface";
+import { estimateMessagesChars, saveCanonicalState } from "@lightrsi/history";
+import { appendModuleObservation } from "@lightrsi/product-surface";
 import { enqueueEvictedTasksForProceduralMemory } from "./procedural-memory.js";
 import { runHistoryEvictionIfEnabled } from "./history-eviction-runner.js";
 import { runHistoryModules } from "./module-orchestrator.js";
-import { TOKENPILOT_HISTORY_MODULE_IDS } from "@lightmem2/tokenpilot";
+import { TOKENPILOT_HISTORY_MODULE_IDS } from "@lightrsi/tokenpilot";
 
 export function createPluginContextEngine(cfg: any, logger: any, deps: any) {
   const canonicalMessageTaskIdsBound = (message: Record<string, unknown>): string[] =>

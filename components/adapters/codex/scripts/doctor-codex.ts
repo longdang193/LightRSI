@@ -34,7 +34,7 @@ async function main() {
   const hooksText = existsSync(hooksConfigPath) ? await readFile(hooksConfigPath, "utf8").catch(() => "") : "";
   const hookHandlerCount = (hooksText.match(/hooks-handler\.js/g) ?? []).length;
   console.log(JSON.stringify({
-    ok: Boolean(tokenpilotProvider) && Boolean(upstream),
+    ok: doctor.coreRuntimeHealthy && Boolean(upstream),
     codexConfigPath,
     hooksConfigPath,
     tokenPilotConfigPath,

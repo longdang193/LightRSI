@@ -1,15 +1,15 @@
 {
-  "name": "@lightmem2/host-adapter",
+  "name": "@lightrsi/host-adapter",
   "version": "0.1.0-beta.1",
   "private": true,
-  "lightmem2": {
+  "lightrsi": {
     "role": "foundation"
   },
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
-    "@lightmem2/kernel": "workspace:*",
+    "@lightrsi/kernel": "workspace:*",
     "js-tiktoken": "^1.0.21"
   },
   "scripts": {

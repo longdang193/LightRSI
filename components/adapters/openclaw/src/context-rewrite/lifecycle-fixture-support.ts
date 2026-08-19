@@ -9,7 +9,7 @@ import {
   type LifecyclePlannerStatus,
   type TaskStateEstimator,
   type TaskStateEstimatorOutput,
-} from "@lightmem2/eviction";
+} from "@lightrsi/eviction";
 
 export type FixtureEstimator = {
   kind: "output" | "throw" | "must_not_run";

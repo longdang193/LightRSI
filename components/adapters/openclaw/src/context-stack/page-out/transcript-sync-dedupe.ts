@@ -1,4 +1,4 @@
-import type { RawSemanticTurnRecord } from "@lightmem2/history";
+import type { RawSemanticTurnRecord } from "@lightrsi/history";
 
 export function dedupeRawSemanticMessages(
   record: RawSemanticTurnRecord["messages"],

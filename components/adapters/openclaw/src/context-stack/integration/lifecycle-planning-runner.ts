@@ -1,10 +1,10 @@
-import type { RuntimeModule } from "@lightmem2/kernel";
+import type { RuntimeModule } from "@lightrsi/kernel";
 import {
   buildLifecyclePolicyContext,
   type LifecyclePlanningResult,
-} from "@lightmem2/eviction";
+} from "@lightrsi/eviction";
 
-export type { LifecyclePlanningResult } from "@lightmem2/eviction";
+export type { LifecyclePlanningResult } from "@lightrsi/eviction";
 
 export async function runLifecyclePlanningIfEnabled(params: {
   cfg: any;

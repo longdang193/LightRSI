@@ -11,7 +11,7 @@ import {
   type ContextRewriteValidation,
   type ModelContextRewriteBackend,
   type ModelContextSnapshot,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 
 import { codexReplayPairRef } from "../context-history/replayability.js";
 import type {

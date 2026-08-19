@@ -1,4 +1,4 @@
-import type { RuntimeMessage } from "@lightmem2/kernel";
+import type { RuntimeMessage } from "@lightrsi/kernel";
 
 export type StabilizerRequestEnvelope = {
   session: {

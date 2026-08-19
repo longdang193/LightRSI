@@ -25,8 +25,8 @@ Supported:
 - request-time reduction
 - opt-in task-state estimation, shared lifecycle planning, and response-chain eviction rebase
 - lightweight session-state tracking from proxy + hooks
-- shared browser visual via `lightmem2 codex visual`
-- standalone `lightmem2 codex ...` command surface
+- shared browser visual via `lightrsi codex visual`
+- standalone `lightrsi codex ...` command surface
 - local read-only Codex skill bridge for `status` / `report` / `doctor` / `visual`
 
 Current limitations:
@@ -44,14 +44,14 @@ For a release archive, extract it and run the bundled installer directly:
 node /path/to/package/dist/install-codex.js
 ```
 
-The release archive is self-contained: its hooks, recovery MCP server, `lightmem2` command, and `tokenpilot-codex` command all run from the extracted package directory. Keep that directory in place after installation.
+The release archive is self-contained: its hooks, recovery MCP server, `lightrsi` command, and `tokenpilot-codex` command all run from the extracted package directory. Keep that directory in place after installation.
 
 For a source checkout, build the adapter first:
 
 Build the adapter:
 
 ```bash
-cd /path/to/LightMem2
+cd /path/to/LightRSI
 npm --prefix components/adapters/codex run build
 ```
 
@@ -66,11 +66,11 @@ export TOKENPILOT_CODEX_CONFIG="/path/to/tokenpilot.json"
 Then install:
 
 ```bash
-cd /path/to/LightMem2
+cd /path/to/LightRSI
 npm --prefix components/adapters/codex run install:codex
 ```
 
-If `lightmem2` is not found after install, make sure `~/.local/bin` is on your `PATH`.
+If `lightrsi` is not found after install, make sure `~/.local/bin` is on your `PATH`.
 
 The installer will:
 
@@ -86,12 +86,12 @@ The installer will:
 
 The installed Codex skill bridge currently creates these explicit skills:
 
-- `lightmem2-status`
-- `lightmem2-report`
-- `lightmem2-doctor`
-- `lightmem2-visual`
+- `lightrsi-status`
+- `lightrsi-report`
+- `lightrsi-doctor`
+- `lightrsi-visual`
 
-These are host entry points, not a separate runtime implementation. They call the existing `lightmem2 codex ...` CLI surface underneath.
+These are host entry points, not a separate runtime implementation. They call the existing `lightrsi codex ...` CLI surface underneath.
 
 This install mode is intentionally session-preserving: Codex keeps using the same provider name it was already using, so existing thread history does not disappear behind a separate `tokenpilot` provider bucket.
 
@@ -100,7 +100,7 @@ This install mode is intentionally session-preserving: Codex keeps using the sam
 You can run the adapter doctor immediately after install:
 
 ```bash
-cd /path/to/LightMem2
+cd /path/to/LightRSI
 npm --prefix components/adapters/codex run doctor:codex
 ```
 
@@ -112,18 +112,18 @@ Then use the first real-session path:
 4. In another terminal, verify through the shared CLI:
 
 ```bash
-lightmem2 codex status
-lightmem2 codex doctor
-lightmem2 codex report
-lightmem2 codex mode normal
-lightmem2 codex reduction status
+lightrsi codex status
+lightrsi codex doctor
+lightrsi codex report
+lightrsi codex mode normal
+lightrsi codex reduction status
 ```
 
 Expected first-run shape:
 
-- `lightmem2 codex doctor` reports `proxy healthy: yes`
-- `lightmem2 codex status` shows `stabilizer` and `reduction` enabled
-- after a few turns, `lightmem2 codex report` no longer says `No TokenPilot session stats yet.`
+- `lightrsi codex doctor` reports `proxy healthy: yes`
+- `lightrsi codex status` shows `stabilizer` and `reduction` enabled
+- after a few turns, `lightrsi codex report` no longer says `No TokenPilot session stats yet.`
 
 Once installed, Codex can use the real internal recovery tool named `memory_fault_recover` through the registered MCP server. Recovery hints in trimmed payloads are no longer just protocol text.
 
@@ -150,7 +150,7 @@ The task-state estimator bridge is default-disabled. A conservative `~/.codex/to
 }
 ```
 
-Keep API keys out of checked-in configuration. The resolver accepts `LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY` from the environment, with `TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY` as a compatibility fallback. The same prefixes support `ENABLED`, `BASE_URL`, `MODEL`, `TIMEOUT_MS`, `BATCH_TURNS`, `EVICTION_LOOKAHEAD_TURNS`, `INPUT_MODE`, `LIFECYCLE_MODE`, and `EVIDENCE_MODE`; explicit JSON fields take precedence over environment values.
+Keep API keys out of checked-in configuration. The resolver accepts `LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY` from the environment, with `TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY` as a compatibility fallback. The same prefixes support `ENABLED`, `BASE_URL`, `MODEL`, `TIMEOUT_MS`, `BATCH_TURNS`, `EVICTION_LOOKAHEAD_TURNS`, `INPUT_MODE`, `LIFECYCLE_MODE`, and `EVIDENCE_MODE`; explicit JSON fields take precedence over environment values.
 
 If the bridge is enabled without `baseUrl`, `apiKey`, or `model`, diagnostics report `incomplete` and fail closed. Status and doctor output expose only safe configuration state and numeric parameters, never the API key or an Authorization header.
 
@@ -217,21 +217,21 @@ tokenpilot-codex stop
 Codex command surface:
 
 ```bash
-lightmem2 codex status
-lightmem2 codex report
-lightmem2 codex doctor
-lightmem2 codex visual
-lightmem2 codex mode conservative
-lightmem2 codex mode normal
-lightmem2 codex stabilizer on
-lightmem2 codex stabilizer off
-lightmem2 codex stabilizer target developer
-lightmem2 codex stabilizer target user
-lightmem2 codex reduction on
-lightmem2 codex reduction off
-lightmem2 codex reduction mode light
-lightmem2 codex reduction mode balanced
-lightmem2 codex reduction pass toolPayloadTrim off
+lightrsi codex status
+lightrsi codex report
+lightrsi codex doctor
+lightrsi codex visual
+lightrsi codex mode conservative
+lightrsi codex mode normal
+lightrsi codex stabilizer on
+lightrsi codex stabilizer off
+lightrsi codex stabilizer target developer
+lightrsi codex stabilizer target user
+lightrsi codex reduction on
+lightrsi codex reduction off
+lightrsi codex reduction mode light
+lightrsi codex reduction mode balanced
+lightrsi codex reduction pass toolPayloadTrim off
 ```
 
 Supported reduction passes:
@@ -244,14 +244,14 @@ Supported reduction passes:
 
 Not supported:
 
-- `lightmem2 codex settings ...`
-- `lightmem2 codex eviction ...`
-- `lightmem2 codex mode aggressive`
-- `lightmem2 codex stabilizer hook ...`
+- `lightrsi codex settings ...`
+- `lightrsi codex eviction ...`
+- `lightrsi codex mode aggressive`
+- `lightrsi codex stabilizer hook ...`
 
 ## Report And Visual
 
-`lightmem2 codex report` and `lightmem2 codex visual` intentionally serve different purposes:
+`lightrsi codex report` and `lightrsi codex visual` intentionally serve different purposes:
 
 - `report`: savings-oriented summary from `ux-effects`
 - `visual`: shared browser visual surface preselected to the current Codex host and session
@@ -263,7 +263,7 @@ Current visual data includes:
 - recent cache-audit summaries
 - browser-side host and session selection through the shared visual surface
 
-Codex still persists a lightweight observability layer from proxy + hook traces, but `lightmem2 codex visual` now opens the shared browser visual surface rather than a text-only view.
+Codex still persists a lightweight observability layer from proxy + hook traces, but `lightrsi codex visual` now opens the shared browser visual surface rather than a text-only view.
 
 ## Runtime Files
 

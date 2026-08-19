@@ -4,8 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { archiveContent } from "@lightmem2/artifact-store";
-import { LIGHTMEM2_VERSION } from "@lightmem2/kernel";
+import { archiveContent } from "@lightrsi/artifact-store";
+import { LIGHTMEM2_VERSION } from "@lightrsi/kernel";
 import {
   encodeMcpMessage,
   handleMcpRequest,

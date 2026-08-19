@@ -9,8 +9,8 @@ import {
   persistSessionTaskRegistry,
   type SessionTaskRegistry,
   type DeltaView,
-} from "@lightmem2/history";
-import type { TaskStateEstimator } from "@lightmem2/eviction";
+} from "@lightrsi/history";
+import type { TaskStateEstimator } from "@lightrsi/eviction";
 import {
   buildUniqueToolCallTurnMap,
   runSemanticPipeline,
@@ -18,7 +18,7 @@ import {
 import { updateRegistryFromDelta as realUpdateRegistryFromDelta } from "../src/context-rewrite/task-registry-update.js";
 
 async function tempStateDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "lightmem2-semantic-pipeline-"));
+  return mkdtemp(join(tmpdir(), "lightrsi-semantic-pipeline-"));
 }
 
 // A no-op estimator: the pipeline injects updateRegistryFromDelta, so the
@@ -225,7 +225,7 @@ test("a retry restores a raw turn that was missing after a claimed counter", asy
   // so remove it to model a process dying between turn claim and raw record
   // persistence. The retry must restore it rather than consume an empty delta.
   const { unlink } = await import("node:fs/promises");
-  const { rawSemanticTurnRecordPath } = await import("@lightmem2/history");
+  const { rawSemanticTurnRecordPath } = await import("@lightrsi/history");
   await unlink(rawSemanticTurnRecordPath(stateDir, sessionId, 1));
 
   const retry = await runSemanticPipeline({

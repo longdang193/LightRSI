@@ -7,7 +7,7 @@ import {
   type ContextItemRef,
   type ContextMutationPlan,
   type ModelContextSnapshot,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 
 import {
   createOpenClawReferenceBackend,

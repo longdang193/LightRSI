@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { runReductionAfterCall, resolveReductionPasses } from "@lightmem2/reduction";
-import type { RuntimeTurnResult } from "@lightmem2/kernel";
+import { runReductionAfterCall, resolveReductionPasses } from "@lightrsi/reduction";
+import type { RuntimeTurnResult } from "@lightrsi/kernel";
 import { extractProxyResponseText, isSseContentType, patchProxyResponseText } from "./after-call-response-text.js";
 import {
   ensureCompletedResponseTextFromSse,

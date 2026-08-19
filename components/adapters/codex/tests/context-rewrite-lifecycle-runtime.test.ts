@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { loadSessionTaskRegistry } from "@lightmem2/history";
-import { reserveUnusedPort } from "@lightmem2/host-adapter";
+import { loadSessionTaskRegistry } from "@lightrsi/history";
+import { reserveUnusedPort } from "@lightrsi/host-adapter";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { buildCodexEffectiveHistory } from "../src/context-history/index.js";

@@ -16,12 +16,12 @@ import {
   saveActiveContextMutationPlan,
   markContextMutationPlanApplied,
   markContextMutationPlanFailed,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import {
   prepareObservedBeforeCall,
-} from "@lightmem2/product-surface";
-import { configureStatePathResolver } from "@lightmem2/artifact-store";
-import type { RuntimeMessage } from "@lightmem2/kernel";
+} from "@lightrsi/product-surface";
+import { configureStatePathResolver } from "@lightrsi/artifact-store";
+import type { RuntimeMessage } from "@lightrsi/kernel";
 import type { TokenPilotClaudeCodeConfig } from "./config.js";
 import { proxyBaseUrlForPort } from "./config.js";
 import type { TokenPilotClaudeCodeLogger } from "./logger.js";
@@ -35,7 +35,7 @@ import {
   buildClaudeHistoryBlocks,
   type ClaudeEvictionApplySummary,
 } from "./eviction.js";
-import { persistSessionTaskRegistry } from "@lightmem2/history";
+import { persistSessionTaskRegistry } from "@lightrsi/history";
 import { claudeContextRewriteBackend, relocateContextMutationPlan } from "./context-rewrite/backend.js";
 import { applyArchivePlan } from "./context-rewrite/archive.js";
 import { saveLatestClaudeSnapshot } from "./context-rewrite/snapshot-store.js";
@@ -47,7 +47,7 @@ import {
   buildContextMutationPlan,
   planLifecycleEviction,
   type LifecyclePlannerConfig,
-} from "@lightmem2/eviction";
+} from "@lightrsi/eviction";
 import { createHash as _createHash } from "node:crypto";
 import {
   appendClaudeCodeRecentTurnBinding,
@@ -57,7 +57,7 @@ import { prepareClaudeStablePrefix } from "./stable-prefix.js";
 import {
   buildStabilityVisualSnapshotFromEnvelopes,
   canonicalizeEnvelopeTools,
-} from "@lightmem2/stabilizer";
+} from "@lightrsi/stabilizer";
 import { appendClaudeCodeTrace } from "./trace.js";
 import { createClaudeCodeGatewayForwarder, resolveClaudeCodeUpstream } from "./upstream.js";
 import { appendClaudeCodeCacheAuditRecord, buildClaudeCodeCacheAuditSnapshot } from "./cache-audit.js";

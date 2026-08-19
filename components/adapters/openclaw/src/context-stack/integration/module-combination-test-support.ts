@@ -7,7 +7,7 @@ import {
   type TokenPilotFeatureModule,
   type TokenPilotModuleCombination,
   type TokenPilotModuleEnablement,
-} from "@lightmem2/tokenpilot";
+} from "@lightrsi/tokenpilot";
 
 export type { TokenPilotFeatureModule };
 export type ModuleEnablement = TokenPilotModuleEnablement;

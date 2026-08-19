@@ -1,5 +1,15 @@
-export const CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA = "lightmem2.codex.context-history.request/v1";
-export const CODEX_CONTEXT_HISTORY_RESPONSE_SCHEMA = "lightmem2.codex.context-history.response/v1";
+export const CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA = "lightrsi.codex.context-history.request/v1";
+export const CODEX_CONTEXT_HISTORY_RESPONSE_SCHEMA = "lightrsi.codex.context-history.response/v1";
+export const CODEX_CONTEXT_HISTORY_LEGACY_REQUEST_SCHEMA = "lightmem2.codex.context-history.request/v1";
+export const CODEX_CONTEXT_HISTORY_LEGACY_RESPONSE_SCHEMA = "lightmem2.codex.context-history.response/v1";
+
+export function isCodexContextHistoryRequestSchema(value: unknown): boolean {
+  return value === CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA || value === CODEX_CONTEXT_HISTORY_LEGACY_REQUEST_SCHEMA;
+}
+
+export function isCodexContextHistoryResponseSchema(value: unknown): boolean {
+  return value === CODEX_CONTEXT_HISTORY_RESPONSE_SCHEMA || value === CODEX_CONTEXT_HISTORY_LEGACY_RESPONSE_SCHEMA;
+}
 
 export type JsonObject = Record<string, unknown>;
 

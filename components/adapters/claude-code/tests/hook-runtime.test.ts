@@ -8,7 +8,7 @@ import { processClaudeCodeHookEvent } from "../src/hook-runtime.js";
 import { renderClaudeCodeSessionVisual } from "../src/session-visual.js";
 
 test("processClaudeCodeHookEvent records hook state and trace for Claude Code observability", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-claude-hook-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-hook-"));
   try {
     const stateDir = join(dir, "state");
     const config = normalizeTokenPilotClaudeCodeConfig({

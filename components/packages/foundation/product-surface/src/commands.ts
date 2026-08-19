@@ -1,7 +1,7 @@
 import type {
   ProductSurfaceConfigAdapter,
   ProductSurfaceHostBridge,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import { parseCommandAction } from "./config.js";
 import { formatProductHelp, summarizeProductStatus } from "./presentation.js";
 import { createProductSurfaceActionHandlers } from "./command-actions.js";

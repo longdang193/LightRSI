@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getNestedValue } from "@lightmem2/product-surface";
+import { getNestedValue } from "@lightrsi/product-surface";
 import {
   resolveDefaultOpenClawTokenPilotStateDir,
   resolveOpenClawCanonicalTokenPilotStateDir,

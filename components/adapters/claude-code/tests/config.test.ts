@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { normalizeTokenPilotClaudeCodeConfig } from "../src/config.js";
 
@@ -8,14 +10,14 @@ test("normalizeTokenPilotClaudeCodeConfig applies stable defaults", () => {
   assert.equal(config.logLevel, "info");
   assert.equal(config.proxyPort, 17668);
   assert.equal(config.upstreamBaseUrl, "https://api.anthropic.com/v1/messages");
-  assert.match(config.stateDir, /\.claude\/tokenpilot-state\/tokenpilot$/);
+  assert.equal(config.stateDir, join(homedir(), ".claude", "tokenpilot-state", "tokenpilot"));
 });
 
 test("normalizeTokenPilotClaudeCodeConfig derives default stateDir from the tokenpilot config path", () => {
   const config = normalizeTokenPilotClaudeCodeConfig({}, {
     configPath: "/tmp/custom-claude-root/tokenpilot.json",
   });
-  assert.equal(config.stateDir, "/tmp/custom-claude-root/tokenpilot-state/tokenpilot");
+  assert.equal(config.stateDir, join("/tmp/custom-claude-root", "tokenpilot-state", "tokenpilot"));
 });
 
 test("normalizeTokenPilotClaudeCodeConfig trims and clamps values", () => {

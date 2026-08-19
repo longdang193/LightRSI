@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import {
   pluginStateSubdirCandidates,
   pluginStateSubdirWriteTargets,
-} from "@lightmem2/artifact-store";
+} from "@lightrsi/artifact-store";
 
 export const OBSERVABLE_FEATURE_MODULE_IDS = ["stabilizer", "reduction", "eviction"] as const;
 export type ObservableFeatureModuleId = (typeof OBSERVABLE_FEATURE_MODULE_IDS)[number];

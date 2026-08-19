@@ -3,7 +3,25 @@ import test from "node:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveCliEntryPathFromHostModule } from "../src/hosts/visual-daemon.js";
+import {
+  childProcessExecArgv,
+  resolveCliEntryPathFromHostModule,
+} from "../src/hosts/visual-daemon.js";
+
+test("child visual daemons do not inherit Node test-runner flags", () => {
+  assert.deepEqual(
+    childProcessExecArgv([
+      "--import",
+      "tsx",
+      "--test",
+      "--test-name-pattern=visual",
+      "--inspect-port=127.0.0.1:9229",
+      "--inspect-publish-uid=stderr,http",
+      "--trace-warnings",
+    ]),
+    [],
+  );
+});
 
 test("resolveCliEntryPathFromHostModule finds dist/cli.js from a src host module path", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-cli-visual-daemon-src-"));

@@ -1,6 +1,6 @@
 import {
   planToolResultPersistence,
-} from "@lightmem2/artifact-store";
+} from "@lightrsi/artifact-store";
 
 type PersistHelpers = {
   appendTaskStateTrace: (stateDir: string, payload: Record<string, unknown>) => Promise<void>;

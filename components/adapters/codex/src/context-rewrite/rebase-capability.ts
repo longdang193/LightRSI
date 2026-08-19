@@ -4,10 +4,11 @@ import { dirname, join } from "node:path";
 import {
   CODEX_REBASE_API_VERSION,
   CODEX_REBASE_CAPABILITY_DEFAULT_TTL_MS,
-  CODEX_REBASE_CAPABILITY_LEGACY_SCHEMA,
   CODEX_REBASE_CAPABILITY_SCHEMA,
   CODEX_REBASE_ITEM_SCHEMA_VERSION,
   CODEX_REBASE_WIRE_MODE,
+  isCodexRebaseCapabilityLegacySchema,
+  isCodexRebaseCapabilitySchema,
   type CodexProviderReplayCompatibilityDecision,
   type CodexRebaseCapability,
   type CodexRebaseCapabilityEvidence,
@@ -105,7 +106,7 @@ function optionalTrimmedString(value: unknown): string | undefined {
 
 function parseCodexRebaseCapability(value: unknown): CodexRebaseCapability | undefined {
   const entry = asObject(value);
-  if (!entry || entry.schema !== CODEX_REBASE_CAPABILITY_SCHEMA) return undefined;
+  if (!entry || !isCodexRebaseCapabilitySchema(entry.schema)) return undefined;
   if (
     typeof entry.provider !== "string" || !entry.provider.trim()
     || typeof entry.model !== "string" || !entry.model.trim()
@@ -242,7 +243,7 @@ function parseCapabilityJournalText(raw: string): CodexRebaseCapabilityJournalRe
     try {
       const parsed = JSON.parse(line) as unknown;
       const object = asObject(parsed);
-      if (object?.schema === CODEX_REBASE_CAPABILITY_LEGACY_SCHEMA) {
+      if (isCodexRebaseCapabilityLegacySchema(object?.schema)) {
         staleLineCount += 1;
         continue;
       }
@@ -320,7 +321,7 @@ async function recoverCapabilityJournalTailLocked(stateDir: string): Promise<voi
   try {
     const parsed = JSON.parse(tailText) as unknown;
     const object = asObject(parsed);
-    const isLegacy = object?.schema === CODEX_REBASE_CAPABILITY_LEGACY_SCHEMA;
+    const isLegacy = isCodexRebaseCapabilityLegacySchema(object?.schema);
     if (isLegacy || parseCodexRebaseCapability(parsed)) {
       await syncAppendNewline(path);
       return;

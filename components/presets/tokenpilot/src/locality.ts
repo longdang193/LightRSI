@@ -1,5 +1,5 @@
-import type { RuntimeTurnContext } from "@lightmem2/kernel";
-import type { PersistedMessageKind, PersistedMessageOrigin, PersistedMessageRole } from "@lightmem2/kernel";
+import type { RuntimeTurnContext } from "@lightrsi/kernel";
+import type { PersistedMessageKind, PersistedMessageOrigin, PersistedMessageRole } from "@lightrsi/kernel";
 
 // Inlined from the retired layer-context package.
 export type ContextViewMessageSnapshot = {

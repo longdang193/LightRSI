@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { UpstreamConfig, UpstreamHttpResponse } from "./upstream.js";
-import { appendModuleObservation } from "@lightmem2/product-surface";
+import { appendModuleObservation } from "@lightrsi/product-surface";
 import { createOpenClawHostBridge } from "./openclaw-host-bridge.js";
 import { applyProxyAfterCallReduction, recordNonStreamingUxEffect } from "./proxy-runtime-postprocess.js";
 import { recordStreamingUxEffect } from "./proxy-runtime-stream.js";
@@ -55,7 +55,7 @@ export async function handleStreamingProxyResponse(args: {
   beforeReductionCanonicalInput: string;
   afterReductionCanonicalInput: string;
   reductionApplied: any;
-  cacheAuditSnapshot?: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "usage" | "status">;
+  cacheAuditSnapshot?: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "inputTokens" | "cacheWriteTokens" | "usage" | "status">;
 }): Promise<void> {
   const {
     cfg,
@@ -187,7 +187,7 @@ export async function handleNonStreamingProxyResponse(args: {
   reductionPassOptions: any;
   reductionMaxToolChars: number;
   reductionTriggerMinChars: number;
-  cacheAuditSnapshot?: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "usage" | "status">;
+  cacheAuditSnapshot?: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "inputTokens" | "cacheWriteTokens" | "usage" | "status">;
 }): Promise<void> {
   const {
     cfg,

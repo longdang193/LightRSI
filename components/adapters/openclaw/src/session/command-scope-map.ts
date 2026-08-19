@@ -5,7 +5,7 @@ import {
   pluginStateDirCandidates,
   pluginStateSubdirCandidates,
   pluginStateSubdirWriteTargets,
-} from "@lightmem2/artifact-store";
+} from "@lightrsi/artifact-store";
 
 export type CommandScopeBinding = {
   scopeKey: string;

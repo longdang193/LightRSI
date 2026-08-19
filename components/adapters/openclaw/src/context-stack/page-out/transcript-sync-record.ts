@@ -3,7 +3,7 @@ import {
   buildTurnAbsId,
   createTurnAnchor,
   type RawSemanticTurnRecord,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 import { extractTurnObservations, isWriteLikeToolName } from "./transcript-observations.js";
 import type { TranscriptHelpers } from "./transcript-types.js";
 import { sliceMessagesForCurrentUserTurn, sliceMessagesForTurnSeq } from "./transcript-sync-slice.js";

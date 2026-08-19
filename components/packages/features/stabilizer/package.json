@@ -1,8 +1,8 @@
 {
-  "name": "@lightmem2/stabilizer",
+  "name": "@lightrsi/stabilizer",
   "version": "0.1.0-beta.1",
   "private": true,
-  "lightmem2": {
+  "lightrsi": {
     "role": "feature"
   },
   "type": "module",
@@ -14,8 +14,8 @@
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
-    "@lightmem2/host-adapter": "workspace:*",
-    "@lightmem2/kernel": "workspace:*",
-    "@lightmem2/product-surface": "workspace:*"
+    "@lightrsi/host-adapter": "workspace:*",
+    "@lightrsi/kernel": "workspace:*",
+    "@lightrsi/product-surface": "workspace:*"
   }
 }

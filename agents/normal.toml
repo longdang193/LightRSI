@@ -1,0 +1,16 @@
+name = "normal"
+model_provider = "9router"
+model = "combo-normal"
+rank = 20
+description = """
+Default capability profile.
+Use when current task contract has ordinary reasoning depth, ambiguity, scope, and
+risk, regardless of task function.
+"""
+
+developer_instructions = """
+Complete delegated task within assigned scope.
+
+Return concrete findings or completed work to parent. Do not spawn child agents
+unless parent explicitly requests it.
+"""

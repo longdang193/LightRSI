@@ -3,7 +3,7 @@ import type {
   ModuleExecutionRecord,
   RequestModuleContract,
   RuntimeModuleContract,
-} from "@lightmem2/kernel";
+} from "@lightrsi/kernel";
 
 export async function runModulesInOrder<TContext>(params: {
   context: TContext;

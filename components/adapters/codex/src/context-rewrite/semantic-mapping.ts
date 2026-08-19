@@ -5,7 +5,7 @@ import {
   type RawSemanticToolCallRecord,
   type RawSemanticToolResultRecord,
   type RawSemanticTurnRecord,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 
 import type {
   CodexEffectiveHistoryItem,

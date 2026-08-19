@@ -3,19 +3,121 @@ import {
   applyStablePrefixToInstructions,
   applyStablePrefixToMessage,
   extractContentText,
+  extractStablePrefixContract,
   findFirstUserMessageIndex,
   rewriteTextForStablePrefix,
 } from "@lightmem2/stabilizer";
 import type { HostRequestEnvelope } from "@lightmem2/host-adapter";
 import type { TokenPilotCodexConfig } from "./config.js";
 
-function computeStablePromptCacheKey(model: string, stableTexts: string[]): string {
+const LIGHTMEM2_CACHE_CONTRACT_VERSION = 1;
+
+function canonicalizeJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeJson);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, canonicalizeJson(entry)]),
+  );
+}
+
+const CACHE_IRRELEVANT_REQUEST_KEYS = new Set([
+  "client_metadata",
+  "input",
+  "instructions",
+  "metadata",
+  "model",
+  "previous_response_id",
+  "prompt_cache_key",
+  "prompt_cache_retention",
+  "stream",
+  "tools",
+]);
+
+export function cacheRelevantRequestOptionNames(rawPayload: unknown): string[] {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return [];
+  return Object.keys(rawPayload as Record<string, unknown>)
+    .filter((key) => !CACHE_IRRELEVANT_REQUEST_KEYS.has(key))
+    .sort((left, right) => left.localeCompare(right));
+}
+
+export function cacheRelevantRequestOptionFingerprints(rawPayload: unknown): Record<string, string> {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return {};
+  const payload = rawPayload as Record<string, unknown>;
+  return Object.fromEntries(
+    cacheRelevantRequestOptionNames(rawPayload).map((key) => [
+      key,
+      createHash("sha256").update(JSON.stringify(canonicalizeJson(payload[key]))).digest("hex").slice(0, 16),
+    ]),
+  );
+}
+
+function describeJsonShape(value: unknown, path = "$", depth = 0, budget = { remaining: 64 }): string[] {
+  if (budget.remaining <= 0) return [`${path}:truncated`];
+  budget.remaining -= 1;
+  if (value === null) return [`${path}:null`];
+  if (Array.isArray(value)) {
+    return [
+      `${path}:array(${value.length})`,
+      ...(value.length > 0 && depth < 4 ? describeJsonShape(value[0], `${path}[]`, depth + 1, budget) : []),
+    ];
+  }
+  if (typeof value !== "object") return [`${path}:${typeof value}`];
+  return [
+    `${path}:object`,
+    ...Object.keys(value as Record<string, unknown>)
+      .sort((left, right) => left.localeCompare(right))
+      .flatMap((key) => describeJsonShape(
+        (value as Record<string, unknown>)[key],
+        `${path}.${key}`,
+        depth + 1,
+        budget,
+      )),
+  ];
+}
+
+export function cacheRelevantRequestOptionShapes(rawPayload: unknown): Record<string, string[]> {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return {};
+  const payload = rawPayload as Record<string, unknown>;
+  return Object.fromEntries(
+    cacheRelevantRequestOptionNames(rawPayload).map((key) => [key, describeJsonShape(payload[key])]),
+  );
+}
+
+function cacheRelevantRequestOptions(rawPayload: unknown): unknown {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return null;
+  const options = Object.fromEntries(
+    Object.entries(rawPayload as Record<string, unknown>)
+      .filter(([key]) => !CACHE_IRRELEVANT_REQUEST_KEYS.has(key)),
+  );
+  return canonicalizeJson(options);
+}
+
+function computeStablePromptCacheKey(params: {
+  envelope: HostRequestEnvelope;
+  rawPayload: unknown;
+}): string {
+  const contractEnvelope = params.envelope.session
+    ? params.envelope
+    : {
+        ...params.envelope,
+        session: {
+          host: { hostId: "codex" },
+        },
+      } as HostRequestEnvelope;
+  const stableCore = extractStablePrefixContract(contractEnvelope).stableCore.map((segment) => ({
+    key: segment.key,
+    role: segment.role,
+    source: segment.source,
+    text: segment.text,
+  }));
   const digest = createHash("sha256")
     .update(JSON.stringify({
-      v: 2,
+      v: LIGHTMEM2_CACHE_CONTRACT_VERSION,
       host: "codex",
-      model,
-      stableTexts: stableTexts.filter((text) => text.trim().length > 0),
+      stableCore,
+      options: cacheRelevantRequestOptions(params.rawPayload),
     }))
     .digest("hex")
     .slice(0, 24);
@@ -23,7 +125,6 @@ function computeStablePromptCacheKey(model: string, stableTexts: string[]): stri
 }
 
 function computeProviderWirePrefixHash(
-  model: string,
   envelope: HostRequestEnvelope,
   dynamicContextText: string,
 ): string {
@@ -37,7 +138,6 @@ function computeProviderWirePrefixHash(
   return createHash("sha256")
     .update(JSON.stringify({
       v: 1,
-      model,
       instructions: envelope.instructions ?? null,
       tools: envelope.tools ?? null,
       messages: prefixMessages,
@@ -104,18 +204,6 @@ function mergeDynamicContextTexts(...texts: Array<string | undefined>): string {
   return merged.join("\n");
 }
 
-function uniqueStablePromptParts(stableTexts: string[]): string[] {
-  const unique: string[] = [];
-  const seen = new Set<string>();
-  for (const text of stableTexts) {
-    const normalized = text.trim();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    unique.push(text);
-  }
-  return unique;
-}
-
 function hasDeveloperDynamicContextMessage(
   messages: HostRequestEnvelope["messages"],
   dynamicContextText: string,
@@ -155,6 +243,7 @@ function insertDeveloperDynamicContextMessage(params: {
     content: dynamicContextText,
     metadata: {
       __codexOriginalRole: "developer",
+      __lightmem2DynamicContext: true,
     },
   } as HostRequestEnvelope["messages"][number]);
   return {
@@ -217,19 +306,14 @@ export function prepareCodexStablePrefix(
     });
   }
 
-  const stablePromptParts = uniqueStablePromptParts([
-    instructionRewrite?.canonicalText ?? instructionText,
-    rootRewrite?.canonicalText ?? candidate?.text ?? "",
-  ]);
-  const nextPromptCacheKey = computeStablePromptCacheKey(envelope.model, [
-    ...stablePromptParts,
-    JSON.stringify(envelope.tools ?? null),
-  ]);
   const providerWirePrefixHash = computeProviderWirePrefixHash(
-    envelope.model,
     rewrittenEnvelope,
     dynamicContextText,
   );
+  const nextPromptCacheKey = computeStablePromptCacheKey({
+    envelope: rewrittenEnvelope,
+    rawPayload: envelope.rawPayload,
+  });
   const cacheFamilyId = `lightmem2-family-${nextPromptCacheKey.slice("lightmem2-codex-".length)}`;
   const outboundPromptCacheKey = cacheFamilyId;
 
@@ -237,6 +321,8 @@ export function prepareCodexStablePrefix(
     ...(rewrittenEnvelope.metadata ?? {}),
     originalPromptCacheKey,
     frameworkStablePromptCacheKey: nextPromptCacheKey,
+    lightmem2CacheContractVersion: LIGHTMEM2_CACHE_CONTRACT_VERSION,
+    lightmem2CacheContractDigest: nextPromptCacheKey.slice("lightmem2-codex-".length),
     providerWirePrefixHash,
     cacheFamilyId,
     providerWirePrefixBoundary: "before_first_user",
@@ -247,6 +333,8 @@ export function prepareCodexStablePrefix(
   const metadataChanged =
     nextMetadata.promptCacheKey !== envelope.metadata?.promptCacheKey ||
     nextMetadata.frameworkStablePromptCacheKey !== envelope.metadata?.frameworkStablePromptCacheKey ||
+    nextMetadata.lightmem2CacheContractVersion !== envelope.metadata?.lightmem2CacheContractVersion ||
+    nextMetadata.lightmem2CacheContractDigest !== envelope.metadata?.lightmem2CacheContractDigest ||
     nextMetadata.providerWirePrefixHash !== envelope.metadata?.providerWirePrefixHash ||
     nextMetadata.cacheFamilyId !== envelope.metadata?.cacheFamilyId ||
     nextMetadata.providerWirePrefixBoundary !== envelope.metadata?.providerWirePrefixBoundary ||

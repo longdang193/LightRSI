@@ -5,9 +5,9 @@ import {
   buildVisualRequestId,
   findFirstMessageText,
   recordBeforeCallVisualState,
-} from "@lightmem2/product-surface";
-import { buildStabilityVisualSnapshotFromEnvelopes } from "@lightmem2/stabilizer";
-import { pluginStateSubdir } from "@lightmem2/artifact-store";
+} from "@lightrsi/product-surface";
+import { buildStabilityVisualSnapshotFromEnvelopes } from "@lightrsi/stabilizer";
+import { pluginStateSubdir } from "@lightrsi/artifact-store";
 import { summarizeResponseFunctionCalls } from "./proxy-runtime-shared.js";
 
 export async function recordProxyInbound(params: {

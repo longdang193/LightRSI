@@ -2,8 +2,8 @@ import type {
   ProductSurfaceConfigAdapter,
   ProductCommandResult,
   ProductSurfaceHostBridge,
-} from "@lightmem2/host-adapter";
-import { diagnoseCacheAudit, summarizeCacheAudit, type CacheAuditRecord } from "@lightmem2/stabilizer";
+} from "@lightrsi/host-adapter";
+import { diagnoseCacheAudit, summarizeCacheAudit, type CacheAuditRecord } from "@lightrsi/stabilizer";
 import {
   buildSessionReportText,
   createProductSurfaceCommandHandler,
@@ -15,8 +15,8 @@ import {
   type ProductSurfaceCacheAuditSummary,
   type ProductSurfaceLatestUxEffect,
   type ProductSurfaceSessionAggregate,
-} from "@lightmem2/product-surface";
-import { TOKENPILOT_PRODUCT_SURFACE_IDENTITY } from "@lightmem2/tokenpilot";
+} from "@lightrsi/product-surface";
+import { TOKENPILOT_PRODUCT_SURFACE_IDENTITY } from "@lightrsi/tokenpilot";
 
 type LatestUxEffectWithSessionId = ProductSurfaceLatestUxEffect & {
   sessionId?: string | null;
@@ -198,10 +198,10 @@ export function formatRestrictedHostHelp(params: {
   if (params.section === "stabilizer") {
     return [
       `Prefix Stabilization commands (${params.displayName}):`,
-      `lightmem2 ${params.cliHostName} stabilizer`,
-      `lightmem2 ${params.cliHostName} stabilizer on`,
-      `lightmem2 ${params.cliHostName} stabilizer off`,
-      `lightmem2 ${params.cliHostName} stabilizer target <developer|user>`,
+      `lightrsi ${params.cliHostName} stabilizer`,
+      `lightrsi ${params.cliHostName} stabilizer on`,
+      `lightrsi ${params.cliHostName} stabilizer off`,
+      `lightrsi ${params.cliHostName} stabilizer target <developer|user>`,
       "",
       "Supported knobs:",
       "- modules.stabilizer",
@@ -212,12 +212,12 @@ export function formatRestrictedHostHelp(params: {
   if (params.section === "reduction") {
     return [
       `Observation Reduction commands (${params.displayName}):`,
-      `lightmem2 ${params.cliHostName} reduction`,
-      `lightmem2 ${params.cliHostName} reduction on`,
-      `lightmem2 ${params.cliHostName} reduction off`,
-      `lightmem2 ${params.cliHostName} reduction mode <light|balanced|aggressive>`,
-      `lightmem2 ${params.cliHostName} reduction pass <name> <on|off>`,
-      `lightmem2 ${params.cliHostName} reduction set <triggerMinChars|maxToolChars> <number>`,
+      `lightrsi ${params.cliHostName} reduction`,
+      `lightrsi ${params.cliHostName} reduction on`,
+      `lightrsi ${params.cliHostName} reduction off`,
+      `lightrsi ${params.cliHostName} reduction mode <light|balanced|aggressive>`,
+      `lightrsi ${params.cliHostName} reduction pass <name> <on|off>`,
+      `lightrsi ${params.cliHostName} reduction set <triggerMinChars|maxToolChars> <number>`,
       "",
       "Supported pass names:",
       ...params.reductionPassNames.map((name) => `- ${name}`),
@@ -225,15 +225,15 @@ export function formatRestrictedHostHelp(params: {
   }
 
   return [
-    `LightMem2 ${params.displayName} commands:`,
+    `LightRSI ${params.displayName} commands:`,
     "",
-    `lightmem2 ${params.cliHostName} status`,
-    `lightmem2 ${params.cliHostName} report`,
-    `lightmem2 ${params.cliHostName} doctor`,
-    `lightmem2 ${params.cliHostName} visual`,
-    `lightmem2 ${params.cliHostName} mode <conservative|normal>`,
-    `lightmem2 ${params.cliHostName} stabilizer ...`,
-    `lightmem2 ${params.cliHostName} reduction ...`,
+    `lightrsi ${params.cliHostName} status`,
+    `lightrsi ${params.cliHostName} report`,
+    `lightrsi ${params.cliHostName} doctor`,
+    `lightrsi ${params.cliHostName} visual`,
+    `lightrsi ${params.cliHostName} mode <conservative|normal>`,
+    `lightrsi ${params.cliHostName} stabilizer ...`,
+    `lightrsi ${params.cliHostName} reduction ...`,
     "",
     `Not supported on ${params.displayName} yet:`,
     "- settings ...",
@@ -396,7 +396,7 @@ export function createRestrictedHostCommandHandler(params: {
           text: `${params.displayName} does not support lifecycle eviction mode. Use \`mode normal\` or \`mode conservative\`.`,
         };
       }
-      return { text: `Usage: lightmem2 ${params.cliHostName} mode <conservative|normal>` };
+      return { text: `Usage: lightrsi ${params.cliHostName} mode <conservative|normal>` };
     }
 
     if (action === "settings") {

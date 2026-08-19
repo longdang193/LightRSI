@@ -4,6 +4,6 @@ export type {
   ModuleExecutionStatus,
   RequestModuleContract,
   RuntimeModuleContract,
-} from "@lightmem2/kernel";
+} from "@lightrsi/kernel";
 
-export { runHistoryModules, runModulesInOrder, runRequestModules } from "@lightmem2/runtime-core";
+export { runHistoryModules, runModulesInOrder, runRequestModules } from "@lightrsi/runtime-core";

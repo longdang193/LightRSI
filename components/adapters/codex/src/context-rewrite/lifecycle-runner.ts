@@ -2,19 +2,19 @@ import {
   loadSessionTaskRegistry,
   persistSessionTaskRegistry,
   SessionTaskRegistryVersionMismatchError,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 import {
   planLifecycleEviction,
   type LifecyclePlannerConfig,
   type LifecyclePlannerReasonCode,
   type TaskStateEstimator,
   type TaskStateEstimatorOutput,
-} from "@lightmem2/eviction";
+} from "@lightrsi/eviction";
 import type {
   ContextMutationPlan,
   ContextRewriteValidation,
   ModelContextSnapshot,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 
 import type {
   CodexEffectiveHistoryView,

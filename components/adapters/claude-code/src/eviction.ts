@@ -1,11 +1,11 @@
-import type { ContextSegment, RuntimeTurnContext } from "@lightmem2/kernel";
+import type { ContextSegment, RuntimeTurnContext } from "@lightrsi/kernel";
 import {
   buildHistoryBlocks,
   collectRuleSignals,
   deriveHistoryLifecycle,
   type HistoryBlock,
   type HistorySignalType,
-} from "@lightmem2/history";
+} from "@lightrsi/history";
 
 const EVICTABLE_SIGNALS: HistorySignalType[] = ["REPEATED_READ", "LARGE_BLOCK"];
 const TOOL_RESULT_POINTER = "[evicted: earlier tool result content removed]";

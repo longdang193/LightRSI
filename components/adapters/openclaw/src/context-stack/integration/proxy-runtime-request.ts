@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { runBeforeCallReductionOrchestrator } from "@lightmem2/host-adapter";
-import { appendModuleObservations } from "@lightmem2/product-surface";
+import { runBeforeCallReductionOrchestrator } from "@lightrsi/host-adapter";
+import { appendModuleObservations } from "@lightrsi/product-surface";
 import { injectProceduralMemoryHints } from "./procedural-memory.js";
 import {
   createOpenClawPayloadCodec,
@@ -19,7 +19,7 @@ import {
 } from "./lifecycle-planning-runner.js";
 import { runPrefixIfEnabled } from "./prefix-runner.js";
 import { runRequestModules, type ModuleExecutionRecord } from "./module-orchestrator.js";
-import { TOKENPILOT_REQUEST_MODULE_IDS } from "@lightmem2/tokenpilot";
+import { TOKENPILOT_REQUEST_MODULE_IDS } from "@lightrsi/tokenpilot";
 
 type ProxyRequestPreparation = {
   payload: any;
@@ -47,7 +47,7 @@ type ProxyRequestPreparation = {
   firstTurnCandidate: boolean;
   originalPromptCacheKey: string;
   reductionPassOptions: any;
-  cacheAuditSnapshot: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "usage" | "status">;
+  cacheAuditSnapshot: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "inputTokens" | "cacheWriteTokens" | "usage" | "status">;
 };
 
 function buildReductionSkippedResult(

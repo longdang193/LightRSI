@@ -12,7 +12,8 @@ npm run build >/dev/null 2>&1
 NPM_CACHE_DIR="${NPM_CACHE_DIR:-/tmp/tokenpilot-npm-cache}"
 mkdir -p "${NPM_CACHE_DIR}"
 
-PACK_TMP_DIR="$(mktemp -d /tmp/tokenpilot-pack-XXXXXX)"
+mkdir -p "${PLUGIN_DIR}/.tmp"
+PACK_TMP_DIR="$(mktemp -d "${PLUGIN_DIR}/.tmp/tokenpilot-pack-XXXXXX")"
 cleanup() {
   rm -rf "${PACK_TMP_DIR}"
 }
@@ -42,9 +43,21 @@ pkg.pop("scripts", None)
 dst.write_text(json.dumps(pkg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
 
-archive_name="$(cd "${PACK_TMP_DIR}/package" && npm_config_cache="${NPM_CACHE_DIR}" npm pack --silent)"
-archive_path="${PACK_TMP_DIR}/package/${archive_name}"
+cd "${PACK_TMP_DIR}/package"
+npm_config_cache="${NPM_CACHE_DIR}" npm pack >/dev/null
+archive_path="$(find "${PACK_TMP_DIR}/package" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+if [[ -z "${archive_path}" ]]; then
+  echo "npm pack produced no archive" >&2
+  exit 1
+fi
+archive_name="$(basename "${archive_path}")"
 cp "${archive_path}" "${PLUGIN_DIR}/${archive_name}"
 archive_path="${PLUGIN_DIR}/${archive_name}"
 
-printf '%s\n' "${archive_path}"
+if command -v wslpath >/dev/null 2>&1; then
+  printf '%s\n' "$(wslpath -w "${archive_path}")"
+elif command -v cygpath >/dev/null 2>&1; then
+  printf '%s\n' "$(cygpath -w "${archive_path}")"
+else
+  printf '%s\n' "${archive_path}"
+fi

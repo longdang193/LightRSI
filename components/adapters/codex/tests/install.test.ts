@@ -5,7 +5,7 @@ import { chmod, lstat, mkdtemp, mkdir, readFile, readlink, rm, stat, writeFile }
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
-import { reserveUnusedPort } from "@lightmem2/host-adapter";
+import { reserveUnusedPort } from "@lightrsi/host-adapter";
 
 async function assertInstalledCliLink(linkPath: string, targetPattern: RegExp, allowRegularFile: boolean) {
   const linkStat = await lstat(linkPath);
@@ -151,13 +151,13 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
     assert.equal(result.activeProviderName, "OPENAI");
     assert.equal(result.providerName, "OPENAI");
     assert.deepEqual(result.commandSkillNames, [
-      "lightmem2-status",
-      "lightmem2-report",
-      "lightmem2-doctor",
-      "lightmem2-visual",
+      "lightrsi-status",
+      "lightrsi-report",
+      "lightrsi-doctor",
+      "lightrsi-visual",
     ]);
     assert.equal(result.cliBinInstalled, true);
-    assert.equal(result.cliBinPath, join(cliBinDir, "lightmem2"));
+    assert.equal(result.cliBinPath, join(cliBinDir, "lightrsi"));
     assert.equal(result.cliBinDir, cliBinDir);
     assert.equal(result.cliBinDirOnPath, false);
     assert.equal(result.hostCliBinPath, join(cliBinDir, "tokenpilot-codex"));
@@ -182,10 +182,10 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
       assert.equal(String(entries[0]?.command ?? ""), result.expectedHookCommand);
     }
 
-    const skillRaw = await readFile(join(result.commandSkillsDir, "lightmem2-report", "SKILL.md"), "utf8");
-    assert.match(skillRaw, /lightmem2 codex report/);
+    const skillRaw = await readFile(join(result.commandSkillsDir, "lightrsi-report", "SKILL.md"), "utf8");
+    assert.match(skillRaw, /lightrsi codex report/);
     assert.match(skillRaw, /node/);
-    const policyRaw = await readFile(join(result.commandSkillsDir, "lightmem2-report", "agents", "openai.yaml"), "utf8");
+    const policyRaw = await readFile(join(result.commandSkillsDir, "lightrsi-report", "agents", "openai.yaml"), "utf8");
     assert.match(policyRaw, /allow_implicit_invocation:\s*false/);
   } finally {
     if (originalHome === undefined) delete process.env.HOME;
@@ -385,6 +385,10 @@ test("installCodexTokenPilot writes Windows hook wrappers into hooks.json", asyn
     });
 
     assert.match(result.expectedHookCommand, /tokenpilot-codex-hook\.cmd"$/);
+    assert.equal(result.expectedHookCommand.includes("\\\\"), false);
+    const wrapperPath = result.expectedHookCommand.slice(1, -1);
+    const wrapper = await readFile(wrapperPath, "utf8");
+    assert.equal(wrapper.includes("\\\\"), false);
 
     const hooks = JSON.parse(await readFile(hooksConfigPath, "utf8")) as {
       hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>;
@@ -393,6 +397,7 @@ test("installCodexTokenPilot writes Windows hook wrappers into hooks.json", asyn
       const entries = hooks.hooks?.[eventName]?.[0]?.hooks;
       assert.ok(Array.isArray(entries), `${eventName} hook group missing`);
       assert.match(String(entries[0]?.command ?? ""), /tokenpilot-codex-hook\.cmd"$/);
+      assert.equal(String(entries[0]?.command ?? "").includes("\\\\"), false);
     }
   } finally {
     await rm(dir, { recursive: true, force: true });

@@ -11,6 +11,10 @@ import {
 
 const SENDER_METADATA_BLOCK_RE =
   /(?:^|\n{1,2})Sender\s+\(untrusted metadata\):\s*```json\s*[\s\S]*?```(?:\n{1,2}|$)/gi;
+const DEEPAGENTS_CONVERSATION_HISTORY_LINE_RE =
+  /^.*\.deepagents[\\/]+conversation_history[\\/]+.*$/gim;
+const DEEPAGENTS_CONVERSATION_HISTORY_PATH_RE =
+  /(?:[A-Za-z]:[\\/]|\/)[^"'`\r\n]*?\.deepagents[\\/]+conversation_history[\\/]+[^\s"'`)\]}]+/gi;
 const ABSOLUTE_PATH_TOKEN_RE = /(?:[A-Za-z]:[\\/]|\/)[^\s"'`)\]}]+/g;
 const ISO_TIMESTAMP_RE = /\b\d{4}-\d{2}-\d{2}(?:[T ][0-9:.+\-Z]{2,})\b/g;
 const UUID_TOKEN_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
@@ -205,7 +209,9 @@ export function normalizeStablePrefixText(
   const raw = String(text ?? "");
   if (!raw.trim()) return raw;
   const homeDir = options?.homeDir ?? process.env.HOME ?? process.env.USERPROFILE ?? "";
-  const withoutVolatileMetadata = normalizeVolatileMetadataText(raw);
+  const withoutVolatileMetadata = normalizeVolatileMetadataText(stripUntrustedSenderMetadata(raw))
+    .replace(DEEPAGENTS_CONVERSATION_HISTORY_LINE_RE, "<DEEPAGENTS_CONVERSATION_HISTORY>")
+    .replace(DEEPAGENTS_CONVERSATION_HISTORY_PATH_RE, "<DEEPAGENTS_CONVERSATION_HISTORY>");
   return withoutVolatileMetadata.replace(ABSOLUTE_PATH_TOKEN_RE, (absolutePath: string, offset: number, source: string) => {
     const previousChar = offset > 0 ? source[offset - 1] : "";
     if (previousChar && /[A-Za-z0-9_.-]/.test(previousChar)) {

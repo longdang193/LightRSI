@@ -6,7 +6,7 @@ import type {
   ProductCommandSpec,
   ProductSurfaceConfigAdapter,
   ProductSurfaceHostBridge,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import {
   createProductSurfaceCommandHandler,
   registerProductSurfaceCommands,

@@ -1,4 +1,4 @@
-import type { ContextSegment } from "@lightmem2/kernel";
+import type { ContextSegment } from "@lightrsi/kernel";
 import type { ReductionDecision, ReductionInstruction } from "../decision-types.js";
 
 // ============================================================================

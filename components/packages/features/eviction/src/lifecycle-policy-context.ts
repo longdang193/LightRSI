@@ -1,4 +1,4 @@
-import type { RuntimeTurnContext } from "@lightmem2/kernel";
+import type { RuntimeTurnContext } from "@lightrsi/kernel";
 
 export function buildLifecyclePolicyContext(params: {
   sessionId: string;
