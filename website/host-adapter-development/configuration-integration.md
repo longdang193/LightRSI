@@ -16,7 +16,7 @@ From source:
 
 | Adapter | Environment Variable | Default Path |
 | :-- | :-- | :-- |
-| OpenClaw | `LIGHTMEM2_OPENCLAW_HOME` | `~/.openclaw/` |
+| OpenClaw | `LIGHTRSI_OPENCLAW_HOME` | `~/.openclaw/` |
 | OpenClaw | `OPENCLAW_CONFIG_PATH` | `~/.openclaw/openclaw.json` |
 | Codex | `CODEX_CONFIG_PATH` | `~/.codex/config.toml` |
 | Codex | `CODEX_HOOKS_CONFIG_PATH` | `~/.codex/hooks.json` |
@@ -34,4 +34,4 @@ Before modifying existing host config files, the installer creates `.tokenpilot.
 - [Adapter Architecture](./adapter-architecture.md)
 - [Adding a New Host](./adding-new-host.md)
 - [Hook and Proxy Integration](./hook-proxy-integration.md)
-- [TokenPilot Configuration](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/README.md)
+- [TokenPilot Configuration](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/README.md)

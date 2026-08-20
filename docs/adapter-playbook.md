@@ -1,6 +1,6 @@
 # Adapter Playbook
 
-This document is the implementation checklist for adding a new TokenPilot host adapter inside LightMem2.
+This document is the implementation checklist for adding a new TokenPilot host adapter inside LightRSI.
 
 Use it before adding support for a new coding-agent host such as Codex CLI or Claude Code.
 

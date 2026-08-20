@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -23,7 +23,7 @@ import {
 async function withTempState(
   fn: (stateDir: string) => Promise<void>,
 ): Promise<void> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-epoch-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-epoch-"));
   try {
     await fn(stateDir);
   } finally {
@@ -69,6 +69,29 @@ test("CDR-03 Rebase Epoch writes pending records and commits only with a respons
     assert.equal(journal.entries.length, 2);
     assert.equal(journal.epochs.length, 1);
     assert.equal(journal.epochs[0]?.status, "committed");
+  });
+});
+
+test("CDR-03 Rebase Epoch reads the LightMem2 schema and canonicalizes it", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-legacy-epoch";
+    await appendPendingCodexRebaseEpoch({
+      stateDir,
+      sessionId,
+      epochId: "epoch-legacy",
+      planId: "plan-legacy",
+      oldPreviousResponseId: "response-old",
+      oldRevision: "revision-old",
+      createdAt: "2026-07-28T10:00:00.000Z",
+    });
+    const path = codexRebaseEpochJournalPath(stateDir, sessionId);
+    const canonical = await readFile(path, "utf8");
+    await writeFile(path, canonical.replaceAll(CODEX_REBASE_EPOCH_SCHEMA, "lightmem2.codex.rebase-epoch/v1"), "utf8");
+
+    const journal = await readCodexRebaseEpochJournal(stateDir, sessionId);
+    assert.equal(journal.malformedLineCount, 0);
+    assert.equal(journal.epochs[0]?.schema, CODEX_REBASE_EPOCH_SCHEMA);
+    assert.equal(journal.epochs[0]?.epochId, "epoch-legacy");
   });
 });
 

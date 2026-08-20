@@ -1,6 +1,6 @@
 # TokenPilot OpenClaw Adapter
 
-This package contains the live OpenClaw adapter runtime for the current LightMem2 OpenClaw path. Within the broader LightMem2 framework, this package is the runtime adapter layer used by the TokenPilot component.
+This package contains the live OpenClaw adapter runtime for the current LightRSI OpenClaw path. Within the broader LightRSI framework, this package is the runtime adapter layer used by the TokenPilot component.
 
 This adapter explicitly binds TokenPilot with `stabilizer`, `reduction`, and `eviction`, and contributes OpenClaw state discovery to the shared CLI/Visual product registry.
 
@@ -24,7 +24,7 @@ Current adapter responsibilities:
 Release-style install:
 
 ```bash
-cd /path/to/LightMem2/components/adapters/openclaw
+cd /path/to/LightRSI/components/adapters/openclaw
 npm run install:release
 ```
 
@@ -37,7 +37,7 @@ This installs the packaged TokenPilot runtime component into:
 After install, run the adapter doctor:
 
 ```bash
-cd /path/to/LightMem2/components/adapters/openclaw
+cd /path/to/LightRSI/components/adapters/openclaw
 npm run doctor:openclaw
 ```
 
@@ -50,8 +50,8 @@ Inside an active TokenPilot session, the equivalent self-check is:
 Or use the standalone CLI:
 
 ```bash
-cd /path/to/LightMem2
-lightmem2 openclaw doctor
+cd /path/to/LightRSI
+lightrsi openclaw doctor
 ```
 
 Development-style install should use source build + runtime sync instead of mixing release and load-path installs. The current sanity workflow is:
@@ -69,7 +69,7 @@ See:
 ## Build
 
 ```bash
-cd /path/to/LightMem2/components/adapters/openclaw
+cd /path/to/LightRSI/components/adapters/openclaw
 corepack pnpm build
 corepack pnpm typecheck
 ```
@@ -79,13 +79,13 @@ corepack pnpm typecheck
 When the current TokenPilot component is active, it registers an explicit provider namespace:
 
 ```text
-lightmem2/<model>
+lightrsi/<model>
 ```
 
 Example:
 
 ```text
-lightmem2/gpt-5.4-mini
+lightrsi/gpt-5.4-mini
 ```
 
 ## Runtime State
@@ -123,7 +123,7 @@ rg 'stable_prefix_rewrite|proxy_before_call_rewrite|proxy_after_call_rewrite|too
 Lightweight integration self-check:
 
 ```bash
-cd /path/to/LightMem2/components/adapters/openclaw
+cd /path/to/LightRSI/components/adapters/openclaw
 npm run doctor:openclaw
 ```
 

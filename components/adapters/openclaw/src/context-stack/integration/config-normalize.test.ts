@@ -4,6 +4,22 @@ import { join } from "node:path";
 
 import { normalizeConfig } from "./config-normalize.js";
 
+function withEnv(values: Record<string, string | undefined>, run: () => void): void {
+  const original = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
+  try {
+    for (const [key, value] of Object.entries(values)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    run();
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 test("normalizeConfig derives one effective module enablement snapshot", () => {
   const cfg = normalizeConfig({
     modules: {
@@ -68,4 +84,22 @@ test("normalizeConfig preserves the TokenPilot default module contract", () => {
     cfg.debugTapPath,
     join("/tmp/tokenpilot-config-contract", "tokenpilot", "provider-traffic.jsonl"),
   );
+});
+
+test("normalizeConfig prefers LIGHTRSI_ then LIGHTMEM2_ then TOKENPILOT_ estimator env", () => {
+  withEnv({
+    LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: "canonical-model",
+    LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "legacy-model",
+    TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL: "preset-model",
+  }, () => {
+    assert.equal(normalizeConfig({}).taskStateEstimator.model, "canonical-model");
+  });
+
+  withEnv({
+    LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: undefined,
+    LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "legacy-model",
+    TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL: "preset-model",
+  }, () => {
+    assert.equal(normalizeConfig({}).taskStateEstimator.model, "legacy-model");
+  });
 });

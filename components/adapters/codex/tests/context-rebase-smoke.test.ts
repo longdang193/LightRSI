@@ -10,7 +10,7 @@ import {
 } from "../src/context-rebase-smoke.js";
 
 test("CDR-06 offline smoke emits sanitized five-turn, restart, and fallback evidence", async () => {
-  const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-smoke-test-"));
+  const outputDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-smoke-test-"));
   const originalCodexCliVersion = process.env.CODEX_CLI_VERSION;
   try {
     process.env.CODEX_CLI_VERSION = "sk-test-012345678901234567890123456789";
@@ -98,7 +98,7 @@ test("CDR-06 offline smoke emits sanitized five-turn, restart, and fallback evid
 });
 
 test("CDR-06 offline smoke rejects credential-shaped model labels before execution", async () => {
-  const outputDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-smoke-label-"));
+  const outputDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-smoke-label-"));
   try {
     await assert.rejects(
       runCodexRebaseMockSmoke({

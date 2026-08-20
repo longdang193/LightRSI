@@ -7,7 +7,7 @@ import { reserveUnusedPort, withTempHome } from "@lightrsi/host-adapter";
 import { requestUpstreamResponses } from "./upstream-transport-fetch.js";
 
 test("openclaw upstream transport caches unsupported prompt_cache_retention and skips retry later", async () => {
-  await withTempHome("lightmem2-openclaw-upstream-capability-", async (homeDir) => {
+  await withTempHome("lightrsi-openclaw-upstream-capability-", async (homeDir) => {
     const upstreamPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".openclaw", "tokenpilot-state");
     const requests: Array<Record<string, unknown>> = [];

@@ -14,7 +14,7 @@ Adapters use environment variables for non-default paths:
 
 | Variable | Purpose | Host |
 | :-- | :-- | :-- |
-| `LIGHTMEM2_OPENCLAW_HOME` | Custom OpenClaw home dir | OpenClaw |
+| `LIGHTRSI_OPENCLAW_HOME` | Custom OpenClaw home dir | OpenClaw |
 | `OPENCLAW_CONFIG_PATH` | Custom config path | OpenClaw |
 | `CODEX_CONFIG_PATH` | Custom config.toml path | Codex |
 | `CODEX_HOOKS_CONFIG_PATH` | Custom hooks.json path | Codex |

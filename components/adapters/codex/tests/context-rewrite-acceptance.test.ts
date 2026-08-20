@@ -347,7 +347,7 @@ function responsePairCounts(body: unknown, callId: string): {
 }
 
 test("GUA-06 accepts estimator-driven Codex rebase through a real proxy restart", async () => {
-  const environment = createTemporaryAcceptanceEnvironment("lightmem2-gua06-codex-");
+  const environment = createTemporaryAcceptanceEnvironment("lightrsi-gua06-codex-");
   const sentinels = createAcceptanceSentinels(TEST_UUID);
   const upstream = new MockUpstreamRecorder();
   const estimator = await startLifecycleEstimator(sentinels);

@@ -81,7 +81,7 @@ const hostForArchive = (archive) => {
   throw new Error(`Unknown adapter archive: ${archive}`);
 };
 fs.writeFileSync(path, `${JSON.stringify({
-  product: "LightMem2",
+  product: "LightRSI",
   version,
   tag: `v${version}`,
   commit,
@@ -106,7 +106,7 @@ CODEX_ARCHIVE="${ARCHIVE_NAMES[1]}"
 CLAUDE_ARCHIVE="${ARCHIVE_NAMES[2]}"
 
 cat > "${OUTPUT_DIR}/RELEASE_NOTES.md" <<EOF
-# LightMem2 v${VERSION}
+# LightRSI v${VERSION}
 
 Commit: \`${COMMIT}\`
 Dirty worktree: \`${DIRTY}\`

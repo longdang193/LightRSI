@@ -63,7 +63,11 @@ export async function detectUpstreamConfig(
       : matchedProviderByBaseUrl
         ? matchedProviderByBaseUrl
         : preferred.find((id) => providers?.[id]?.baseUrl && providers?.[id]?.apiKey)
-          ?? Object.keys(providers).find((id) => id !== "tokenpilot" && providers[id]?.baseUrl && providers[id]?.apiKey)
+          ?? Object.keys(providers).find((id) => (
+            !["tokenpilot", "lightrsi", "lightmem2"].includes(id)
+            && providers[id]?.baseUrl
+            && providers[id]?.apiKey
+          ))
           ?? Object.keys(providers)[0];
     if (!selectedProvider) return null;
     const provider = providers[selectedProvider];
@@ -99,7 +103,9 @@ export async function ensureExplicitProxyModelsInConfig(
     doc.agents.defaults.models = doc.agents.defaults.models ?? {};
 
     const existingTokenPilotProvider = doc.models.providers.tokenpilot ?? {};
-    const existingLightMem2Provider = doc.models.providers.lightmem2 ?? {};
+    const existingLightRSIProvider = doc.models.providers.lightrsi
+      ?? doc.models.providers.lightmem2
+      ?? {};
     const desiredModels = upstream.models.map((m) => ({
       id: m.id,
       name: m.name,
@@ -117,19 +123,30 @@ export async function ensureExplicitProxyModelsInConfig(
       authHeader: false,
       models: desiredModels,
     };
-    doc.models.providers.lightmem2 = {
-      ...existingLightMem2Provider,
+    doc.models.providers.lightrsi = {
+      ...existingLightRSIProvider,
       baseUrl: proxyBaseUrl,
       apiKey: "tokenpilot-local",
       api: "openai-responses",
       authHeader: false,
       models: desiredModels,
     };
+    delete doc.models.providers.lightmem2;
 
     for (const model of upstream.models) {
-      for (const key of [`tokenpilot/${model.id}`, `lightmem2/${model.id}`]) {
+      const legacyKey = `lightmem2/${model.id}`;
+      const canonicalKey = `lightrsi/${model.id}`;
+      if (!doc.agents.defaults.models[canonicalKey] && doc.agents.defaults.models[legacyKey]) {
+        doc.agents.defaults.models[canonicalKey] = doc.agents.defaults.models[legacyKey];
+      }
+      delete doc.agents.defaults.models[legacyKey];
+      for (const key of [`tokenpilot/${model.id}`, canonicalKey]) {
         if (!doc.agents.defaults.models[key]) doc.agents.defaults.models[key] = {};
       }
+    }
+    const primaryModel = doc.agents.defaults.model?.primary;
+    if (typeof primaryModel === "string" && primaryModel.startsWith("lightmem2/")) {
+      doc.agents.defaults.model.primary = `lightrsi/${primaryModel.slice("lightmem2/".length)}`;
     }
 
     const nextRaw = JSON.stringify(doc, null, 2);
@@ -147,8 +164,10 @@ export function normalizeProxyModelId(model: string): string {
   if (!value) return value;
   const stripped = value.startsWith("tokenpilot/")
     ? value.slice("tokenpilot/".length)
-    : value.startsWith("lightmem2/")
-      ? value.slice("lightmem2/".length)
+    : value.startsWith("lightrsi/")
+      ? value.slice("lightrsi/".length)
+      : value.startsWith("lightmem2/")
+        ? value.slice("lightmem2/".length)
       : value;
   return stripped.replace("gpt-5-4-mini", "gpt-5.4-mini");
 }

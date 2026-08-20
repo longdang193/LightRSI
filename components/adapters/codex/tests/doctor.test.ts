@@ -47,7 +47,7 @@ async function reserveUnusedPort(): Promise<number> {
 const execFileAsync = promisify(execFile);
 
 test("inspectCodexDoctor reports missing provider and hooks honestly", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-"));
   try {
     const proxyPort = await reserveUnusedPort();
     const codexConfigPath = join(dir, "config.toml");
@@ -86,7 +86,7 @@ test("inspectCodexDoctor reports missing provider and hooks honestly", async () 
 });
 
 test("inspectCodexDoctor reports incomplete estimator config without leaking secrets", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-estimator-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-estimator-"));
   try {
     const proxyPort = await reserveUnusedPort();
     const codexConfigPath = join(dir, "config.toml");
@@ -206,7 +206,7 @@ test("formatCodexDoctorReport redacts credentials embedded in diagnostic URLs", 
 });
 
 test("doctor-codex script exposes estimator diagnostics without serializing configured secrets", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-script-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-script-"));
   try {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(dir, "state");
@@ -260,8 +260,8 @@ test("doctor-codex script exposes estimator diagnostics without serializing conf
           CODEX_CONFIG_PATH: codexConfigPath,
           CODEX_HOOKS_CONFIG_PATH: hooksConfigPath,
           TOKENPILOT_CODEX_CONFIG: tokenPilotConfigPath,
-          LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "",
-          LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "",
+          LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "",
+          LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY: "",
           TOKENPILOT_TASK_STATE_ESTIMATOR_ENABLED: "",
           TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY: "",
         },
@@ -343,7 +343,7 @@ test("doctor-codex script is unhealthy when Codex bypasses the local proxy", asy
 });
 
 test("inspectCodexDoctor checks the configured provider name", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-provider-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-provider-"));
   try {
     const proxyPort = await reserveUnusedPort();
     const codexConfigPath = join(dir, "config.toml");
@@ -383,7 +383,7 @@ test("inspectCodexDoctor checks the configured provider name", async () => {
 });
 
 test("inspectCodexDoctor detects installed recovery MCP entry", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-mcp-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-mcp-"));
   try {
     const proxyPort = await reserveUnusedPort();
     const codexConfigPath = join(dir, "config.toml");
@@ -433,7 +433,7 @@ test("inspectCodexDoctor detects installed recovery MCP entry", async () => {
 });
 
 test("inspectCodexDoctor treats a non-tokenpilot active provider as healthy when it is routed through the local proxy", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-intercepted-root-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-intercepted-root-"));
   const proxyPort = await reserveUnusedPort();
   const server = createHttpServer((req, res) => {
     if (req.url === "/health") {
@@ -491,7 +491,7 @@ test("inspectCodexDoctor treats a non-tokenpilot active provider as healthy when
 });
 
 test("inspectCodexDoctor reports partial hook installs explicitly", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-hooks-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-hooks-"));
   try {
     const proxyPort = await reserveUnusedPort();
     const codexConfigPath = join(dir, "config.toml");
@@ -528,7 +528,7 @@ test("inspectCodexDoctor reports partial hook installs explicitly", async () => 
 });
 
 test("inspectCodexDoctor accepts Windows hook wrapper commands", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-hooks-win-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-hooks-win-"));
   try {
     const proxyPort = await reserveUnusedPort();
     const codexConfigPath = join(dir, "config.toml");
@@ -538,10 +538,10 @@ test("inspectCodexDoctor accepts Windows hook wrapper commands", async () => {
     await writeFile(codexConfigPath, "model_provider = \"tokenpilot\"\n", "utf8");
     await writeFile(hooksConfigPath, JSON.stringify({
       hooks: {
-        SessionStart: [{ hooks: [{ type: "command", command: "D:\\LightMem2\\codex\\dist\\tokenpilot-codex-hook.cmd" }] }],
-        PreToolUse: [{ hooks: [{ type: "command", command: "D:\\LightMem2\\codex\\dist\\tokenpilot-codex-hook.cmd" }] }],
-        PostToolUse: [{ hooks: [{ type: "command", command: "D:\\LightMem2\\codex\\dist\\tokenpilot-codex-hook.cmd" }] }],
-        Stop: [{ hooks: [{ type: "command", command: "D:\\LightMem2\\codex\\dist\\tokenpilot-codex-hook.cmd" }] }],
+        SessionStart: [{ hooks: [{ type: "command", command: "D:\\LightRSI\\codex\\dist\\tokenpilot-codex-hook.cmd" }] }],
+        PreToolUse: [{ hooks: [{ type: "command", command: "D:\\LightRSI\\codex\\dist\\tokenpilot-codex-hook.cmd" }] }],
+        PostToolUse: [{ hooks: [{ type: "command", command: "D:\\LightRSI\\codex\\dist\\tokenpilot-codex-hook.cmd" }] }],
+        Stop: [{ hooks: [{ type: "command", command: "D:\\LightRSI\\codex\\dist\\tokenpilot-codex-hook.cmd" }] }],
       },
     }, null, 2), "utf8");
     await mkdir(join(dir, "state"), { recursive: true });
@@ -564,7 +564,7 @@ test("inspectCodexDoctor accepts Windows hook wrapper commands", async () => {
 });
 
 test("inspectCodexDoctor rejects a healthy response from a different adapter on the same port", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-wrong-adapter-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-wrong-adapter-"));
   const proxyPort = await reserveUnusedPort();
   const server = createHttpServer((req, res) => {
     if (req.url === "/health") {
@@ -617,7 +617,7 @@ test("inspectCodexDoctor rejects a healthy response from a different adapter on 
 });
 
 test("inspectCodexDoctor detects when tokenpilot upstream loops into another local proxy", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-upstream-loop-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-upstream-loop-"));
   try {
     const proxyPort = await reserveUnusedPort();
     const codexConfigPath = join(dir, "config.toml");
@@ -670,12 +670,12 @@ test("formatCodexDoctorReport includes remediation hints for drifted installs", 
   const proxyPort = await reserveUnusedPort();
   const report = await inspectCodexDoctor({
     config: normalizeTokenPilotCodexConfig({
-      stateDir: join(tmpdir(), "lightmem2-codex-doctor-remediation-state"),
+      stateDir: join(tmpdir(), "lightrsi-codex-doctor-remediation-state"),
       proxyPort,
     }),
-    configPath: join(tmpdir(), "lightmem2-missing-codex-config.toml"),
-    hooksConfigPath: join(tmpdir(), "lightmem2-missing-codex-hooks.json"),
-    tokenPilotConfigPath: join(tmpdir(), "lightmem2-missing-codex-tokenpilot.json"),
+    configPath: join(tmpdir(), "lightrsi-missing-codex-config.toml"),
+    hooksConfigPath: join(tmpdir(), "lightrsi-missing-codex-hooks.json"),
+    tokenPilotConfigPath: join(tmpdir(), "lightrsi-missing-codex-tokenpilot.json"),
   });
   const text = formatCodexDoctorReport(report);
   assert.match(text, /Suggested fixes:/);
@@ -683,7 +683,7 @@ test("formatCodexDoctorReport includes remediation hints for drifted installs", 
 });
 
 test("inspectCodexDoctor reports cached rebase capabilities", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-capability-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-capability-"));
   try {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(dir, "state");

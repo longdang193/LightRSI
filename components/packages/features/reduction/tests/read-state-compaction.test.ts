@@ -682,7 +682,7 @@ export function saveConfig(file: string, text: string) {
   assert.ok(first);
   assert.ok(second);
   assert.match(first?.text ?? "", /\[code outlined lines=/);
-  assert.match(first?.text ?? "", /body elided by LightMem2/);
+  assert.match(first?.text ?? "", /body elided by LightRSI/);
   assert.match(second?.text ?? "", /export function loadConfig/);
   assert.doesNotMatch(second?.text ?? "", /\[code outlined lines=/);
 });

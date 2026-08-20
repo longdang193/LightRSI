@@ -16,11 +16,11 @@ Note: Eviction is currently only available on OpenClaw (not Codex or Claude Code
 
 ```bash
 # Toggle eviction
-lightmem2 eviction on
-lightmem2 eviction off
+lightrsi eviction on
+lightrsi eviction off
 
 # In OpenClaw
-/lightmem2 eviction on
+/lightrsi eviction on
 ```
 
 ## Next

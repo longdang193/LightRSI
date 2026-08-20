@@ -1,71 +1,71 @@
 # CLI Reference
 
-The `lightmem2` CLI is the unified command interface across all hosts. This page documents every command.
+The `lightrsi` CLI is the unified command interface across all hosts. This page documents every command.
 
 ## Global Commands
 
-Commands that work without specifying a host (uses the default host set by `lightmem2 use`).
+Commands that work without specifying a host (uses the default host set by `lightrsi use`).
 
 ```bash
-lightmem2 report              # Latest session report across hosts
-lightmem2 visual              # Open visual inspector (shared, switchable)
-lightmem2 use <host>          # Set default host
-lightmem2 use <host> session <id>  # Pin default session
-lightmem2 context             # Show default host, pinned session, config
-lightmem2 --help              # Top-level help
+lightrsi report              # Latest session report across hosts
+lightrsi visual              # Open visual inspector (shared, switchable)
+lightrsi use <host>          # Set default host
+lightrsi use <host> session <id>  # Pin default session
+lightrsi context             # Show default host, pinned session, config
+lightrsi --help              # Top-level help
 ```
 
 ## OpenClaw Commands
 
-### In-Session (`/lightmem2`)
+### In-Session (`/lightrsi`)
 
 ```text
-/lightmem2 status             # Current plugin and runtime status
-/lightmem2 report             # Session token, cache, and cost report
-/lightmem2 doctor             # Full integration self-check
-/lightmem2 visual             # Open visual inspector
-/lightmem2 mode <mode>        # Switch: conservative | normal | aggressive
-/lightmem2 stabilizer target <developer|user>
-/lightmem2 reduction mode <light|balanced>
-/lightmem2 eviction <on|off>
-/lightmem2 settings details <on|off>
-/lightmem2 help               # List all commands
+/lightrsi status             # Current plugin and runtime status
+/lightrsi report             # Session token, cache, and cost report
+/lightrsi doctor             # Full integration self-check
+/lightrsi visual             # Open visual inspector
+/lightrsi mode <mode>        # Switch: conservative | normal | aggressive
+/lightrsi stabilizer target <developer|user>
+/lightrsi reduction mode <light|balanced>
+/lightrsi eviction <on|off>
+/lightrsi settings details <on|off>
+/lightrsi help               # List all commands
 ```
 
 ### Standalone CLI
 
 ```bash
-lightmem2 openclaw status
-lightmem2 openclaw report
-lightmem2 openclaw doctor
-lightmem2 openclaw visual
-lightmem2 openclaw mode <mode>
-lightmem2 openclaw session <id> report
-lightmem2 openclaw stabilizer <on|off>
-lightmem2 openclaw stabilizer target <developer|user>
-lightmem2 openclaw reduction <on|off>
-lightmem2 openclaw reduction mode <light|balanced>
-lightmem2 openclaw reduction pass toolPayloadTrim <off>
-lightmem2 openclaw eviction <on|off>
-lightmem2 openclaw help
+lightrsi openclaw status
+lightrsi openclaw report
+lightrsi openclaw doctor
+lightrsi openclaw visual
+lightrsi openclaw mode <mode>
+lightrsi openclaw session <id> report
+lightrsi openclaw stabilizer <on|off>
+lightrsi openclaw stabilizer target <developer|user>
+lightrsi openclaw reduction <on|off>
+lightrsi openclaw reduction mode <light|balanced>
+lightrsi openclaw reduction pass toolPayloadTrim <off>
+lightrsi openclaw eviction <on|off>
+lightrsi openclaw help
 ```
 
 ## Codex Commands
 
 ```bash
-lightmem2 codex status
-lightmem2 codex report
-lightmem2 codex doctor
-lightmem2 codex visual
-lightmem2 codex session <id> report
-lightmem2 codex mode <conservative|normal>
-lightmem2 codex stabilizer <on|off>
-lightmem2 codex stabilizer target <developer|user>
-lightmem2 codex reduction <on|off>
-lightmem2 codex reduction mode <light|balanced>
-lightmem2 codex reduction pass toolPayloadTrim <off>
-lightmem2 codex reduction status
-lightmem2 codex help
+lightrsi codex status
+lightrsi codex report
+lightrsi codex doctor
+lightrsi codex visual
+lightrsi codex session <id> report
+lightrsi codex mode <conservative|normal>
+lightrsi codex stabilizer <on|off>
+lightrsi codex stabilizer target <developer|user>
+lightrsi codex reduction <on|off>
+lightrsi codex reduction mode <light|balanced>
+lightrsi codex reduction pass toolPayloadTrim <off>
+lightrsi codex reduction status
+lightrsi codex help
 ```
 
 Manual proxy control:
@@ -78,19 +78,19 @@ tokenpilot-codex start
 ## Claude Code Commands
 
 ```bash
-lightmem2 claude-code status
-lightmem2 claude-code report
-lightmem2 claude-code doctor
-lightmem2 claude-code visual
-lightmem2 claude-code session <id> report
-lightmem2 claude-code mode <conservative|normal>
-lightmem2 claude-code stabilizer <on|off>
-lightmem2 claude-code stabilizer target <developer|user>
-lightmem2 claude-code reduction <on|off>
-lightmem2 claude-code reduction mode <light|balanced>
-lightmem2 claude-code reduction pass toolPayloadTrim <off>
-lightmem2 claude-code reduction status
-lightmem2 claude-code help
+lightrsi claude-code status
+lightrsi claude-code report
+lightrsi claude-code doctor
+lightrsi claude-code visual
+lightrsi claude-code session <id> report
+lightrsi claude-code mode <conservative|normal>
+lightrsi claude-code stabilizer <on|off>
+lightrsi claude-code stabilizer target <developer|user>
+lightrsi claude-code reduction <on|off>
+lightrsi claude-code reduction mode <light|balanced>
+lightrsi claude-code reduction pass toolPayloadTrim <off>
+lightrsi claude-code reduction status
+lightrsi claude-code help
 ```
 
 ## Next

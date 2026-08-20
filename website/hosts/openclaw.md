@@ -1,6 +1,6 @@
 # OpenClaw
 
-OpenClaw is the primary host for LightMem2, with the deepest integration via a native plugin slot.
+OpenClaw is the primary host for LightRSI, with the deepest integration via a native plugin slot.
 
 ## Installation
 
@@ -18,7 +18,7 @@ This command:
 ### Custom Paths
 
 ```bash
-export LIGHTMEM2_OPENCLAW_HOME="/path/to/openclaw-home"
+export LIGHTRSI_OPENCLAW_HOME="/path/to/openclaw-home"
 export OPENCLAW_CONFIG_PATH="/path/to/openclaw.json"
 pnpm component:install:tokenpilot:openclaw
 ```
@@ -48,7 +48,7 @@ After install, your `~/.openclaw/openclaw.json` will include a TokenPilot sectio
 Inside an OpenClaw session:
 
 ```text
-/lightmem2 status
+/lightrsi status
 ```
 
 Expected output:
@@ -62,9 +62,9 @@ Expected output:
 For a fuller check:
 
 ```text
-/lightmem2 doctor
-/lightmem2 report
-/lightmem2 visual
+/lightrsi doctor
+/lightrsi report
+/lightrsi visual
 ```
 
 ## In-Session Commands
@@ -72,15 +72,15 @@ For a fuller check:
 OpenClaw supports in-session slash commands:
 
 ```text
-/lightmem2 status          # View current status
-/lightmem2 report          # Session token/cost report
-/lightmem2 doctor          # Integration self-check
-/lightmem2 visual          # Open visual inspector
-/lightmem2 mode normal     # Switch mode
-/lightmem2 stabilizer target developer
-/lightmem2 reduction mode balanced
-/lightmem2 eviction on
-/lightmem2 help            # List all commands
+/lightrsi status          # View current status
+/lightrsi report          # Session token/cost report
+/lightrsi doctor          # Integration self-check
+/lightrsi visual          # Open visual inspector
+/lightrsi mode normal     # Switch mode
+/lightrsi stabilizer target developer
+/lightrsi reduction mode balanced
+/lightrsi eviction on
+/lightrsi help            # List all commands
 ```
 
 ## Standalone CLI
@@ -88,18 +88,18 @@ OpenClaw supports in-session slash commands:
 Commands also work outside OpenClaw:
 
 ```bash
-lightmem2 openclaw status
-lightmem2 openclaw report
-lightmem2 openclaw doctor
-lightmem2 openclaw visual
-lightmem2 openclaw mode normal
-lightmem2 openclaw session <session-id> report
+lightrsi openclaw status
+lightrsi openclaw report
+lightrsi openclaw doctor
+lightrsi openclaw visual
+lightrsi openclaw mode normal
+lightrsi openclaw session <session-id> report
 ```
 
 ## Model Selection
 
 ```text
-lightmem2/gpt-5.4-mini
+lightrsi/gpt-5.4-mini
 ```
 
 ## Recovery

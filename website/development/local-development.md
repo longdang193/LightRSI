@@ -1,10 +1,10 @@
 # Local Development
 
-How to set up LightMem2 for local development.
+How to set up LightRSI for local development.
 
 ## Prerequisites
 
-Same as [installation prerequisites](/getting-started/install-lightmem2#prerequisites):
+Same as [installation prerequisites](/getting-started/install-lightrsi#prerequisites):
 - Node.js ≥ 18 (v20+ recommended)
 - pnpm ≥ 9
 - Git
@@ -12,8 +12,8 @@ Same as [installation prerequisites](/getting-started/install-lightmem2#prerequi
 ## Setup
 
 ```bash
-git clone https://github.com/zjunlp/LightMem2.git
-cd LightMem2
+git clone https://github.com/zjunlp/LightRSI.git
+cd LightRSI
 corepack enable
 pnpm install
 pnpm build
@@ -29,13 +29,13 @@ pnpm build
 pnpm typecheck
 
 # Build the CLI
-pnpm lightmem2:build
+pnpm lightrsi:build
 
 # Install the CLI locally
-pnpm lightmem2:install
+pnpm lightrsi:install
 
 # Run tests
-pnpm lightmem2:test
+pnpm lightrsi:test
 ```
 
 ## Per-Package Commands

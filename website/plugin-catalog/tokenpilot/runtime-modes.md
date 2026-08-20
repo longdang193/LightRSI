@@ -20,7 +20,7 @@ TokenPilot provides three runtime modes: **conservative**, **normal**, and **agg
 For **safety-critical sessions** where you cannot afford to lose any context.
 
 ```bash
-lightmem2 mode conservative
+lightrsi mode conservative
 ```
 
 - Stabilizer rewrites context into cache-stable form but keeps it developer-visible
@@ -32,7 +32,7 @@ lightmem2 mode conservative
 The **default and recommended mode** for most sessions.
 
 ```bash
-lightmem2 mode normal
+lightrsi mode normal
 ```
 
 - Stabilizer rewrites context and attaches dynamic content at the developer level
@@ -44,7 +44,7 @@ lightmem2 mode normal
 For **maximum savings** when you're willing to trade some context completeness.
 
 ```bash
-lightmem2 mode aggressive
+lightrsi mode aggressive
 ```
 
 - Stabilizer rewrites context and attaches dynamic content at the user level (further from the model)
@@ -57,16 +57,16 @@ You can change modes at any time — no restart needed:
 
 ```bash
 # Per-host (OpenClaw supports all three modes)
-lightmem2 openclaw mode aggressive
+lightrsi openclaw mode aggressive
 
 # Codex and Claude Code only support conservative and normal
-lightmem2 codex mode conservative
-lightmem2 codex mode normal
-lightmem2 claude-code mode conservative
-lightmem2 claude-code mode normal
+lightrsi codex mode conservative
+lightrsi codex mode normal
+lightrsi claude-code mode conservative
+lightrsi claude-code mode normal
 
 # Or inside OpenClaw session
-/lightmem2 mode aggressive
+/lightrsi mode aggressive
 ```
 
 The new mode takes effect on the next turn.

@@ -4,7 +4,7 @@ TokenPilot is installed as part of [installing your first plugin](/getting-start
 
 ## Prerequisites
 
-Before installing TokenPilot, complete [Install LightMem2](/getting-started/install-lightmem2).
+Before installing TokenPilot, complete [Install LightRSI](/getting-started/install-lightrsi).
 
 ## Install Commands
 
@@ -38,9 +38,9 @@ npm --prefix components/tokenpilot/adapters/claude-code run install:claude-code
 Run the doctor command for your host:
 
 ```bash
-lightmem2 openclaw doctor
-lightmem2 codex doctor
-lightmem2 claude-code doctor
+lightrsi openclaw doctor
+lightrsi codex doctor
+lightrsi claude-code doctor
 ```
 
 All three should report:

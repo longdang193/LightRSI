@@ -116,10 +116,10 @@ test("mock host e2e registers aliases and executes mode command through register
     configAdapter: createTestConfigAdapter(),
   });
 
-  assert.deepEqual(host.commandNames.sort(), ["lightmem2", "tokenpilot", "tp"]);
+  assert.deepEqual(host.commandNames.sort(), ["lightrsi", "tokenpilot", "tp"]);
 
-  const command = host.getCommand("lightmem2");
-  assert.ok(command, "expected lightmem2 alias to be registered");
+  const command = host.getCommand("lightrsi");
+  assert.ok(command, "expected lightrsi alias to be registered");
 
   const result = await command.handler({ args: "mode aggressive" });
 
@@ -185,12 +185,12 @@ test("mock host e2e preserves shared handler semantics across aliases", async ()
     configAdapter: createTestConfigAdapter(),
   });
 
-  const lightmem2 = host.getCommand("lightmem2");
+  const lightrsi = host.getCommand("lightrsi");
   const tokenpilot = host.getCommand("tokenpilot");
-  assert.ok(lightmem2 && tokenpilot, "expected both aliases to be registered");
-  assert.equal(lightmem2.handler, tokenpilot.handler);
+  assert.ok(lightrsi && tokenpilot, "expected both aliases to be registered");
+  assert.equal(lightrsi.handler, tokenpilot.handler);
 
-  const detailsResult = await lightmem2.handler({ args: "settings details on" });
+  const detailsResult = await lightrsi.handler({ args: "settings details on" });
   const reductionResult = await tokenpilot.handler({ args: "reduction pass toolPayloadTrim off" });
 
   assert.equal(detailsResult.text, "✅ ux.details = true");

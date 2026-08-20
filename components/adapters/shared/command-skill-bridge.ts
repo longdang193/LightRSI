@@ -40,6 +40,13 @@ const READ_ONLY_SKILLS: SkillSpec[] = [
   },
 ];
 
+const LEGACY_SKILL_NAMES = [
+  "lightmem2-status",
+  "lightmem2-report",
+  "lightmem2-doctor",
+  "lightmem2-visual",
+];
+
 function cliDistPathFromAdapterRoot(adapterRoot: string): string {
   const bundledPath = resolve(adapterRoot, "dist", "lightrsi.js");
   if (existsSync(bundledPath)) return bundledPath;
@@ -59,7 +66,7 @@ function skillMarkdown(params: {
 }): string {
   const commandText = `lightrsi ${params.host} ${params.spec.commandArgs.join(" ")}`;
   const body = [
-    `Run the local LightMem2 command surface for ${params.host} and return the output.`,
+    `Run the local LightRSI command surface for ${params.host} and return the output.`,
     "",
     "Execution rules:",
     "1. Prefer the installed CLI command if it exists:",
@@ -110,6 +117,10 @@ export async function installCommandSkillBridge(
 ): Promise<{ skillsDir: string; skillNames: string[] }> {
   const cliPath = cliDistPathFromAdapterRoot(params.adapterRoot);
   await mkdir(params.skillsDir, { recursive: true });
+
+  for (const legacySkillName of LEGACY_SKILL_NAMES) {
+    await rm(join(params.skillsDir, legacySkillName), { recursive: true, force: true });
+  }
 
   for (const spec of READ_ONLY_SKILLS) {
     await rm(join(params.skillsDir, spec.name.replace(/^lightrsi-/, "lightmem2-")), {

@@ -11,7 +11,7 @@ components/tokenpilot/
 │   ├── codex/            # Codex CLI adapter, hooks, provider install, local proxy
 │   └── claude-code/      # Claude Code adapter, gateway routing, MCP recovery
 ├── products/
-│   ├── cli/              # Shared lightmem2 CLI surface
+│   ├── cli/              # Shared lightrsi CLI surface
 │   └── mcp/              # Shared memory_fault_recover MCP server
 ├── README.md
 └── packages/
@@ -52,7 +52,7 @@ components/tokenpilot/
 | `products/cli/` | Standalone CLI surface for hosts without native slash commands |
 | `products/mcp/` | Shared MCP server surface (e.g., `memory_fault_recover`) |
 
-The adapter internal structure is described in [adapters/README.md](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/adapters/README.md).
+The adapter internal structure is described in [adapters/README.md](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/adapters/README.md).
 
 ## Related Pages
 

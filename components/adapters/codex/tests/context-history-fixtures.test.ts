@@ -16,7 +16,7 @@ import {
 async function withTempState(
   fn: (stateDir: string) => Promise<void>,
 ): Promise<void> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-history-fixtures-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-history-fixtures-"));
   try {
     await fn(stateDir);
   } finally {
@@ -61,7 +61,7 @@ async function appendLegacySchemaRecord(stateDir: string, sessionId: string): Pr
   await appendFile(
     codexContextHistoryJournalPath(stateDir, sessionId),
     `${JSON.stringify({
-      schema: "lightmem2.codex.context-history.response/v0",
+      schema: "lightrsi.codex.context-history.response/v0",
       kind: "response",
       sessionId,
       status: "completed",

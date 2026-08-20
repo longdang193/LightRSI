@@ -50,12 +50,12 @@ See [Runtime Modes](/plugin-catalog/tokenpilot/runtime-modes) for detailed behav
 
 ```bash
 # Change mode (applies the preset)
-lightmem2 mode aggressive
+lightrsi mode aggressive
 
 # Toggle individual features
-lightmem2 stabilizer off
-lightmem2 reduction mode light
-lightmem2 eviction on
+lightrsi stabilizer off
+lightrsi reduction mode light
+lightrsi eviction on
 ```
 
 ## Next

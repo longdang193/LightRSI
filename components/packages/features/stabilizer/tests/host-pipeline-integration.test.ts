@@ -10,7 +10,7 @@ import {
   runBeforeCallReductionOrchestrator,
   stripInternalPayloadFields,
   type HostRequestEnvelope,
-} from "@lightmem2/host-adapter";
+} from "@lightrsi/host-adapter";
 import {
   applyStablePrefixToInstructions,
   applyStablePrefixToMessage,

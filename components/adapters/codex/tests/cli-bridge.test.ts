@@ -35,7 +35,7 @@ function isolateCodexTestEnvironment(homeDir: string): () => void {
 }
 
 test("codex cli bridge exposes only the supported Codex command surface", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-bridge-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-bridge-"));
   const restoreEnvironment = isolateCodexTestEnvironment(dir);
   try {
     await mkdir(join(dir, ".openclaw"), { recursive: true });
@@ -47,7 +47,7 @@ test("codex cli bridge exposes only the supported Codex command surface", async 
     const { handleCommand } = createCodexCliBridge({
       host: "codex",
       async handleVisualCommand({ host, sessionId }) {
-        return { text: `LightMem2 visual: http://127.0.0.1:19998/?host=${host ?? ""}&session=${sessionId ?? ""}` };
+        return { text: `LightRSI visual: http://127.0.0.1:19998/?host=${host ?? ""}&session=${sessionId ?? ""}` };
       },
     });
 
@@ -70,7 +70,7 @@ test("codex cli bridge exposes only the supported Codex command surface", async 
     assert.match(doctor.text, /TokenPilot Codex doctor:/);
 
     const visual = await handleCommand({ args: "visual" });
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /host=codex/);
 
     const report = await handleCommand({ args: "report" });
@@ -97,7 +97,7 @@ test("codex cli bridge exposes only the supported Codex command surface", async 
 });
 
 test("codex cli bridge follows custom config env paths instead of the default home paths", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-bridge-custom-paths-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-bridge-custom-paths-"));
   const restoreEnvironment = isolateCodexTestEnvironment(join(dir, "real-home"));
   process.env.CODEX_CONFIG_PATH = join(dir, "isolated", "config.toml");
   process.env.CODEX_HOOKS_CONFIG_PATH = join(dir, "isolated", "hooks.json");
@@ -138,7 +138,7 @@ test("codex cli bridge follows custom config env paths instead of the default ho
 });
 
 test("codex cli bridge visual opens the shared browser visual pinned to the codex session", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-bridge-visual-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-bridge-visual-"));
   const restoreEnvironment = isolateCodexTestEnvironment(dir);
   try {
     const stateDir = join(dir, ".codex", "tokenpilot-state", "tokenpilot");
@@ -214,14 +214,14 @@ test("codex cli bridge visual opens the shared browser visual pinned to the code
         visualSelection = selection;
         return {
           text: [
-            `LightMem2 visual: http://127.0.0.1:19998/?host=${selection.host ?? ""}&session=${selection.sessionId ?? ""}`,
+            `LightRSI visual: http://127.0.0.1:19998/?host=${selection.host ?? ""}&session=${selection.sessionId ?? ""}`,
             "- Codex: 0 session snapshots",
           ].join("\n"),
         };
       },
     });
     const visual = await handleCommand({ args: "visual" });
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /host=codex/);
     assert.match(visual.text, /session=session-1/);
     assert.match(visual.text, /Codex: 0 session snapshots/);
@@ -233,7 +233,7 @@ test("codex cli bridge visual opens the shared browser visual pinned to the code
 });
 
 test("codex cli bridge report explains when a session has no recorded savings yet", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-bridge-report-empty-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-bridge-report-empty-"));
   const restoreEnvironment = isolateCodexTestEnvironment(dir);
   try {
     const stateDir = join(dir, ".codex", "tokenpilot-state", "tokenpilot");
@@ -262,7 +262,7 @@ test("codex cli bridge report explains when a session has no recorded savings ye
 });
 
 test("codex cli bridge accepts a real codex session id and resolves it to the synthesized session", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-bridge-real-session-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-bridge-real-session-"));
   const restoreEnvironment = isolateCodexTestEnvironment(dir);
   try {
     const stateDir = join(dir, ".codex", "tokenpilot-state", "tokenpilot");
@@ -311,7 +311,7 @@ test("codex cli bridge accepts a real codex session id and resolves it to the sy
 });
 
 test("codex cli bridge persists only supported settings across reload", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-bridge-persist-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-bridge-persist-"));
   const restoreEnvironment = isolateCodexTestEnvironment(dir);
   try {
     const bridge = createCodexCliBridge({ host: "codex" });
@@ -336,7 +336,7 @@ test("codex cli bridge persists only supported settings across reload", async ()
 });
 
 test("codex mode writes only codex-supported fields", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-bridge-mode-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-bridge-mode-"));
   const restoreEnvironment = isolateCodexTestEnvironment(dir);
   try {
     const bridge = createCodexCliBridge({ host: "codex" });
@@ -365,7 +365,7 @@ test("codex mode writes only codex-supported fields", async () => {
 });
 
 test("codex config normalization strips unsupported reduction pass options", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-bridge-sanitize-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-bridge-sanitize-"));
   const restoreEnvironment = isolateCodexTestEnvironment(dir);
   try {
     const bridge = createCodexCliBridge({ host: "codex" });

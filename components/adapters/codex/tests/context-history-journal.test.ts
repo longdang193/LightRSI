@@ -46,7 +46,7 @@ test("CDH-01 quarantines an oversized journal before appending new history", asy
 async function withTempState(
   fn: (stateDir: string) => Promise<void>,
 ): Promise<void> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-context-history-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-context-history-"));
   try {
     await fn(stateDir);
   } finally {
@@ -263,7 +263,7 @@ test("CDH-01 isolates malformed JSONL records without discarding valid history",
       [
         "{\"truncated\":",
         JSON.stringify({
-          schema: "lightmem2.codex.context-history.request/v1",
+          schema: "lightrsi.codex.context-history.request/v1",
           kind: "request",
           status: "completed",
         }),
@@ -275,6 +275,36 @@ test("CDH-01 isolates malformed JSONL records without discarding valid history",
     assert.equal(journal.entries.length, 1);
     assert.equal(journal.malformedLineCount, 2);
     assert.equal(journal.readError, undefined);
+  });
+});
+
+test("CDH-01 reads LightMem2 request and response journal schemas as canonical history", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-legacy-schema";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-legacy",
+      payload: { input: [{ role: "user", content: "legacy request" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-legacy",
+      responseId: "response-legacy",
+      status: "completed",
+      output: [{ type: "message", role: "assistant", content: "legacy response" }],
+    });
+
+    const path = codexContextHistoryJournalPath(stateDir, sessionId);
+    const canonical = await readFile(path, "utf8");
+    await writeFile(path, canonical.replaceAll("lightrsi.codex.context-history", "lightmem2.codex.context-history"), "utf8");
+
+    const journal = await readCodexContextHistoryJournal(stateDir, sessionId);
+    assert.equal(journal.malformedLineCount, 0);
+    assert.equal(journal.entries.length, 2);
+    assert.ok(journal.entries.every((entry) => entry.schema.startsWith("lightrsi.codex.context-history.")));
   });
 });
 
@@ -291,7 +321,7 @@ test("CDH-01 canonical reader rejects cross-session and structurally invalid rec
       observedAt: "2026-08-05T00:00:00.000Z",
     });
     const base = {
-      schema: "lightmem2.codex.context-history.request/v1",
+      schema: "lightrsi.codex.context-history.request/v1",
       kind: "request",
       requestId: "request-invalid",
       sessionId,
@@ -306,7 +336,7 @@ test("CDH-01 canonical reader rejects cross-session and structurally invalid rec
       JSON.stringify({ ...base, turnOrdinal: -1 }),
       JSON.stringify({ ...base, observedAt: "not-a-time" }),
       JSON.stringify({
-        schema: "lightmem2.codex.context-history.response/v1",
+        schema: "lightrsi.codex.context-history.response/v1",
         kind: "response",
         sessionId,
         stream: false,
@@ -512,7 +542,7 @@ test("CDH-01 recovers a truncated first record before creating the first valid e
     const sessionId = "codex-session-truncated-first-record";
     const path = codexContextHistoryJournalPath(stateDir, sessionId);
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, "{\"schema\":\"lightmem2.codex", "utf8");
+    await writeFile(path, "{\"schema\":\"lightrsi.codex", "utf8");
 
     await appendCodexRequestJournalEntry({
       stateDir,
@@ -619,7 +649,7 @@ test("CDH-01 does not repair a complete but non-canonical trailing record", asyn
       status: "completed",
     });
     await appendFile(path, JSON.stringify({
-      schema: "lightmem2.codex.context-history.request/v1",
+      schema: "lightrsi.codex.context-history.request/v1",
       kind: "request",
       sessionId,
       status: "completed",
@@ -686,7 +716,7 @@ test("CDH-01 keeps a malformed middle line fail-closed even when later records a
       status: "completed",
     });
     const canonicalResponse = {
-      schema: "lightmem2.codex.context-history.response/v1",
+      schema: "lightrsi.codex.context-history.response/v1",
       kind: "response",
       requestId: "request-before-middle-corruption",
       sessionId,

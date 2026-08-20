@@ -287,10 +287,10 @@ test("runs two distinct host lifetimes against one persistent state directory", 
 });
 
 test("uses isolated config paths and does not inherit secrets", () => {
-  process.env.LIGHTMEM2_ACCEPTANCE_TEST_SECRET = "must-not-propagate";
-  const environment = createTemporaryAcceptanceEnvironment("lightmem2-acceptance-test-");
+  process.env.LIGHTRSI_ACCEPTANCE_TEST_SECRET = "must-not-propagate";
+  const environment = createTemporaryAcceptanceEnvironment("lightrsi-acceptance-test-");
   try {
-    assert.equal(environment.env.LIGHTMEM2_ACCEPTANCE_TEST_SECRET, undefined);
+    assert.equal(environment.env.LIGHTRSI_ACCEPTANCE_TEST_SECRET, undefined);
     assert.equal(environment.env.HOME, environment.homeDir);
     assert.equal(environment.env.OPENCLAW_STATE_DIR, environment.openClawStateDir);
     assert.equal(
@@ -309,7 +309,7 @@ test("uses isolated config paths and does not inherit secrets", () => {
     assert.equal(fs.existsSync(environment.codexHomeDir), true);
     assert.equal(fs.existsSync(environment.claudeHomeDir), true);
   } finally {
-    delete process.env.LIGHTMEM2_ACCEPTANCE_TEST_SECRET;
+    delete process.env.LIGHTRSI_ACCEPTANCE_TEST_SECRET;
     environment.cleanup();
   }
   assert.equal(fs.existsSync(environment.rootDir), false);

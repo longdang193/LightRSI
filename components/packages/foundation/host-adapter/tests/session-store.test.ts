@@ -15,7 +15,7 @@ import {
 } from "../src/index.js";
 
 test("shared session store persists snapshots and latest bindings", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-host-session-store-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-session-store-"));
   try {
     await writeSessionSnapshot(stateDir, "shared-session-a", {
       sessionId: "shared-session-a",
@@ -60,7 +60,7 @@ test("shared session store persists snapshots and latest bindings", async () => 
 });
 
 test("shared atomic writer overwrites files cleanly", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-host-atomic-store-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-atomic-store-"));
   try {
     const target = sessionSnapshotPath(stateDir, "shared-session-b");
     await writeJsonFileAtomic(target, { value: 1 });

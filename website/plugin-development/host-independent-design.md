@@ -1,13 +1,13 @@
 # Host-Independent Design
 
-LightMem2 separates component packages and host adapters.
+LightRSI separates component packages and host adapters.
 
-From the [components/README.md](https://github.com/zjunlp/LightMem2/blob/main/components/README.md):
+From the [components/README.md](https://github.com/zjunlp/LightRSI/blob/main/components/README.md):
 
 - **Component packages**: reusable runtime logic, state and policy layers, host-agnostic contracts
 - **Host adapters**: installation and bootstrap, transcript/session bridging, host-specific command and hook surfaces
 
-From the [adapters/README.md](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/adapters/README.md):
+From the [adapters/README.md](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/adapters/README.md):
 
 **Adapter responsibilities** (keep inside adapter layer):
 - Host install and uninstall flow
@@ -26,7 +26,7 @@ From the [adapters/README.md](https://github.com/zjunlp/LightMem2/blob/main/comp
 - Shared command semantics in `packages/product-surface/`
 - Standalone product entrypoints in `products/`
 
-From the [HOSTS.md boundary section](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/HOSTS.md):
+From the [HOSTS.md boundary section](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/HOSTS.md):
 
 - `components/tokenpilot/packages/*` — reusable component logic
 - `components/tokenpilot/products/*` — shared product surfaces

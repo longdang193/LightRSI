@@ -65,7 +65,7 @@ const versionSourcePath = join(repoRoot, "components", "packages", "foundation",
 const versionSource = await readFile(versionSourcePath, "utf8");
 const versionMatch = /LIGHTRSI_VERSION\s*=\s*["']([^"']+)["']/.exec(versionSource);
 if (versionMatch?.[1] !== expectedVersion) {
-    mismatches.push(`LIGHTRSI_VERSION: ${versionMatch?.[1] ?? "missing"} (${versionSourcePath})`);
+  mismatches.push(`LIGHTRSI_VERSION: ${versionMatch?.[1] ?? "missing"} (${versionSourcePath})`);
 }
 
 if (mismatches.length > 0) {

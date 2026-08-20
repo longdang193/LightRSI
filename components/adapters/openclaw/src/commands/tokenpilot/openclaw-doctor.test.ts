@@ -6,7 +6,7 @@ import test from "node:test";
 import { formatOpenClawDoctorReport, inspectOpenClawDoctor } from "./openclaw-doctor.js";
 
 function makeTempRoot(): string {
-  return mkdtempSync(join(tmpdir(), "lightmem2-openclaw-adapter-doctor-"));
+  return mkdtempSync(join(tmpdir(), "lightrsi-openclaw-adapter-doctor-"));
 }
 
 function baseConfig(stateRoot: string): Record<string, unknown> {
@@ -33,7 +33,7 @@ function baseConfig(stateRoot: string): Record<string, unknown> {
     agents: {
       defaults: {
         models: {
-          "lightmem2/gpt-5.4-mini": {},
+          "lightrsi/gpt-5.4-mini": {},
         },
       },
     },
@@ -103,7 +103,7 @@ test("inspectOpenClawDoctor accepts a legacy state dir when the canonical dir ha
       agents: {
         defaults: {
           models: {
-            "lightmem2/gpt-5.4-mini": {},
+            "lightrsi/gpt-5.4-mini": {},
           },
         },
       },

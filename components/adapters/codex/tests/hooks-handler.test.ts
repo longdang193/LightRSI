@@ -9,7 +9,7 @@ import { processCodexHookEvent } from "../src/hooks-handler.js";
 import { indexCodexHostSessionAlias, upsertCodexSessionSnapshot } from "../src/session-state.js";
 
 test("processCodexHookEvent records hook snapshot metadata without overriding the latest synthesized session", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-hooks-handler-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-hooks-handler-"));
   const originalCodexConfig = process.env.TOKENPILOT_CODEX_CONFIG;
   try {
     const stateDir = join(dir, "state");
@@ -71,7 +71,7 @@ test("processCodexHookEvent records hook snapshot metadata without overriding th
 });
 
 test("processCodexHookEvent writes directly into the synthesized session after alias binding exists", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-hooks-handler-alias-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-hooks-handler-alias-"));
   const originalCodexConfig = process.env.TOKENPILOT_CODEX_CONFIG;
   try {
     const stateDir = join(dir, "state");
@@ -123,7 +123,7 @@ test("processCodexHookEvent writes directly into the synthesized session after a
 });
 
 test("processCodexHookEvent returns minimal JSON output for Stop hooks", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-hooks-handler-stop-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-hooks-handler-stop-"));
   const originalCodexConfig = process.env.TOKENPILOT_CODEX_CONFIG;
   try {
     const stateDir = join(dir, "state");
@@ -156,7 +156,7 @@ test("processCodexHookEvent returns minimal JSON output for Stop hooks", async (
 });
 
 test("processCodexHookEvent handles deeply nested tool output without overflowing the stack", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-hooks-handler-deep-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-hooks-handler-deep-"));
   const originalCodexConfig = process.env.TOKENPILOT_CODEX_CONFIG;
   try {
     const stateDir = join(dir, "state");
@@ -202,7 +202,7 @@ test("processCodexHookEvent handles deeply nested tool output without overflowin
 });
 
 test("processCodexHookEvent treats observation persistence failures as best effort", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-hooks-handler-best-effort-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-hooks-handler-best-effort-"));
   const originalCodexConfig = process.env.TOKENPILOT_CODEX_CONFIG;
   const originalConsoleError = console.error;
   const errors: string[] = [];

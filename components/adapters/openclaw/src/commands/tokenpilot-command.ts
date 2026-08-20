@@ -16,5 +16,5 @@ export function registerTokenPilotCommand(api: any, logger: { debug?: (...args: 
     configAdapter: openClawProductSurfaceConfigAdapter,
     identity: TOKENPILOT_PRODUCT_SURFACE_IDENTITY,
   });
-  logger.debug?.("[plugin-runtime] Registered /tokenpilot, /lightmem2, and /tp commands.");
+  logger.debug?.("[plugin-runtime] Registered /tokenpilot, /lightrsi, and /tp commands.");
 }

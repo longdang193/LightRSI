@@ -50,7 +50,7 @@ function remediationLines(report: OpenClawDoctorReport): string[] {
     fixes.push("- create the TokenPilot state directory or point `plugins.entries.tokenpilot.config.stateDir` to an existing writable path");
   }
   if (failing.has("modelNamespace")) {
-    fixes.push("- refresh the registered runtime model aliases and restart the OpenClaw gateway so `tokenpilot/<model>` or `lightmem2/<model>` is available");
+    fixes.push("- refresh the registered runtime model aliases and restart the OpenClaw gateway so `tokenpilot/<model>` or `lightrsi/<model>` is available");
   }
   return fixes;
 }
@@ -95,7 +95,7 @@ export function inspectOpenClawDoctor(currentConfig?: Record<string, unknown>): 
   const registeredModelKeys = modelKeys && typeof modelKeys === "object"
     ? Object.keys(modelKeys as Record<string, unknown>)
     : [];
-  const hasRuntimeModelNamespace = registeredModelKeys.some((key) => key.startsWith("tokenpilot/") || key.startsWith("lightmem2/"));
+  const hasRuntimeModelNamespace = registeredModelKeys.some((key) => key.startsWith("tokenpilot/") || key.startsWith("lightrsi/"));
   const contextEngineSlot = normalizeText(getNestedValue(config, ["plugins", "slots", "contextEngine"]));
   const memoryFaultRecoverLocation = allow.includes("memory_fault_recover")
     ? "tools.allow"
@@ -155,8 +155,8 @@ export function inspectOpenClawDoctor(currentConfig?: Record<string, unknown>): 
       key: "modelNamespace",
       ok: hasRuntimeModelNamespace,
       detail: hasRuntimeModelNamespace
-        ? `runtime model aliases include: ${registeredModelKeys.filter((key) => key.startsWith("tokenpilot/") || key.startsWith("lightmem2/")).join(", ")}`
-        : "tokenpilot/<model> or lightmem2/<model> namespace is not registered in agents.defaults.models",
+        ? `runtime model aliases include: ${registeredModelKeys.filter((key) => key.startsWith("tokenpilot/") || key.startsWith("lightrsi/")).join(", ")}`
+        : "tokenpilot/<model> or lightrsi/<model> namespace is not registered in agents.defaults.models",
     },
   ];
 

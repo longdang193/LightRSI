@@ -6,11 +6,11 @@ A **session** is one continuous conversation with your agent host. TokenPilot tr
 
 ```bash
 # Current session summary
-lightmem2 report
+lightrsi report
 
 # Specific session
-lightmem2 codex session <session-id> report
-lightmem2 claude-code session <session-id> report
+lightrsi codex session <session-id> report
+lightrsi claude-code session <session-id> report
 ```
 
 ## Pinning a Session
@@ -18,11 +18,11 @@ lightmem2 claude-code session <session-id> report
 Pin a session to make it the default for subsequent commands:
 
 ```bash
-lightmem2 use codex session <session-id>
-lightmem2 use claude-code session <session-id>
+lightrsi use codex session <session-id>
+lightrsi use claude-code session <session-id>
 ```
 
-Now `lightmem2 report` and `lightmem2 visual` will use the pinned session.
+Now `lightrsi report` and `lightrsi visual` will use the pinned session.
 
 ## Session Reports
 

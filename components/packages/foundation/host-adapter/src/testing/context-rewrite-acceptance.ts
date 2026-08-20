@@ -498,7 +498,7 @@ export function formatAcceptanceSummary(summary: AcceptanceSummary): string {
 }
 
 export function createTemporaryAcceptanceEnvironment(
-  prefix = "lightmem2-acceptance-",
+  prefix = "lightrsi-acceptance-",
 ): TemporaryAcceptanceEnvironment {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const homeDir = path.join(rootDir, "home");
@@ -531,7 +531,7 @@ export function createTemporaryAcceptanceEnvironment(
     USERPROFILE: homeDir,
     XDG_CONFIG_HOME: xdgConfigDir,
     XDG_STATE_HOME: xdgStateDir,
-    LIGHTMEM2_OPENCLAW_HOME: openClawHomeDir,
+    LIGHTRSI_OPENCLAW_HOME: openClawHomeDir,
     OPENCLAW_CONFIG_PATH: path.join(openClawHomeDir, "openclaw.json"),
     OPENCLAW_STATE_DIR: openClawStateDir,
     CODEX_HOME: codexHomeDir,

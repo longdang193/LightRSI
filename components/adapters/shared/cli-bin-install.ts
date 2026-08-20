@@ -54,10 +54,10 @@ export async function installLightRsiCliBin(params: {
   await mkdir(binDir, { recursive: true });
   await chmod(cliDistPath, 0o755).catch(() => undefined);
   await unlink(binPath).catch(() => undefined);
-  await unlink(legacyBinPath).catch(() => undefined);
   await createCliLink(cliDistPath, binPath);
-  await createCliLink(cliDistPath, legacyBinPath);
   await chmod(binPath, 0o755).catch(() => undefined);
+  await unlink(legacyBinPath).catch(() => undefined);
+  await createCliLink(cliDistPath, legacyBinPath);
   await chmod(legacyBinPath, 0o755).catch(() => undefined);
 
   return {

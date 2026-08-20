@@ -18,10 +18,18 @@ type SharedCliContextState = {
 
 function defaultCliContextPath(): string {
   const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  return join(homeDir, ".lightrsi", "state", "cli-context.json");
+}
+
+function legacyCliContextPath(): string {
+  const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
   return join(homeDir, ".lightmem2", "state", "cli-context.json");
 }
 
-async function readSharedCliContextState(contextPath: string): Promise<SharedCliContextState> {
+async function readSharedCliContextState(
+  contextPath: string,
+  legacyContextPath?: string,
+): Promise<SharedCliContextState> {
   try {
     const raw = await readFile(contextPath, "utf8");
     const parsed = JSON.parse(raw) as SharedCliContextState;
@@ -31,7 +39,10 @@ async function readSharedCliContextState(contextPath: string): Promise<SharedCli
       configPathsByHost: parsed.configPathsByHost ?? {},
       lastUpdatedAt: parsed.lastUpdatedAt,
     };
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT" && legacyContextPath) {
+      return readSharedCliContextState(legacyContextPath);
+    }
     return {
       lastSessionByHost: {},
       configPathsByHost: {},
@@ -44,7 +55,10 @@ export async function rememberCliHostPathOverrides(
   pathOverrides: SharedCliHostPathOverrides,
   contextPath = defaultCliContextPath(),
 ): Promise<void> {
-  const current = await readSharedCliContextState(contextPath);
+  const current = await readSharedCliContextState(
+    contextPath,
+    contextPath === defaultCliContextPath() ? legacyCliContextPath() : undefined,
+  );
   const next: SharedCliContextState = {
     lastActiveHost: current.lastActiveHost,
     lastSessionByHost: current.lastSessionByHost ?? {},

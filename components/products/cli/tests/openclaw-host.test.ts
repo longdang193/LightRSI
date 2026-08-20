@@ -9,7 +9,7 @@ import { TOKENPILOT_PRODUCT_SURFACE_IDENTITY } from "@lightrsi/tokenpilot";
 import { createOpenClawCliBridge } from "../src/hosts/openclaw.js";
 
 test("openclaw CLI bridge reports empty-state and supported shared commands", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-cli-bridge-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-cli-bridge-"));
   const originalHome = process.env.HOME;
   const originalConfigPath = process.env.OPENCLAW_CONFIG_PATH;
   process.env.HOME = dir;
@@ -52,7 +52,7 @@ test("openclaw CLI bridge reports empty-state and supported shared commands", as
 });
 
 test("openclaw CLI bridge resolves explicit session stats and missing aggregate fallback", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-cli-report-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-cli-report-"));
   const originalHome = process.env.HOME;
   const originalConfigPath = process.env.OPENCLAW_CONFIG_PATH;
   process.env.HOME = dir;

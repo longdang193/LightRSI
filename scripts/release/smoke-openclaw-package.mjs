@@ -15,7 +15,7 @@ if (!process.argv[2] || !expectedVersion) {
   throw new Error("Usage: node smoke-openclaw-package.mjs <archive.tgz> <version>");
 }
 
-const extractDir = await mkdtemp(join(tmpdir(), "lightmem2-release-smoke-"));
+const extractDir = await mkdtemp(join(tmpdir(), "lightrsi-release-smoke-"));
 try {
   await execFileAsync("tar", ["-xzf", archivePath, "-C", extractDir]);
   const packageDir = join(extractDir, "package");

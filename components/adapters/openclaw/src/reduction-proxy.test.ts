@@ -566,7 +566,7 @@ test("prepareProxyRequest falls back to system root prompt for stability view", 
 });
 
 test("prepareProxyRequest does not roll back payload mutations made after stable rewrite", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-openclaw-request-observation-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-request-observation-"));
   const cfg = hooks.normalizeConfig({
     stateDir,
     modules: {

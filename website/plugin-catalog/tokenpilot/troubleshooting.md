@@ -7,15 +7,15 @@ Common problems, symptoms, and fixes for TokenPilot.
 Always start with:
 
 ```bash
-lightmem2 doctor
-lightmem2 status
+lightrsi doctor
+lightrsi status
 ```
 
 These two commands answer most questions about whether TokenPilot is running correctly.
 
 ## Install Problems
 
-### "Command not found: lightmem2"
+### "Command not found: lightrsi"
 
 **Cause**: `~/.local/bin` is not on your `PATH`.
 
@@ -58,4 +58,4 @@ tokenpilot-codex start
 
 ## Report a Bug
 
-File an issue on [GitHub](https://github.com/zjunlp/LightMem2/issues).
+File an issue on [GitHub](https://github.com/zjunlp/LightRSI/issues).

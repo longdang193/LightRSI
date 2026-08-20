@@ -60,7 +60,7 @@ test("plan store schema version is locked to 1", () => {
 });
 
 test("active plans persist idempotently and recover after restart", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-restart-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-restart-"));
   try {
     const plan = createPlan("plan-1");
     const first = await saveActiveContextMutationPlan({
@@ -99,7 +99,7 @@ test("active plans persist idempotently and recover after restart", async () => 
 });
 
 test("same plan id rejects different content instead of treating it as idempotent", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-id-conflict-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-id-conflict-"));
   try {
     const plan = createPlan("plan-conflict");
     await saveActiveContextMutationPlan({ stateDir, plan });
@@ -127,7 +127,7 @@ test("same plan id rejects different content instead of treating it as idempoten
 });
 
 test("persistence strips unknown plan and operation fields", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-canonical-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-canonical-"));
   try {
     const plan = createPlan("plan-canonical");
     const unsafePlan = {
@@ -165,7 +165,7 @@ test("persistence strips unknown plan and operation fields", async () => {
 });
 
 test("fingerprint maps preserve special item ids as data keys", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-special-key-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-special-key-"));
   try {
     const plan = createPlan("plan-special-key");
     plan.operations[0]!.targetItemIds = ["__proto__"];
@@ -188,7 +188,7 @@ test("fingerprint maps preserve special item ids as data keys", async () => {
 });
 
 test("active plans move atomically into separate terminal states", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-status-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-status-"));
   try {
     const appliedPlan = createPlan("plan-applied");
     const failedPlan = createPlan("plan-failed");
@@ -244,7 +244,7 @@ test("active plans move atomically into separate terminal states", async () => {
 });
 
 test("marking a missing plan as applied does not create an applied marker", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-missing-applied-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-missing-applied-"));
   try {
     const result = await markContextMutationPlanApplied({
       stateDir,
@@ -267,7 +267,7 @@ test("marking a missing plan as applied does not create an applied marker", asyn
 });
 
 test("corrupt active plan cannot be marked applied", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-corrupt-applied-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-corrupt-applied-"));
   try {
     const plan = createPlan("plan-corrupt-applied");
     const activePath = contextMutationPlanFilePath(
@@ -304,7 +304,7 @@ test("corrupt active plan cannot be marked applied", async () => {
 });
 
 test("failed plan cannot later be marked applied", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-failed-applied-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-failed-applied-"));
   try {
     const plan = createPlan("plan-failed-terminal");
     await saveActiveContextMutationPlan({ stateDir, plan });
@@ -336,7 +336,7 @@ test("failed plan cannot later be marked applied", async () => {
 });
 
 test("every status loader detects a plan stored in multiple statuses", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-status-conflict-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-status-conflict-"));
   try {
     const plan = createPlan("plan-status-conflict");
     await saveActiveContextMutationPlan({ stateDir, plan });
@@ -371,7 +371,7 @@ test("every status loader detects a plan stored in multiple statuses", async () 
 });
 
 test("session lock serializes concurrent active plan writes", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-concurrent-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-concurrent-"));
   try {
     const plans = Array.from({ length: 12 }, (_, index) =>
       createPlan(`plan-${String(index).padStart(2, "0")}`));
@@ -398,7 +398,7 @@ test("session lock serializes concurrent active plan writes", async () => {
 });
 
 test("corrupt active plan is quarantined and causes one safe bypass", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-corrupt-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-corrupt-"));
   try {
     const validPlan = createPlan("plan-valid");
     const corruptPlan = createPlan("plan-corrupt");
@@ -442,7 +442,7 @@ test("corrupt active plan is quarantined and causes one safe bypass", async () =
 });
 
 test("corrupt terminal conflict is quarantined before active plans resume", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-terminal-corrupt-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-terminal-corrupt-"));
   try {
     const plan = createPlan("plan-terminal-corrupt");
     await saveActiveContextMutationPlan({ stateDir, plan });
@@ -476,7 +476,7 @@ test("corrupt terminal conflict is quarantined before active plans resume", asyn
 });
 
 test("unsupported future schema bypasses without quarantining the file", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-future-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-future-"));
   try {
     const plan = createPlan("plan-future");
     const path = contextMutationPlanFilePath(
@@ -507,7 +507,7 @@ test("unsupported future schema bypasses without quarantining the file", async (
 });
 
 test("stale session lock is recovered while a live lock causes bypass", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-lock-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-lock-"));
   try {
     const stalePlan = createPlan("plan-after-stale");
     const lockPath = contextMutationPlanLockPath(stateDir, stalePlan.sessionId);
@@ -546,7 +546,7 @@ test("stale session lock is recovered while a live lock causes bypass", async ()
 });
 
 test("concurrent stale-lock recovery does not remove a new lock owner", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-stale-race-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-stale-race-"));
   try {
     const sessionId = "session-stale-race";
     const lockPath = contextMutationPlanLockPath(stateDir, sessionId);
@@ -580,7 +580,7 @@ test("concurrent stale-lock recovery does not remove a new lock owner", async ()
 });
 
 test("adapter-owned replacement payloads are rejected before persistence", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-payload-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-payload-"));
   try {
     const plan = createPlan("plan-raw-payload");
     const unsafePlan = {
@@ -609,7 +609,7 @@ test("adapter-owned replacement payloads are rejected before persistence", async
 });
 
 test("malformed operation identity and fingerprint scope are rejected", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-invalid-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-invalid-"));
   try {
     const base = createPlan("plan-invalid");
     const invalidOperations: ContextMutationPlan["operations"][] = [
@@ -640,7 +640,7 @@ test("malformed operation identity and fingerprint scope are rejected", async ()
 });
 
 test("plan and store timestamps must use canonical ISO format", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-plan-store-date-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-date-"));
   try {
     const plan = createPlan("plan-date");
     const invalidPlan = await saveActiveContextMutationPlan({

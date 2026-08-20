@@ -6,8 +6,8 @@ import {
   extractStablePrefixContract,
   findFirstUserMessageIndex,
   rewriteTextForStablePrefix,
-} from "@lightmem2/stabilizer";
-import type { HostRequestEnvelope } from "@lightmem2/host-adapter";
+} from "@lightrsi/stabilizer";
+import type { HostRequestEnvelope } from "@lightrsi/host-adapter";
 import type { TokenPilotCodexConfig } from "./config.js";
 
 const LIGHTMEM2_CACHE_CONTRACT_VERSION = 1;

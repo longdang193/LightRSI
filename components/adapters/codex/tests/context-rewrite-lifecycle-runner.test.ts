@@ -38,7 +38,7 @@ const PLANNER_CONFIG: LifecyclePlannerConfig = {
 };
 
 async function tempStateDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "lightmem2-codex-lifecycle-runner-"));
+  return mkdtemp(join(tmpdir(), "lightrsi-codex-lifecycle-runner-"));
 }
 
 function effective(stableItemId: string, item: JsonObject): CodexEffectiveHistoryItem {

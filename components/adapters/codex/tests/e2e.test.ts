@@ -32,7 +32,7 @@ import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
 
 test("Codex host e2e wires install, proxy reduction, report/visual, and MCP recovery together", async () => {
-  await withTempHome("lightmem2-codex-e2e-", async (homeDir) => {
+  await withTempHome("lightrsi-codex-e2e-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
     const codexConfigPath = defaultCodexConfigPath();
@@ -210,7 +210,7 @@ test("Codex host e2e wires install, proxy reduction, report/visual, and MCP reco
         const sessionId = selection.sessionId ?? visualSessions[0]?.sessionId ?? "";
         return {
           text: [
-            `LightMem2 visual: http://127.0.0.1:43111/?host=${selection.host ?? "codex"}&session=${sessionId}`,
+            `LightRSI visual: http://127.0.0.1:43111/?host=${selection.host ?? "codex"}&session=${sessionId}`,
             `- Codex: ${visualSessions.length} session snapshots`,
           ].join("\n"),
         };
@@ -232,7 +232,7 @@ test("Codex host e2e wires install, proxy reduction, report/visual, and MCP reco
         unitLabel: "tokens",
       },
       visual: {
-        header: "LightMem2 visual:",
+        header: "LightRSI visual:",
         requiredPatterns: [
           /host=codex/,
           /session=codex-synth-/,
@@ -276,7 +276,7 @@ test("Codex host e2e wires install, proxy reduction, report/visual, and MCP reco
 });
 
 test("Codex streaming requests persist response-session mapping before the next turn resolves", async () => {
-  await withTempHome("lightmem2-codex-stream-session-", async (homeDir) => {
+  await withTempHome("lightrsi-codex-stream-session-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const upstreamPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
@@ -424,7 +424,7 @@ test("Codex streaming requests persist response-session mapping before the next 
 });
 
 test("Codex cold and warm requests expose prompt cache hit usage when stable prefix stays fixed", async () => {
-  await withTempHome("lightmem2-codex-cache-warm-", async (homeDir) => {
+  await withTempHome("lightrsi-codex-cache-warm-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
     const codexConfigPath = defaultCodexConfigPath();
@@ -548,7 +548,7 @@ test("Codex cold and warm requests expose prompt cache hit usage when stable pre
 });
 
 test("Codex preserves different inbound prompt_cache_key values upstream while audit still tracks the same stable request family", async () => {
-  await withTempHome("lightmem2-codex-force-key-rewrite-", async (homeDir) => {
+  await withTempHome("lightrsi-codex-force-key-rewrite-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
     const codexConfigPath = defaultCodexConfigPath();
@@ -646,7 +646,7 @@ test("Codex preserves different inbound prompt_cache_key values upstream while a
 });
 
 test("Codex requests reuse synth sessions through prompt_cache_key when previous_response_id is unavailable", async () => {
-  await withTempHome("lightmem2-codex-prompt-cache-session-", async (homeDir) => {
+  await withTempHome("lightrsi-codex-prompt-cache-session-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const upstreamPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
@@ -780,7 +780,7 @@ test("Codex requests reuse synth sessions through prompt_cache_key when previous
 });
 
 test("Codex cache audit reports cold miss and drift key when stable prefix changes", async () => {
-  await withTempHome("lightmem2-codex-cache-drift-", async (homeDir) => {
+  await withTempHome("lightrsi-codex-cache-drift-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
     const codexConfigPath = defaultCodexConfigPath();
@@ -932,7 +932,7 @@ test("Codex cache audit reports cold miss and drift key when stable prefix chang
 });
 
 test("Codex upstream retry drops unsupported prompt_cache_retention while preserving prompt_cache_key", async () => {
-  await withTempHome("lightmem2-codex-unsupported-retention-", async (homeDir) => {
+  await withTempHome("lightrsi-codex-unsupported-retention-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const upstreamPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
@@ -1048,7 +1048,7 @@ test("Codex upstream retry drops unsupported prompt_cache_retention while preser
 });
 
 test("Codex caches unsupported optional Responses fields and skips retry on later requests", async () => {
-  await withTempHome("lightmem2-codex-capability-cache-", async (homeDir) => {
+  await withTempHome("lightrsi-codex-capability-cache-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const upstreamPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
@@ -1179,7 +1179,7 @@ test("Codex caches unsupported optional Responses fields and skips retry on late
 });
 
 test("Codex CLI report and visual return clear empty-state messages before any runtime data exists", async () => {
-  await withTempHome("lightmem2-codex-cli-empty-state-", async (homeDir) => {
+  await withTempHome("lightrsi-codex-cli-empty-state-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
     const tokenPilotConfigPath = defaultTokenPilotConfigPath();
@@ -1197,7 +1197,7 @@ test("Codex CLI report and visual return clear empty-state messages before any r
       host: "codex",
       async handleVisualCommand(selection) {
         return {
-          text: `LightMem2 visual: http://127.0.0.1:43111/?host=${selection.host ?? "codex"}`,
+          text: `LightRSI visual: http://127.0.0.1:43111/?host=${selection.host ?? "codex"}`,
         };
       },
     });
@@ -1206,13 +1206,13 @@ test("Codex CLI report and visual return clear empty-state messages before any r
     assert.equal(report.text, "No TokenPilot session stats yet.");
 
     const visual = await handleCommand({ args: "visual" });
-    assert.match(visual.text, /LightMem2 visual: http:\/\/127\.0\.0\.1:/);
+    assert.match(visual.text, /LightRSI visual: http:\/\/127\.0\.0\.1:/);
     assert.match(visual.text, /host=codex/);
   });
 });
 
 test("Codex proxy merges hook-observed metadata into the synthesized session when prompt_cache_key carries the real Codex session id", async () => {
-  await withTempHome("lightmem2-codex-hook-session-merge-", async (homeDir) => {
+  await withTempHome("lightrsi-codex-hook-session-merge-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const upstreamPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");

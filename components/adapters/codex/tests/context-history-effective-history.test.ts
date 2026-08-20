@@ -16,7 +16,7 @@ import {
 async function withTempState(
   fn: (stateDir: string) => Promise<void>,
 ): Promise<void> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-effective-history-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-effective-history-"));
   try {
     await fn(stateDir);
   } finally {

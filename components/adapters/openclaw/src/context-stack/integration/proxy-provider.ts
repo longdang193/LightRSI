@@ -32,9 +32,9 @@ export function maybeRegisterProxyProvider(
         label: "TokenPilot Router",
       },
       {
-        id: "lightmem2",
-        name: "LightMem2 Router",
-        label: "LightMem2 Router",
+        id: "lightrsi",
+        name: "LightRSI Router",
+        label: "LightRSI Router",
       },
     ];
     for (const provider of providers) {
@@ -50,7 +50,7 @@ export function maybeRegisterProxyProvider(
       });
     }
     logger.info(
-      `[plugin-runtime] Registered provider tokenpilot/* and lightmem2/* via embedded proxy. mirrored=${modelIds.slice(0, 6).join(",")}${modelIds.length > 6 ? "..." : ""}`,
+      `[plugin-runtime] Registered provider tokenpilot/* and lightrsi/* via embedded proxy. mirrored=${modelIds.slice(0, 6).join(",")}${modelIds.length > 6 ? "..." : ""}`,
     );
   } catch (err: unknown) {
     logger.error(`[plugin-runtime] Failed to register provider: ${err instanceof Error ? err.message : String(err)}`);

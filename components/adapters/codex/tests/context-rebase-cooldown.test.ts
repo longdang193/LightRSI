@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -18,7 +18,7 @@ import {
 async function withTempState(
   fn: (stateDir: string) => Promise<void>,
 ): Promise<void> {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-cooldown-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-cooldown-"));
   try {
     await fn(stateDir);
   } finally {
@@ -58,6 +58,27 @@ test("CDR-04 Rebase Cooldown records active windows by session and plan", async 
       planId: "plan-other",
       now: "2026-07-28T10:04:00.000Z",
     }), undefined);
+  });
+});
+
+test("CDR-04 Rebase Cooldown reads the LightMem2 schema", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-legacy-cooldown";
+    await appendCodexRebaseCooldown({
+      stateDir,
+      sessionId,
+      planId: "plan-legacy",
+      reason: "legacy-upgrade",
+      cooldownMs: 60_000,
+      startedAt: "2026-07-28T10:00:00.000Z",
+    });
+    const path = codexRebaseCooldownJournalPath(stateDir, sessionId);
+    const canonical = await readFile(path, "utf8");
+    await writeFile(path, canonical.replaceAll(CODEX_REBASE_COOLDOWN_SCHEMA, "lightmem2.codex.rebase-cooldown/v1"), "utf8");
+
+    const journal = await readCodexRebaseCooldownJournal(stateDir, sessionId);
+    assert.equal(journal.malformedLineCount, 0);
+    assert.equal(journal.cooldowns[0]?.planId, "plan-legacy");
   });
 });
 

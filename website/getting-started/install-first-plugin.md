@@ -1,6 +1,6 @@
 # Install Your First Plugin
 
-After [installing LightMem2](/getting-started/install-lightmem2), install a plugin to add capabilities. Currently, TokenPilot is the only official plugin.
+After [installing LightRSI](/getting-started/install-lightrsi), install a plugin to add capabilities. Currently, TokenPilot is the only official plugin.
 
 ## Install TokenPilot
 
@@ -22,7 +22,7 @@ This command:
 **Custom paths:**
 
 ```bash
-export LIGHTMEM2_OPENCLAW_HOME="/path/to/openclaw-home"
+export LIGHTRSI_OPENCLAW_HOME="/path/to/openclaw-home"
 export OPENCLAW_CONFIG_PATH="/path/to/openclaw.json"
 pnpm component:install:tokenpilot:openclaw
 ```
@@ -77,15 +77,15 @@ npm --prefix components/tokenpilot/adapters/claude-code run install:claude-code
 ## Verify Installation
 
 ```bash
-lightmem2 doctor
+lightrsi doctor
 ```
 
 Or check per-host:
 
 ```bash
-lightmem2 openclaw doctor
-lightmem2 codex doctor
-lightmem2 claude-code doctor
+lightrsi openclaw doctor
+lightrsi codex doctor
+lightrsi claude-code doctor
 ```
 
 Look for: `plugin entry enabled`, `config enabled`, `proxy healthy: yes`.

@@ -19,7 +19,7 @@ if (!process.argv[2] || !["codex", "claude-code"].includes(host) || !expectedVer
 const expectedPackageName = `@lightrsi/${host}-adapter`;
 const installEntry = host === "codex" ? "install-codex.js" : "install-claude-code.js";
 const hostCliName = host === "codex" ? "tokenpilot-codex" : "tokenpilot-claude-code";
-const extractDir = await mkdtemp(join(tmpdir(), `lightmem2-${host}-release-smoke-`));
+const extractDir = await mkdtemp(join(tmpdir(), `lightrsi-${host}-release-smoke-`));
 
 try {
   await execFileAsync("tar", ["-xzf", archivePath, "-C", extractDir]);
@@ -33,7 +33,7 @@ try {
   assert.equal(manifest.version, expectedVersion);
   assert.equal(manifest.dependencies, undefined);
   assert.equal(manifest.devDependencies, undefined);
-  for (const file of ["index.js", "cli.js", "hooks-handler.js", installEntry, "lightmem2.js", "mcp-server.js"]) {
+  for (const file of ["index.js", "cli.js", "hooks-handler.js", installEntry, "lightrsi.js", "lightmem2.js", "mcp-server.js"]) {
     await readFile(join(distDir, file));
   }
 
@@ -70,21 +70,13 @@ try {
   assert.match(installedConfig, /hooks-handler\.js|tokenpilot-codex-hook\.cmd/);
   assert.match(installedConfig, /mcp-server\.js|server\.js/);
 
-  assert.ok([join(distDir, "lightmem2.js"), join(distDir, "lightrsi.js")].includes(await readlink(join(binDir, "lightmem2"))));
+  assert.equal(await readlink(join(binDir, "lightrsi")), join(distDir, "lightrsi.js"));
+  assert.equal(await readlink(join(binDir, "lightmem2")), join(distDir, "lightrsi.js"));
   assert.equal(await readlink(join(binDir, hostCliName)), join(distDir, "cli.js"));
 
   const skillsRoot = host === "codex" ? join(homeDir, ".codex", "skills") : join(homeDir, ".claude", "skills");
-  let skill;
-  for (const skillName of ["lightrsi-doctor", "lightmem2-doctor"]) {
-    try {
-      skill = await readFile(join(skillsRoot, skillName, "SKILL.md"), "utf8");
-      break;
-    } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
-    }
-  }
-  assert.ok(skill);
-  assert.match(skill, /lightrsi\.js|lightmem2\.js/);
+  const skill = await readFile(join(skillsRoot, "lightrsi-doctor", "SKILL.md"), "utf8");
+  assert.match(skill, /lightrsi\.js/);
 
   const loaded = await import(pathToFileURL(join(distDir, "index.js")).href);
   assert.ok(Object.keys(loaded).length > 0);

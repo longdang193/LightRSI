@@ -85,7 +85,7 @@ test("classifyToolPayloadContentWithHint uses read path extension as code hint",
 
 test("classifyToolPayloadContentWithHint detects readme documents", () => {
   const result = classifyToolPayloadContentWithHint(`
-# LightMem2
+# LightRSI
 
 ## Getting Started
 
@@ -300,17 +300,17 @@ const buildIndex = (
   assert.match(result.text, /\[code outlined lines=/);
   assert.match(result.text, /imports:/);
   assert.match(result.text, /\[outlined definitions;/);
-  assert.match(result.text, /body elided by LightMem2/);
+  assert.match(result.text, /body elided by LightRSI/);
   assert.match(result.text, /export class SearchService/);
   assert.match(result.text, /export async function runSearch/);
 });
 
 test("reduceToolPayloadText summarizes readme documents by headings and bullets", () => {
   const payload = `
-# LightMem2
+# LightRSI
 
 ## Overview
-LightMem2 is a context management system.
+LightRSI is a context management system.
 
 ## Installation
 - Install pnpm
@@ -332,7 +332,7 @@ LightMem2 is a context management system.
   assert.equal(result.route, "readme_doc");
   assert.equal(result.changed, true);
   assert.match(result.text, /\[markdown reduced headings=/);
-  assert.match(result.text, /# LightMem2/);
+  assert.match(result.text, /# LightRSI/);
   assert.match(result.text, /## Installation/);
 });
 

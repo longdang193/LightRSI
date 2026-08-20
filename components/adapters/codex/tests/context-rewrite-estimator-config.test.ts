@@ -22,6 +22,33 @@ test("resolveCodexTaskStateEstimator defaults to disabled", () => {
   assert.deepEqual(resolution.missingFields, []);
 });
 
+test("resolveCodexTaskStateEstimator reads legacy LIGHTMEM2_ env after LIGHTRSI_", () => {
+  const legacy = resolveCodexTaskStateEstimator({
+    env: {
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://legacy.example/v1",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "legacy-key",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "legacy-model",
+      TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL: "preset-model",
+    },
+    createEstimator: () => fakeEstimator,
+  });
+  assert.equal(legacy.status, "ready");
+  assert.equal(legacy.config.model, "legacy-model");
+
+  const canonical = resolveCodexTaskStateEstimator({
+    env: {
+      LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "false",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://legacy.example/v1",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "legacy-key",
+      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "legacy-model",
+    },
+    createEstimator: () => fakeEstimator,
+  });
+  assert.equal(canonical.status, "disabled");
+});
+
 test("resolveCodexTaskStateEstimator prefers explicit config over environment", () => {
   let createdWith: unknown;
   const resolution = resolveCodexTaskStateEstimator({
@@ -35,10 +62,10 @@ test("resolveCodexTaskStateEstimator prefers explicit config over environment", 
       evictionLookaheadTurns: 4,
     },
     env: {
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://env.example/v1",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "env-secret",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "env-model",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_BATCH_TURNS: "99",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL: "https://env.example/v1",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY: "env-secret",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: "env-model",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_BATCH_TURNS: "99",
     },
     createEstimator(config) {
       createdWith = config;
@@ -58,10 +85,10 @@ test("resolveCodexTaskStateEstimator keeps explicit disable above environment en
   const resolution = resolveCodexTaskStateEstimator({
     config: { enabled: false },
     env: {
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://env.example/v1",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "env-secret",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "env-model",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL: "https://env.example/v1",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY: "env-secret",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: "env-model",
     },
   });
 
@@ -69,11 +96,11 @@ test("resolveCodexTaskStateEstimator keeps explicit disable above environment en
   assert.equal(resolution.estimator, undefined);
 });
 
-test("resolveCodexTaskStateEstimator supports LIGHTMEM2 and TOKENPILOT fallback", () => {
+test("resolveCodexTaskStateEstimator supports LIGHTRSI and TOKENPILOT fallback", () => {
   const resolution = resolveCodexTaskStateEstimator({
     env: {
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://lightmem.example/v1/",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL: "https://lightmem.example/v1/",
       TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL: "https://tokenpilot.example/v1",
       TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY: "tokenpilot-secret",
       TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL: "tokenpilot-model",
@@ -100,10 +127,10 @@ test("resolveCodexTaskStateEstimator honors environment enablement after config 
   const resolution = resolveCodexTaskStateEstimator({
     config: normalized.taskStateEstimator,
     env: {
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_ENABLED: "true",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://normalized.example/v1",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_API_KEY: "normalized-secret",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "normalized-model",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED: "true",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL: "https://normalized.example/v1",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY: "normalized-secret",
+      LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: "normalized-model",
     },
     createEstimator: () => fakeEstimator,
   });

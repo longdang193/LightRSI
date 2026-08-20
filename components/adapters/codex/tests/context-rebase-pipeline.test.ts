@@ -262,7 +262,7 @@ async function readContextRewriteLifecycleEvents(stateDir: string): Promise<Json
 }
 
 test("CDR-03 proxy startup recovers a pending epoch before serving its session", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pending-restart-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pending-restart-"));
   const upstream = await startSequencedResponsesUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -317,7 +317,7 @@ test("CDR-03 proxy startup recovers a pending epoch before serving its session",
 });
 
 test("CDR-03 proxy restart recovery defers while another process owns the session lock", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-live-lock-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-live-lock-"));
   const upstream = await startSequencedResponsesUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   let sessionLock: Awaited<ReturnType<typeof acquireCodexRebaseSessionLock>> = undefined;
@@ -387,7 +387,7 @@ test("CDR-03 proxy restart recovery defers while another process owns the sessio
 });
 
 test("CDR-06 proxy pipeline rebases a non-stream request from effective history", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-"));
   const upstream = await startSequencedResponsesUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -478,7 +478,7 @@ test("CDR-06 proxy pipeline rebases a non-stream request from effective history"
 });
 
 test("CDR-06 proxy automatically replaces an unsupported response chain with stateless replay", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-provider-chain-fallback-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-chain-fallback-"));
   const upstream = await startSequencedResponsesUpstream({ rejectChain: true });
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -595,7 +595,7 @@ test("CDR-06 proxy automatically replaces an unsupported response chain with sta
 });
 
 test("CDR-06 proxy bootstraps a rebase from the hook-persisted Codex rollout", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rollout-bootstrap-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rollout-bootstrap-"));
   const upstream = await startSequencedResponsesUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -717,7 +717,7 @@ test("CDR-06 proxy bootstraps a rebase from the hook-persisted Codex rollout", a
 });
 
 test("CDH-02 proxy journal respects failed non-stream response bodies", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-body-failed-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-body-failed-"));
   const upstream = await startSequencedResponsesUpstream({ responseStatus: "failed" });
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -771,7 +771,7 @@ test("CDH-02 proxy journal respects failed non-stream response bodies", async ()
 });
 
 test("CDH-01 proxy bypasses context-history journaling when the journal cannot be read", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-journal-bypass-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-journal-bypass-"));
   const upstream = await startSequencedResponsesUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -826,7 +826,7 @@ test("CDH-01 proxy bypasses context-history journaling when the journal cannot b
 });
 
 test("CDR-01 proxy pipeline defers stale mutation plans", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-stale-plan-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-stale-plan-"));
   const upstream = await startSequencedResponsesUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -921,7 +921,7 @@ test("CDR-01 proxy pipeline defers stale mutation plans", async () => {
 });
 
 test("CDR-06 proxy pipeline falls back and cools down rejected rebases", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-fallback-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-fallback-"));
   const upstream = await startSequencedResponsesUpstream({ rejectRebase: true });
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -1037,7 +1037,7 @@ test("CDR-06 proxy pipeline falls back and cools down rejected rebases", async (
 });
 
 test("CDR-04 fallback keeps non-rebase before-call reductions", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-fallback-reduction-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-fallback-reduction-"));
   const upstream = await startSequencedResponsesUpstream({ rejectRebase: true });
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -1143,7 +1143,7 @@ test("CDR-04 fallback keeps non-rebase before-call reductions", async () => {
 });
 
 test("CDR-06 proxy pipeline falls back and cools down rejected stream rebases", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-stream-fallback-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-stream-fallback-"));
   const upstream = await startSequencedStreamResponsesUpstream({ rejectRebase: true });
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -1246,7 +1246,7 @@ test("CDR-06 proxy pipeline falls back and cools down rejected stream rebases", 
 });
 
 test("CDH-02 proxy journal and trace keep interrupted 2xx streams incomplete", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-stream-incomplete-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-stream-incomplete-"));
   const upstream = await startSequencedStreamResponsesUpstream({ incomplete: true });
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -1310,7 +1310,7 @@ test("CDH-02 proxy journal and trace keep interrupted 2xx streams incomplete", a
 });
 
 test("CDR-06 proxy pipeline journals current input before reduction", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-order-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-order-"));
   const upstream = await startSequencedResponsesUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -1398,7 +1398,7 @@ test("CDR-06 proxy pipeline journals current input before reduction", async () =
 });
 
 test("CDR-06 committed rebase history starts from the new response chain root", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-root-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-root-"));
   const upstream = await startSequencedResponsesUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -1485,7 +1485,7 @@ test("CDR-06 committed rebase history starts from the new response chain root", 
 });
 
 test("CDR-06 mock smoke keeps five turns on the new response chain", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-smoke-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-smoke-"));
   const upstream = await startSequencedResponsesUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {
@@ -1593,7 +1593,7 @@ test("CDR-06 mock smoke keeps five turns on the new response chain", async () =>
 });
 
 test("CDR-06 proxy restart keeps the committed rebase response chain", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rebase-pipeline-restart-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-restart-"));
   const upstream = await startSequencedResponsesUpstream({ rejectChain: true });
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   try {

@@ -4,7 +4,7 @@ export function renderVisualPageHtml(): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LightMem2 Visual</title>
+  <title>LightRSI Visual</title>
   <style>
     :root {
       --bg: #f4f1ea;
@@ -455,7 +455,7 @@ export function renderVisualPageHtml(): string {
     <aside class="sidebar">
       <div class="sidebar-header">
         <button id="collapseBtn" class="collapse-btn" type="button" aria-label="Toggle sidebar">‹</button>
-        <div class="brand">LightMem2 Visual</div>
+        <div class="brand">LightRSI Visual</div>
       </div>
       <div class="sidebar-copy">Switch hosts, pick a session, then inspect stability, reduction, or eviction snapshots one event at a time.</div>
       <select id="hostSelect" class="host-select" aria-label="Select host"></select>
@@ -1002,7 +1002,7 @@ async function loadSessions() {
   if (state.activeSessionId) {
     await loadSession(state.activeSessionId);
   } else {
-    renderEmpty("No visual snapshots yet. Run a few LightMem2-enabled turns, then refresh this page.");
+    renderEmpty("No visual snapshots yet. Run a few LightRSI-enabled turns, then refresh this page.");
   }
 }
 

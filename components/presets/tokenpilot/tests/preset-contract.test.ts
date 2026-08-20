@@ -38,7 +38,7 @@ test("TokenPilot preset owns its product surface identity and compatibility alia
   assert.equal(TOKENPILOT_PRODUCT_SURFACE_IDENTITY.commandName, "tokenpilot");
   assert.deepEqual(
     TOKENPILOT_PRODUCT_SURFACE_IDENTITY.aliases.map(({ name }) => name),
-    ["tokenpilot", "lightmem2", "tp"],
+    ["tokenpilot", "lightrsi", "tp"],
   );
 });
 

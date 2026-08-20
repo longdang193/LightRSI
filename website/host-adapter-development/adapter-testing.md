@@ -1,6 +1,6 @@
 # Adapter Testing
 
-From [CONTRIBUTING.md](https://github.com/zjunlp/LightMem2/blob/main/CONTRIBUTING.md) and the [Adapter Playbook](https://github.com/zjunlp/LightMem2/blob/main/docs/adapter-playbook.md):
+From [CONTRIBUTING.md](https://github.com/zjunlp/LightRSI/blob/main/CONTRIBUTING.md) and the [Adapter Playbook](https://github.com/zjunlp/LightRSI/blob/main/docs/adapter-playbook.md):
 
 ### Type Check
 
@@ -26,7 +26,7 @@ npm --prefix components/tokenpilot/adapters/claude-code test
 Each adapter provides a `doctor` command for runtime self-verification:
 
 ```bash
-lightmem2 <host> doctor
+lightrsi <host> doctor
 ```
 
 Or per-adapter:
@@ -43,4 +43,4 @@ Test directories exist at `adapters/<host>/tests/`.
 
 - [Adapter Architecture](./adapter-architecture.md)
 - [Adding a New Host](./adding-new-host.md)
-- [Adapter Playbook](https://github.com/zjunlp/LightMem2/blob/main/docs/adapter-playbook.md)
+- [Adapter Playbook](https://github.com/zjunlp/LightRSI/blob/main/docs/adapter-playbook.md)

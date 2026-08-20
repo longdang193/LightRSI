@@ -1,5 +1,5 @@
 {
-  "schema": "lightmem2.context-rewrite-golden/v1",
+  "schema": "lightrsi.context-rewrite-golden/v1",
   "id": "tool-closure",
   "description": "A tool call and its matching result must always receive the same rewrite decision.",
   "tasks": [

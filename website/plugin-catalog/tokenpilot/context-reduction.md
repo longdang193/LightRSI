@@ -18,18 +18,18 @@ TokenPilot's reduction runs a pipeline of passes on each tool result:
 
 ```bash
 # Toggle reduction
-lightmem2 reduction on
-lightmem2 reduction off
+lightrsi reduction on
+lightrsi reduction off
 
 # Switch mode
-lightmem2 reduction mode balanced
+lightrsi reduction mode balanced
 
 # Enable/disable specific passes
-lightmem2 reduction pass toolPayloadTrim off
-lightmem2 reduction pass toolPayloadTrim on
+lightrsi reduction pass toolPayloadTrim off
+lightrsi reduction pass toolPayloadTrim on
 
 # Check current status
-lightmem2 reduction status
+lightrsi reduction status
 ```
 
 ## Next

@@ -1,10 +1,10 @@
 # Adding a New Host
 
-This page consolidates the checklists from the [Adapter Playbook](https://github.com/zjunlp/LightMem2/blob/main/docs/adapter-playbook.md) and the [Adapters README](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/adapters/README.md).
+This page consolidates the checklists from the [Adapter Playbook](https://github.com/zjunlp/LightRSI/blob/main/docs/adapter-playbook.md) and the [Adapters README](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/adapters/README.md).
 
 ## Design First
 
-From the [Adapter Playbook](https://github.com/zjunlp/LightMem2/blob/main/docs/adapter-playbook.md):
+From the [Adapter Playbook](https://github.com/zjunlp/LightRSI/blob/main/docs/adapter-playbook.md):
 
 - Can the host rewrite requests before model execution?
 - Can the host rewrite responses after model execution?
@@ -14,7 +14,7 @@ From the [Adapter Playbook](https://github.com/zjunlp/LightMem2/blob/main/docs/a
 
 ## Required Surfaces
 
-From the [adapters/README.md](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/adapters/README.md) checklist:
+From the [adapters/README.md](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/adapters/README.md) checklist:
 
 1. **Install surface** — where the host extension or plugin lives, how config is written, how to enable/disable/remove.
 2. **Session bridge** — how session IDs, turn IDs, and workspace roots are resolved.
@@ -26,7 +26,7 @@ From the [adapters/README.md](https://github.com/zjunlp/LightMem2/blob/main/comp
 
 ## Recommended Development Order
 
-From the [adapters/README.md](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/adapters/README.md):
+From the [adapters/README.md](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/adapters/README.md):
 
 1. Start with the shared host envelope bridge in `packages/host-adapter/`.
 2. Wire one minimal request path through the host.
@@ -36,9 +36,9 @@ From the [adapters/README.md](https://github.com/zjunlp/LightMem2/blob/main/comp
 
 ## Reference Implementations
 
-- [OpenClaw Adapter](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/adapters/openclaw/README.md)
-- [Codex Adapter](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/adapters/codex/README.md)
-- [Claude Code Adapter](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/adapters/claude-code/README.md)
+- [OpenClaw Adapter](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/adapters/openclaw/README.md)
+- [Codex Adapter](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/adapters/codex/README.md)
+- [Claude Code Adapter](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/adapters/claude-code/README.md)
 
 ## Related Pages
 
@@ -46,5 +46,5 @@ From the [adapters/README.md](https://github.com/zjunlp/LightMem2/blob/main/comp
 - [Adapter Testing](./adapter-testing.md)
 - [Configuration Integration](./configuration-integration.md)
 - [Hook and Proxy Integration](./hook-proxy-integration.md)
-- [Adapter Playbook](https://github.com/zjunlp/LightMem2/blob/main/docs/adapter-playbook.md)
-- [HOSTS.md](https://github.com/zjunlp/LightMem2/blob/main/components/tokenpilot/HOSTS.md)
+- [Adapter Playbook](https://github.com/zjunlp/LightRSI/blob/main/docs/adapter-playbook.md)
+- [HOSTS.md](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/HOSTS.md)

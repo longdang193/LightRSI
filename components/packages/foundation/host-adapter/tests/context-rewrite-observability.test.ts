@@ -208,7 +208,7 @@ test("rejects unsupported event names and invalid timestamps", () => {
 });
 
 test("appends sanitized events to the shared trace store", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-rewrite-trace-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-rewrite-trace-"));
   try {
     const event = await appendContextRewriteEvent(stateDir, {
       ...baseInput("context_rewrite_planned"),

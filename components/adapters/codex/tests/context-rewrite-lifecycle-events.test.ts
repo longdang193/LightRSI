@@ -7,7 +7,7 @@ import test from "node:test";
 import { createCodexContextRewriteLifecycle } from "../src/context-rewrite/index.js";
 
 test("Codex lifecycle events use the shared sanitized schema", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-codex-rewrite-lifecycle-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rewrite-lifecycle-"));
   const secret = "sk-proj-abcdefghijklmnopqrstuvwxyz012345";
   try {
     const lifecycle = createCodexContextRewriteLifecycle({

@@ -1,5 +1,5 @@
 {
-  "schema": "lightmem2.context-rewrite-golden/v1",
+  "schema": "lightrsi.context-rewrite-golden/v1",
   "id": "unresolved-task",
   "description": "An unresolved task and all of its items must remain available.",
   "tasks": [

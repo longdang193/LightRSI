@@ -8,15 +8,15 @@ The `report` command shows a summary of token usage, cache efficiency, and cost 
 
 ```bash
 # Standalone CLI
-lightmem2 report
+lightrsi report
 
 # Per-host
-lightmem2 openclaw report
-lightmem2 codex report
-lightmem2 claude-code report
+lightrsi openclaw report
+lightrsi codex report
+lightrsi claude-code report
 
 # Inside OpenClaw
-/lightmem2 report
+/lightrsi report
 ```
 
 ### What Each Metric Means
@@ -35,7 +35,7 @@ lightmem2 claude-code report
 The visual inspector is a browser-based dashboard showing real-time TokenPilot behavior:
 
 ```bash
-lightmem2 visual
+lightrsi visual
 ```
 
 This opens your default browser with three views: stabilizer, reduction, and eviction.

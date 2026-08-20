@@ -40,8 +40,8 @@ After install, these files are created or modified:
 ## Verification
 
 ```bash
-lightmem2 claude-code status
-lightmem2 claude-code doctor
+lightrsi claude-code status
+lightrsi claude-code doctor
 ```
 
 Expected output:
@@ -59,7 +59,7 @@ Expected output:
 3. In another terminal, verify:
 
 ```bash
-lightmem2 claude-code doctor
+lightrsi claude-code doctor
 ```
 
 ::: warning Gateway starts on first session Install success does not guarantee the gateway is already healthy before `SessionStart` fires. Open a new Claude Code session to trigger auto-start. :::
@@ -69,21 +69,21 @@ lightmem2 claude-code doctor
 All commands use the standalone CLI:
 
 ```bash
-lightmem2 claude-code status
-lightmem2 claude-code report
-lightmem2 claude-code doctor
-lightmem2 claude-code visual
-lightmem2 claude-code session <session-id> report
-lightmem2 claude-code reduction status
-lightmem2 claude-code stabilizer target developer
-lightmem2 claude-code mode normal
-lightmem2 claude-code reduction mode balanced
-lightmem2 claude-code help
+lightrsi claude-code status
+lightrsi claude-code report
+lightrsi claude-code doctor
+lightrsi claude-code visual
+lightrsi claude-code session <session-id> report
+lightrsi claude-code reduction status
+lightrsi claude-code stabilizer target developer
+lightrsi claude-code mode normal
+lightrsi claude-code reduction mode balanced
+lightrsi claude-code help
 ```
 
 ## PATH Setup
 
-If `lightmem2` is not found after install:
+If `lightrsi` is not found after install:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"

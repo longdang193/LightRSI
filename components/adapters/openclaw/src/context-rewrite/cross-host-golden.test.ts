@@ -171,7 +171,7 @@ function assertToolClosure(
 }
 
 function assertValidFixture(fixture: GoldenFixture): void {
-  assert.equal(fixture.schema, "lightmem2.context-rewrite-golden/v1");
+  assert.equal(fixture.schema, "lightrsi.context-rewrite-golden/v1");
   assert.ok(fixture.description.length > 0);
   assert.ok(fixture.tasks.length > 0);
 

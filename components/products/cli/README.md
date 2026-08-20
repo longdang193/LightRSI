@@ -1,6 +1,6 @@
-# LightMem2 CLI Product
+# LightRSI CLI Product
 
-This package builds the shared `lightmem2` command and browser Visual launcher. It is a product surface, not a host adapter and not an owner of TokenPilot algorithms.
+This package builds the shared `lightrsi` command and browser Visual launcher. It is a product surface, not a host adapter and not an owner of TokenPilot algorithms.
 
 Host identity, state discovery, and preset ownership come from adapter-provided `ProductHostRegistration` records. The CLI adds host command runtime factories for OpenClaw, Codex, and Claude Code, then uses one registry for:
 

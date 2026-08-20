@@ -88,7 +88,7 @@ test("estimator environment falls back through compatibility prefixes", () => {
 
 function pendingRequest(overrides: Partial<CodexRequestJournalEntry> = {}): CodexRequestJournalEntry {
   return {
-    schema: "lightmem2.codex.context-history.request/v1",
+    schema: "lightrsi.codex.context-history.request/v1",
     kind: "request",
     requestId: "request-current",
     sessionId: SESSION_ID,

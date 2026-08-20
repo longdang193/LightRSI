@@ -7,9 +7,9 @@ How to find logs and use diagnostic tools.
 Always start with these three:
 
 ```bash
-lightmem2 doctor    # Integration health check
-lightmem2 status    # Current state
-lightmem2 report    # Session metrics
+lightrsi doctor    # Integration health check
+lightrsi status    # Current state
+lightrsi report    # Session metrics
 ```
 
 These answer 90% of "is it working?" questions.
