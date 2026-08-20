@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { readRecentJsonlEntries } from "@lightmem2/host-adapter";
+import { readRecentJsonlEntries } from "@lightrsi/host-adapter";
 import {
   defaultTokenPilotConfigPath,
   loadTokenPilotCodexConfig,
