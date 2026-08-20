@@ -193,8 +193,11 @@ function adapterRootFromHere(moduleDir = __dirname): string {
   return join(process.cwd(), "components", "adapters", "codex");
 }
 
-function shellQuote(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+function shellQuote(value: string, platform = process.platform): string {
+  const escaped = platform === "win32"
+    ? value.replace(/"/g, "\\\"")
+    : value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+  return `"${escaped}"`;
 }
 
 function normalizeLocalProxyBaseUrl(value: string | undefined): string | undefined {
@@ -253,7 +256,7 @@ async function ensureWindowsHookWrapper(adapterRoot: string): Promise<string> {
   await mkdir(dirname(wrapperPath), { recursive: true });
   await writeFile(wrapperPath, [
     "@echo off",
-    `${shellQuote(process.execPath)} ${shellQuote(hookScriptPath(adapterRoot))} %*`,
+    `${shellQuote(process.execPath, "win32")} ${shellQuote(hookScriptPath(adapterRoot), "win32")} %*`,
     "",
   ].join("\r\n"), "utf8");
   return wrapperPath;
@@ -261,9 +264,9 @@ async function ensureWindowsHookWrapper(adapterRoot: string): Promise<string> {
 
 async function tokenPilotHookCommand(adapterRoot: string, platform = process.platform): Promise<string> {
   if (platform === "win32") {
-    return shellQuote(await ensureWindowsHookWrapper(adapterRoot));
+    return shellQuote(await ensureWindowsHookWrapper(adapterRoot), "win32");
   }
-  return `${shellQuote(process.execPath)} ${shellQuote(hookScriptPath(adapterRoot))}`;
+  return `${shellQuote(process.execPath, platform)} ${shellQuote(hookScriptPath(adapterRoot), platform)}`;
 }
 
 export async function resolveCodexHookCommandForInstall(

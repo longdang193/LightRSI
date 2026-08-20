@@ -285,6 +285,63 @@ test("doctor-codex script exposes estimator diagnostics without serializing conf
   }
 });
 
+test("doctor-codex script is unhealthy when Codex bypasses the local proxy", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-doctor-bypass-"));
+  try {
+    const proxyPort = await reserveUnusedPort();
+    const codexConfigPath = join(dir, "config.toml");
+    const hooksConfigPath = join(dir, "hooks.json");
+    const tokenPilotConfigPath = join(dir, "tokenpilot.json");
+    const stateDir = join(dir, "state");
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(codexConfigPath, [
+      'model_provider = "9router"',
+      "",
+      "[model_providers.9router]",
+      'base_url = "http://127.0.0.1:20128/v1"',
+      'wire_api = "responses"',
+      "requires_openai_auth = true",
+      "",
+    ].join("\n"), "utf8");
+    await writeFile(hooksConfigPath, JSON.stringify({ hooks: {} }), "utf8");
+    await writeFile(tokenPilotConfigPath, JSON.stringify({
+      enabled: true,
+      stateDir,
+      proxyPort,
+      providerName: "9router",
+      upstreamProvider: "9router",
+      upstream: {
+        name: "9Router",
+        baseUrl: "http://127.0.0.1:20128/v1",
+        wireApi: "responses",
+        requiresOpenAIAuth: true,
+      },
+    }), "utf8");
+
+    const adapterDir = fileURLToPath(new URL("..", import.meta.url));
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", "scripts/doctor-codex.ts"],
+      {
+        cwd: adapterDir,
+        env: {
+          ...process.env,
+          CODEX_CONFIG_PATH: codexConfigPath,
+          CODEX_HOOKS_CONFIG_PATH: hooksConfigPath,
+          TOKENPILOT_CODEX_CONFIG: tokenPilotConfigPath,
+        },
+      },
+    );
+    const output = JSON.parse(stdout) as Record<string, any>;
+
+    assert.equal(output.tokenpilotProvider.baseUrlConfigured, true);
+    assert.equal(output.proxy.healthOk, false);
+    assert.equal(output.ok, false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("inspectCodexDoctor checks the configured provider name", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-doctor-provider-"));
   try {

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
 
 import { normalizeConfig } from "./config-normalize.js";
 
@@ -81,7 +82,7 @@ test("normalizeConfig preserves the TokenPilot default module contract", () => {
   assert.equal(cfg.stateDir, "/tmp/tokenpilot-config-contract");
   assert.equal(
     cfg.debugTapPath,
-    "/tmp/tokenpilot-config-contract/tokenpilot/provider-traffic.jsonl",
+    join("/tmp/tokenpilot-config-contract", "tokenpilot", "provider-traffic.jsonl"),
   );
 });
 

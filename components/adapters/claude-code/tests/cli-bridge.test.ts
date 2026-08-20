@@ -148,8 +148,10 @@ test("claude-code cli bridge visual opens the shared browser visual pinned to th
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-bridge-visual-"));
   const originalHome = process.env.HOME;
   const originalConfigPath = process.env.OPENCLAW_CONFIG_PATH;
+  const originalTokenPilotConfigPath = process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
   process.env.HOME = dir;
   process.env.OPENCLAW_CONFIG_PATH = join(dir, ".openclaw", "openclaw.json");
+  process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = join(dir, ".claude", "tokenpilot.json");
   try {
     const stateDir = join(dir, ".claude", "tokenpilot-state", "tokenpilot");
     const codexStateDir = join(dir, ".codex", "tokenpilot-state", "tokenpilot");
@@ -238,6 +240,11 @@ test("claude-code cli bridge visual opens the shared browser visual pinned to th
     } else {
       process.env.OPENCLAW_CONFIG_PATH = originalConfigPath;
     }
+    if (originalTokenPilotConfigPath === undefined) {
+      delete process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
+    } else {
+      process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = originalTokenPilotConfigPath;
+    }
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -245,7 +252,9 @@ test("claude-code cli bridge visual opens the shared browser visual pinned to th
 test("claude-code cli bridge report explains when a session has no recorded savings yet", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-bridge-report-empty-"));
   const originalHome = process.env.HOME;
+  const originalTokenPilotConfigPath = process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
   process.env.HOME = dir;
+  process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = join(dir, ".claude", "tokenpilot.json");
   try {
     const stateDir = join(dir, ".claude", "tokenpilot-state", "tokenpilot");
     await mkdir(join(stateDir, "ux-effects"), { recursive: true });
@@ -271,6 +280,11 @@ test("claude-code cli bridge report explains when a session has no recorded savi
       delete process.env.HOME;
     } else {
       process.env.HOME = originalHome;
+    }
+    if (originalTokenPilotConfigPath === undefined) {
+      delete process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
+    } else {
+      process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = originalTokenPilotConfigPath;
     }
     await rm(dir, { recursive: true, force: true });
   }
@@ -309,7 +323,9 @@ test("claude-code cli bridge persists only supported settings across reload", as
 test("claude-code mode writes only claude-supported fields", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-bridge-mode-"));
   const originalHome = process.env.HOME;
+  const originalTokenPilotConfigPath = process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
   process.env.HOME = dir;
+  process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = join(dir, ".claude", "tokenpilot.json");
   try {
     const bridge = createClaudeCodeCliBridge({ host: "claude-code" });
 
@@ -339,6 +355,11 @@ test("claude-code mode writes only claude-supported fields", async () => {
       delete process.env.HOME;
     } else {
       process.env.HOME = originalHome;
+    }
+    if (originalTokenPilotConfigPath === undefined) {
+      delete process.env.TOKENPILOT_CLAUDE_CODE_CONFIG;
+    } else {
+      process.env.TOKENPILOT_CLAUDE_CODE_CONFIG = originalTokenPilotConfigPath;
     }
     await rm(dir, { recursive: true, force: true });
   }

@@ -24,11 +24,11 @@ test("artifact store preserves canonical state path names", () => {
   assert.equal(WORKSPACE_ARCHIVE_DIRNAME, ".tokenpilot-archives");
   assert.equal(
     pluginStateSubdir("/tmp/tokenpilot-state", "module-observability", "events"),
-    "/tmp/tokenpilot-state/tokenpilot/module-observability/events",
+    join("/tmp/tokenpilot-state", "tokenpilot", "module-observability", "events"),
   );
   assert.equal(
     workspaceArchiveDir("/tmp/workspace"),
-    "/tmp/workspace/.tokenpilot-archives",
+    join("/tmp/workspace", ".tokenpilot-archives"),
   );
 });
 

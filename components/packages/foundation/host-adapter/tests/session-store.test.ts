@@ -72,3 +72,18 @@ test("shared atomic writer overwrites files cleanly", async () => {
     await rm(stateDir, { recursive: true, force: true });
   }
 });
+
+
+test("shared atomic writer serializes concurrent writes", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightmem2-host-atomic-concurrent-"));
+  try {
+    const target = sessionSnapshotPath(stateDir, "shared-session-c");
+    await Promise.all(Array.from({ length: 32 }, (_, value) => writeJsonFileAtomic(target, { value })));
+    const snapshot = await loadSessionSnapshot<{ value: number }>(stateDir, "shared-session-c");
+    assert.ok(snapshot);
+    assert.ok(Number.isInteger(snapshot.value));
+    assert.ok(snapshot.value >= 0 && snapshot.value < 32);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});

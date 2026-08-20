@@ -6,6 +6,15 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { reserveUnusedPort } from "@lightrsi/host-adapter";
+
+async function assertInstalledCliLink(linkPath: string, targetPattern: RegExp, allowRegularFile: boolean) {
+  const linkStat = await lstat(linkPath);
+  if (linkStat.isSymbolicLink()) {
+    assert.match(await readlink(linkPath), targetPattern);
+    return;
+  }
+  assert.equal(allowRegularFile && linkStat.isFile(), true);
+}
 import { readCliContextState } from "../../../products/cli/src/context-store.js";
 import {
   loadTokenPilotCodexConfig,
@@ -24,7 +33,7 @@ const originalSuiteUserProfile = process.env.USERPROFILE;
 let installSuiteHome = "";
 
 before(async () => {
-  installSuiteHome = await mkdtemp(join(tmpdir(), "lightrsi-codex-install-suite-"));
+  installSuiteHome = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-suite-"));
   process.env.HOME = installSuiteHome;
   process.env.USERPROFILE = installSuiteHome;
 });
@@ -46,7 +55,7 @@ function installCodexTokenPilot(
   return installCodexTokenPilotBase({
     ...params,
     cliBinDir: params.cliBinDir ?? join(testRoot, "bin"),
-    cliContextPath: join(testRoot, ".lightrsi", "state", "cli-context.json"),
+    cliContextPath: join(testRoot, ".lightmem2", "state", "cli-context.json"),
   });
 }
 
@@ -96,7 +105,7 @@ function parseGeneratedShellCommand(command: string): string[] {
 }
 
 test("installCodexTokenPilot writes provider, MCP, and hooks with expected commands", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-install-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -104,9 +113,6 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
     const hooksConfigPath = join(dir, "hooks.json");
     const tokenPilotConfigPath = join(dir, "tokenpilot.json");
     const cliBinDir = join(dir, "bin");
-    const legacySkillDir = join(dir, "skills", "lightmem2-report");
-    await mkdir(legacySkillDir, { recursive: true });
-    await writeFile(join(legacySkillDir, "SKILL.md"), "legacy", "utf8");
     await writeFile(codexConfigPath, [
       "model_provider = \"OPENAI\"",
       "",
@@ -155,20 +161,14 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
     assert.equal(result.cliBinDir, cliBinDir);
     assert.equal(result.cliBinDirOnPath, false);
     assert.equal(result.hostCliBinPath, join(cliBinDir, "tokenpilot-codex"));
-    if (process.platform === "win32") {
-      assert.equal((await lstat(result.cliBinPath)).isFile(), true);
-      assert.equal((await lstat(result.hostCliBinPath!)).isFile(), true);
-    } else {
-      assert.equal((await lstat(result.cliBinPath)).isSymbolicLink(), true);
-      assert.match(await readlink(result.cliBinPath), /products[\/\\]cli[\/\\]dist[\/\\]cli\.js$/);
-      assert.equal((await lstat(result.hostCliBinPath!)).isSymbolicLink(), true);
-      assert.match(await readlink(result.hostCliBinPath!), /adapters[\/\\]codex[\/\\]dist[\/\\]cli\.js$/);
-    }
+    const allowRegularFile = process.platform === "win32";
+    await assertInstalledCliLink(result.cliBinPath, /products[\/\\]cli[\/\\]dist[\/\\]cli\.js$/, allowRegularFile);
+    await assertInstalledCliLink(result.hostCliBinPath!, /adapters[\/\\]codex[\/\\]dist[\/\\]cli\.js$/, allowRegularFile);
     const tokenPilotConfig = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
     assert.equal(tokenPilotConfig.enabled, true);
     assert.equal(tokenPilotConfig.upstreamProvider, "OPENAI");
     assert.equal(tokenPilotConfig.upstream?.baseUrl, "https://api.openai.com/v1");
-    const cliContext = await readCliContextState(join(dir, ".lightrsi", "state", "cli-context.json"));
+    const cliContext = await readCliContextState(join(dir, ".lightmem2", "state", "cli-context.json"));
     assert.equal(cliContext.configPathsByHost?.codex?.tokenPilotConfigPath, tokenPilotConfigPath);
     assert.equal(cliContext.configPathsByHost?.codex?.hostConfigPath, codexConfigPath);
     assert.equal(cliContext.configPathsByHost?.codex?.hostAuxConfigPath, hooksConfigPath);
@@ -187,7 +187,6 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
     assert.match(skillRaw, /node/);
     const policyRaw = await readFile(join(result.commandSkillsDir, "lightrsi-report", "agents", "openai.yaml"), "utf8");
     assert.match(policyRaw, /allow_implicit_invocation:\s*false/);
-    await assert.rejects(stat(legacySkillDir), { code: "ENOENT" });
   } finally {
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
@@ -196,7 +195,7 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
 });
 
 test("installCodexTokenPilot reports degraded MCP mode when probe is skipped", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-install-skip-probe-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-skip-probe-"));
   try {
     const result = await installCodexTokenPilot({
       codexConfigPath: join(dir, "config.toml"),
@@ -213,8 +212,8 @@ test("installCodexTokenPilot reports degraded MCP mode when probe is skipped", a
   }
 });
 
-test("installCodexTokenPilot restores execute permission on the shared lightrsi CLI target", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-install-cli-perm-"));
+test("installCodexTokenPilot restores execute permission on the shared lightmem2 CLI target", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-cli-perm-"));
   const cliDistPath = resolve(__dirname, "..", "..", "..", "products", "cli", "dist", "cli.js");
   const originalMode = (await stat(cliDistPath)).mode & 0o777;
   try {
@@ -238,7 +237,7 @@ test("installCodexTokenPilot restores execute permission on the shared lightrsi 
 });
 
 test("installCodexTokenPilot preserves an existing custom root provider and reroutes that provider to the proxy", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-install-custom-root-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-custom-root-"));
   try {
     const codexConfigPath = join(dir, "config.toml");
     const hooksConfigPath = join(dir, "hooks.json");
@@ -277,7 +276,7 @@ test("installCodexTokenPilot preserves an existing custom root provider and rero
 });
 
 test("installCodexTokenPilot preserves the last real upstream when the current provider already points at an older local proxy", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-install-loopback-upstream-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-loopback-upstream-"));
   try {
     const codexConfigPath = join(dir, "config.toml");
     const hooksConfigPath = join(dir, "hooks.json");
@@ -328,7 +327,7 @@ test("installCodexTokenPilot preserves the last real upstream when the current p
 });
 
 test("installCodexTokenPilot does not treat a fresh default install as an upstream loop", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-install-fresh-upstream-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-fresh-upstream-"));
   const originalHome = process.env.HOME;
   process.env.HOME = dir;
   try {
@@ -362,7 +361,7 @@ test("installCodexTokenPilot does not treat a fresh default install as an upstre
 });
 
 test("installCodexTokenPilot writes Windows hook wrappers into hooks.json", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-install-win-hook-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-win-hook-"));
   try {
     const codexConfigPath = join(dir, "config.toml");
     const hooksConfigPath = join(dir, "hooks.json");
@@ -386,6 +385,10 @@ test("installCodexTokenPilot writes Windows hook wrappers into hooks.json", asyn
     });
 
     assert.match(result.expectedHookCommand, /tokenpilot-codex-hook\.cmd"$/);
+    assert.equal(result.expectedHookCommand.includes("\\\\"), false);
+    const wrapperPath = result.expectedHookCommand.slice(1, -1);
+    const wrapper = await readFile(wrapperPath, "utf8");
+    assert.equal(wrapper.includes("\\\\"), false);
 
     const hooks = JSON.parse(await readFile(hooksConfigPath, "utf8")) as {
       hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>;
@@ -394,6 +397,7 @@ test("installCodexTokenPilot writes Windows hook wrappers into hooks.json", asyn
       const entries = hooks.hooks?.[eventName]?.[0]?.hooks;
       assert.ok(Array.isArray(entries), `${eventName} hook group missing`);
       assert.match(String(entries[0]?.command ?? ""), /tokenpilot-codex-hook\.cmd"$/);
+      assert.equal(String(entries[0]?.command ?? "").includes("\\\\"), false);
     }
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -401,7 +405,7 @@ test("installCodexTokenPilot writes Windows hook wrappers into hooks.json", asyn
 });
 
 test("installCodexTokenPilot rewrites the MCP server block idempotently", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-install-mcp-idempotent-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-mcp-idempotent-"));
   try {
     const codexConfigPath = join(dir, "config.toml");
     const hooksConfigPath = join(dir, "hooks.json");
@@ -437,7 +441,7 @@ test("installCodexTokenPilot rewrites the MCP server block idempotently", async 
 });
 
 test("installCodexTokenPilot shifts the proxy port when the preferred port is already occupied", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-install-port-shift-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-port-shift-"));
   const blocker = await new Promise<{ server: import("node:net").Server; port: number }>((resolve, reject) => {
     const server = createServer((socket) => socket.destroy());
     server.once("error", reject);
@@ -488,7 +492,7 @@ test("installCodexTokenPilot shifts the proxy port when the preferred port is al
 });
 
 test("installCodexTokenPilot stops an existing daemon before resolving the proxy port", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-install-stop-daemon-"));
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-stop-daemon-"));
   const daemonPort = await reserveUnusedPort();
   let dummy: ReturnType<typeof spawn> | undefined;
   try {

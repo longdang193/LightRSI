@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { userHomeDirectory } from "@lightrsi/host-adapter";
 import { dirname, join, resolve } from "node:path";
 
 export const CLAUDE_TOOL_SEARCH_ENV = "ENABLE_TOOL_SEARCH";
@@ -112,27 +112,27 @@ function sanitizeClaudeReductionPassOptions(raw: unknown): Record<string, Record
 }
 
 export function expandHomePath(value: string): string {
-  if (value === "~") return homedir();
-  if (value.startsWith("~/")) return join(homedir(), value.slice(2));
+  if (value === "~") return userHomeDirectory();
+  if (value.startsWith("~/")) return join(userHomeDirectory(), value.slice(2));
   return value;
 }
 
 export function defaultClaudeCodeSettingsPath(): string {
   return process.env.CLAUDE_CODE_SETTINGS_PATH
     ? resolve(process.env.CLAUDE_CODE_SETTINGS_PATH)
-    : join(homedir(), ".claude", "settings.json");
+    : join(userHomeDirectory(), ".claude", "settings.json");
 }
 
 export function defaultClaudeCodeMcpConfigPath(): string {
   return process.env.CLAUDE_CODE_MCP_CONFIG_PATH
     ? resolve(process.env.CLAUDE_CODE_MCP_CONFIG_PATH)
-    : join(homedir(), ".claude", ".claude.json");
+    : join(userHomeDirectory(), ".claude", ".claude.json");
 }
 
 export function defaultTokenPilotClaudeCodeConfigPath(): string {
   return process.env.TOKENPILOT_CLAUDE_CODE_CONFIG
     ? resolve(process.env.TOKENPILOT_CLAUDE_CODE_CONFIG)
-    : join(homedir(), ".claude", "tokenpilot.json");
+    : join(userHomeDirectory(), ".claude", "tokenpilot.json");
 }
 
 export function defaultClaudeCodeStateDir(configPath = defaultTokenPilotClaudeCodeConfigPath()): string {

@@ -2,7 +2,259 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
-import { prepareCodexStablePrefix } from "../src/stable-prefix.js";
+import {
+  cacheRelevantRequestOptionFingerprints,
+  cacheRelevantRequestOptionNames,
+  cacheRelevantRequestOptionShapes,
+  prepareCodexStablePrefix,
+} from "../src/stable-prefix.js";
+
+function makeCacheFamilyEnvelope(model: string) {
+  return {
+    metadata: {},
+    model,
+    stream: true,
+    instructions: "You are the coding agent.",
+    messages: [
+      { role: "system", content: "Project rules." },
+      { role: "user", content: "Keep this task unchanged." },
+    ],
+  } as any;
+}
+
+test("cache contract stays uniform across aliases and future model names", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const models = ["gpt-5.6-sol", "cx/gpt-5.6-sol", "gpt-6.0-new", "provider/future-model"];
+  const prepared = models.map((model) => prepareCodexStablePrefix(makeCacheFamilyEnvelope(model), config));
+
+  assert.equal(new Set(prepared.map((item) => item.metadata?.lightmem2CacheContractDigest)).size, 1);
+  assert.equal(new Set(prepared.map((item) => item.metadata?.cacheFamilyId)).size, 1);
+  assert.deepEqual(prepared.map((item) => item.model), models);
+  assert.deepEqual(prepared[1]?.messages, prepared[0]?.messages);
+  assert.equal(prepared[1]?.instructions, prepared[0]?.instructions);
+  assert.match(String(prepared[0]?.metadata?.lightmem2CacheContractDigest ?? ""), /^[a-f0-9]{24}$/);
+});
+
+test("cache contract ignores volatile sender metadata inside system prompts", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const base = makeCacheFamilyEnvelope("gpt-5.6-sol");
+  const firstContent = 'Sender (untrusted metadata): ```json\n{"agent":"worker-a","session":"session-a"}\n```\n\nProject rules.';
+  const secondContent = 'Sender (untrusted metadata): ```json\n{"agent":"worker-b","session":"session-b"}\n```\n\nProject rules.';
+  const first = prepareCodexStablePrefix({
+    ...base,
+    messages: [
+      {
+        role: "system",
+        content: firstContent,
+        metadata: { __codexOriginalRole: "system" },
+      },
+      base.messages[1],
+    ],
+  }, config);
+  const second = prepareCodexStablePrefix({
+    ...base,
+    messages: [
+      {
+        role: "system",
+        content: secondContent,
+        metadata: { __codexOriginalRole: "system" },
+      },
+      base.messages[1],
+    ],
+  }, config);
+
+  assert.equal(
+    first.metadata?.lightmem2CacheContractDigest,
+    second.metadata?.lightmem2CacheContractDigest,
+  );
+  assert.equal(first.messages[0]?.content, firstContent);
+  assert.equal(second.messages[0]?.content, secondContent);
+});
+
+test("cache contract ignores volatile DeepAgents conversation-history entries", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const base = makeCacheFamilyEnvelope("gpt-5.6-sol");
+  const firstContent = "Read C:\\Users\\Alice Smith\\.deepagents\\conversation_history\\entry-aaaaaaaaaaaaaaa.json before continuing.";
+  const secondContent = "Read C:\\Users\\Alice Smith\\.deepagents\\conversation_history\\entry-bbbbbbbbbbbbbbb.json before continuing.";
+  const first = prepareCodexStablePrefix({
+    ...base,
+    messages: [{
+      role: "system",
+      content: firstContent,
+      metadata: { __codexOriginalRole: "system" },
+    }, base.messages[1]],
+  }, config);
+  const second = prepareCodexStablePrefix({
+    ...base,
+    messages: [{
+      role: "system",
+      content: secondContent,
+      metadata: { __codexOriginalRole: "system" },
+    }, base.messages[1]],
+  }, config);
+
+  assert.equal(
+    first.metadata?.lightmem2CacheContractDigest,
+    second.metadata?.lightmem2CacheContractDigest,
+  );
+  assert.equal(first.messages[0]?.content, firstContent);
+  assert.equal(second.messages[0]?.content, secondContent);
+});
+
+test("cache contract includes every stable system message", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const base = makeCacheFamilyEnvelope("gpt-5.6-sol");
+  const first = prepareCodexStablePrefix({
+    ...base,
+    messages: [
+      {
+        role: "system",
+        content: "Project rules A.",
+        metadata: { __codexOriginalRole: "system" },
+      },
+      {
+        role: "system",
+        content: "Developer root.",
+        metadata: { __codexOriginalRole: "developer" },
+      },
+      base.messages[1],
+    ],
+  }, config);
+  const second = prepareCodexStablePrefix({
+    ...base,
+    messages: [
+      {
+        role: "system",
+        content: "Project rules B.",
+        metadata: { __codexOriginalRole: "system" },
+      },
+      {
+        role: "system",
+        content: "Developer root.",
+        metadata: { __codexOriginalRole: "developer" },
+      },
+      base.messages[1],
+    ],
+  }, config);
+
+  assert.notEqual(
+    first.metadata?.lightmem2CacheContractDigest,
+    second.metadata?.lightmem2CacheContractDigest,
+  );
+});
+
+test("cache contract splits cache-relevant options and tool schemas", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const base = makeCacheFamilyEnvelope("gpt-5.6-sol");
+  const withLowReasoning = prepareCodexStablePrefix({
+    ...base,
+    rawPayload: { reasoning: { effort: "low" } },
+    tools: [{ type: "function", name: "read_file", parameters: { type: "object" } }],
+  }, config);
+  const withHighReasoning = prepareCodexStablePrefix({
+    ...base,
+    rawPayload: { reasoning: { effort: "high" } },
+    tools: [{ type: "function", name: "read_file", parameters: { type: "object" } }],
+  }, config);
+  const withDifferentTool = prepareCodexStablePrefix({
+    ...base,
+    rawPayload: { reasoning: { effort: "low" } },
+    tools: [{ type: "function", name: "write_file", parameters: { type: "object" } }],
+  }, config);
+
+  assert.notEqual(
+    withLowReasoning.metadata?.lightmem2CacheContractDigest,
+    withHighReasoning.metadata?.lightmem2CacheContractDigest,
+  );
+  assert.notEqual(
+    withLowReasoning.metadata?.lightmem2CacheContractDigest,
+    withDifferentTool.metadata?.lightmem2CacheContractDigest,
+  );
+});
+
+test("cache contract ignores volatile Codex client metadata but preserves semantic options", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const base = makeCacheFamilyEnvelope("gpt-5.6-sol");
+  const first = prepareCodexStablePrefix({
+    ...base,
+    rawPayload: {
+      client_metadata: {
+        session_id: "session-a",
+        thread_id: "thread-a",
+        turn_id: "turn-a",
+        "x-codex-installation-id": "installation-a",
+        "x-codex-turn-metadata": "turn-metadata-a",
+        "x-codex-window-id": "window-a",
+      },
+      reasoning: { effort: "medium" },
+    },
+  }, config);
+  const second = prepareCodexStablePrefix({
+    ...base,
+    rawPayload: {
+      client_metadata: {
+        session_id: "session-b",
+        thread_id: "thread-b",
+        turn_id: "turn-b",
+        "x-codex-installation-id": "installation-a",
+        "x-codex-turn-metadata": "turn-metadata-b",
+        "x-codex-window-id": "window-b",
+      },
+      reasoning: { effort: "medium" },
+    },
+  }, config);
+  const differentReasoning = prepareCodexStablePrefix({
+    ...base,
+    rawPayload: {
+      client_metadata: {
+        session_id: "session-b",
+      },
+      reasoning: { effort: "high" },
+    },
+  }, config);
+
+  assert.equal(
+    first.metadata?.lightmem2CacheContractDigest,
+    second.metadata?.lightmem2CacheContractDigest,
+  );
+  assert.notEqual(
+    second.metadata?.lightmem2CacheContractDigest,
+    differentReasoning.metadata?.lightmem2CacheContractDigest,
+  );
+});
+
+test("cache-relevant option telemetry exposes sorted names without values", () => {
+  assert.deepEqual(
+    cacheRelevantRequestOptionNames({
+      stream: true,
+      model: "gpt-5.6-sol",
+      reasoning: { effort: "high" },
+      temperature: 0.2,
+      metadata: { secret: "must-not-be-observed" },
+      input: [{ role: "user", content: "private prompt" }],
+    }),
+    ["reasoning", "temperature"],
+  );
+  const fingerprints = cacheRelevantRequestOptionFingerprints({
+    reasoning: { effort: "high" },
+    temperature: 0.2,
+    metadata: { secret: "must-not-be-observed" },
+  });
+  assert.deepEqual(Object.keys(fingerprints), ["reasoning", "temperature"]);
+  assert.match(fingerprints.reasoning ?? "", /^[a-f0-9]{16}$/);
+  assert.doesNotMatch(JSON.stringify(fingerprints), /high|secret|must-not-be-observed/);
+  const shapes = cacheRelevantRequestOptionShapes({
+    reasoning: { effort: "high" },
+  });
+  assert.deepEqual(shapes.reasoning, [
+    "$:object",
+    "$.effort:string",
+  ]);
+  assert.deepEqual(
+    cacheRelevantRequestOptionNames({ client_metadata: { session_id: "private-session" } }),
+    [],
+  );
+});
 
 test("prepareCodexStablePrefix stabilizes instructions and developer prompt while isolating dynamic developer context", () => {
   const config = normalizeTokenPilotCodexConfig({
@@ -58,7 +310,9 @@ test("prepareCodexStablePrefix stabilizes instructions and developer prompt whil
   assert.equal((prepared.messages[1] as any)?.metadata?.__codexOriginalRole, "developer");
   assert.match(String(prepared.messages[1]?.content ?? ""), /WORKDIR: \/repo\/demo/);
   assert.match(String(prepared.messages[1]?.content ?? ""), /AGENT_ID: agent-123/);
-  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightrsi-codex-/);
+  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightmem2-family-[0-9a-f]{24}$/);
+  assert.match(String(prepared.metadata?.providerWirePrefixHash ?? ""), /^[0-9a-f]{64}$/);
+  assert.match(String(prepared.metadata?.cacheFamilyId ?? ""), /^lightmem2-family-[0-9a-f]{24}$/);
   assert.equal(prepared.metadata?.promptCacheRetention, "24h");
 });
 
@@ -326,7 +580,7 @@ test("prepareCodexStablePrefix injects merged dynamic context into first user me
   assert.match(String(prepared.messages[1]?.content ?? ""), /please inspect the repo/);
 });
 
-test("prepareCodexStablePrefix preserves inbound prompt_cache_key for runtime forwarding", () => {
+test("prepareCodexStablePrefix preserves inbound prompt_cache_key for audit while using family key", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {
       dynamicContextTarget: "developer",
@@ -366,8 +620,8 @@ test("prepareCodexStablePrefix preserves inbound prompt_cache_key for runtime fo
     },
   }, config);
 
-  assert.equal(prepared.metadata?.promptCacheKey, "upstream-existing-key");
-  assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightrsi-codex-/);
+  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
+  assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightmem2-codex-/);
   assert.equal(prepared.metadata?.originalPromptCacheKey, "upstream-existing-key");
   assert.equal(prepared.metadata?.promptCacheRetention, "24h");
 });
@@ -415,11 +669,15 @@ test("prepareCodexStablePrefix keeps inbound runtime keys while converging frame
   const preparedA = prepareCodexStablePrefix(makeEnvelope("legacy-key-a"), config);
   const preparedB = prepareCodexStablePrefix(makeEnvelope("legacy-key-b"), config);
 
-  assert.equal(preparedA.metadata?.promptCacheKey, "legacy-key-a");
-  assert.equal(preparedB.metadata?.promptCacheKey, "legacy-key-b");
+  assert.match(String(preparedA.metadata?.promptCacheKey ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
+  assert.equal(preparedA.metadata?.promptCacheKey, preparedB.metadata?.promptCacheKey);
+  assert.equal(preparedA.metadata?.originalPromptCacheKey, "legacy-key-a");
+  assert.equal(preparedB.metadata?.originalPromptCacheKey, "legacy-key-b");
   assert.equal(
     preparedA.metadata?.frameworkStablePromptCacheKey,
     preparedB.metadata?.frameworkStablePromptCacheKey,
   );
-  assert.match(String(preparedA.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightrsi-codex-/);
+  assert.match(String(preparedA.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightmem2-codex-/);
+  assert.match(String(preparedA.metadata?.providerWirePrefixHash ?? ""), /^[a-f0-9]{64}$/);
+  assert.match(String(preparedA.metadata?.cacheFamilyId ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
 });

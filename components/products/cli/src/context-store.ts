@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { userHomeDirectory } from "@lightrsi/host-adapter";
 import { dirname, join } from "node:path";
 import type { CliHostId } from "./hosts/registry.js";
 
@@ -17,46 +17,33 @@ export type CliContextState = {
 };
 
 export function defaultCliContextPath(): string {
-  return join(homedir(), ".lightrsi", "state", "cli-context.json");
+  return join(userHomeDirectory(), ".lightrsi", "state", "cli-context.json");
 }
 
 export function legacyCliContextPath(): string {
-  return join(homedir(), ".lightmem2", "state", "cli-context.json");
-}
-
-function emptyCliContextState(): CliContextState {
-  return { lastSessionByHost: {}, configPathsByHost: {} };
-}
-
-async function readCliContextFile(contextPath: string): Promise<CliContextState> {
-  const raw = await readFile(contextPath, "utf8");
-  const parsed = JSON.parse(raw) as CliContextState;
-  return {
-    lastActiveHost: parsed.lastActiveHost,
-    lastSessionByHost: parsed.lastSessionByHost ?? {},
-    configPathsByHost: parsed.configPathsByHost ?? {},
-    lastUpdatedAt: parsed.lastUpdatedAt,
-  };
+  return join(userHomeDirectory(), ".lightmem2", "state", "cli-context.json");
 }
 
 export async function readCliContextState(
-  contextPath = defaultCliContextPath(),
-  legacyContextPath = contextPath === defaultCliContextPath()
-    ? legacyCliContextPath()
-    : undefined,
+  contextPath?: string,
 ): Promise<CliContextState> {
-  try {
-    return await readCliContextFile(contextPath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT" || !legacyContextPath) {
-      return emptyCliContextState();
-    }
+  const paths = contextPath ? [contextPath] : [defaultCliContextPath(), legacyCliContextPath()];
+  for (const candidate of paths) {
     try {
-      return await readCliContextFile(legacyContextPath);
-    } catch {
-      return emptyCliContextState();
-    }
+      const raw = await readFile(candidate, "utf8");
+      const parsed = JSON.parse(raw) as CliContextState;
+      return {
+        lastActiveHost: parsed.lastActiveHost,
+        lastSessionByHost: parsed.lastSessionByHost ?? {},
+        configPathsByHost: parsed.configPathsByHost ?? {},
+        lastUpdatedAt: parsed.lastUpdatedAt,
+      };
+    } catch {}
   }
+  return {
+    lastSessionByHost: {},
+    configPathsByHost: {},
+  };
 }
 
 export async function writeCliContextState(

@@ -20,6 +20,7 @@ import {
   setForwardResponseHeaders,
 } from "@lightrsi/host-adapter";
 import { configureStatePathResolver } from "@lightrsi/artifact-store";
+import { collectRouterCacheTelemetry } from "./router-cache-telemetry.js";
 import type { TokenPilotCodexConfig } from "./config.js";
 import {
   defaultCodexConfigPath,
@@ -40,7 +41,12 @@ import {
   buildStabilityVisualSnapshotFromEnvelopes,
   canonicalizeEnvelopeTools,
 } from "@lightrsi/stabilizer";
-import { prepareCodexStablePrefix } from "./stable-prefix.js";
+import {
+  cacheRelevantRequestOptionNames,
+  cacheRelevantRequestOptionFingerprints,
+  cacheRelevantRequestOptionShapes,
+  prepareCodexStablePrefix,
+} from "./stable-prefix.js";
 import {
   requestUpstreamResponses,
   requestUpstreamResponsesStream,
@@ -288,6 +294,94 @@ function isLifecycleExecutionDeferredReason(reason: string | undefined): boolean
     || reason === "lifecycle_execution_snapshot_changed";
 }
 
+export type EncodedProviderWirePrefixDiagnostics = {
+  fullHash: string;
+  instructionsHash: string;
+  toolsHash: string;
+  inputHash: string;
+  inputItems: Array<{
+    index: number;
+    role: string | null;
+    type: string | null;
+    fieldFingerprints: Record<string, string>;
+  }>;
+};
+
+function encodedProviderWirePrefixInput(payload: JsonObject): unknown[] {
+  const input = Array.isArray(payload.input) ? payload.input : [];
+  const firstUserIndex = input.findIndex((item: any) => (
+    item
+    && typeof item === "object"
+    && (item.role === "user" || (item.type === "message" && item.role === "user"))
+  ));
+  const boundary = firstUserIndex >= 0 ? firstUserIndex : input.length;
+  return input.slice(0, boundary);
+}
+
+function canonicalizeProviderWirePrefixItem(item: unknown): unknown {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+  const record = item as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type.toLowerCase() : "";
+  const role = typeof record.role === "string" ? record.role.toLowerCase() : "";
+  if (type !== "message" || (role !== "developer" && role !== "system")) return item;
+  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== "id"));
+}
+
+export function computeEncodedProviderWirePrefixDiagnostics(
+  payload: JsonObject,
+): EncodedProviderWirePrefixDiagnostics {
+  const inputPrefix = encodedProviderWirePrefixInput(payload);
+  const cacheIdentityInputPrefix = inputPrefix.map(canonicalizeProviderWirePrefixItem);
+  const inputItems = inputPrefix.slice(0, 64).map((item, index) => {
+    const record = item && typeof item === "object" && !Array.isArray(item)
+      ? item as Record<string, unknown>
+      : { value: item };
+    return {
+      index,
+      role: typeof record.role === "string" ? record.role : null,
+      type: typeof record.type === "string" ? record.type : null,
+      fieldFingerprints: Object.fromEntries(
+        Object.keys(record)
+          .sort((left, right) => left.localeCompare(right))
+          .map((key) => [key, hashJson(record[key] ?? null)]),
+      ),
+    };
+  });
+  const wirePrefix = {
+    v: 2,
+    instructions: payload.instructions ?? null,
+    tools: payload.tools ?? null,
+    input: cacheIdentityInputPrefix,
+  };
+  return {
+    fullHash: createHash("sha256").update(JSON.stringify(wirePrefix)).digest("hex"),
+    instructionsHash: hashJson(payload.instructions ?? null),
+    toolsHash: hashJson(payload.tools ?? null),
+    inputHash: hashJson(cacheIdentityInputPrefix),
+    inputItems,
+  };
+}
+
+function computeEncodedProviderWirePrefixHash(payload: JsonObject): string | null {
+  return computeEncodedProviderWirePrefixDiagnostics(payload).fullHash;
+}
+
+const ROUTER_CACHE_BOUNDARY_HEADERS = [
+  "x-9router-cache-namespace",
+  "x-9router-resolved-model",
+  "x-9router-prompt-cache-key",
+  "x-9router-cache-capabilities",
+] as const;
+
+function safeRouterCacheBoundary(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    ROUTER_CACHE_BOUNDARY_HEADERS.flatMap((name) => {
+      const value = headers[name];
+      return typeof value === "string" && value.length > 0 ? [[name, value]] : [];
+    }),
+  );
+}
+
 function encodedRequestPayload(params: {
   codec: ReturnType<typeof createCodexResponsesPayloadCodec>;
   envelope: HostRequestEnvelope;
@@ -510,7 +604,7 @@ export async function startCodexResponsesProxy(params: {
       if (inboundPromptCacheKey) {
         if (
           inboundPromptCacheKey !== sessionId
-          && !inboundPromptCacheKey.startsWith("lightrsi-codex-")
+          && !inboundPromptCacheKey.startsWith("lightmem2-codex-")
         ) {
           await mergeCodexSessionSnapshot(config.stateDir, inboundPromptCacheKey, sessionId);
           await indexCodexHostSessionAlias(config.stateDir, inboundPromptCacheKey, sessionId);
@@ -947,6 +1041,7 @@ export async function startCodexResponsesProxy(params: {
         normalizeResponsesInputForUpstream(continuationReplayPayload?.input);
       }
       const requestText = extractResponsesInputText(payload?.input);
+      const providerWirePrefixDiagnostics = computeEncodedProviderWirePrefixDiagnostics(payload);
       const cacheAuditSnapshot = buildCodexCacheAuditSnapshot({
         envelope: prepared.envelope,
         sessionId,
@@ -957,10 +1052,19 @@ export async function startCodexResponsesProxy(params: {
             ? prepared.envelope.metadata.originalPromptCacheKey
             : null,
         requestPromptCacheKey:
-          typeof prepared.envelope.metadata?.frameworkStablePromptCacheKey === "string"
-            ? prepared.envelope.metadata.frameworkStablePromptCacheKey
-            : typeof prepared.envelope.metadata?.promptCacheKey === "string"
-              ? prepared.envelope.metadata.promptCacheKey
+          typeof prepared.envelope.metadata?.promptCacheKey === "string"
+            ? prepared.envelope.metadata.promptCacheKey
+            : typeof prepared.envelope.metadata?.frameworkStablePromptCacheKey === "string"
+              ? prepared.envelope.metadata.frameworkStablePromptCacheKey
+              : null,
+        providerWirePrefixHash:
+          computeEncodedProviderWirePrefixHash(payload)
+          ?? (typeof prepared.envelope.metadata?.providerWirePrefixHash === "string"
+            ? prepared.envelope.metadata.providerWirePrefixHash
+            : null),
+        cacheFamilyId:
+          typeof prepared.envelope.metadata?.cacheFamilyId === "string"
+            ? prepared.envelope.metadata.cacheFamilyId
             : null,
       });
       await appendTrace(config.stateDir, {
@@ -976,6 +1080,10 @@ export async function startCodexResponsesProxy(params: {
         reductionChangedBlocks: reductionSummary?.changedBlocks ?? 0,
         reductionSkippedReason: reductionSummary?.skippedReason ?? null,
         reductionPassEffects: reductionSummary?.passEffects ?? [],
+        providerWirePrefixComponents: providerWirePrefixDiagnostics,
+        cacheRelevantOptionNames: cacheRelevantRequestOptionNames(prepared.envelope.rawPayload),
+        cacheRelevantOptionFingerprints: cacheRelevantRequestOptionFingerprints(prepared.envelope.rawPayload),
+        cacheRelevantOptionShapes: cacheRelevantRequestOptionShapes(prepared.envelope.rawPayload),
         promptCacheKey: prepared.envelope.metadata?.promptCacheKey ?? null,
         contextRewriteEnabled: config.contextRewrite.enabled,
         contextRewritePlanned: Boolean(rebaseRequest),
@@ -987,6 +1095,10 @@ export async function startCodexResponsesProxy(params: {
         upstream,
         payload: nextPayload,
         inboundAuthorization: authorization,
+        lightmem2CacheContractDigest:
+          typeof prepared.envelope.metadata?.lightmem2CacheContractDigest === "string"
+            ? prepared.envelope.metadata.lightmem2CacheContractDigest
+            : undefined,
         stateDir: config.stateDir,
       });
       const acceptedEvidence: CodexRebaseCapabilityEvidence[] = params.allowMockFixtureEvidence
@@ -1366,6 +1478,7 @@ export async function startCodexResponsesProxy(params: {
       const recordStreamResponse = async (paramsForRecord: {
         status: number;
         rawStreamText: string;
+        headers?: Record<string, string>;
       }): Promise<void> => {
         const snapshot = snapshotCodexResponsesStream(paramsForRecord.rawStreamText);
         const logicalPreviousResponseId = startsNewResponseChain(contextRewriteOutcome)
@@ -1424,6 +1537,17 @@ export async function startCodexResponsesProxy(params: {
           responseId: snapshot.responseId ?? null,
           previousResponseId: logicalPreviousResponseId ?? null,
           contextRewriteOutcome: contextRewriteOutcome ?? null,
+          lightmem2CacheContractDigest:
+            prepared.envelope.metadata?.lightmem2CacheContractDigest ?? null,
+          routerCacheTelemetry: collectRouterCacheTelemetry({
+            headers: paramsForRecord.headers ?? {},
+            upstreamName: upstream.name,
+            upstreamBaseUrl: upstream.baseUrl,
+            usage: snapshot.usage ?? null,
+            receivedLightmem2CacheContractDigest:
+              prepared.envelope.metadata?.lightmem2CacheContractDigest,
+            lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
+          }),
         });
         await upsertCodexSessionSnapshot(config.stateDir, sessionId, {
           latestResponseId: snapshot.responseId,
@@ -1464,6 +1588,10 @@ export async function startCodexResponsesProxy(params: {
           upstream,
           payload,
           inboundAuthorization: authorization,
+          lightmem2CacheContractDigest:
+            typeof prepared.envelope.metadata?.lightmem2CacheContractDigest === "string"
+              ? prepared.envelope.metadata.lightmem2CacheContractDigest
+              : undefined,
           stateDir: config.stateDir,
         });
         res.statusCode = upstreamResp.status;
@@ -1480,6 +1608,7 @@ export async function startCodexResponsesProxy(params: {
             await recordStreamResponse({
               status: upstreamResp.status,
               rawStreamText,
+              headers: upstreamResp.headers,
             });
             res.end();
           } catch (err) {
@@ -1526,6 +1655,7 @@ export async function startCodexResponsesProxy(params: {
           : undefined;
       let assistantChars = 0;
       let toolCallCount = 0;
+      let providerUsage: unknown = null;
       try {
         const decoded = codec.decodeResponse(responseJson ?? JSON.parse(upstreamResp.text), prepared.envelope);
         responseId = typeof decoded.metadata?.responseId === "string" && decoded.metadata.responseId
@@ -1533,6 +1663,7 @@ export async function startCodexResponsesProxy(params: {
           : responseId;
         assistantChars = decoded.assistantText?.length ?? 0;
         toolCallCount = decoded.toolCalls?.length ?? 0;
+        providerUsage = decoded.usage ?? null;
         await appendCodexCacheAuditRecord({
           stateDir: config.stateDir,
           snapshot: cacheAuditSnapshot,
@@ -1607,6 +1738,18 @@ export async function startCodexResponsesProxy(params: {
         responseId: responseId ?? null,
         previousResponseId: previousResponseId ?? null,
         contextRewriteOutcome: contextRewriteOutcome ?? null,
+        lightmem2CacheContractDigest:
+          prepared.envelope.metadata?.lightmem2CacheContractDigest ?? null,
+        routerCacheTelemetry: collectRouterCacheTelemetry({
+          headers: upstreamResp.headers,
+          upstreamName: upstream.name,
+          upstreamBaseUrl: upstream.baseUrl,
+          responseModel: responseJson?.model,
+          usage: providerUsage,
+          receivedLightmem2CacheContractDigest:
+            prepared.envelope.metadata?.lightmem2CacheContractDigest,
+          lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
+        }),
       });
       res.statusCode = upstreamResp.status;
       setForwardResponseHeaders(res, upstreamResp.headers, "application/json; charset=utf-8");

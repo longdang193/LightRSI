@@ -46,6 +46,8 @@ function makeCacheAuditRecord(overrides: Partial<CacheAuditRecord> = {}): CacheA
     requestPromptCacheKey: "cache-a",
     responsePromptCacheKey: "cache-a",
     cachedInputTokens: 0,
+    inputTokens: 0,
+    cacheWriteTokens: 0,
     usage: null,
     status: 200,
     ...overrides,

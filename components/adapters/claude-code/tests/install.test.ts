@@ -317,7 +317,8 @@ test("resolveClaudeCodeHookCommandForInstall finds the adapter root from the bun
   try {
     process.chdir(dirname(repoRoot));
     const command = resolveClaudeCodeHookCommandForInstall(bundledCliModuleDir);
-    assert.match(command, /adapters[\/\\]claude-code[\/\\]dist[\/\\]hooks-handler\.js/);
+    assert.equal(command.includes("\\\\"), false);
+    assert.match(command.replaceAll("\\\\", "\\"), /adapters[\/\\]claude-code[\/\\]dist[\/\\]hooks-handler\.js/);
   } finally {
     process.chdir(originalCwd);
   }

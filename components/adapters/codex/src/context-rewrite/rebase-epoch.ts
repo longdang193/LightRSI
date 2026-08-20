@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { appendJsonl } from "@lightrsi/host-adapter";
 import {
   CODEX_REBASE_EPOCH_SCHEMA,
-  LIGHTMEM2_CODEX_REBASE_EPOCH_SCHEMA,
+  isCodexRebaseEpochSchema,
   type CodexRebaseEpoch,
   type CodexRebaseAccounting,
   type CodexRebaseEpochStatus,
@@ -232,8 +232,7 @@ function canonicalCodexRebaseAccounting(value: unknown): CodexRebaseAccounting |
 function canonicalCodexRebaseEpoch(value: unknown): CodexRebaseEpoch | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const entry = value as Record<string, unknown>;
-  if ((entry.schema !== CODEX_REBASE_EPOCH_SCHEMA
-      && entry.schema !== LIGHTMEM2_CODEX_REBASE_EPOCH_SCHEMA)
+  if (!isCodexRebaseEpochSchema(entry.schema)
     || !isNonBlankString(entry.epochId)
     || !isNonBlankString(entry.sessionId)
     || !isNonBlankString(entry.planId)

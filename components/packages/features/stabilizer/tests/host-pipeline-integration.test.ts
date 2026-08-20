@@ -508,6 +508,17 @@ test("normalizeStablePrefixText rewrites home, skill, and generic absolute paths
   }
 });
 
+test("normalizeStablePrefixText rewrites volatile DeepAgents conversation-history entries", () => {
+  const first = normalizeStablePrefixText(
+    "Read //?/C:/Users/deepagents-12345/Alice Smith/.deepagents/conversation_history/entry-aaaaaaaaaaaaaaa.json before continuing.",
+  );
+  const second = normalizeStablePrefixText(
+    "Read //?/C:/Users/deepagents-6789/Alice Smith/.deepagents/conversation_history/entry-bbbbbbbbbbbbbbb.json before continuing.",
+  );
+
+  assert.equal(first, second);
+});
+
 test("normalizeStablePrefixText rewrites runtime ids, timestamps, and long numeric identifiers", () => {
   const normalized = normalizeStablePrefixText(
     [
@@ -832,6 +843,26 @@ test("auditStablePrefixEntropy ignores placeholder-normalized paths", () => {
   };
   const findings = auditStablePrefixEntropy(serialized);
 
+  assert.equal(findings.some((item) => item.kind === "abs_path"), false);
+});
+
+test("auditStablePrefixEntropy ignores URL paths and placeholder tails", () => {
+  const serialized: SerializedStablePrefixContract = {
+    schemaVersion: 1,
+    stableCore: [
+      {
+        key: "tools",
+        source: "tools",
+        text: JSON.stringify({
+          docs: "https://example.com/v1/reference",
+          local: "<ABS_PATH>/tokenpilot/debug.log",
+        }),
+      },
+    ],
+    semiStableContext: [],
+  };
+
+  const findings = auditStablePrefixEntropy(serialized);
   assert.equal(findings.some((item) => item.kind === "abs_path"), false);
 });
 

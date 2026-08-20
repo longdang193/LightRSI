@@ -29,8 +29,9 @@ const encoders = {
 function normalizeModelForCounter(model: string): string {
   const trimmed = String(model || "").trim().toLowerCase();
   if (!trimmed) return "";
-  if (trimmed.startsWith("tokenpilot/")) return trimmed.slice("tokenpilot/".length);
-  if (trimmed.startsWith("lightrsi/")) return trimmed.slice("lightrsi/".length);
+  for (const prefix of ["tokenpilot/", "lightmem2/", "lightrsi/"]) {
+    if (trimmed.startsWith(prefix)) return trimmed.slice(prefix.length);
+  }
   return trimmed;
 }
 

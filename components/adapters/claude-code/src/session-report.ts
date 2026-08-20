@@ -110,6 +110,7 @@ export async function renderClaudeCodeSessionReport(stateDir: string, sessionRef
     title: "TokenPilot Claude Code report:",
     sessionId: topology.sessionId,
     detailsEnabled: true,
+    emptyMessage: `No TokenPilot savings recorded yet for session ${topology.sessionId}.`,
     overview,
     cacheAuditSummary,
     readers: {

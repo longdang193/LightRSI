@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA,
@@ -16,8 +16,11 @@ import {
 export type CodexContextHistoryJournalReadResult = {
   entries: CodexContextHistoryJournalEntry[];
   malformedLineCount: number;
+  oversized?: boolean;
   readError?: string;
 };
+
+export const MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES = 16 * 1024 * 1024;
 
 export type CodexContextHistoryJournalLineParseResult =
   | { status: "valid"; entry: CodexContextHistoryJournalEntry }
@@ -260,9 +263,30 @@ export async function readCodexContextHistoryJournal(
   stateDir: string,
   sessionId: string,
 ): Promise<CodexContextHistoryJournalReadResult> {
+  const path = codexContextHistoryJournalPath(stateDir, sessionId);
+  try {
+    const metadata = await stat(path);
+    if (metadata.size > MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES) {
+      return {
+        entries: [],
+        malformedLineCount: 0,
+        oversized: true,
+        readError: `Codex context-history journal exceeds ${MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES} bytes`,
+      };
+    }
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") {
+      return {
+        entries: [],
+        malformedLineCount: 0,
+        readError: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   let raw: string;
   try {
-    raw = await readFile(codexContextHistoryJournalPath(stateDir, sessionId), "utf8");
+    raw = await readFile(path, "utf8");
   } catch (error) {
     if (errorCode(error) === "ENOENT") {
       return { entries: [], malformedLineCount: 0 };

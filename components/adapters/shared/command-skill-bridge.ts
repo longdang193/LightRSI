@@ -123,6 +123,10 @@ export async function installCommandSkillBridge(
   }
 
   for (const spec of READ_ONLY_SKILLS) {
+    await rm(join(params.skillsDir, spec.name.replace(/^lightrsi-/, "lightmem2-")), {
+      recursive: true,
+      force: true,
+    });
     const skillDir = join(params.skillsDir, spec.name);
     await mkdir(skillDir, { recursive: true });
     await writeFile(join(skillDir, "SKILL.md"), skillMarkdown({

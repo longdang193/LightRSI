@@ -41,6 +41,8 @@ export function buildCodexCacheAuditSnapshot(params: {
   stream: boolean;
   originalRequestPromptCacheKey?: string | null;
   requestPromptCacheKey?: string | null;
+  providerWirePrefixHash?: string | null;
+  cacheFamilyId?: string | null;
 }): CacheAuditSnapshot {
   return buildCacheAuditSnapshot(params);
 }

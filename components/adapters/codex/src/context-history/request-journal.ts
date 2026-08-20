@@ -1,6 +1,7 @@
 import { readCodexContextHistoryJournal } from "./journal-store.js";
 import {
   appendCodexContextHistoryJournalEntryLocked,
+  quarantineOversizedCodexContextHistoryJournalLocked,
   recoverCodexContextHistoryJournalTailLocked,
   withCodexContextHistoryJournalLock,
 } from "./journal-append.js";
@@ -96,8 +97,11 @@ async function appendCodexRequestJournalEntryLocked(params: {
   }
   const observedAt = normalizeObservedAt(params.observedAt);
   await recoverCodexContextHistoryJournalTailLocked(params.stateDir, params.sessionId);
-  const journal = await readCodexContextHistoryJournal(params.stateDir, params.sessionId);
-  if (journal.readError || journal.malformedLineCount > 0) {
+  let journal = await readCodexContextHistoryJournal(params.stateDir, params.sessionId);
+  if (journal.oversized) {
+    await quarantineOversizedCodexContextHistoryJournalLocked(params.stateDir, params.sessionId);
+    journal = { entries: [], malformedLineCount: 0 };
+  } else if (journal.readError || journal.malformedLineCount > 0) {
     throw new Error(`Refusing to update invalid Codex context-history journal for session ${params.sessionId}`);
   }
   const current = journal.entries;

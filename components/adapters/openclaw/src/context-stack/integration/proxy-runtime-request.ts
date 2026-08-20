@@ -47,7 +47,7 @@ type ProxyRequestPreparation = {
   firstTurnCandidate: boolean;
   originalPromptCacheKey: string;
   reductionPassOptions: any;
-  cacheAuditSnapshot: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "usage" | "status">;
+  cacheAuditSnapshot: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "inputTokens" | "cacheWriteTokens" | "usage" | "status">;
 };
 
 function buildReductionSkippedResult(

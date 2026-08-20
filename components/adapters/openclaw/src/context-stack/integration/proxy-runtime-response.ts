@@ -55,7 +55,7 @@ export async function handleStreamingProxyResponse(args: {
   beforeReductionCanonicalInput: string;
   afterReductionCanonicalInput: string;
   reductionApplied: any;
-  cacheAuditSnapshot?: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "usage" | "status">;
+  cacheAuditSnapshot?: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "inputTokens" | "cacheWriteTokens" | "usage" | "status">;
 }): Promise<void> {
   const {
     cfg,
@@ -187,7 +187,7 @@ export async function handleNonStreamingProxyResponse(args: {
   reductionPassOptions: any;
   reductionMaxToolChars: number;
   reductionTriggerMinChars: number;
-  cacheAuditSnapshot?: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "usage" | "status">;
+  cacheAuditSnapshot?: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "inputTokens" | "cacheWriteTokens" | "usage" | "status">;
 }): Promise<void> {
   const {
     cfg,

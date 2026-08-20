@@ -20,6 +20,8 @@ function makeRecord(overrides: Partial<OpenClawCacheAuditRecord>): OpenClawCache
     requestPromptCacheKey: "pk-1",
     responsePromptCacheKey: "pk-1",
     cachedInputTokens: 0,
+    inputTokens: 100,
+    cacheWriteTokens: 0,
     usage: { input_tokens: 100, output_tokens: 10 },
     status: 200,
     ...overrides,

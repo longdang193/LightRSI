@@ -81,17 +81,20 @@ function adapterRootFromHere(moduleDir = __dirname): string {
   return join(process.cwd(), "components", "adapters", "claude-code");
 }
 
-function shellQuote(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+function shellQuote(value: string, platform = process.platform): string {
+  const escaped = platform === "win32"
+    ? value.replace(/"/g, "\\\"")
+    : value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+  return `"${escaped}"`;
 }
 
-function tokenPilotHookCommand(adapterRoot: string): string {
+function tokenPilotHookCommand(adapterRoot: string, platform = process.platform): string {
   const distHandler = resolve(adapterRoot, "dist", "hooks-handler.js");
   if (existsSync(distHandler)) {
-    return `${shellQuote(process.execPath)} ${shellQuote(distHandler)}`;
+    return `${shellQuote(process.execPath, platform)} ${shellQuote(distHandler, platform)}`;
   }
   const srcHandler = resolve(adapterRoot, "src", "hooks-handler.ts");
-  return `${shellQuote(process.execPath)} --import tsx ${shellQuote(srcHandler)}`;
+  return `${shellQuote(process.execPath, platform)} --import tsx ${shellQuote(srcHandler, platform)}`;
 }
 
 export function resolveClaudeCodeHookCommandForInstall(moduleDir = __dirname): string {

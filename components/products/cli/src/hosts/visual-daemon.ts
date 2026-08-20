@@ -1,11 +1,11 @@
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { basename, dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { userHomeDirectory } from "@lightrsi/host-adapter";
 import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 
-function childProcessExecArgv(): string[] {
-  return process.execArgv.filter((arg) => arg !== "--test");
+export function childProcessExecArgv(_execArgv: readonly string[] = process.execArgv): string[] {
+  return [];
 }
 
 function isProcessRunning(pid: number): boolean {
@@ -72,7 +72,7 @@ export function resolveCliEntryPathFromHostModule(hostModulePath: string): strin
 }
 
 export function sharedVisualRootDir(): string {
-  return join(homedir(), ".lightrsi", "state");
+  return join(userHomeDirectory(), ".lightrsi", "state");
 }
 
 export function sharedVisualPidPath(): string {

@@ -142,6 +142,16 @@ export function extractStablePrefixContract(
     if (!text.trim()) continue;
 
     if (role === "system" || role === "developer") {
+      if ((message as any)?.metadata?.__lightmem2DynamicContext === true) {
+        pushSegment(semiStableContext, {
+          layer: "semi_stable_context",
+          source: "message",
+          key: `messages.${index}.dynamic_context`,
+          role,
+          text: canonicalizeDynamicContextText(text, normalizationContext),
+        });
+        continue;
+      }
       const rewrite = rewriteTextForStablePrefix(text);
       if (!normalizationContext?.workdir && rewrite.workdir) {
         normalizationContext = {

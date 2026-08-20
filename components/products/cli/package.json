@@ -15,7 +15,7 @@
     "build": "tsx build.ts",
     "install:bin": "bash ./scripts/install-cli.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts"
   },
   "dependencies": {
     "@lightrsi/tokenpilot": "workspace:*",

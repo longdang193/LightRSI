@@ -25,6 +25,77 @@ type UpstreamResponsesCapabilityRecord = {
   updatedAt: string;
 };
 
+const MODEL_CATALOG_TTL_MS = 60_000;
+const modelCatalogCache = new Map<string, { expiresAt: number; models: string[] }>();
+
+export function resolveModelFromCatalog(model: string, availableModels: string[]): string {
+  const normalizedModel = model.trim();
+  if (!normalizedModel) throw new Error("Model name is empty");
+  if (normalizedModel.includes("/")) return normalizedModel;
+
+  const models = [...new Set(availableModels.filter((entry) => typeof entry === "string" && entry.trim()))];
+  if (models.includes(normalizedModel)) return normalizedModel;
+
+  const candidates = models.filter((entry) => entry.endsWith(`/${normalizedModel}`));
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length === 0) {
+    throw new Error(`9Router model catalog has no model matching "${normalizedModel}"`);
+  }
+  throw new Error(`9Router model catalog has ambiguous matches for "${normalizedModel}": ${candidates.join(", ")}`);
+}
+
+function isNineRouter(upstream: CodexProviderConfig): boolean {
+  return /9router/i.test(upstream.name ?? "");
+}
+
+function v1EndpointFor(upstream: CodexProviderConfig): string {
+  const base = upstream.baseUrl.replace(/\/+$/, "");
+  if (base.endsWith("/v1/responses")) return base.slice(0, -"/responses".length);
+  if (base.endsWith("/v1")) return base;
+  return `${base}/v1`;
+}
+
+async function loadNineRouterModels(
+  upstream: CodexProviderConfig,
+  inboundAuthorization?: string,
+): Promise<string[]> {
+  const endpoint = `${v1EndpointFor(upstream)}/models`;
+  const cached = modelCatalogCache.get(endpoint);
+  if (cached && cached.expiresAt > Date.now()) return cached.models;
+
+  const response = await fetch(endpoint, {
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${upstreamApiKey(upstream, inboundAuthorization)}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`9Router model catalog unavailable (${response.status})`);
+  }
+  const body = await response.json() as { data?: Array<{ id?: unknown }> };
+  const models = Array.isArray(body.data)
+    ? body.data.flatMap((entry) => typeof entry?.id === "string" ? [entry.id] : [])
+    : [];
+  if (models.length === 0) throw new Error("9Router model catalog returned no models");
+  modelCatalogCache.set(endpoint, { expiresAt: Date.now() + MODEL_CATALOG_TTL_MS, models });
+  return models;
+}
+
+async function resolveNineRouterPayloadModel(
+  payload: any,
+  upstream: CodexProviderConfig,
+  inboundAuthorization?: string,
+): Promise<any> {
+  if (!isNineRouter(upstream) || typeof payload?.model !== "string" || payload.model.includes("/")) {
+    return payload;
+  }
+  const resolvedModel = resolveModelFromCatalog(
+    payload.model,
+    await loadNineRouterModels(upstream, inboundAuthorization),
+  );
+  return resolvedModel === payload.model ? payload : { ...payload, model: resolvedModel };
+}
+
 function endpointFor(upstream: CodexProviderConfig): string {
   const base = upstream.baseUrl.replace(/\/+$/, "");
   if (base.endsWith("/v1")) return `${base}/responses`;
@@ -44,6 +115,20 @@ function headersFrom(resp: Response): Record<string, string> {
   return Object.fromEntries(resp.headers.entries());
 }
 
+function requestHeaders(params: {
+  upstream: CodexProviderConfig;
+  inboundAuthorization?: string;
+  lightmem2CacheContractDigest?: string;
+}): Record<string, string> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    authorization: `Bearer ${upstreamApiKey(params.upstream, params.inboundAuthorization)}`,
+  };
+  if (params.lightmem2CacheContractDigest) {
+    headers["x-lightmem2-cache-contract"] = `v1:${params.lightmem2CacheContractDigest}`;
+  }
+  return headers;
+}
 function clonePayloadWithoutOptionalField(payload: any, field: OptionalResponsesField): any {
   if (!payload || typeof payload !== "object") return payload;
   if (!(field in payload)) return payload;
@@ -144,18 +229,17 @@ export async function requestUpstreamResponses(params: {
   upstream: CodexProviderConfig;
   payload: any;
   inboundAuthorization?: string;
+  lightmem2CacheContractDigest?: string;
   stateDir?: string;
 }): Promise<UpstreamHttpResponse> {
   const send = (payload: any) => fetch(endpointFor(params.upstream), {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${upstreamApiKey(params.upstream, params.inboundAuthorization)}`,
-    },
+    headers: requestHeaders(params),
     body: JSON.stringify(payload),
   });
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream);
   let payload = clonePayloadWithoutUnsupportedFields(params.payload, unsupportedFields);
+  payload = await resolveNineRouterPayloadModel(payload, params.upstream, params.inboundAuthorization);
   let resp = await send(payload);
   let text = await resp.text();
   if (!resp.ok) {
@@ -189,18 +273,17 @@ export async function requestUpstreamResponsesStream(params: {
   upstream: CodexProviderConfig;
   payload: any;
   inboundAuthorization?: string;
+  lightmem2CacheContractDigest?: string;
   stateDir?: string;
 }): Promise<UpstreamStreamResponse> {
   const send = (payload: any) => fetch(endpointFor(params.upstream), {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${upstreamApiKey(params.upstream, params.inboundAuthorization)}`,
-    },
+    headers: requestHeaders(params),
     body: JSON.stringify(payload),
   });
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream);
   let payload = clonePayloadWithoutUnsupportedFields(params.payload, unsupportedFields);
+  payload = await resolveNineRouterPayloadModel(payload, params.upstream, params.inboundAuthorization);
   let resp = await send(payload);
   if (!resp.ok) {
     const text = await resp.text();

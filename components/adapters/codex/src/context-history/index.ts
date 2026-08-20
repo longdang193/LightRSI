@@ -4,6 +4,9 @@ export {
   loadCodexContextHistoryJournal,
   readCodexContextHistoryJournal,
 } from "./journal-store.js";
+export {
+  MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES,
+} from "./journal-store.js";
 export type { CodexContextHistoryJournalReadResult } from "./journal-store.js";
 export {
   acquireCodexContextHistoryJournalLock,
