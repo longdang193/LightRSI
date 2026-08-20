@@ -24,3 +24,7 @@ test("reads nested input token cache metrics", () => {
 test("returns zero when cache write metrics are absent", () => {
   assert.equal(readCacheWriteTokens({ input_tokens: 1200 }), 0);
 });
+
+test("reads Anthropic cache creation input tokens", () => {
+  assert.equal(readCacheWriteTokens({ cache_creation_input_tokens: 768 }), 768);
+});

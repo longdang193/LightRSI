@@ -95,15 +95,14 @@ test("all-enabled request behavior remains stable before module decoupling", asy
     assert.equal(policyCalls, 1);
     assert.match(String(prepared.payload.prompt_cache_key), /^runtime-pfx-/);
     assert.notEqual(prepared.payload.prompt_cache_key, "inbound-cache-key");
-    assert.equal(prepared.payload.prompt_cache_retention, "24h");
-    assert.equal(prepared.requestEnvelope.metadata?.promptCacheRetention, "24h");
+    assert.equal("prompt_cache_retention" in prepared.payload, false);
+    assert.equal(prepared.requestEnvelope.metadata?.promptCacheRetention, undefined);
     assert.ok(prepared.reductionApplied.changedBlocks > 0);
     assert.ok(prepared.reductionApplied.savedChars > 0);
     assert.match(String(prepared.payload.input[0].content), /Your working directory is: \/tmp\/baseline/);
-    assert.match(String(prepared.payload.input[1].content), /WORKDIR: \/tmp\/baseline/);
+    assert.equal(String(prepared.payload.input[1].content), "[2026-07-20 10:00:00] Continue the task.");
     assert.ok(String(reducedTool?.content ?? "").length < 3000);
     assert.ok(payloadChanges.some(({ path }) => path === "prompt_cache_key"));
-    assert.ok(payloadChanges.some(({ path }) => path === "input[1].content"));
     assert.ok(payloadChanges.some(({ path }) => path.startsWith("input")));
     assert.deepEqual(traceStages, [
       "procedural_memory_retrieval",

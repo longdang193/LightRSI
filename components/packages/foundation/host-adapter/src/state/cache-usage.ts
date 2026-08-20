@@ -43,6 +43,9 @@ export function readCacheWriteTokens(usage: unknown): number {
   const direct = finiteNumber(record.cache_write_tokens);
   if (typeof direct === "number" && direct >= 0) return direct;
 
+  const anthropic = finiteNumber(record.cache_creation_input_tokens);
+  if (typeof anthropic === "number" && anthropic >= 0) return anthropic;
+
   const inputDetails = asRecord(record.input_tokens_details);
   const promptDetails = asRecord(record.prompt_tokens_details);
   const nested =
