@@ -1,7 +1,7 @@
 ---
 layer: change
 artifact_type: plan
-status: active
+status: completed
 template_id: implementation-plan
 name: lightrsi-namespace-migration
 parent_spec: docs/superpowers/specs/2026-08-18-22-28-lightrsi-namespace-migration-compatibility-spec.md

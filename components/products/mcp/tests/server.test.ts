@@ -8,6 +8,7 @@ import { archiveContent } from "@lightrsi/artifact-store";
 import { LIGHTMEM2_VERSION } from "@lightrsi/kernel";
 import {
   encodeMcpMessage,
+  DEFAULT_TOKENPILOT_MCP_INSTALL_PROBE_TIMEOUT_MS,
   handleMcpRequest,
   MEMORY_FAULT_RECOVER_TOOL_NAME,
   probeTokenPilotMcpServer,
@@ -142,7 +143,7 @@ test("probeTokenPilotMcpServer completes initialize handshake", async () => {
     requireBuild: false,
   });
   const result = await probeTokenPilotMcpServer(spec, {
-    timeoutMs: 3_000,
+    timeoutMs: DEFAULT_TOKENPILOT_MCP_INSTALL_PROBE_TIMEOUT_MS,
     clientName: "mcp-test",
     clientVersion: "0.1.0",
     protocol: "newline_json",
@@ -239,7 +240,7 @@ test("MCP server responds to newline-delimited JSON-RPC stdio", async () => {
       let stdout = "";
       const timer = setTimeout(() => {
         reject(new Error("newline MCP response timeout"));
-      }, 3_000);
+      }, DEFAULT_TOKENPILOT_MCP_INSTALL_PROBE_TIMEOUT_MS);
       child.stdout.on("data", (chunk: Buffer | string) => {
         stdout += chunk.toString();
         if (stdout.includes("\n")) {
@@ -287,7 +288,7 @@ test("MCP server remains compatible with content-length framing", async () => {
       let stdout = "";
       const timer = setTimeout(() => {
         reject(new Error("content-length MCP response timeout"));
-      }, 3_000);
+      }, DEFAULT_TOKENPILOT_MCP_INSTALL_PROBE_TIMEOUT_MS);
       child.stdout.on("data", (chunk: Buffer | string) => {
         stdout += chunk.toString();
         if (tryExtractContentLengthBody(stdout)) {
