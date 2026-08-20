@@ -36,6 +36,9 @@
             "@lightrsi/eviction": [
                 "components/packages/features/eviction/src/index.ts"
             ],
+            "@lightrsi/cleaner": [
+                "components/packages/features/cleaner/src/index.ts"
+            ],
             "@lightrsi/host-adapter": [
                 "components/packages/foundation/host-adapter/src/index.ts"
             ],
