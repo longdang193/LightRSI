@@ -149,3 +149,27 @@ test("codec strips top-level metadata before forwarding upstream", () => {
   const encoded = codec.encodeRequest(envelope) as any;
   assert.equal("metadata" in encoded, false);
 });
+
+test("codec emits explicit GPT-5.6 cache boundary without retention", async () => {
+  const codec = createCodexResponsesPayloadCodec();
+  const { prepareCodexStablePrefix } = await import("../src/stable-prefix.js");
+  const { normalizeTokenPilotCodexConfig } = await import("../src/config.js");
+  const rawPayload: any = {
+    model: "cx/gpt-5.6-sol",
+    stream: false,
+    instructions: "Stable instructions.",
+    input: [
+      { role: "developer", content: [{ type: "input_text", text: "Developer rules." }] },
+      { role: "user", content: "Keep user text unchanged." },
+    ],
+  };
+
+  const envelope = codec.decodeRequest(rawPayload);
+  const prepared = prepareCodexStablePrefix(envelope, normalizeTokenPilotCodexConfig({}));
+  const encoded = codec.encodeRequest(prepared) as any;
+
+  assert.deepEqual(encoded.input[0].content[0].prompt_cache_breakpoint, { mode: "explicit" });
+  assert.deepEqual(encoded.prompt_cache_options, { mode: "explicit", ttl: "30m" });
+  assert.equal("prompt_cache_retention" in encoded, false);
+  assert.equal(encoded.input[1].content, "Keep user text unchanged.");
+});

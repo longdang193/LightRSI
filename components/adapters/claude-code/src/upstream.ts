@@ -14,7 +14,8 @@ import {
 import { join } from "node:path";
 import type { TokenPilotClaudeCodeConfig } from "./config.js";
 
-type OptionalAnthropicField = "prompt_cache_key";
+type OptionalAnthropicField = "cache_control" | "prompt_cache_key";
+const CAPABILITY_TTL_MS = 24 * 60 * 60 * 1000;
 
 type UpstreamAnthropicCapabilityRecord = {
   endpoint: string;
@@ -54,9 +55,8 @@ function clonePayloadWithoutUnsupportedFields(
 
 function unsupportedOptionalFieldFromText(text: string): OptionalAnthropicField | undefined {
   if (!text) return undefined;
-  if (/unsupported parameter:\s*prompt_cache_key/i.test(text)) {
-    return "prompt_cache_key";
-  }
+  if (/unsupported parameter:\s*cache_control/i.test(text)) return "cache_control";
+  if (/unsupported parameter:\s*prompt_cache_key/i.test(text)) return "prompt_cache_key";
   return undefined;
 }
 
@@ -74,9 +74,14 @@ async function loadUnsupportedOptionalFields(
   upstream: HostGatewayUpstreamConfig,
 ): Promise<Set<OptionalAnthropicField>> {
   const record = await readJsonFile<UpstreamAnthropicCapabilityRecord>(capabilityPath(stateDir, upstream));
-  const fields = Array.isArray(record?.unsupportedOptionalFields)
+  const endpoint = resolveGatewayRequestUrl(upstream, "/v1/messages");
+  const updatedAt = Date.parse(String(record?.updatedAt ?? ""));
+  const fresh = record?.endpoint === endpoint
+    && Number.isFinite(updatedAt)
+    && Date.now() - updatedAt < CAPABILITY_TTL_MS;
+  const fields = fresh && Array.isArray(record?.unsupportedOptionalFields)
     ? record.unsupportedOptionalFields.filter(
-      (value): value is OptionalAnthropicField => value === "prompt_cache_key",
+      (value): value is OptionalAnthropicField => value === "cache_control" || value === "prompt_cache_key",
     )
     : [];
   return new Set(fields);

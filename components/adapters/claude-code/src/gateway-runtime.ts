@@ -56,7 +56,6 @@ import {
 import { prepareClaudeStablePrefix } from "./stable-prefix.js";
 import {
   buildStabilityVisualSnapshotFromEnvelopes,
-  canonicalizeEnvelopeTools,
 } from "@lightrsi/stabilizer";
 import { appendClaudeCodeTrace } from "./trace.js";
 import { createClaudeCodeGatewayForwarder, resolveClaudeCodeUpstream } from "./upstream.js";
@@ -674,7 +673,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
         codec,
         config: { mode: "normal" },
         prepareStablePrefix(nextEnvelope) {
-          return prepareClaudeStablePrefix(canonicalizeEnvelopeTools(nextEnvelope), config);
+          return prepareClaudeStablePrefix(nextEnvelope, config);
         },
         async applyBeforeCallReduction({ envelope: nextEnvelope, codec: nextCodec }) {
           return reduceClaudeRequestEnvelope({

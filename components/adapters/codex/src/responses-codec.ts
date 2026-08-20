@@ -28,6 +28,45 @@ function metadataOf(payload: any): Record<string, unknown> {
     : {};
 }
 
+function promptCacheBreakpointTarget(input: unknown): { itemIndex: number; blockIndex: number } | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const firstUserIndex = input.findIndex((item) => item && typeof item === "object" && (item as any).role === "user");
+  const boundary = firstUserIndex >= 0 ? firstUserIndex : input.length;
+  for (let index = boundary - 1; index >= 0; index -= 1) {
+    const item = input[index];
+    if (!item || typeof item !== "object") continue;
+    if ((item as any).role !== "system" && (item as any).role !== "developer") continue;
+    const content = (item as any).content;
+    if (!Array.isArray(content)) continue;
+    for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const block = content[blockIndex];
+      if (!block || typeof block !== "object") continue;
+      return { itemIndex: index, blockIndex };
+    }
+  }
+  return undefined;
+}
+
+export function canAttachPromptCacheBreakpoint(input: unknown): boolean {
+  return promptCacheBreakpointTarget(input) !== undefined;
+}
+
+function attachPromptCacheBreakpoint(input: unknown, marker: unknown): unknown {
+  if (!marker || typeof marker !== "object") return input;
+  const target = promptCacheBreakpointTarget(input);
+  if (!target || !Array.isArray(input)) return input;
+  const item = input[target.itemIndex] as Record<string, unknown>;
+  const content = item.content as unknown[];
+  const nextInput = input.slice();
+  const nextContent = content.slice();
+  nextContent[target.blockIndex] = {
+    ...(nextContent[target.blockIndex] as Record<string, unknown>),
+    prompt_cache_breakpoint: marker,
+  };
+  nextInput[target.itemIndex] = { ...item, content: nextContent };
+  return nextInput;
+}
+
 function ensureSyntheticSessionId(payload: any): string {
   const metadata = metadataOf(payload);
   const existing = normalizeSessionId(metadata.tokenpilotSyntheticSessionId);
@@ -147,7 +186,7 @@ export function createCodexResponsesPayloadCodec(
       payload.stream = envelope.stream;
       if (typeof envelope.instructions === "string") payload.instructions = envelope.instructions;
       else delete payload.instructions;
-      payload.input = Array.isArray(envelope.messages)
+      const encodedInput = Array.isArray(envelope.messages)
         ? envelope.messages.map((item: any) => {
             if (!item || typeof item !== "object") return item;
             const metadata = item.metadata && typeof item.metadata === "object"
@@ -172,6 +211,12 @@ export function createCodexResponsesPayloadCodec(
             return nextItem;
           })
         : envelope.messages;
+      payload.input = attachPromptCacheBreakpoint(encodedInput, envelope.metadata?.promptCacheBreakpoint);
+      if (envelope.metadata?.promptCacheOptions && typeof envelope.metadata.promptCacheOptions === "object") {
+        payload.prompt_cache_options = envelope.metadata.promptCacheOptions;
+      } else {
+        delete payload.prompt_cache_options;
+      }
       if (Array.isArray(envelope.tools)) payload.tools = envelope.tools;
       else delete payload.tools;
       if (typeof envelope.metadata?.previousResponseId === "string") payload.previous_response_id = envelope.metadata.previousResponseId;

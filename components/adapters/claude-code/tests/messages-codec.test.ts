@@ -154,8 +154,35 @@ test("claude stable prefix preserves inbound prompt_cache_key for encode while s
   }));
   const encoded = codec.encodeRequest(prepared) as Record<string, unknown>;
 
-  assert.equal(typeof encoded.prompt_cache_key, "string");
-  assert.equal(encoded.prompt_cache_key, "legacy-key-a");
+  assert.equal("prompt_cache_key" in encoded, false);
   assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightrsi-claude-/);
   assert.equal(prepared.metadata?.originalPromptCacheKey, "legacy-key-a");
+});
+
+test("codec preserves structured Anthropic system blocks and cache metadata", () => {
+  const codec = createClaudeMessagesPayloadCodec();
+  const system = [
+    {
+      type: "text",
+      text: "You are a stable coding agent.",
+      cache_control: { type: "ephemeral", ttl: "1h" },
+      unknown_field: { keep: true },
+    },
+    { type: "text", text: "Follow repository rules." },
+  ];
+  const rawPayload = {
+    model: "claude-sonnet-4-6",
+    stream: false,
+    system,
+    messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+  };
+
+  const envelope = codec.decodeRequest(rawPayload);
+  assert.equal(envelope.instructions, "You are a stable coding agent.\nFollow repository rules.");
+  assert.deepEqual(envelope.metadata?.__anthropicRawSystem, system);
+  assert.equal(envelope.metadata?.__anthropicSystemText, envelope.instructions);
+
+  const encoded = codec.encodeRequest(envelope) as Record<string, unknown>;
+  assert.deepEqual(encoded.system, system);
+  assert.equal("prompt_cache_key" in encoded, false);
 });

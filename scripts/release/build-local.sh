@@ -37,6 +37,13 @@ pack_adapter() {
   local archive_name
 
   archive_path="$(bash "${pack_script}" | tail -n 1)"
+  if [[ "${archive_path}" =~ ^[A-Za-z]:[\\/].* ]]; then
+    if command -v wslpath >/dev/null 2>&1; then
+      archive_path="$(wslpath -u "${archive_path}")"
+    elif command -v cygpath >/dev/null 2>&1; then
+      archive_path="$(cygpath -u "${archive_path}")"
+    fi
+  fi
   if [[ ! -f "${archive_path}" ]]; then
     printf 'Release archive was not created for %s: %s\n' "${host}" "${archive_path}" >&2
     exit 1

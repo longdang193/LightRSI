@@ -193,30 +193,27 @@ export function rewritePayloadForStablePrefix(
   let senderMetadataBlocksAfter = 0;
   let dynamicContextText = "";
   const dynamicContextTarget = options?.dynamicContextTarget === "user" ? "user" : "developer";
-  if (Array.isArray(payload?.input)) {
-    payload.input = payload.input.map((item: any) => {
+  const workingPayload = payload && typeof payload === "object"
+    ? { ...payload, input: Array.isArray(payload.input) ? structuredClone(payload.input) : payload.input }
+    : payload;
+
+  if (Array.isArray(workingPayload?.input)) {
+    workingPayload.input = workingPayload.input.map((item: any) => {
       if (!item || typeof item !== "object") return item;
       const role = String(item.role ?? "");
       if (role !== "user" && role !== "system") return item;
       if (item.__tokenpilot_replay_raw === true) return item;
 
       if (role === "system") {
-        const contentText =
-          typeof item.content === "string"
-            ? String(item.content)
-            : extractInputText([item]);
+        const contentText = typeof item.content === "string"
+          ? String(item.content)
+          : extractInputText([item]);
         const rewrite = rewriteRootPromptForStablePrefix(contentText);
         if (!rewrite.changed) return item;
-        if (!dynamicContextText && rewrite.dynamicContextText) {
-          dynamicContextText = rewrite.dynamicContextText;
-        }
+        if (!dynamicContextText && rewrite.dynamicContextText) dynamicContextText = rewrite.dynamicContextText;
         senderMetadataBlocksBefore += countSenderMetadataBlocks(item.content);
         userContentRewrites += 1;
-        const newContent = replaceContentWithText(item.content, rewrite.forwardedPromptText);
-        const nextItem = {
-          ...item,
-          content: newContent,
-        };
+        const nextItem = { ...item, content: replaceContentWithText(item.content, rewrite.forwardedPromptText) };
         senderMetadataBlocksAfter += countSenderMetadataBlocks(nextItem.content);
         return nextItem;
       }
@@ -228,22 +225,19 @@ export function rewritePayloadForStablePrefix(
         return item;
       }
       userContentRewrites += 1;
-      const nextItem = {
-        ...item,
-        content: normalized.value,
-      };
+      const nextItem = { ...item, content: normalized.value };
       senderMetadataBlocksAfter += countSenderMetadataBlocks(nextItem.content);
       return nextItem;
     });
 
     if (dynamicContextText) {
       if (dynamicContextTarget === "user") {
-        const userIndex = payload.input.findIndex((item: any) => item && typeof item === "object" && String(item.role) === "user");
+        const userIndex = workingPayload.input.findIndex((item: any) => item && typeof item === "object" && String(item.role) === "user");
         if (userIndex >= 0) {
-          const userItem = payload.input[userIndex];
+          const userItem = workingPayload.input[userIndex];
           const currentText = extractInputText([userItem]);
           if (!currentText.includes(dynamicContextText)) {
-            payload.input[userIndex] = {
+            workingPayload.input[userIndex] = {
               ...userItem,
               role: "user",
               content: prependTextToContent(userItem?.content, dynamicContextText),
@@ -252,16 +246,15 @@ export function rewritePayloadForStablePrefix(
           }
         }
       } else {
-        const developerIndex = payload.input.findIndex((item: any) => item && typeof item === "object" && String(item.role) === "developer");
+        const developerIndex = workingPayload.input.findIndex((item: any) => item && typeof item === "object" && String(item.role) === "developer");
         if (developerIndex >= 0) {
-          const developerItem = payload.input[developerIndex];
+          const developerItem = workingPayload.input[developerIndex];
           const currentText = extractInputText([developerItem]);
           if (!currentText.includes(dynamicContextText)) {
-            const mergedText = `${normalizeText(currentText)}\n\n${normalizeText(dynamicContextText)}`;
-            payload.input[developerIndex] = {
+            workingPayload.input[developerIndex] = {
               ...developerItem,
               role: "developer",
-              content: mergedText,
+              content: normalizeText(currentText) + "\n\n" + normalizeText(dynamicContextText),
             };
             userContentRewrites += 1;
           }
@@ -270,14 +263,14 @@ export function rewritePayloadForStablePrefix(
     }
   }
 
-  const developerTextForKey =
-    typeof options?.developerTextForKeyOverride === "string" && options.developerTextForKeyOverride.trim().length > 0
-      ? options.developerTextForKeyOverride
-      : findDeveloperPromptText(payload?.input);
+  const developerTextForKey = typeof options?.developerTextForKeyOverride === "string"
+    && options.developerTextForKeyOverride.trim().length > 0
+    ? options.developerTextForKeyOverride
+    : findDeveloperPromptText(workingPayload?.input);
   const developerTextForKeyNormalized = stripRuntimeTailForKey(stripToolingSectionForKey(developerTextForKey));
   const stablePromptCacheKey = computeStablePromptCacheKey(
     model,
-    String(payload?.instructions ?? ""),
+    String(workingPayload?.instructions ?? ""),
     developerTextForKeyNormalized,
   );
   payload.prompt_cache_key = stablePromptCacheKey;

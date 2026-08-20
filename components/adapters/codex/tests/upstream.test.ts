@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { requestUpstreamResponses, resolveModelFromCatalog } from "../src/upstream.js";
@@ -128,6 +131,110 @@ test("upstream forwards the versioned LightMem2 cache contract boundary", async 
     assert.equal(receivedContract, "v1:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("expired unsupported-field capability records allow one bounded retry", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-capability-expiry-"));
+  let requests: Array<Record<string, unknown>> = [];
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    requests.push(payload);
+    if ("prompt_cache_retention" in payload) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: { message: "Unsupported parameter: prompt_cache_retention" } }));
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ status: "completed", output: [] }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const baseUrl = `http://127.0.0.1:${address.port}/v1`;
+  const endpoint = `${baseUrl}/responses`;
+  try {
+    await mkdir(join(stateDir, "upstream-capabilities", "responses"), { recursive: true });
+    await writeFile(
+      join(stateDir, "upstream-capabilities", "responses", `${encodeURIComponent(endpoint)}.json`),
+      JSON.stringify({
+        endpoint,
+        unsupportedOptionalFields: ["prompt_cache_retention"],
+        updatedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+      }),
+      "utf8",
+    );
+    const response = await requestUpstreamResponses({
+      upstream: { baseUrl, wireApi: "responses", requiresOpenAIAuth: false },
+      payload: {
+        model: "gpt-fixture",
+        prompt_cache_retention: "24h",
+        input: [{ role: "user", content: "test" }],
+      },
+      stateDir,
+    });
+    assert.equal(response.status, 200);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0]?.prompt_cache_retention, "24h");
+    assert.equal("prompt_cache_retention" in (requests[1] ?? {}), false);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("unsupported prompt_cache_options is persisted and retried once without that field", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cache-options-capability-"));
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    requests.push(payload);
+    if ("prompt_cache_options" in payload) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: { message: "Unsupported parameter: prompt_cache_options" } }));
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ status: "completed", output: [] }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  try {
+    const response = await requestUpstreamResponses({
+      upstream: { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses", requiresOpenAIAuth: false },
+      payload: {
+        model: "gpt-fixture",
+        prompt_cache_options: { mode: "explicit", ttl: "30m" },
+        input: [{ role: "user", content: "test" }],
+      },
+      stateDir,
+    });
+    assert.equal(response.status, 200);
+    assert.equal(requests.length, 2);
+    assert.deepEqual(requests[0]?.prompt_cache_options, { mode: "explicit", ttl: "30m" });
+    assert.equal("prompt_cache_options" in (requests[1] ?? {}), false);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(stateDir, { recursive: true, force: true });
   }
 });
 

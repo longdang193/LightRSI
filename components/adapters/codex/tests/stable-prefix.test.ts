@@ -143,6 +143,75 @@ test("cache contract includes every stable system message", () => {
   );
 });
 
+test("GPT-5.6 omits explicit cache options when no structured cache block exists", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const prepared = prepareCodexStablePrefix(makeCacheFamilyEnvelope("gpt-5.6"), config);
+
+  assert.equal(prepared.metadata?.promptCacheOptions, undefined);
+  assert.equal(prepared.metadata?.promptCacheBreakpoint, undefined);
+});
+
+test("cache family ignores stable messages after provider cache boundary", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const base = makeCacheFamilyEnvelope("gpt-5.6-sol");
+  const first = prepareCodexStablePrefix({
+    ...base,
+    messages: [
+      { role: "system", content: "Project rules.", metadata: { __codexOriginalRole: "system" } },
+      { role: "user", content: "Turn one." },
+    ],
+  }, config);
+  const followUp = prepareCodexStablePrefix({
+    ...base,
+    messages: [
+      { role: "system", content: "Project rules.", metadata: { __codexOriginalRole: "system" } },
+      { role: "user", content: "Turn one." },
+      { role: "system", content: "Repeated host context.", metadata: { __codexOriginalRole: "system" } },
+      { role: "user", content: "Turn two." },
+    ],
+  }, config);
+
+  assert.equal(first.metadata?.cacheFamilyId, followUp.metadata?.cacheFamilyId);
+  assert.equal(first.metadata?.lightmem2CacheContractDigest, followUp.metadata?.lightmem2CacheContractDigest);
+  assert.notEqual(first.metadata?.providerWirePrefixHash, "");
+  assert.deepEqual(followUp.messages, [
+    { role: "system", content: "Project rules.", metadata: { __codexOriginalRole: "system" } },
+    { role: "user", content: "Turn one." },
+    { role: "system", content: "Repeated host context.", metadata: { __codexOriginalRole: "system" } },
+    { role: "user", content: "Turn two." },
+  ]);
+});
+
+test("cache preparation preserves provider-bound tool order", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const tools = [
+    { type: "function", function: { name: "z_tool", parameters: { z: 1, a: 2 } } },
+    { type: "function", function: { name: "a_tool", parameters: { b: true, a: false } } },
+  ];
+  const prepared = prepareCodexStablePrefix({
+    ...makeCacheFamilyEnvelope("gpt-5.6-sol"),
+    tools,
+  }, config);
+
+  assert.deepEqual(prepared.tools, tools);
+});
+
+test("cache identity ignores repeated host developer blocks without mutating messages", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const root = { role: "system", content: "Repeated host block.", metadata: { __codexOriginalRole: "developer" } };
+  const first = prepareCodexStablePrefix({
+    ...makeCacheFamilyEnvelope("gpt-5.6-sol"),
+    messages: [root, { role: "system", content: "Other block.", metadata: { __codexOriginalRole: "developer" } }],
+  }, config);
+  const followUp = prepareCodexStablePrefix({
+    ...makeCacheFamilyEnvelope("gpt-5.6-sol"),
+    messages: [root, { role: "system", content: "Other block.", metadata: { __codexOriginalRole: "developer" } }, root],
+  }, config);
+
+  assert.equal(first.metadata?.cacheFamilyId, followUp.metadata?.cacheFamilyId);
+  assert.equal(followUp.messages.length, 3);
+});
+
 test("cache contract splits cache-relevant options and tool schemas", () => {
   const config = normalizeTokenPilotCodexConfig({});
   const base = makeCacheFamilyEnvelope("gpt-5.6-sol");
@@ -256,7 +325,7 @@ test("cache-relevant option telemetry exposes sorted names without values", () =
   );
 });
 
-test("prepareCodexStablePrefix stabilizes instructions and developer prompt while isolating dynamic developer context", () => {
+test("prepareCodexStablePrefix preserves instructions and developer prompt without provider-visible rewrite", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {
       dynamicContextTarget: "developer",
@@ -305,15 +374,15 @@ test("prepareCodexStablePrefix stabilizes instructions and developer prompt whil
   assert.doesNotMatch(String(prepared.instructions ?? ""), /WORKDIR: \/repo\/demo/);
   assert.match(String(prepared.messages[0]?.content ?? ""), /Your working directory is: \/repo\/demo/);
   assert.doesNotMatch(String(prepared.messages[0]?.content ?? ""), /WORKDIR: \/repo\/demo/);
-  assert.equal(prepared.messages.length, 3);
-  assert.equal(prepared.messages[1]?.role, "system");
-  assert.equal((prepared.messages[1] as any)?.metadata?.__codexOriginalRole, "developer");
-  assert.match(String(prepared.messages[1]?.content ?? ""), /WORKDIR: \/repo\/demo/);
-  assert.match(String(prepared.messages[1]?.content ?? ""), /AGENT_ID: agent-123/);
+  assert.equal(prepared.messages.length, 2);
+  assert.equal(prepared.messages[1]?.role, "user");
+  assert.equal((prepared.messages[0] as any)?.metadata?.__codexOriginalRole, "developer");
+  assert.match(String(prepared.messages[0]?.content ?? ""), /Runtime: agent=agent-123 \| mode=interactive/);
+  assert.equal(prepared.messages[1]?.content, "hello");
   assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightmem2-family-[0-9a-f]{24}$/);
   assert.match(String(prepared.metadata?.providerWirePrefixHash ?? ""), /^[0-9a-f]{64}$/);
   assert.match(String(prepared.metadata?.cacheFamilyId ?? ""), /^lightmem2-family-[0-9a-f]{24}$/);
-  assert.equal(prepared.metadata?.promptCacheRetention, "24h");
+  assert.equal(prepared.metadata?.promptCacheRetention, undefined);
 });
 
 test("prepareCodexStablePrefix derives different cache keys for different stable prefixes", () => {
@@ -365,7 +434,7 @@ test("prepareCodexStablePrefix derives different cache keys for different stable
   assert.notEqual(preparedA.metadata?.promptCacheKey, preparedB.metadata?.promptCacheKey);
 });
 
-test("prepareCodexStablePrefix merges dynamic context from instructions and developer prompt", () => {
+test("prepareCodexStablePrefix preserves instructions and developer prompt without merging dynamic context", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {
       dynamicContextTarget: "developer",
@@ -406,13 +475,13 @@ test("prepareCodexStablePrefix merges dynamic context from instructions and deve
     metadata: {},
   }, config);
 
-  assert.equal(prepared.messages.length, 3);
-  assert.match(String(prepared.messages[1]?.content ?? ""), /Current date: 2026-07-08/);
-  assert.match(String(prepared.messages[1]?.content ?? ""), /WORKDIR: \/repo\/demo/);
-  assert.match(String(prepared.messages[1]?.content ?? ""), /AGENT_ID: agent-123/);
+  assert.equal(prepared.messages.length, 2);
+  assert.match(String(prepared.instructions ?? ""), /Current date: 2026-07-08/);
+  assert.match(String(prepared.messages[0]?.content ?? ""), /Your working directory is: \/repo\/demo/);
+  assert.match(String(prepared.messages[0]?.content ?? ""), /Runtime: agent=agent-123 \|/);
 });
 
-test("prepareCodexStablePrefix prefers developer root prompt over generic system prompt", () => {
+test("prepareCodexStablePrefix preserves developer root prompt and generic system prompt", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {
       dynamicContextTarget: "developer",
@@ -461,13 +530,13 @@ test("prepareCodexStablePrefix prefers developer root prompt over generic system
   assert.equal(String(prepared.messages[1]?.content ?? ""), [
     "Developer policy.",
     "Your working directory is: /repo/demo",
+    "Runtime: agent=agent-123 |",
   ].join("\n"));
-  assert.equal(prepared.messages[2]?.role, "system");
-  assert.match(String(prepared.messages[2]?.content ?? ""), /WORKDIR: \/repo\/demo/);
-  assert.match(String(prepared.messages[2]?.content ?? ""), /AGENT_ID: agent-123/);
+  assert.equal(prepared.messages[2]?.role, "user");
+  assert.equal(prepared.messages[2]?.content, "hello");
 });
 
-test("prepareCodexStablePrefix keeps cache keys stable across volatile Codex runtime metadata", () => {
+test("prepareCodexStablePrefix keeps cache keys stable without rewriting volatile runtime metadata", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {
       dynamicContextTarget: "developer",
@@ -524,13 +593,13 @@ test("prepareCodexStablePrefix keeps cache keys stable across volatile Codex run
   }), config);
 
   assert.equal(preparedA.metadata?.promptCacheKey, preparedB.metadata?.promptCacheKey);
-  assert.match(String(preparedA.messages[1]?.content ?? ""), /Current date: 2026-07-08/);
-  assert.match(String(preparedB.messages[1]?.content ?? ""), /Current date: 2026-07-09/);
-  assert.match(String(preparedA.messages[1]?.content ?? ""), /request_id=req_12345678901234567890/i);
-  assert.match(String(preparedB.messages[1]?.content ?? ""), /request_id=req_99999999999999999999/i);
+  assert.match(String(preparedA.instructions ?? ""), /Current date: 2026-07-08/);
+  assert.match(String(preparedB.instructions ?? ""), /Current date: 2026-07-09/);
+  assert.match(String(preparedA.messages[0]?.content ?? ""), /request_id=req_12345678901234567890/i);
+  assert.match(String(preparedB.messages[0]?.content ?? ""), /request_id=req_99999999999999999999/i);
 });
 
-test("prepareCodexStablePrefix injects merged dynamic context into first user message when target=user", () => {
+test("prepareCodexStablePrefix preserves first user message when dynamic context target is user", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {
       dynamicContextTarget: "user",
@@ -573,11 +642,11 @@ test("prepareCodexStablePrefix injects merged dynamic context into first user me
   }, config);
 
   assert.equal(prepared.messages.length, 2);
-  assert.match(String(prepared.messages[1]?.content ?? ""), /WORKDIR: \/repo\/demo/);
-  assert.match(String(prepared.messages[1]?.content ?? ""), /AGENT_ID: agent-123/);
-  assert.match(String(prepared.messages[1]?.content ?? ""), /Current date: 2026-07-08/);
-  assert.match(String(prepared.messages[1]?.content ?? ""), /request_id=req_12345678901234567890/i);
-  assert.match(String(prepared.messages[1]?.content ?? ""), /please inspect the repo/);
+  assert.match(String(prepared.instructions ?? ""), /Current date: 2026-07-08/);
+  assert.match(String(prepared.messages[0]?.content ?? ""), /Your working directory is: \/repo\/demo/);
+  assert.match(String(prepared.messages[0]?.content ?? ""), /agent=agent-123/);
+  assert.match(String(prepared.messages[0]?.content ?? ""), /request_id=req_12345678901234567890/i);
+  assert.equal(prepared.messages[1]?.content, "please inspect the repo");
 });
 
 test("prepareCodexStablePrefix preserves inbound prompt_cache_key for audit while using family key", () => {
@@ -623,7 +692,7 @@ test("prepareCodexStablePrefix preserves inbound prompt_cache_key for audit whil
   assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
   assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightmem2-codex-/);
   assert.equal(prepared.metadata?.originalPromptCacheKey, "upstream-existing-key");
-  assert.equal(prepared.metadata?.promptCacheRetention, "24h");
+  assert.equal(prepared.metadata?.promptCacheRetention, undefined);
 });
 
 test("prepareCodexStablePrefix keeps inbound runtime keys while converging framework stable keys", () => {

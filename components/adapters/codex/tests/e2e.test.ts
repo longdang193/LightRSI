@@ -160,20 +160,19 @@ test("Codex host e2e wires install, proxy reduction, report/visual, and MCP reco
     assert.equal(upstream.requests.length, 1);
     assert.equal(upstream.requests[0]?.model, "gpt-5.4-mini");
     assert.match(String(upstream.requests[0]?.instructions ?? ""), /Your working directory is: \/repo\/demo/);
-    assert.doesNotMatch(String(upstream.requests[0]?.instructions ?? ""), /Runtime: agent=agent-123 \|/);
+    assert.match(String(upstream.requests[0]?.instructions ?? ""), /Runtime: agent=agent-123 \|/);
     assertRecoveryProtocolText(String(upstream.requests[0]?.instructions ?? ""));
     assert.equal(Array.isArray(upstream.requests[0]?.tools), true);
-    assert.equal((upstream.requests[0]?.tools as Array<any>)[0]?.function?.name, "a_tool");
-    assert.equal((upstream.requests[0]?.tools as Array<any>)[1]?.function?.name, "z_tool");
-    assert.deepEqual((upstream.requests[0]?.tools as Array<any>)[0]?.function?.parameters, { a: false, b: true });
-    assert.deepEqual((upstream.requests[0]?.tools as Array<any>)[1]?.function?.parameters, { a: 2, z: 1 });
+    assert.deepEqual(upstream.requests[0]?.tools, [
+      { type: "function", function: { name: "z_tool", parameters: { z: 1, a: 2 } } },
+      { type: "function", function: { name: "a_tool", parameters: { b: true, a: false } } },
+    ]);
 
     const forwardedInput = upstream.requests[0]?.input as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(forwardedInput));
     const firstUser = forwardedInput.find((item) => item?.role === "user");
     const firstBlocks = firstUser?.content as Array<Record<string, unknown>>;
-    assert.match(String(firstBlocks?.[0]?.text ?? ""), /WORKDIR: \/repo\/demo/);
-    assert.match(String(firstBlocks?.[0]?.text ?? ""), /AGENT_ID: agent-123/);
+    assert.equal(String(firstBlocks?.[0]?.text ?? ""), "summarize this tool output");
 
     const reducedToolItem = forwardedInput.find((item) => String(item?.type ?? "").toLowerCase() === "function_call_output");
     const reducedOutput = String(reducedToolItem?.output ?? "");
@@ -1020,6 +1019,7 @@ test("Codex upstream retry drops unsupported prompt_cache_retention while preser
           body: JSON.stringify({
             model: "tokenpilot/gpt-5.4-mini",
             stream: false,
+            prompt_cache_retention: "24h",
             input: [
               {
                 role: "developer",
@@ -1136,6 +1136,7 @@ test("Codex caches unsupported optional Responses fields and skips retry on late
           body: JSON.stringify({
             model: "tokenpilot/gpt-5.4-mini",
             stream: false,
+            prompt_cache_retention: "24h",
             input: [
               {
                 role: "developer",

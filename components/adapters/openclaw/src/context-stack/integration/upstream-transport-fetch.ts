@@ -23,6 +23,8 @@ type UpstreamResponsesCapabilityRecord = {
   updatedAt: string;
 };
 
+const CAPABILITY_TTL_MS = 24 * 60 * 60 * 1000;
+
 function clonePayloadWithoutOptionalField(payload: any, field: OptionalResponsesField): any {
   if (!payload || typeof payload !== "object") return payload;
   if (!(field in payload)) return payload;
@@ -69,7 +71,13 @@ async function loadUnsupportedOptionalFields(
   const record = await readJsonFile<UpstreamResponsesCapabilityRecord>(
     upstreamCapabilityPath(stateDir, upstream),
   );
-  const fields = Array.isArray(record?.unsupportedOptionalFields)
+  const updatedAt = Date.parse(String(record?.updatedAt ?? ""));
+  const endpoint = upstreamEndpoint(upstream);
+  const fresh = record?.endpoint === endpoint
+    && Number.isFinite(updatedAt)
+    && updatedAt <= Date.now()
+    && Date.now() - updatedAt < CAPABILITY_TTL_MS;
+  const fields = fresh && Array.isArray(record?.unsupportedOptionalFields)
     ? record.unsupportedOptionalFields.filter(
       (value): value is OptionalResponsesField =>
         value === "prompt_cache_retention" || value === "prompt_cache_key",

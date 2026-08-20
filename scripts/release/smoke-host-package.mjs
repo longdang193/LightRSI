@@ -19,10 +19,13 @@ if (!process.argv[2] || !["codex", "claude-code"].includes(host) || !expectedVer
 const expectedPackageName = `@lightrsi/${host}-adapter`;
 const installEntry = host === "codex" ? "install-codex.js" : "install-claude-code.js";
 const hostCliName = host === "codex" ? "tokenpilot-codex" : "tokenpilot-claude-code";
+const tarCommand = process.platform === "win32"
+  ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+  : "tar";
 const extractDir = await mkdtemp(join(tmpdir(), `lightrsi-${host}-release-smoke-`));
 
 try {
-  await execFileAsync("tar", ["-xzf", archivePath, "-C", extractDir]);
+  await execFileAsync(tarCommand, ["-xzf", archivePath, "-C", extractDir]);
   const packageDir = join(extractDir, "package");
   const distDir = join(packageDir, "dist");
   const homeDir = join(extractDir, "home");

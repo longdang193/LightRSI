@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import { reserveUnusedPort } from "@lightrsi/host-adapter";
 import {
   normalizeTokenPilotClaudeCodeConfig,
   writeTokenPilotClaudeCodeConfig,
@@ -56,7 +57,7 @@ test("hooks-handler SessionStart auto-starts the Claude Code gateway daemon", as
   try {
     const stateDir = join(dir, "state");
     const configPath = join(dir, "tokenpilot.json");
-    const proxyPort = 18668;
+    const proxyPort = await reserveUnusedPort();
     await writeTokenPilotClaudeCodeConfig(
       normalizeTokenPilotClaudeCodeConfig({
         stateDir,

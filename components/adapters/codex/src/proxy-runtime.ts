@@ -39,7 +39,6 @@ import {
 } from "./reduction.js";
 import {
   buildStabilityVisualSnapshotFromEnvelopes,
-  canonicalizeEnvelopeTools,
 } from "@lightrsi/stabilizer";
 import {
   cacheRelevantRequestOptionNames,
@@ -952,7 +951,7 @@ export async function startCodexResponsesProxy(params: {
       normalizeResponsesInputForUpstream(payload?.input);
       const preparedEnvelope = rebaseRequest ? codec.decodeRequest(payload) : envelope;
       const prepareStablePrefixForCodex = (nextEnvelope: HostRequestEnvelope) => (
-        prepareCodexStablePrefix(canonicalizeEnvelopeTools(nextEnvelope), config)
+        prepareCodexStablePrefix(nextEnvelope, config)
       );
       const applyBeforeCallReductionForCodex = async (args: {
         envelope: HostRequestEnvelope;

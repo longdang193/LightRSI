@@ -17,13 +17,15 @@ export type UpstreamStreamResponse = {
   stream: Readable;
 };
 
-type OptionalResponsesField = "prompt_cache_retention" | "prompt_cache_key";
+type OptionalResponsesField = "prompt_cache_options" | "prompt_cache_retention" | "prompt_cache_key";
 
 type UpstreamResponsesCapabilityRecord = {
   endpoint: string;
   unsupportedOptionalFields: OptionalResponsesField[];
   updatedAt: string;
 };
+
+const CAPABILITY_TTL_MS = 24 * 60 * 60 * 1000;
 
 const MODEL_CATALOG_TTL_MS = 60_000;
 const modelCatalogCache = new Map<string, { expiresAt: number; models: string[] }>();
@@ -150,6 +152,9 @@ function clonePayloadWithoutUnsupportedFields(
 
 function unsupportedOptionalFieldFromText(text: string): OptionalResponsesField | undefined {
   if (!text) return undefined;
+  if (/unsupported parameter:\s*prompt_cache_options/i.test(text)) {
+    return "prompt_cache_options";
+  }
   if (/unsupported parameter:\s*prompt_cache_retention/i.test(text)) {
     return "prompt_cache_retention";
   }
@@ -201,10 +206,16 @@ async function loadUnsupportedOptionalFields(
   const record = await readJsonFile<UpstreamResponsesCapabilityRecord>(
     upstreamCapabilityPath(stateDir, upstream),
   );
-  const fields = Array.isArray(record?.unsupportedOptionalFields)
+  const updatedAt = Date.parse(String(record?.updatedAt ?? ""));
+  const endpoint = endpointFor(upstream);
+  const fresh = record?.endpoint === endpoint
+    && Number.isFinite(updatedAt)
+    && updatedAt <= Date.now()
+    && Date.now() - updatedAt < CAPABILITY_TTL_MS;
+  const fields = fresh && Array.isArray(record?.unsupportedOptionalFields)
     ? record.unsupportedOptionalFields.filter(
       (value): value is OptionalResponsesField =>
-        value === "prompt_cache_retention" || value === "prompt_cache_key",
+        value === "prompt_cache_options" || value === "prompt_cache_retention" || value === "prompt_cache_key",
     )
     : [];
   return new Set(fields);

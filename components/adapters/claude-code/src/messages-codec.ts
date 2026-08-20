@@ -37,6 +37,13 @@ function extractTextFromBlock(block: unknown): string {
   return "";
 }
 
+function flattenSystemText(system: unknown): string | undefined {
+  if (typeof system === "string") return system;
+  if (!Array.isArray(system)) return undefined;
+  const text = system.map(extractTextFromBlock).filter(Boolean).join("\n");
+  return text || undefined;
+}
+
 function ensureSyntheticSessionId(payload: Record<string, unknown>): string {
   const metadata = asRecord(payload.metadata);
   const existing = normalizeSessionId(metadata.tokenpilotSyntheticSessionId);
@@ -200,13 +207,17 @@ export function createClaudeMessagesPayloadCodec(
         session: sessionResolver.resolve(ctx?.headers, payload),
         model: typeof payload.model === "string" ? payload.model : "",
         stream: payload.stream === true,
-        instructions: typeof payload.system === "string" ? payload.system : undefined,
+        instructions: flattenSystemText(payload.system),
         messages,
         tools: Array.isArray(payload.tools) ? payload.tools : undefined,
         rawPayload: payload,
         metadata: {
           maxTokens: payload.max_tokens,
           inputText: extractMessagesInputText(payload.messages),
+          ...(payload.system !== undefined ? {
+            __anthropicRawSystem: payload.system,
+            __anthropicSystemText: flattenSystemText(payload.system),
+          } : {}),
         },
       };
     },
@@ -220,10 +231,30 @@ export function createClaudeMessagesPayloadCodec(
       };
       if (Array.isArray(envelope.tools)) nextPayload.tools = envelope.tools;
       else delete nextPayload.tools;
-      if (typeof envelope.instructions === "string") nextPayload.system = envelope.instructions;
-      else delete nextPayload.system;
-      if (typeof envelope.metadata?.promptCacheKey === "string") {
-        nextPayload.prompt_cache_key = envelope.metadata.promptCacheKey;
+      const metadata = envelope.metadata ?? {};
+      const rawSystem = metadata.__anthropicRawSystem;
+      const originalSystemText = metadata.__anthropicSystemText;
+      if (rawSystem !== undefined && Array.isArray(rawSystem)) {
+        if (envelope.instructions !== originalSystemText) {
+          throw new Error("structured Anthropic system changed during envelope preparation");
+        }
+        nextPayload.system = rawSystem;
+      } else if (typeof envelope.instructions === "string") {
+        nextPayload.system = envelope.instructions;
+      } else {
+        delete nextPayload.system;
+      }
+      nextPayload.cache_control = payload.cache_control ?? { type: "ephemeral" };
+      const frameworkStableKey = typeof metadata.frameworkStablePromptCacheKey === "string"
+        ? metadata.frameworkStablePromptCacheKey
+        : undefined;
+      const inboundPromptCacheKey = typeof payload.prompt_cache_key === "string"
+        ? payload.prompt_cache_key
+        : undefined;
+      if (!frameworkStableKey && typeof metadata.promptCacheKey === "string") {
+        nextPayload.prompt_cache_key = metadata.promptCacheKey;
+      } else if (!frameworkStableKey && inboundPromptCacheKey) {
+        nextPayload.prompt_cache_key = inboundPromptCacheKey;
       } else {
         delete nextPayload.prompt_cache_key;
       }

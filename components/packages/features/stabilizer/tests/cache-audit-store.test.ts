@@ -274,3 +274,37 @@ test("summarizeCacheAudit reports family reuse and token metrics", async () => {
     await rm(stateDir, { recursive: true, force: true });
   }
 });
+
+test("summarizeCacheAudit records Anthropic cache creation tokens", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-cache-audit-anthropic-"));
+  try {
+    const request = envelope({
+      sessionId: "sess-anthropic-cache-write",
+      requestPromptCacheKey: "pk-anthropic",
+      instructions: "Shared project rules.",
+    });
+    await appendCacheAuditRecord({
+      stateDir,
+      snapshot: buildCacheAuditSnapshot({
+        envelope: request.envelope,
+        sessionId: request.sessionId,
+        model: "claude-sonnet-4-6",
+        stream: false,
+        requestPromptCacheKey: request.requestPromptCacheKey,
+      }),
+      responsePromptCacheKey: null,
+      usage: {
+        input_tokens: 100,
+        cache_creation_input_tokens: 100,
+        cache_read_input_tokens: 0,
+      },
+      status: 200,
+    });
+
+    const summary = summarizeCacheAudit(await readRecentCacheAuditRecordsForSession(stateDir, request.sessionId, 8));
+    assert.equal(summary.cacheWriteTokens, 100);
+    assert.equal(summary.cachedInputTokens, 0);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});

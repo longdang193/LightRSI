@@ -55,50 +55,7 @@ export function runPrefixIfEnabled(params: {
     rootPromptRewrite?.forwardedPromptText ?? rootPromptCandidate?.text ?? "",
   );
 
-  if (
-    enabled
-    && devAndUser
-    && rootPromptRewrite
-    && Array.isArray(requestEnvelope.messages)
-    && devAndUser.developerIndex >= 0
-  ) {
-    const nextMessages = requestEnvelope.messages.slice();
-    nextMessages[devAndUser.developerIndex] = {
-      ...(devAndUser.developerItem ?? nextMessages[devAndUser.developerIndex]),
-      role: "developer",
-      content: rootPromptRewrite.forwardedPromptText,
-    };
-    if (
-      dynamicContextTarget === "user"
-      && rootPromptRewrite.dynamicContextText
-      && devAndUser.userIndex >= 0
-    ) {
-      nextMessages[devAndUser.userIndex] = {
-        ...(devAndUser.userItem ?? nextMessages[devAndUser.userIndex]),
-        role: "user",
-        content: helpers.prependTextToContent(
-          (devAndUser.userItem ?? nextMessages[devAndUser.userIndex])?.content,
-          rootPromptRewrite.dynamicContextText,
-        ),
-      };
-    }
-    requestEnvelope = {
-      ...requestEnvelope,
-      messages: nextMessages,
-    };
-    syncOpenClawPayloadFromEnvelope(payload, requestEnvelope, payloadCodec);
-    if (dynamicContextTarget === "developer" && rootPromptRewrite.dynamicContextText) {
-      const inserted = helpers.insertDeveloperDynamicContextBlock(
-        payload?.input,
-        rootPromptRewrite.dynamicContextText,
-        devAndUser.developerIndex,
-      );
-      if (inserted.changed) {
-        payload.input = inserted.input;
-        requestEnvelope = payloadCodec.decodeRequest(payload);
-      }
-    }
-  }
+
 
   const stableRewrite = enabled
     ? helpers.rewritePayloadForStablePrefix(payload, model, {
