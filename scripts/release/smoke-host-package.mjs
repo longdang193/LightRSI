@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, readlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import process from "node:process";
 
@@ -85,7 +86,7 @@ try {
   assert.ok(skill);
   assert.match(skill, /lightrsi\.js|lightmem2\.js/);
 
-  const loaded = await import(join(distDir, "index.js"));
+  const loaded = await import(pathToFileURL(join(distDir, "index.js")).href);
   assert.ok(Object.keys(loaded).length > 0);
   process.stdout.write(`${host} release smoke passed: ${archivePath}\n`);
 } finally {
