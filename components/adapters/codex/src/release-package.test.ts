@@ -14,6 +14,12 @@ const tarCommand = process.platform === "win32"
   : "tar";
 
 async function packRelease(): Promise<string> {
+  if (process.platform !== "win32") {
+    const result = await execFileAsync("bash", ["scripts/pack_release.sh"], { cwd: packageDir });
+    const archiveName = result.stdout.trim().split("\n").at(-1)?.split(/[\\/]/).at(-1) ?? "";
+    if (!archiveName) throw new Error("pack_release.sh produced no archive");
+    return join(packageDir, archiveName);
+  }
   const scriptName = `.pack-release-${process.pid}.sh`;
   const scriptPath = join(packageDir, "scripts", scriptName);
   const shimName = `.pack-bin-${process.pid}`;
