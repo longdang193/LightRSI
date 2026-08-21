@@ -69,6 +69,63 @@ export interface DshUnknownEvent {
 /** The full durable log the codec consumes: known events plus tolerated unknowns. */
 export type DshLogEvent = DshDurableEvent | DshUnknownEvent;
 
+/* ------------------------------------------------------------------ *
+ * Runtime bridge (agent/pre-step). Minimal structural mirrors of the
+ * DSH runtime surface the eviction pre-step handler touches, verified
+ * against deepseek-harness @ 141eb6f:
+ *   - Session.events / .surface.replaceGeneration  core/session/src/index.ts:559,431
+ *   - agent.session on the pre-step payload         compaction-basic/src/index.ts:66
+ *   - PreStepDecision                               api-catalog.ts:3633
+ *   - ctx.on('agent/pre-step', …) + ctx.tokenMeter  api-catalog / compaction-basic
+ * Kept here (not imported from DSH) per §2.2.
+ * ------------------------------------------------------------------ */
+
+/** SessionEvent.ignorable: absent ⇒ required; true ⇒ a reader may safely skip an unrecognized event. */
+export type DshLogEventWithMeta = DshLogEvent & { ignorable?: true };
+
+export interface DshSessionSurface {
+  /** Monotonic count of committed surface `replace` ops. */
+  replaceGeneration: number;
+}
+
+export interface DshSession {
+  readonly id: string;
+  /** Append-only durable event log (session.events). */
+  readonly events: readonly DshLogEventWithMeta[];
+  readonly surface: DshSessionSurface;
+}
+
+export interface DshAgent {
+  readonly session: DshSession;
+}
+
+export type DshPreStepDecision =
+  | { kind: "reject" }
+  | { kind: "enter"; messages: unknown[] };
+
+export interface DshPreStepPayload {
+  agent: DshAgent;
+  messages: unknown[];
+  turn: number;
+  step: number;
+  signal: { aborted: boolean };
+}
+
+export type DshPreStepNext = () => Promise<DshPreStepDecision>;
+
+export interface DshTokenMeter {
+  measure(session: DshSession): unknown;
+}
+
+/** The slice of the Cordis plugin context the eviction pre-step handler uses. */
+export interface DshPluginContext {
+  on(
+    event: "agent/pre-step",
+    handler: (payload: DshPreStepPayload, next: DshPreStepNext) => Promise<DshPreStepDecision>,
+  ): void;
+  tokenMeter: DshTokenMeter;
+}
+
 /**
  * Minimal surface description for the stable revision (§4.1). The codec does
  * not own the surface node model (that is DSH's); it only needs the ordered
