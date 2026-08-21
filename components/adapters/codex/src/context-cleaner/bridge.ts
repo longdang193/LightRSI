@@ -1,6 +1,9 @@
 import {
+  CONTEXT_CLEAN_SCHEMA_VERSION,
   type ContextCleanerControlPlane,
   type ContextCleanerHostBridge,
+  type ContextCleanReceipt,
+  type ExecuteApprovedContextCleanParams,
 } from "@lightrsi/cleaner";
 import { loadSessionTaskRegistry } from "@lightrsi/history";
 import {
@@ -16,6 +19,124 @@ import {
   loadCodexSessionSnapshot,
 } from "../session-state.js";
 import { listCodexCleanerSessions } from "./session-catalog.js";
+
+const CODEX_HOST_ID = "codex";
+
+function canonicalTimestamp(value: string): boolean {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+}
+
+function normalizedUniqueStrings(values: string[]): string[] | undefined {
+  const normalized = values.map((value) => value.trim());
+  return normalized.every(Boolean) && new Set(normalized).size === normalized.length
+    ? normalized
+    : undefined;
+}
+
+function nonNegativeInteger(value: unknown): boolean {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+function nullableNonNegativeInteger(value: unknown): boolean {
+  return value === null || nonNegativeInteger(value);
+}
+
+function validReceiptState(receipt: ContextCleanReceipt): boolean {
+  if (!nullableNonNegativeInteger(receipt.estimatedSavedTokens)
+    || !nonNegativeInteger(receipt.estimatedSavedChars)
+    || !["exact", "estimated", "chars_only"].includes(receipt.tokenCountMode)) {
+    return false;
+  }
+  const record = receipt as unknown as Record<string, unknown>;
+  if (receipt.status === "applied") {
+    const evidence = receipt.evidence as unknown as Record<string, unknown> | undefined;
+    return receipt.fallbackUsed === false
+      && nullableNonNegativeInteger(receipt.appliedSavedTokens)
+      && nonNegativeInteger(receipt.appliedSavedChars)
+      && typeof evidence?.previousRevision === "string"
+      && Boolean(evidence.previousRevision.trim())
+      && typeof evidence?.nextRevision === "string"
+      && Boolean(evidence.nextRevision.trim())
+      && normalizedUniqueStrings(receipt.evidence.operationIds) !== undefined
+      && receipt.evidence.operationIds.length > 0
+      && normalizedUniqueStrings(receipt.evidence.itemIds) !== undefined
+      && receipt.evidence.itemIds.length > 0;
+  }
+  if (!["analyzed", "approved", "scheduled", "stale", "cancelled", "failed"].includes(receipt.status)) {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(record, "appliedSavedTokens")
+    || Object.prototype.hasOwnProperty.call(record, "appliedSavedChars")) {
+    return false;
+  }
+  return !["analyzed", "approved", "scheduled"].includes(receipt.status)
+    || receipt.fallbackUsed === false;
+}
+
+function validateApprovedRequest(request: ExecuteApprovedContextCleanParams): string[] {
+  if (request.schemaVersion !== CONTEXT_CLEAN_SCHEMA_VERSION) {
+    throw new Error("codex_clean_approval_schema_mismatch");
+  }
+  if (request.hostId !== CODEX_HOST_ID) {
+    throw new Error("codex_clean_approval_host_mismatch");
+  }
+  if (!request.cleanPlanId.trim()
+    || !request.sessionId.trim()
+    || !request.baseRevision.trim()
+    || !canonicalTimestamp(request.approvedAt)
+    || request.selectedTasks.length === 0) {
+    throw new Error("codex_clean_approval_invalid");
+  }
+  const taskIds = normalizedUniqueStrings(request.selectedTasks.map((task) => task.taskId));
+  if (!taskIds) throw new Error("codex_clean_approval_invalid");
+  const claimedItemIds = new Set<string>();
+  for (const task of request.selectedTasks) {
+    const itemIds = normalizedUniqueStrings(task.itemIds);
+    if (!itemIds
+      || itemIds.length === 0
+      || Object.keys(task.itemDigests).length !== itemIds.length) {
+      throw new Error("codex_clean_approval_targets_invalid");
+    }
+    for (const itemId of itemIds) {
+      if (claimedItemIds.has(itemId)
+        || typeof task.itemDigests[itemId] !== "string"
+        || !task.itemDigests[itemId]!.trim()) {
+        throw new Error("codex_clean_approval_targets_invalid");
+      }
+      claimedItemIds.add(itemId);
+    }
+  }
+  return taskIds;
+}
+
+function validateReceipt(params: {
+  receipt: ContextCleanReceipt;
+  planId: string;
+  sessionId?: string;
+  selectedTaskIds?: string[];
+}): ContextCleanReceipt {
+  const { receipt } = params;
+  const selectedTaskIds = normalizedUniqueStrings(receipt.selectedTaskIds);
+  if (receipt.schemaVersion !== CONTEXT_CLEAN_SCHEMA_VERSION
+    || receipt.hostId !== CODEX_HOST_ID
+    || receipt.planId !== params.planId
+    || (params.sessionId !== undefined && receipt.sessionId !== params.sessionId)
+    || !canonicalTimestamp(receipt.updatedAt)
+    || !selectedTaskIds
+    || !validReceiptState(receipt)) {
+    throw new Error("codex_clean_receipt_mismatch");
+  }
+  if (params.selectedTaskIds) {
+    const expected = [...params.selectedTaskIds].sort();
+    const actual = [...selectedTaskIds].sort();
+    if (expected.length !== actual.length
+      || expected.some((taskId, index) => taskId !== actual[index])) {
+      throw new Error("codex_clean_receipt_mismatch");
+    }
+  }
+  return receipt;
+}
 
 function validPersistableSnapshot(
   snapshot: ModelContextSnapshot,
@@ -45,7 +166,7 @@ export function createCodexContextCleanerBridge(params: {
   controlPlane: ContextCleanerControlPlane;
 }): ContextCleanerHostBridge {
   return {
-    hostId: "codex",
+    hostId: CODEX_HOST_ID,
     rewriteMode: "response_chain_rebase",
     async listSessions() {
       return listCodexCleanerSessions(params.stateDir);
@@ -133,8 +254,26 @@ export function createCodexContextCleanerBridge(params: {
           : {}),
       };
     },
-    executeApprovedClean: (request) => params.controlPlane.executeApprovedClean(request),
-    readCleanReceipt: (planId) => params.controlPlane.readCleanReceipt(planId),
-    cancelCleanPlan: (planId) => params.controlPlane.cancelCleanPlan(planId),
+    async executeApprovedClean(request) {
+      const selectedTaskIds = validateApprovedRequest(request);
+      return validateReceipt({
+        receipt: await params.controlPlane.executeApprovedClean(request),
+        planId: request.cleanPlanId,
+        sessionId: request.sessionId,
+        selectedTaskIds,
+      });
+    },
+    async readCleanReceipt(planId) {
+      if (!planId.trim()) throw new Error("codex_clean_plan_id_invalid");
+      const receipt = await params.controlPlane.readCleanReceipt(planId);
+      return receipt ? validateReceipt({ receipt, planId }) : undefined;
+    },
+    async cancelCleanPlan(planId) {
+      if (!planId.trim()) throw new Error("codex_clean_plan_id_invalid");
+      return validateReceipt({
+        receipt: await params.controlPlane.cancelCleanPlan(planId),
+        planId,
+      });
+    },
   };
 }

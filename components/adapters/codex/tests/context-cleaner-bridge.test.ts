@@ -129,6 +129,120 @@ test("Codex cleaner bridge preserves approved targets and control-plane receipts
   assert.strictEqual(await bridge.cancelCleanPlan(request.cleanPlanId), cancelled);
 });
 
+test("Codex cleaner bridge rejects cross-host approvals before control-plane execution", async () => {
+  let executions = 0;
+  const bridge = createCodexContextCleanerBridge({
+    stateDir: "unused-state-dir",
+    controlPlane: {
+      ...fakeControlPlane(),
+      async executeApprovedClean() {
+        executions += 1;
+        return pendingReceipt("scheduled");
+      },
+    },
+  });
+
+  await assert.rejects(
+    bridge.executeApprovedClean({
+      schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+      cleanPlanId: "clean-plan-1",
+      hostId: "claude-code",
+      sessionId: "codex-cleaner-session",
+      baseRevision: "revision-before",
+      approvedAt: "2026-08-21T00:00:00.000Z",
+      selectedTasks: [{
+        taskId: "task-1",
+        itemIds: ["item-1"],
+        itemDigests: { "item-1": "digest-1" },
+      }],
+    }),
+    /codex_clean_approval_host_mismatch/,
+  );
+  assert.equal(executions, 0);
+});
+
+test("Codex cleaner bridge rejects mutated approval targets", async () => {
+  const bridge = createCodexContextCleanerBridge({
+    stateDir: "unused-state-dir",
+    controlPlane: fakeControlPlane(),
+  });
+
+  await assert.rejects(
+    bridge.executeApprovedClean({
+      schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+      cleanPlanId: "clean-plan-1",
+      hostId: "codex",
+      sessionId: "codex-cleaner-session",
+      baseRevision: "revision-before",
+      approvedAt: "2026-08-21T00:00:00.000Z",
+      selectedTasks: [{
+        taskId: "task-1",
+        itemIds: ["item-1"],
+        itemDigests: { "other-item": "digest-1" },
+      }],
+    }),
+    /codex_clean_approval_targets_invalid/,
+  );
+});
+
+test("Codex cleaner bridge rejects mismatched control-plane receipts", async () => {
+  const bridge = createCodexContextCleanerBridge({
+    stateDir: "unused-state-dir",
+    controlPlane: {
+      async executeApprovedClean() {
+        return { ...pendingReceipt("scheduled"), hostId: "claude-code" };
+      },
+      async readCleanReceipt() {
+        return { ...pendingReceipt("scheduled"), planId: "other-plan" };
+      },
+      async cancelCleanPlan() {
+        return { ...terminalReceipt("cancelled"), hostId: "openclaw" };
+      },
+    },
+  });
+  const request: ExecuteApprovedContextCleanParams = {
+    schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+    cleanPlanId: "clean-plan-1",
+    hostId: "codex",
+    sessionId: "codex-cleaner-session",
+    baseRevision: "revision-before",
+    approvedAt: "2026-08-21T00:00:00.000Z",
+    selectedTasks: [{
+      taskId: "task-1",
+      itemIds: ["item-1"],
+      itemDigests: { "item-1": "digest-1" },
+    }],
+  };
+
+  await assert.rejects(bridge.executeApprovedClean(request), /codex_clean_receipt_mismatch/);
+  await assert.rejects(bridge.readCleanReceipt(request.cleanPlanId), /codex_clean_receipt_mismatch/);
+  await assert.rejects(bridge.cancelCleanPlan(request.cleanPlanId), /codex_clean_receipt_mismatch/);
+});
+
+test("Codex cleaner bridge rejects malformed applied receipts loaded at runtime", async () => {
+  const malformed = {
+    ...pendingReceipt("scheduled"),
+    status: "applied",
+    fallbackUsed: true,
+    appliedSavedTokens: 2,
+    appliedSavedChars: 10,
+  } as unknown as ContextCleanAppliedReceipt;
+  const bridge = createCodexContextCleanerBridge({
+    stateDir: "unused-state-dir",
+    controlPlane: {
+      ...fakeControlPlane(),
+      async readCleanReceipt() {
+        return malformed;
+      },
+    },
+  });
+
+  await assert.rejects(
+    bridge.readCleanReceipt("clean-plan-1"),
+    /codex_clean_receipt_mismatch/,
+  );
+});
+
 test("Codex cleaner bridge lists persisted sessions and reads canonical effective history", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cleaner-bridge-"));
   try {
