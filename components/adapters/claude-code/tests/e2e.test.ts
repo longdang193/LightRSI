@@ -128,9 +128,8 @@ test("Claude Code host e2e wires install, gateway reduction, report/visual, and 
     const forwardedMessages = seenPayloads[0]?.messages as Array<Record<string, unknown>>;
     const forwardedBlocks = forwardedMessages?.[0]?.content as Array<Record<string, unknown>>;
     assert.match(String(seenPayloads[0]?.system ?? ""), /Your working directory is: \/repo\/demo/);
-    assert.doesNotMatch(String(seenPayloads[0]?.system ?? ""), /Runtime: agent=agent-123\s*\|/);
-    assert.match(String(forwardedBlocks?.[0]?.text ?? ""), /WORKDIR: \/repo\/demo/);
-    assert.match(String(forwardedBlocks?.[0]?.text ?? ""), /AGENT_ID: agent-123/);
+    assert.match(String(seenPayloads[0]?.system ?? ""), /Runtime: agent=agent-123\s*\|/);
+    assert.equal(String(forwardedBlocks?.[0]?.text ?? ""), "summarize this tool output");
     assert.match(String(seenPayloads[0]?.system ?? ""), /Be precise\./);
     assertRecoveryProtocolText(String(seenPayloads[0]?.system ?? ""));
 
@@ -344,8 +343,9 @@ test("Claude Code cold and warm requests expose prompt cache hit usage when stab
 
       const bodyA = await responseA.json() as Record<string, unknown>;
       const bodyB = await responseB.json() as Record<string, unknown>;
-      assert.equal(typeof upstream.requests[0]?.prompt_cache_key, "string");
-      assert.equal(upstream.requests[0]?.prompt_cache_key, upstream.requests[1]?.prompt_cache_key);
+      assert.equal("prompt_cache_key" in (upstream.requests[0] ?? {}), false);
+      assert.deepEqual(upstream.requests[0]?.cache_control, { type: "ephemeral" });
+      assert.deepEqual(upstream.requests[1]?.cache_control, { type: "ephemeral" });
       assertColdWarmCacheUsage([bodyA.usage, bodyB.usage]);
 
       const sessions = await readVisualSessionList(stateDir);
@@ -374,7 +374,7 @@ test("Claude Code cold and warm requests expose prompt cache hit usage when stab
   });
 });
 
-test("Claude Code preserves different inbound prompt_cache_key values upstream while audit still tracks the same stable request family", async () => {
+test("Claude Code omits generated prompt cache keys while audit tracks the same stable request family", async () => {
   await withTempHome("lightrsi-claude-force-key-rewrite-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const stateDir = join(homeDir, ".claude", "tokenpilot-state", "tokenpilot");
@@ -463,9 +463,9 @@ test("Claude Code preserves different inbound prompt_cache_key values upstream w
 
       assert.equal(responseA.status, 200);
       assert.equal(responseB.status, 200);
-      assert.equal(typeof upstream.requests[0]?.prompt_cache_key, "string");
-      assert.equal(upstream.requests[0]?.prompt_cache_key, "legacy-key-a");
-      assert.equal(upstream.requests[1]?.prompt_cache_key, "legacy-key-b");
+      assert.equal("prompt_cache_key" in (upstream.requests[0] ?? {}), false);
+      assert.equal("prompt_cache_key" in (upstream.requests[1] ?? {}), false);
+      assert.deepEqual(upstream.requests[0]?.cache_control, { type: "ephemeral" });
     } finally {
       await runtime.close();
       await upstream.close();

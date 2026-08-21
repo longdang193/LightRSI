@@ -6,6 +6,7 @@ import { applyProxyAfterCallReduction, recordNonStreamingUxEffect } from "./prox
 import { recordStreamingUxEffect } from "./proxy-runtime-stream.js";
 import { recordProxyForwarding, recordProxyResponse } from "./proxy-runtime-logging.js";
 import { appendOpenClawCacheAuditRecord } from "../../cache-audit.js";
+import type { CacheAuditSnapshot } from "@lightrsi/stabilizer";
 
 async function recordRealizedReductionSavings(args: {
   cfg: any;
@@ -55,7 +56,7 @@ export async function handleStreamingProxyResponse(args: {
   beforeReductionCanonicalInput: string;
   afterReductionCanonicalInput: string;
   reductionApplied: any;
-  cacheAuditSnapshot?: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "usage" | "status">;
+  cacheAuditSnapshot?: CacheAuditSnapshot;
 }): Promise<void> {
   const {
     cfg,
@@ -187,7 +188,7 @@ export async function handleNonStreamingProxyResponse(args: {
   reductionPassOptions: any;
   reductionMaxToolChars: number;
   reductionTriggerMinChars: number;
-  cacheAuditSnapshot?: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "usage" | "status">;
+  cacheAuditSnapshot?: CacheAuditSnapshot;
 }): Promise<void> {
   const {
     cfg,

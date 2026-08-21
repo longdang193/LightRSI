@@ -3,20 +3,26 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PNPM_CMD=(pnpm)
+if command -v node.exe >/dev/null 2>&1 && command -v cmd.exe >/dev/null 2>&1; then
+  PNPM_CMD=(cmd.exe /d /c pnpm)
+fi
 
 cd "${PLUGIN_DIR}"
 
 rm -f lightrsi-openclaw-adapter-*.tgz lightrsi-tokenpilot-openclaw-*.tgz tokenpilot-*.tgz
-npm run build >/dev/null 2>&1
+"${PNPM_CMD[@]}" build >/dev/null 2>&1
 
-NPM_CACHE_DIR="${NPM_CACHE_DIR:-/tmp/tokenpilot-npm-cache}"
-mkdir -p "${NPM_CACHE_DIR}"
-
-PACK_TMP_DIR="$(mktemp -d /tmp/tokenpilot-pack-XXXXXX)"
+PACK_TMP_DIR="$(mktemp -d "${PLUGIN_DIR}/.tokenpilot-pack-XXXXXX")"
 cleanup() {
   rm -rf "${PACK_TMP_DIR}"
 }
 trap cleanup EXIT
+
+NPM_CACHE_DIR="${NPM_CACHE_DIR:-${PACK_TMP_DIR}/npm-cache}"
+if [[ "${NPM_CACHE_DIR}" == /* ]]; then
+  mkdir -p "${NPM_CACHE_DIR}"
+fi
 
 mkdir -p "${PACK_TMP_DIR}/package"
 cp -R dist "${PACK_TMP_DIR}/package/dist"
@@ -46,5 +52,10 @@ archive_name="$(cd "${PACK_TMP_DIR}/package" && npm_config_cache="${NPM_CACHE_DI
 archive_path="${PACK_TMP_DIR}/package/${archive_name}"
 cp "${archive_path}" "${PLUGIN_DIR}/${archive_name}"
 archive_path="${PLUGIN_DIR}/${archive_name}"
+if command -v wslpath >/dev/null 2>&1; then
+  archive_path="$(wslpath -w "${archive_path}")"
+elif command -v cygpath >/dev/null 2>&1; then
+  archive_path="$(cygpath -w "${archive_path}")"
+fi
 
 printf '%s\n' "${archive_path}"

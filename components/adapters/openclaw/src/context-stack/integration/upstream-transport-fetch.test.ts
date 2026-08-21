@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { join } from "node:path";
 import test from "node:test";
@@ -104,6 +104,26 @@ test("openclaw upstream transport caches unsupported prompt_cache_retention and 
       );
       const capability = JSON.parse(capabilityRaw) as { unsupportedOptionalFields?: string[] };
       assert.deepEqual(capability.unsupportedOptionalFields, ["prompt_cache_retention"]);
+
+      await writeFile(
+        join(
+          stateDir,
+          "upstream-capabilities",
+          "responses",
+          encodeURIComponent(`http://127.0.0.1:${upstreamPort}/v1/responses`) + ".json",
+        ),
+        JSON.stringify({
+          endpoint: `http://127.0.0.1:${upstreamPort}/v1/responses`,
+          unsupportedOptionalFields: ["prompt_cache_retention"],
+          updatedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+        }),
+        "utf8",
+      );
+      const third = await requestUpstreamResponses(upstreamConfig, payload, logger, stateDir);
+      assert.equal(third.status, 200);
+      assert.equal(requests.length, 5);
+      assert.equal(requests[3]?.prompt_cache_retention, "24h");
+      assert.equal("prompt_cache_retention" in (requests[4] ?? {}), false);
     } finally {
       await new Promise<void>((resolve) => upstream.close(() => resolve()));
     }

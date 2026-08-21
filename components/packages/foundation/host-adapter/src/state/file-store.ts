@@ -10,12 +10,25 @@ export async function readJsonFile<T>(path: string): Promise<T | null> {
   }
 }
 
+async function renameWithRetry(sourcePath: string, targetPath: string): Promise<void> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      await rename(sourcePath, targetPath);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!["EPERM", "EACCES", "EBUSY"].includes(code ?? "") || attempt === 3) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+    }
+  }
+}
+
 export async function writeJsonFileAtomic(path: string, payload: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tempPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   await writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   try {
-    await rename(tempPath, path);
+    await renameWithRetry(tempPath, path);
   } catch (error) {
     await unlink(tempPath).catch(() => undefined);
     throw error;

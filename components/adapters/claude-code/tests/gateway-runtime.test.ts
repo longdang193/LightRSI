@@ -834,17 +834,10 @@ test("gateway runtime applies stable-prefix rewrite before forwarding", async ()
     assert.equal(requestResp.status, 200);
     assert.equal(seenPayloads.length, 1);
     assert.equal(seenPayloads[0]?.model, "claude-sonnet-4-6");
-    assert.match(String(seenPayloads[0]?.prompt_cache_key ?? ""), /^lightrsi-claude-/);
+    assert.equal("prompt_cache_key" in seenPayloads[0], false);
+    assert.deepEqual(seenPayloads[0]?.cache_control, { type: "ephemeral" });
     assert.match(String(seenPayloads[0]?.system ?? ""), /Your working directory is: \/tmp\/demo/);
-    assert.doesNotMatch(String(seenPayloads[0]?.system ?? ""), /Runtime: agent=agent-123\s*\|/);
-    assert.match(
-      String(((seenPayloads[0]?.messages as Array<Record<string, unknown>>)?.[0]?.content as Array<Record<string, unknown>>)?.[0]?.text ?? ""),
-      /WORKDIR: \/tmp\/demo/,
-    );
-    assert.match(
-      String(((seenPayloads[0]?.messages as Array<Record<string, unknown>>)?.[0]?.content as Array<Record<string, unknown>>)?.[0]?.text ?? ""),
-      /AGENT_ID: agent-123/,
-    );
+    assert.match(String(seenPayloads[0]?.system ?? ""), /Runtime: agent=agent-123\s*\|/);
     assert.match(String(seenPayloads[0]?.system ?? ""), /Be precise\./);
     assertRecoveryProtocolText(String(seenPayloads[0]?.system ?? ""));
     const forwardedMessages = seenPayloads[0]?.messages as Array<Record<string, unknown>>;
@@ -918,9 +911,8 @@ test("gateway runtime supports developer-targeted stable-prefix injection", asyn
     assert.equal(seenPayloads.length, 1);
     assert.match(String(seenPayloads[0]?.system ?? ""), /Your working directory is: \/tmp\/demo/);
     assert.match(String(seenPayloads[0]?.system ?? ""), /Runtime: agent=agent-123 \|/);
-    assert.match(String(seenPayloads[0]?.system ?? ""), /WORKDIR: \/tmp\/demo/);
-    assert.match(String(seenPayloads[0]?.system ?? ""), /AGENT_ID: agent-123/);
-
+    assert.equal("prompt_cache_key" in seenPayloads[0], false);
+    assert.deepEqual(seenPayloads[0]?.cache_control, { type: "ephemeral" });
     const forwardedMessages = seenPayloads[0]?.messages as Array<Record<string, unknown>>;
     const forwardedUserBlocks = forwardedMessages?.[0]?.content as Array<Record<string, unknown>>;
     assert.equal(String(forwardedUserBlocks?.[0]?.text ?? ""), "hello");
@@ -928,8 +920,7 @@ test("gateway runtime supports developer-targeted stable-prefix injection", asyn
     const visual = await readVisualSessionData(join(dir, "state"), "sess-runtime-3");
     assert.equal(visual.stability.length, 1);
     assert.equal(visual.stability[0]?.dynamicContextTarget, "developer");
-    assert.match(visual.stability[0]?.developerForwarded ?? "", /WORKDIR: \/tmp\/demo/);
-    assert.match(String(seenPayloads[0]?.prompt_cache_key ?? ""), /^lightrsi-claude-/);
+    assert.match(visual.stability[0]?.developerForwarded ?? "", /Your working directory is: \/tmp\/demo/);
   } finally {
     await runtime.close();
     await rm(dir, { recursive: true, force: true });
@@ -998,7 +989,9 @@ test("gateway runtime reuses the same Claude prompt_cache_key for the same stabl
     }
 
     assert.equal(seenPayloads.length, 2);
-    assert.equal(seenPayloads[0]?.prompt_cache_key, seenPayloads[1]?.prompt_cache_key);
+    assert.equal("prompt_cache_key" in seenPayloads[0], false);
+    assert.equal("prompt_cache_key" in seenPayloads[1], false);
+    assert.deepEqual(seenPayloads[0]?.cache_control, seenPayloads[1]?.cache_control);
   } finally {
     await runtime.close();
     await rm(dir, { recursive: true, force: true });
@@ -1068,28 +1061,27 @@ test("gateway runtime preserves inbound Claude prompt_cache_key while converging
     }
 
     assert.equal(seenPayloads.length, 2);
-    assert.equal(typeof seenPayloads[0]?.prompt_cache_key, "string");
-    assert.equal(seenPayloads[0]?.prompt_cache_key, "legacy-key-a");
-    assert.equal(seenPayloads[1]?.prompt_cache_key, "legacy-key-b");
+    assert.equal("prompt_cache_key" in seenPayloads[0], false);
+    assert.equal("prompt_cache_key" in seenPayloads[1], false);
   } finally {
     await runtime.close();
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("gateway runtime caches unsupported prompt_cache_key for Anthropic-compatible upstreams and skips retry later", async () => {
+test("gateway runtime caches unsupported cache_control for Anthropic-compatible upstreams and skips retry later", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-capability-"));
   const proxyPort = await reserveUnusedPort();
   const seenRequests: Array<Record<string, unknown>> = [];
   const upstream = await startTestJsonServer((_req, body) => {
     const parsed = JSON.parse(body) as Record<string, unknown>;
     seenRequests.push(parsed);
-    if ("prompt_cache_key" in parsed) {
+    if ("cache_control" in parsed) {
       return {
         status: 400,
         payload: {
           error: {
-            message: "Unsupported parameter: prompt_cache_key",
+            message: "Unsupported parameter: cache_control",
             type: "bad_response_status_code",
             param: "",
             code: "bad_response_status_code",
@@ -1153,9 +1145,9 @@ test("gateway runtime caches unsupported prompt_cache_key for Anthropic-compatib
     assert.equal(first.status, 200);
     assert.equal(second.status, 200);
     assert.equal(seenRequests.length, 3);
-    assert.equal(typeof seenRequests[0]?.prompt_cache_key, "string");
-    assert.equal("prompt_cache_key" in (seenRequests[1] ?? {}), false);
-    assert.equal("prompt_cache_key" in (seenRequests[2] ?? {}), false);
+    assert.equal("cache_control" in (seenRequests[0] ?? {}), true);
+    assert.equal("cache_control" in (seenRequests[1] ?? {}), false);
+    assert.equal("cache_control" in (seenRequests[2] ?? {}), false);
 
     const capabilityRaw = await readFile(
       join(
@@ -1168,7 +1160,7 @@ test("gateway runtime caches unsupported prompt_cache_key for Anthropic-compatib
       "utf8",
     );
     const capability = JSON.parse(capabilityRaw) as { unsupportedOptionalFields?: string[] };
-    assert.deepEqual(capability.unsupportedOptionalFields, ["prompt_cache_key"]);
+    assert.deepEqual(capability.unsupportedOptionalFields, ["cache_control"]);
   } finally {
     await runtime.close();
     await upstream.close();

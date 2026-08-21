@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
@@ -64,6 +65,24 @@ export type MockJsonUpstream = {
 export type MockCachingJsonUpstream = MockJsonUpstream & {
   requestUsages: Array<Record<string, unknown>>;
 };
+
+function hasPromptCacheBreakpoint(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasPromptCacheBreakpoint);
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  if (record.prompt_cache_breakpoint && typeof record.prompt_cache_breakpoint === "object") return true;
+  return Object.values(record).some(hasPromptCacheBreakpoint);
+}
+
+function cacheablePrefix(request: Record<string, unknown>): unknown {
+  const input = Array.isArray(request.input) ? request.input : [];
+  const firstUserIndex = input.findIndex((item) => item && typeof item === "object" && (item as Record<string, unknown>).role === "user");
+  const boundary = firstUserIndex >= 0 ? firstUserIndex : input.length;
+  const prefixInput = input.slice(0, boundary);
+  if (hasPromptCacheBreakpoint(prefixInput)) return prefixInput;
+  if ("cache_control" in request) return { system: request.system };
+  return input;
+}
 
 export async function startMockJsonUpstream(params: {
   port?: number;
@@ -144,12 +163,15 @@ export async function startMockCachingJsonUpstream(params?: {
     const request = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
     requests.push(request);
     const promptCacheKey = typeof request.prompt_cache_key === "string" ? request.prompt_cache_key : "";
-    const requestText = JSON.stringify(request.input ?? []);
+    const cacheIdentity = createHash("sha256")
+      .update(JSON.stringify({ promptCacheKey, prefix: cacheablePrefix(request) }))
+      .digest("hex");
+    const requestText = JSON.stringify(cacheablePrefix(request));
     const baseInputTokens = Math.max(32, Math.ceil(requestText.length / 12));
-    const cachedInputTokens = promptCacheKey && cacheByKey.get(promptCacheKey) === baseInputTokens
+    const cachedInputTokens = cacheByKey.get(cacheIdentity) === baseInputTokens
       ? baseInputTokens
       : 0;
-    if (promptCacheKey) cacheByKey.set(promptCacheKey, baseInputTokens);
+    cacheByKey.set(cacheIdentity, baseInputTokens);
 
     const usage = {
       input_tokens: baseInputTokens,
@@ -157,6 +179,7 @@ export async function startMockCachingJsonUpstream(params?: {
       total_tokens: baseInputTokens + 6,
       cached_tokens: cachedInputTokens,
       cache_read_input_tokens: cachedInputTokens,
+      cache_creation_input_tokens: cachedInputTokens ? 0 : baseInputTokens,
       input_tokens_details: {
         cached_tokens: cachedInputTokens,
       },

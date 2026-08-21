@@ -17,13 +17,15 @@ export type UpstreamStreamResponse = {
   stream: Readable;
 };
 
-type OptionalResponsesField = "prompt_cache_retention" | "prompt_cache_key";
+type OptionalResponsesField = "prompt_cache_options" | "prompt_cache_retention" | "prompt_cache_key";
 
 type UpstreamResponsesCapabilityRecord = {
   endpoint: string;
   unsupportedOptionalFields: OptionalResponsesField[];
   updatedAt: string;
 };
+
+const CAPABILITY_TTL_MS = 24 * 60 * 60 * 1000;
 
 function endpointFor(upstream: CodexProviderConfig): string {
   const base = upstream.baseUrl.replace(/\/+$/, "");
@@ -44,6 +46,12 @@ function headersFrom(resp: Response): Record<string, string> {
   return Object.fromEntries(resp.headers.entries());
 }
 
+function requestHeaders(upstream: CodexProviderConfig, inboundAuthorization?: string): Record<string, string> {
+  return {
+    "content-type": "application/json",
+    authorization: `Bearer ${upstreamApiKey(upstream, inboundAuthorization)}`,
+  };
+}
 function clonePayloadWithoutOptionalField(payload: any, field: OptionalResponsesField): any {
   if (!payload || typeof payload !== "object") return payload;
   if (!(field in payload)) return payload;
@@ -65,6 +73,9 @@ function clonePayloadWithoutUnsupportedFields(
 
 function unsupportedOptionalFieldFromText(text: string): OptionalResponsesField | undefined {
   if (!text) return undefined;
+  if (/unsupported parameter:\s*prompt_cache_options/i.test(text)) {
+    return "prompt_cache_options";
+  }
   if (/unsupported parameter:\s*prompt_cache_retention/i.test(text)) {
     return "prompt_cache_retention";
   }
@@ -116,10 +127,16 @@ async function loadUnsupportedOptionalFields(
   const record = await readJsonFile<UpstreamResponsesCapabilityRecord>(
     upstreamCapabilityPath(stateDir, upstream),
   );
-  const fields = Array.isArray(record?.unsupportedOptionalFields)
+  const updatedAt = Date.parse(String(record?.updatedAt ?? ""));
+  const endpoint = endpointFor(upstream);
+  const fresh = record?.endpoint === endpoint
+    && Number.isFinite(updatedAt)
+    && updatedAt <= Date.now()
+    && Date.now() - updatedAt < CAPABILITY_TTL_MS;
+  const fields = fresh && Array.isArray(record?.unsupportedOptionalFields)
     ? record.unsupportedOptionalFields.filter(
       (value): value is OptionalResponsesField =>
-        value === "prompt_cache_retention" || value === "prompt_cache_key",
+        value === "prompt_cache_options" || value === "prompt_cache_retention" || value === "prompt_cache_key",
     )
     : [];
   return new Set(fields);
@@ -148,10 +165,7 @@ export async function requestUpstreamResponses(params: {
 }): Promise<UpstreamHttpResponse> {
   const send = (payload: any) => fetch(endpointFor(params.upstream), {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${upstreamApiKey(params.upstream, params.inboundAuthorization)}`,
-    },
+    headers: requestHeaders(params.upstream, params.inboundAuthorization),
     body: JSON.stringify(payload),
   });
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream);
@@ -193,10 +207,7 @@ export async function requestUpstreamResponsesStream(params: {
 }): Promise<UpstreamStreamResponse> {
   const send = (payload: any) => fetch(endpointFor(params.upstream), {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${upstreamApiKey(params.upstream, params.inboundAuthorization)}`,
-    },
+    headers: requestHeaders(params.upstream, params.inboundAuthorization),
     body: JSON.stringify(payload),
   });
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream);

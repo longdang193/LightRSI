@@ -10,6 +10,9 @@ import process from "node:process";
 const execFileAsync = promisify(execFile);
 const archivePath = resolve(process.argv[2] ?? "");
 const expectedVersion = String(process.argv[3] ?? "").trim();
+const tarCommand = process.platform === "win32"
+  ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+  : "tar";
 
 if (!process.argv[2] || !expectedVersion) {
   throw new Error("Usage: node smoke-openclaw-package.mjs <archive.tgz> <version>");
@@ -17,7 +20,7 @@ if (!process.argv[2] || !expectedVersion) {
 
 const extractDir = await mkdtemp(join(tmpdir(), "lightrsi-release-smoke-"));
 try {
-  await execFileAsync("tar", ["-xzf", archivePath, "-C", extractDir]);
+  await execFileAsync(tarCommand, ["-xzf", archivePath, "-C", extractDir]);
   const packageDir = join(extractDir, "package");
   const manifest = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8"));
 

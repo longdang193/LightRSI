@@ -199,7 +199,7 @@ test("stripInternalPayloadMarkers removes internal flags before forwarding upstr
   assert.equal(payload.input[1].content, "world");
 });
 
-test("rewritePayloadForStablePrefix preserves content shape and injects dynamic context to first user", () => {
+test("rewritePayloadForStablePrefix keeps provider payload unchanged while deriving detached key values", () => {
   const payload: any = {
     input: [
       {
@@ -217,19 +217,14 @@ test("rewritePayloadForStablePrefix preserves content shape and injects dynamic 
       },
     ],
   };
+  const before = structuredClone(payload);
 
   const out = hooks.rewritePayloadForStablePrefix(payload, "tokenpilot/gpt-5.4-mini", {
     dynamicContextTarget: "user",
   });
 
-  assert.equal(Array.isArray(payload.input[0].content), true);
-  assertStablePrefixRewrite({
-    sanitizedPromptText: String(payload.input[0].content[0].text),
-    dynamicContextText: String(payload.input[1].content[0].text),
-    workdir: "/tmp/pinchbench/0213/agent_workspace_j0013",
-    agentId: "bench-tokenpilot-gpt-5-4-mini-0213-j0013",
-  });
-  assert.match(String(payload.input[1].content[0].text), /Please continue\./);
+  assert.deepEqual(payload.input, before.input);
+  assert.ok(out.userContentRewrites > 0);
   assert.match(out.promptCacheKey, /^runtime-pfx-/);
 });
 
@@ -634,9 +629,9 @@ test("prepareProxyRequest does not roll back payload mutations made after stable
   assert.equal(prepared.payload.input[prepared.payload.input.length - 1].content, "reduction mutation survives");
   assert.equal(prepared.requestEnvelope.messages[prepared.requestEnvelope.messages.length - 1].content, "reduction mutation survives");
   assert.equal(prepared.payload.prompt_cache_key, "runtime-pfx-test");
-  assert.equal(prepared.payload.prompt_cache_retention, "24h");
+  assert.equal("prompt_cache_retention" in prepared.payload, false);
   assert.equal(prepared.requestEnvelope.metadata?.promptCacheKey, "runtime-pfx-test");
-  assert.equal(prepared.requestEnvelope.metadata?.promptCacheRetention, "24h");
+  assert.equal(prepared.requestEnvelope.metadata?.promptCacheRetention, undefined);
   const moduleSummary = await readSessionModuleObservationSummary(stateDir, "session-no-rollback");
   assert.equal(moduleSummary?.modules.reduction.executions, 1);
   assert.equal(moduleSummary?.modules.reduction.changes, 1);
@@ -685,8 +680,6 @@ test("prepareProxyRequest preserves stable prefix, memory injection, and reducti
       injectMemoryFaultProtocolInstructions: () => false,
       rewritePayloadForStablePrefix: (inputPayload: any) => {
         inputPayload.prompt_cache_key = "runtime-pfx-combined";
-        const developer = inputPayload.input[0];
-        developer.content = String(developer.content).replace("/tmp/demo", "<WORKDIR>");
         return {
           promptCacheKey: "runtime-pfx-combined",
           userContentRewrites: 0,
@@ -719,10 +712,10 @@ test("prepareProxyRequest preserves stable prefix, memory injection, and reducti
   });
 
   const userMessages = prepared.payload.input.filter((item: any) => item.role === "user");
-  assert.match(String(prepared.payload.input[0].content), /<WORKDIR>/);
+  assert.match(String(prepared.payload.input[0].content), /Your working directory is: \/tmp\/demo/);
   assert.equal(prepared.payload.prompt_cache_key, "runtime-pfx-combined");
   assert.equal(prepared.requestEnvelope.metadata?.promptCacheKey, "runtime-pfx-combined");
-  assert.equal(prepared.requestEnvelope.metadata?.promptCacheRetention, "24h");
+  assert.equal(prepared.requestEnvelope.metadata?.promptCacheRetention, undefined);
   assert.equal(String(userMessages[0]?.content), "Please continue the task.");
   assert.equal(String(userMessages[userMessages.length - 1]?.content), "reduction mutation survives");
   assert.equal(
@@ -761,12 +754,11 @@ test("prepareProxyRequest isolates developer dynamic context into a separate dev
   });
 
   const developerItems = prepared.payload.input.filter((item: any) => item?.role === "developer");
-  assert.equal(developerItems.length, 2);
-  assert.match(String(developerItems[0]?.content ?? ""), /Your working directory is: \/tmp\/demo/);
+  assert.equal(developerItems.length, 1);
   assert.match(String(developerItems[0]?.content ?? ""), /Runtime: agent=test-agent \| host=demo/);
+  assert.match(String(developerItems[0]?.content ?? ""), /Your working directory is: \/tmp\/demo/);
+  assert.match(String(developerItems[0]?.content ?? ""), /Developer prompt/);
   assert.doesNotMatch(String(developerItems[0]?.content ?? ""), /WORKDIR: \/tmp\/demo/);
-  assert.match(String(developerItems[1]?.content ?? ""), /WORKDIR: \/tmp\/demo/);
-  assert.match(String(developerItems[1]?.content ?? ""), /AGENT_ID: test-agent/);
 });
 
 test("applyLayeredReductionAfterCall rewrites responses JSON output text through after-call passes", async () => {
@@ -1310,4 +1302,29 @@ test("convertChatCompletionsSseToResponsesSse preserves usage emitted after fini
   assert.match(out, /"output_tokens":33/);
   assert.match(out, /"output_tokens_details":\{"reasoning_tokens":0\}/);
   assert.match(out, /"total_tokens":255/);
+});
+
+test("prepareProxyRequest preserves OpenClaw user content and omits absent retention", async () => {
+  const originalUserText = "  [2026-08-20] Sender (untrusted metadata): ```json\n{\"agent\":\"worker-a\"}\n```\n\nKeep exact spacing.  ";
+  const payload: any = {
+    model: "tokenpilot/gpt-5.4-mini",
+    instructions: "Stable root prompt.",
+    input: [
+      { role: "developer", content: "Developer rules." },
+      { role: "user", content: originalUserText },
+    ],
+  };
+  const before = structuredClone(payload);
+  const prepared = await hooks.prepareProxyRequest({
+    cfg: hooks.normalizeConfig({
+      moduleEnablement: { stabilizer: true, reduction: false, eviction: false },
+      proxyMode: { pureForward: false },
+    }),
+    payload,
+    dynamicContextTarget: "developer",
+  });
+
+  assert.equal(prepared.payload.input[1].content, originalUserText);
+  assert.equal("prompt_cache_retention" in prepared.payload, false);
+  assert.deepEqual(before.input[1].content, originalUserText);
 });
