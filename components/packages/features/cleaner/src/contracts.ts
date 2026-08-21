@@ -4,6 +4,7 @@ import type {
 } from "@lightrsi/host-adapter";
 
 export const CONTEXT_CLEAN_SCHEMA_VERSION = 1 as const;
+export const CONTEXT_CLEAN_STORE_SCHEMA_VERSION = 1 as const;
 
 export type ContextCleanTokenCountMode = "exact" | "estimated" | "chars_only";
 
@@ -24,6 +25,42 @@ export type ContextCleanStatus =
   | "stale"
   | "cancelled"
   | "failed";
+
+export const TERMINAL_CONTEXT_CLEAN_STATUSES = [
+  "applied",
+  "stale",
+  "cancelled",
+  "failed",
+] as const satisfies readonly ContextCleanStatus[];
+
+export const CONTEXT_CLEAN_STATUS_TRANSITIONS = {
+  analyzed: ["approved", "cancelled", "failed"],
+  approved: ["scheduled", "stale", "cancelled", "failed"],
+  scheduled: ["applied", "stale", "cancelled", "failed"],
+  applied: [],
+  stale: [],
+  cancelled: [],
+  failed: [],
+} as const satisfies Record<ContextCleanStatus, readonly ContextCleanStatus[]>;
+
+export function isContextCleanStatus(value: unknown): value is ContextCleanStatus {
+  return typeof value === "string" && Object.hasOwn(CONTEXT_CLEAN_STATUS_TRANSITIONS, value);
+}
+
+export function isTerminalContextCleanStatus(
+  status: ContextCleanStatus,
+): boolean {
+  return (TERMINAL_CONTEXT_CLEAN_STATUSES as readonly ContextCleanStatus[])
+    .includes(status);
+}
+
+export function canTransitionContextCleanStatus(
+  from: ContextCleanStatus,
+  to: ContextCleanStatus,
+): boolean {
+  return from === to || (CONTEXT_CLEAN_STATUS_TRANSITIONS[from] as readonly ContextCleanStatus[])
+    .includes(to);
+}
 
 export type ContextCleanTaskBreakdown = {
   taskId: string;
@@ -80,6 +117,7 @@ type ContextCleanReceiptBase = {
   planId: string;
   hostId: string;
   sessionId: string;
+  /** Empty while analyzed; user approval freezes this selection for later states. */
   selectedTaskIds: string[];
   estimatedSavedTokens: number | null;
   estimatedSavedChars: number;
@@ -122,6 +160,34 @@ export type ContextCleanReceipt =
   | ContextCleanPendingReceipt
   | ContextCleanAppliedReceipt
   | ContextCleanTerminalReceipt;
+
+export type ContextCleanPlanRecord = {
+  storeSchemaVersion: typeof CONTEXT_CLEAN_STORE_SCHEMA_VERSION;
+  status: ContextCleanStatus;
+  plan: ContextCleanPlan;
+  updatedAt: string;
+};
+
+export type ContextCleanStoreOutcome =
+  | "stored"
+  | "transitioned"
+  | "unchanged"
+  | "missing"
+  | "conflict"
+  | "bypassed";
+
+export type ContextCleanStoreWriteResult<T> = {
+  outcome: ContextCleanStoreOutcome;
+  value?: T;
+  bypassed: boolean;
+  reasons: string[];
+};
+
+export type ContextCleanStoreReadResult<T> = {
+  value?: T;
+  bypassed: boolean;
+  reasons: string[];
+};
 
 export type ContextCleanSnapshot = ModelContextSnapshot & {
   capturedAt: string;

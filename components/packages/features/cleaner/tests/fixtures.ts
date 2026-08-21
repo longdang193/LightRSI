@@ -1,6 +1,7 @@
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
   type ContextCleanPlan,
+  type ContextCleanReceipt,
 } from "../src/index.js";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
@@ -37,6 +38,33 @@ export function sampleSnapshot(revision = "rev-1"): ModelContextSnapshot {
       },
     ],
   };
+}
+
+export function sampleReceipt(
+  status: ContextCleanReceipt["status"] = "analyzed",
+): ContextCleanReceipt {
+  const base = {
+    schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+    planId: "clean-plan-1",
+    hostId: "codex",
+    sessionId: "session-1",
+    selectedTaskIds: status === "analyzed" ? [] : ["task-a"],
+    estimatedSavedTokens: 50,
+    estimatedSavedChars: 200,
+    tokenCountMode: "estimated" as const,
+    deferredTaskIds: [],
+    reasons: [],
+    updatedAt: "2026-08-20T00:00:00.000Z",
+  };
+  if (status === "applied") {
+    return { ...base, status, fallbackUsed: false, appliedSavedTokens: 45,
+      appliedSavedChars: 180, evidence: { previousRevision: "rev-1", nextRevision: "rev-2",
+        operationIds: ["operation-1"], itemIds: ["item-a", "item-b"] } };
+  }
+  if (status === "stale" || status === "cancelled" || status === "failed") {
+    return { ...base, status, fallbackUsed: status === "failed" };
+  }
+  return { ...base, status, fallbackUsed: false };
 }
 
 export function samplePlan(): ContextCleanPlan {
