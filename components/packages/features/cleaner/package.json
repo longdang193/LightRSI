@@ -1,0 +1,17 @@
+{
+  "name": "@lightrsi/cleaner",
+  "version": "0.1.0-beta.1",
+  "private": true,
+  "lightrsi": { "role": "feature" },
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@lightrsi/host-adapter": "workspace:*"
+  }
+}
