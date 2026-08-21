@@ -1,0 +1,36 @@
+{
+  "name": "@lightrsi/deepseek-harness-adapter",
+  "version": "0.1.0-beta.1",
+  "description": "TokenPilot native Cordis integration for DeepSeek Harness (canonical surface eviction).",
+  "lightrsi": {
+    "role": "adapter"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zjunlp/LightRSI.git",
+    "directory": "components/adapters/deepseek-harness"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@lightrsi/eviction": "workspace:*",
+    "@lightrsi/history": "workspace:*"
+  },
+  "scripts": {
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "cordis",
+    "tokenpilot",
+    "context-management",
+    "canonical-surface"
+  ]
+}
