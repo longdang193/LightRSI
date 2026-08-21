@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  applyStablePrefixToInstructions,
   extractContentText,
   replaceContentText,
 } from "@lightrsi/stabilizer";
@@ -46,32 +45,23 @@ export function prepareClaudeStablePrefix(
         ? envelope.metadata.promptCacheKey
         : undefined;
 
-  const prepared = applyStablePrefixToInstructions({
-    envelope,
-    dynamicContextTarget: config.hooks.dynamicContextTarget,
-    mergeDynamicContextIntoInstructions: config.hooks.dynamicContextTarget === "developer",
-  });
-  const stableInstructionText = typeof prepared.instructions === "string" ? prepared.instructions : "";
-  const rootCandidate = findClaudeRootPromptCandidate(prepared.messages);
+  const stableInstructionText = typeof envelope.instructions === "string" ? envelope.instructions : "";
+  const rootCandidate = findClaudeRootPromptCandidate(envelope.messages);
   const stablePromptParts = [
     stableInstructionText,
     rootCandidate?.text ?? "",
   ];
-  const nextPromptCacheKey = computeStablePromptCacheKey(prepared.model, stablePromptParts);
-  const outboundPromptCacheKey = originalPromptCacheKey || nextPromptCacheKey;
-  if (
-    outboundPromptCacheKey === prepared.metadata?.promptCacheKey
-    && nextPromptCacheKey === prepared.metadata?.frameworkStablePromptCacheKey
-  ) {
-    return prepared;
+  const nextPromptCacheKey = computeStablePromptCacheKey(envelope.model, stablePromptParts);
+  if (nextPromptCacheKey === envelope.metadata?.frameworkStablePromptCacheKey
+    && originalPromptCacheKey === envelope.metadata?.originalPromptCacheKey) {
+    return envelope;
   }
   return {
-    ...prepared,
+    ...envelope,
     metadata: {
-      ...(prepared.metadata ?? {}),
+      ...(envelope.metadata ?? {}),
       originalPromptCacheKey,
       frameworkStablePromptCacheKey: nextPromptCacheKey,
-      promptCacheKey: outboundPromptCacheKey,
     },
   };
 }

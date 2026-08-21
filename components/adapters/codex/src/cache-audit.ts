@@ -1,4 +1,5 @@
 import type { HostRequestEnvelope } from "@lightrsi/host-adapter";
+import { dedupeCodexStableDeveloperMessages } from "./stable-prefix.js";
 import {
   appendCacheAuditRecord,
   buildCacheAuditSnapshot,
@@ -41,8 +42,13 @@ export function buildCodexCacheAuditSnapshot(params: {
   stream: boolean;
   originalRequestPromptCacheKey?: string | null;
   requestPromptCacheKey?: string | null;
+  providerWirePrefixHash?: string | null;
+  cacheFamilyId?: string | null;
 }): CacheAuditSnapshot {
-  return buildCacheAuditSnapshot(params);
+  return buildCacheAuditSnapshot({
+    ...params,
+    envelope: dedupeCodexStableDeveloperMessages(params.envelope),
+  });
 }
 
 export async function appendCodexCacheAuditRecord(params: {

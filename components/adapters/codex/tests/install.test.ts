@@ -6,6 +6,15 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { reserveUnusedPort } from "@lightrsi/host-adapter";
+
+async function assertInstalledCliLink(linkPath: string, targetPattern: RegExp, allowRegularFile: boolean) {
+  const linkStat = await lstat(linkPath);
+  if (linkStat.isSymbolicLink()) {
+    assert.match(await readlink(linkPath), targetPattern);
+    return;
+  }
+  assert.equal(allowRegularFile && linkStat.isFile(), true);
+}
 import { readCliContextState } from "../../../products/cli/src/context-store.js";
 import {
   loadTokenPilotCodexConfig,
@@ -155,15 +164,9 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
     assert.equal(result.cliBinDir, cliBinDir);
     assert.equal(result.cliBinDirOnPath, false);
     assert.equal(result.hostCliBinPath, join(cliBinDir, "tokenpilot-codex"));
-    if (process.platform === "win32") {
-      assert.equal((await lstat(result.cliBinPath)).isFile(), true);
-      assert.equal((await lstat(result.hostCliBinPath!)).isFile(), true);
-    } else {
-      assert.equal((await lstat(result.cliBinPath)).isSymbolicLink(), true);
-      assert.match(await readlink(result.cliBinPath), /products[\/\\]cli[\/\\]dist[\/\\]cli\.js$/);
-      assert.equal((await lstat(result.hostCliBinPath!)).isSymbolicLink(), true);
-      assert.match(await readlink(result.hostCliBinPath!), /adapters[\/\\]codex[\/\\]dist[\/\\]cli\.js$/);
-    }
+    const allowRegularFile = process.platform === "win32";
+    await assertInstalledCliLink(result.cliBinPath, /products[\/\\]cli[\/\\]dist[\/\\]cli\.js$/, allowRegularFile);
+    await assertInstalledCliLink(result.hostCliBinPath!, /adapters[\/\\]codex[\/\\]dist[\/\\]cli\.js$/, allowRegularFile);
     const tokenPilotConfig = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
     assert.equal(tokenPilotConfig.enabled, true);
     assert.equal(tokenPilotConfig.upstreamProvider, "OPENAI");

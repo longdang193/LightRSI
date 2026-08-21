@@ -20,6 +20,7 @@ import {
 import { runPrefixIfEnabled } from "./prefix-runner.js";
 import { runRequestModules, type ModuleExecutionRecord } from "./module-orchestrator.js";
 import { TOKENPILOT_REQUEST_MODULE_IDS } from "@lightrsi/tokenpilot";
+import type { CacheAuditSnapshot } from "@lightrsi/stabilizer";
 
 type ProxyRequestPreparation = {
   payload: any;
@@ -47,7 +48,7 @@ type ProxyRequestPreparation = {
   firstTurnCandidate: boolean;
   originalPromptCacheKey: string;
   reductionPassOptions: any;
-  cacheAuditSnapshot: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "usage" | "status">;
+  cacheAuditSnapshot: CacheAuditSnapshot;
 };
 
 function buildReductionSkippedResult(
@@ -525,7 +526,9 @@ export async function prepareProxyRequest(args: {
       metadata: {
         ...(requestEnvelope.metadata ?? {}),
         promptCacheKey: String(stableRewrite.promptCacheKey ?? ""),
-        ...(stabilizerEnabled ? { promptCacheRetention: "24h" } : {}),
+        ...(typeof requestEnvelope.metadata?.promptCacheRetention === "string"
+          ? { promptCacheRetention: requestEnvelope.metadata.promptCacheRetention }
+          : {}),
       },
     };
     payload.__tokenpilot_reduction_applied = true;
@@ -563,7 +566,6 @@ export async function prepareProxyRequest(args: {
     shouldRecordStability: stabilizerEnabled && Boolean(cfg.stateDir) && Boolean(devAndUser),
     shouldRecordReduction: reductionEnabled,
   });
-  if (stabilizerEnabled) payload.prompt_cache_retention = "24h";
   const cacheAuditSnapshot = buildOpenClawCacheAuditSnapshot({
     envelope: requestEnvelope,
     sessionId: resolvedSessionId,
