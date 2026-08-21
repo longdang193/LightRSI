@@ -53,8 +53,10 @@ export type ContextCleanPlan = {
   contextWindowTokens?: number;
   usedTokens: number | null;
   usedChars: number;
+  /** Protected context not attributed to a task, such as system instructions. */
   protectedTokens: number | null;
   protectedChars: number;
+  /** Context that is neither task-attributed nor protected. */
   unassignedTokens: number | null;
   unassignedChars: number;
   tokenCountMode: ContextCleanTokenCountMode;
@@ -73,24 +75,53 @@ export type ContextCleanEvidence = {
   providerResponseId?: string;
 };
 
-export type ContextCleanReceipt = {
+type ContextCleanReceiptBase = {
   schemaVersion: typeof CONTEXT_CLEAN_SCHEMA_VERSION;
   planId: string;
   hostId: string;
   sessionId: string;
-  status: ContextCleanStatus;
   selectedTaskIds: string[];
   estimatedSavedTokens: number | null;
   estimatedSavedChars: number;
-  appliedSavedTokens?: number | null;
-  appliedSavedChars?: number;
   tokenCountMode: ContextCleanTokenCountMode;
   deferredTaskIds: string[];
-  fallbackUsed: boolean;
   reasons: string[];
-  evidence?: ContextCleanEvidence;
   updatedAt: string;
 };
+
+export type ContextCleanPendingReceipt = ContextCleanReceiptBase & {
+  status: "analyzed" | "approved" | "scheduled";
+  appliedSavedTokens?: never;
+  appliedSavedChars?: never;
+  evidence?: ContextCleanEvidence;
+  fallbackUsed: false;
+};
+
+export type ContextCleanAppliedReceipt = ContextCleanReceiptBase & {
+  status: "applied";
+  appliedSavedTokens: number | null;
+  appliedSavedChars: number;
+  fallbackUsed: false;
+  evidence: ContextCleanEvidence & {
+    previousRevision: string;
+    nextRevision: string;
+    operationIds: string[];
+    itemIds: string[];
+  };
+};
+
+export type ContextCleanTerminalReceipt = ContextCleanReceiptBase & {
+  status: "stale" | "cancelled" | "failed";
+  appliedSavedTokens?: never;
+  appliedSavedChars?: never;
+  evidence?: ContextCleanEvidence;
+  fallbackUsed: boolean;
+};
+
+export type ContextCleanReceipt =
+  | ContextCleanPendingReceipt
+  | ContextCleanAppliedReceipt
+  | ContextCleanTerminalReceipt;
 
 export type ContextCleanSnapshot = ModelContextSnapshot & {
   capturedAt: string;
@@ -105,12 +136,27 @@ export type ContextCleanerSession = {
   updatedAt?: string;
 };
 
+export type ApprovedContextCleanTask = Pick<
+  ContextCleanTaskBreakdown,
+  "taskId" | "itemIds" | "itemDigests"
+>;
+
 export type ExecuteApprovedContextCleanParams = {
+  schemaVersion: typeof CONTEXT_CLEAN_SCHEMA_VERSION;
   cleanPlanId: string;
+  hostId: string;
   sessionId: string;
   baseRevision: string;
-  selectedTaskIds: string[];
+  approvedAt: string;
+  /** Exact task targets shown to and approved by the user. */
+  selectedTasks: ApprovedContextCleanTask[];
 };
+
+export function isAppliedContextCleanReceipt(
+  receipt: ContextCleanReceipt,
+): receipt is ContextCleanAppliedReceipt {
+  return receipt.status === "applied";
+}
 
 export interface ContextCleanerHostBridge {
   readonly hostId: string;
