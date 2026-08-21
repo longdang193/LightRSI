@@ -93,3 +93,29 @@ test("analyzed to approved freezes the user's first selected task ids", async ()
     assert.deepEqual(approved.value?.selectedTaskIds, ["task-a"]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("receipt selections must belong to the plan and remain selectable", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-receipt-selection-validation-"));
+  try {
+    const plan = samplePlan();
+    await saveContextCleanPlan({ stateDir: root, plan });
+
+    const unknown = await saveContextCleanReceipt({
+      stateDir: root,
+      receipt: { ...sampleReceipt("approved"), selectedTaskIds: ["task-missing"] },
+    });
+    assert.deepEqual(unknown.reasons, ["clean_receipt_selected_task_unknown"]);
+
+    const protectedTask = await saveContextCleanReceipt({
+      stateDir: root,
+      receipt: { ...sampleReceipt("approved"), selectedTaskIds: ["task-current"] },
+    });
+    assert.deepEqual(protectedTask.reasons, ["clean_receipt_selected_task_not_selectable"]);
+
+    const analyzedSelection = await saveContextCleanReceipt({
+      stateDir: root,
+      receipt: { ...sampleReceipt("analyzed"), selectedTaskIds: ["task-a"] },
+    });
+    assert.deepEqual(analyzedSelection.reasons, ["clean_receipt_analyzed_selection_not_empty"]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

@@ -86,6 +86,19 @@ export async function saveContextCleanReceiptUnlocked(params: {
         reasons: ["clean_receipt_identity_conflict"] };
     }
   }
+  const tasksById = new Map(planRead.value.plan.tasks.map((task) => [task.taskId, task]));
+  if (receipt.status === "analyzed" && receipt.selectedTaskIds.length > 0) {
+    return bypassed("clean_receipt_analyzed_selection_not_empty");
+  }
+  if (receipt.selectedTaskIds.some((taskId) => !tasksById.has(taskId))) {
+    return bypassed("clean_receipt_selected_task_unknown");
+  }
+  if (receipt.selectedTaskIds.some((taskId) => !tasksById.get(taskId)?.selectable)) {
+    return bypassed("clean_receipt_selected_task_not_selectable");
+  }
+  if (receipt.deferredTaskIds.some((taskId) => !tasksById.has(taskId))) {
+    return bypassed("clean_receipt_deferred_task_unknown");
+  }
   const entry: ContextCleanStoredReceipt = {
     storeSchemaVersion: CONTEXT_CLEAN_STORE_SCHEMA_VERSION,
     receipt,
