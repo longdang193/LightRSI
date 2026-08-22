@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   assertRecoveryProtocolText,
   assertStablePrefixRewrite,
   type HostGatewayForwarder,
 } from "@lightrsi/host-adapter";
-import { loadSessionTaskRegistry, persistSessionTaskRegistry } from "@lightrsi/history";
+import {
+  loadSessionTaskRegistry,
+  persistSessionTaskRegistry,
+  sessionTaskRegistryPath,
+} from "@lightrsi/history";
 import { readVisualSessionData, readVisualSessionList } from "@lightrsi/product-surface";
 import { normalizeTokenPilotClaudeCodeConfig } from "../src/config.js";
 import { startClaudeCodeGatewayRuntime } from "../src/gateway-runtime.js";
@@ -226,6 +230,73 @@ test("gateway snapshot persistence is fail-open and logs only reported failures"
     assert.deepEqual(
       warnings.filter((message) => message.includes("snapshot persistence failed")),
       ["context cleaner snapshot persistence failed (ignored): write_failed"],
+    );
+  } finally {
+    await runtime.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("gateway persists an unassigned snapshot when task registry recovery fails", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-registry-failure-"));
+  const stateDir = join(dir, "state");
+  const sessionId = "sess-registry-failure";
+  const proxyPort = await reserveUnusedPort();
+  const warnings: string[] = [];
+  const registryPath = sessionTaskRegistryPath(stateDir, sessionId);
+  await mkdir(dirname(registryPath), { recursive: true });
+  await writeFile(registryPath, "{broken", "utf8");
+
+  const runtime = await startClaudeCodeGatewayRuntime({
+    config: normalizeTokenPilotClaudeCodeConfig({
+      stateDir,
+      proxyPort,
+      modules: { stabilizer: false, reduction: false, eviction: false },
+    }),
+    logger: {
+      debug() {},
+      info() {},
+      warn(message) { warnings.push(message); },
+      error() {},
+    },
+    forwarder: {
+      async request() {
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          text: JSON.stringify({
+            id: "msg_registry_failure",
+            type: "message",
+            role: "assistant",
+            content: [],
+            stop_reason: "end_turn",
+          }),
+        };
+      },
+      async requestStream() { throw new Error("stream not used"); },
+    },
+  });
+
+  try {
+    const response = await fetch(`${runtime.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": sessionId },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        stream: false,
+        messages: [{ role: "user", content: [{ type: "text", text: "inspect" }] }],
+        max_tokens: 32,
+      }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+
+    const snapshot = await readLatestClaudeSnapshotRecord(stateDir, sessionId);
+    assert.equal(snapshot?.snapshot.items.length, 1);
+    assert.equal(snapshot?.snapshot.items[0]?.taskIds, undefined);
+    assert.equal(
+      warnings.filter((message) => message.includes("task attribution failed")).length,
+      1,
     );
   } finally {
     await runtime.close();

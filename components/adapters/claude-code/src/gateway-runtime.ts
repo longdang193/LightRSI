@@ -476,12 +476,19 @@ export async function startClaudeCodeGatewayRuntime(params: {
             messages: plannerMessages as unknown as RuntimeMessage[],
           },
         });
-        const cleanerRegistry = await loadSessionTaskRegistry(config.stateDir, sessionId);
-        const cleanerSnapshot = attributeClaudeSnapshotTasks({
-          snapshot: baseCleanerSnapshot,
-          messages: plannerMessages,
-          registry: cleanerRegistry,
-        });
+        let cleanerSnapshot = baseCleanerSnapshot;
+        try {
+          const cleanerRegistry = await loadSessionTaskRegistry(config.stateDir, sessionId);
+          cleanerSnapshot = attributeClaudeSnapshotTasks({
+            snapshot: baseCleanerSnapshot,
+            messages: plannerMessages,
+            registry: cleanerRegistry,
+          });
+        } catch (error) {
+          // Task attribution is optional. Keep the canonical snapshot even when
+          // registry recovery fails so Cleaner can still inspect unassigned context.
+          logger.warn(`context cleaner task attribution failed (ignored): ${String(error)}`);
+        }
         const saveResult = await (
           params.dependencies?.saveSnapshot ?? saveLatestClaudeSnapshot
         )(config.stateDir, sessionId, cleanerSnapshot, { model: envelope.model });
