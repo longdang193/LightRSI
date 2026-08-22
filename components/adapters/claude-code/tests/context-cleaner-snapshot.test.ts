@@ -1,0 +1,138 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import type { SessionTaskRegistry } from "@lightrsi/history";
+
+import { attributeClaudeSnapshotTasks } from "../src/context-cleaner/snapshot.js";
+import { buildClaudeContextSnapshot } from "../src/context-rewrite/snapshot.js";
+
+const SESSION = "claude-task-attribution";
+
+function registry(
+  blockToTaskIds: Record<string, string[]>,
+  taskIds: string[] = ["task-read"],
+): SessionTaskRegistry {
+  return {
+    sessionId: SESSION,
+    version: 1,
+    tasks: Object.fromEntries(taskIds.map((taskId) => [taskId, {
+      taskId,
+      title: taskId,
+      objective: taskId,
+      lifecycle: "completed",
+      completionEvidence: [],
+      unresolvedQuestions: [],
+      span: {
+        firstTurnAbsId: `${SESSION}:t1`,
+        lastTurnAbsId: `${SESSION}:t1`,
+        supportingTurnAbsIds: [`${SESSION}:t1`],
+        lastEstimatorTurnAbsId: `${SESSION}:t1`,
+      },
+    }])),
+    activeTaskIds: [],
+    completedTaskIds: taskIds,
+    evictableTaskIds: [],
+    taskToBlockIds: {},
+    blockToTaskIds,
+    turnToTaskIds: {},
+    lastProcessedTurnSeq: 1,
+  };
+}
+
+function messages() {
+  return [
+    { role: "system", content: [{ type: "text", text: "stay safe" }] },
+    { role: "user", content: [{ type: "text", text: "read the file" }] },
+    {
+      role: "assistant",
+      content: [{
+        type: "tool_use",
+        id: "toolu_read",
+        name: "Read",
+        input: { file_path: "/repo/a.ts" },
+      }],
+    },
+    {
+      role: "user",
+      content: [{
+        type: "tool_result",
+        tool_use_id: "toolu_read",
+        content: "file body",
+      }],
+    },
+    { role: "assistant", content: [{ type: "text", text: "done" }] },
+    { role: "user", content: [{ type: "text", text: "current request" }] },
+  ];
+}
+
+test("attributes a proven historical tool call/result pair from blockToTaskIds", () => {
+  const inbound = messages();
+  const snapshot = buildClaudeContextSnapshot({
+    sessionId: SESSION,
+    revision: "revision-1",
+    messages: inbound as any,
+  });
+  const attributed = attributeClaudeSnapshotTasks({
+    snapshot,
+    messages: inbound,
+    registry: registry({ "anthropic-tool-result:toolu_read": ["task-read"] }),
+  });
+
+  const call = attributed.items.find((item) => item.kind === "tool_call");
+  const result = attributed.items.find((item) => item.kind === "tool_result");
+  assert.deepEqual(call?.taskIds, ["task-read"]);
+  assert.deepEqual(result?.taskIds, ["task-read"]);
+  assert.equal(call?.callId, result?.callId);
+  assert.ok(
+    attributed.items
+      .filter((item) => item.kind !== "tool_call" && item.kind !== "tool_result")
+      .every((item) => item.taskIds === undefined),
+  );
+});
+
+test("leaves current-turn, ambiguous, and unknown-task mappings unassigned", () => {
+  const currentToolPair = [
+    ...messages().slice(0, -1),
+    {
+      role: "assistant",
+      content: [{ type: "tool_use", id: "toolu_current", name: "Read", input: {} }],
+    },
+    {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "toolu_current", content: "current" }],
+    },
+  ];
+  const snapshot = buildClaudeContextSnapshot({
+    sessionId: SESSION,
+    revision: "revision-current",
+    messages: currentToolPair as any,
+  });
+  const attributed = attributeClaudeSnapshotTasks({
+    snapshot,
+    messages: currentToolPair,
+    registry: registry({
+      "anthropic-tool-result:toolu_read": ["missing-task"],
+      "anthropic-tool-result:toolu_current": ["task-read"],
+    }),
+  });
+
+  assert.ok(attributed.items.every((item) => item.taskIds === undefined));
+});
+
+test("rejects attribution from a registry for another session", () => {
+  const inbound = messages();
+  const snapshot = buildClaudeContextSnapshot({
+    sessionId: SESSION,
+    revision: "revision-mismatch",
+    messages: inbound as any,
+  });
+  const wrongRegistry = registry({ "anthropic-tool-result:toolu_read": ["task-read"] });
+  wrongRegistry.sessionId = "different-session";
+
+  const attributed = attributeClaudeSnapshotTasks({
+    snapshot,
+    messages: inbound,
+    registry: wrongRegistry,
+  });
+  assert.ok(attributed.items.every((item) => item.taskIds === undefined));
+});
