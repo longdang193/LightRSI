@@ -2,6 +2,20 @@
   "name": "@lightrsi/deepseek-harness-adapter",
   "version": "0.1.0-beta.1",
   "description": "TokenPilot native Cordis integration for DeepSeek Harness (canonical surface eviction).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "lightrsi": {
     "role": "adapter"
   },
@@ -12,7 +26,8 @@
     }
   },
   "files": [
-    "src",
+    "dist",
+    "types",
     "cordis.patch.yml"
   ],
   "repository": {
@@ -21,17 +36,18 @@
     "directory": "components/adapters/deepseek-harness"
   },
   "engines": {
-    "node": ">=20.0.0"
-  },
-  "dependencies": {
-    "@lightrsi/eviction": "workspace:*",
-    "@lightrsi/history": "workspace:*"
+    "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "test": "node --import tsx --test tests/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "build": "tsx build.ts",
+    "test": "pnpm run build && node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "pnpm run build"
   },
   "devDependencies": {
+    "@lightrsi/eviction": "workspace:*",
+    "@lightrsi/history": "workspace:*",
+    "esbuild": "^0.25.10",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },

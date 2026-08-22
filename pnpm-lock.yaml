@@ -111,14 +111,16 @@ importers:
         version: 5.9.3
 
   components/adapters/deepseek-harness:
-    dependencies:
+    devDependencies:
       '@lightrsi/eviction':
         specifier: workspace:*
         version: link:../../packages/features/eviction
       '@lightrsi/history':
         specifier: workspace:*
         version: link:../../packages/foundation/history
-    devDependencies:
+      esbuild:
+        specifier: ^0.25.10
+        version: 0.25.12
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
