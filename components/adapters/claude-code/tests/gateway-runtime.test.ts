@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -16,6 +17,7 @@ import { normalizeTokenPilotClaudeCodeConfig } from "../src/config.js";
 import { startClaudeCodeGatewayRuntime } from "../src/gateway-runtime.js";
 import { createConsoleLogger } from "../src/logger.js";
 import { upsertClaudeCodeSessionSnapshot } from "../src/session-state.js";
+import { readLatestClaudeSnapshotRecord } from "../src/context-rewrite/snapshot-store.js";
 
 async function reserveUnusedPort(): Promise<number> {
   return await new Promise((resolve, reject) => {
@@ -146,6 +148,182 @@ test("gateway runtime serves health and forwards Claude Messages requests", asyn
     assert.equal(payload.id, "msg_test_1");
     assert.equal((seenPayloads as Record<string, unknown>[]).length, 1);
     assert.equal(((seenPayloads[0] as Record<string, unknown>).model), "claude-sonnet-4-6");
+    const cleanerSnapshot = await readLatestClaudeSnapshotRecord(
+      join(dir, "state"),
+      "sess-runtime-1",
+    );
+    assert.equal(cleanerSnapshot?.model, "claude-sonnet-4-6");
+    assert.equal(cleanerSnapshot?.snapshot.items.length, 1);
+    assert.equal(cleanerSnapshot?.snapshot.items[0]?.chars, "hello".length);
+  } finally {
+    await runtime.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("gateway snapshot persistence is fail-open and logs only reported failures", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-snapshot-result-"));
+  const proxyPort = await reserveUnusedPort();
+  const warnings: string[] = [];
+  let saveCount = 0;
+  const runtime = await startClaudeCodeGatewayRuntime({
+    config: normalizeTokenPilotClaudeCodeConfig({
+      stateDir: join(dir, "state"),
+      proxyPort,
+      modules: { stabilizer: false, reduction: false, eviction: false },
+    }),
+    logger: {
+      debug() {},
+      info() {},
+      warn(message) { warnings.push(message); },
+      error() {},
+    },
+    forwarder: {
+      async request() {
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          text: JSON.stringify({
+            id: "msg_snapshot_result",
+            type: "message",
+            role: "assistant",
+            content: [],
+            stop_reason: "end_turn",
+          }),
+        };
+      },
+      async requestStream() { throw new Error("stream not used"); },
+    },
+    dependencies: {
+      async saveSnapshot() {
+        saveCount += 1;
+        return saveCount === 1
+          ? { saved: true as const }
+          : { saved: false as const, reason: "write_failed" as const };
+      },
+    },
+  });
+
+  async function send(label: string): Promise<void> {
+    const response = await fetch(`${runtime.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "sess-snapshot-result" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        stream: false,
+        messages: [{ role: "user", content: [{ type: "text", text: label }] }],
+        max_tokens: 32,
+      }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+  }
+
+  try {
+    await send("first");
+    await send("second");
+    assert.equal(saveCount, 2);
+    assert.deepEqual(
+      warnings.filter((message) => message.includes("snapshot persistence failed")),
+      ["context cleaner snapshot persistence failed (ignored): write_failed"],
+    );
+  } finally {
+    await runtime.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("gateway publishes only block-proven task attribution from the persisted registry", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-snapshot-tasks-"));
+  const stateDir = join(dir, "state");
+  const sessionId = "sess-snapshot-tasks";
+  const proxyPort = await reserveUnusedPort();
+  const seeded = await loadSessionTaskRegistry(stateDir, sessionId);
+  seeded.version = 1;
+  seeded.tasks["task-proven"] = {
+    taskId: "task-proven",
+    title: "proven task",
+    objective: "read the file",
+    lifecycle: "completed",
+    completionEvidence: ["done"],
+    unresolvedQuestions: [],
+    span: {
+      firstTurnAbsId: `${sessionId}:t1`,
+      lastTurnAbsId: `${sessionId}:t1`,
+      supportingTurnAbsIds: [`${sessionId}:t1`],
+      lastEstimatorTurnAbsId: `${sessionId}:t1`,
+    },
+  };
+  seeded.completedTaskIds = ["task-proven"];
+  seeded.blockToTaskIds = {
+    "anthropic-tool-result:toolu_proven": ["task-proven"],
+  };
+  seeded.taskToBlockIds = {
+    "task-proven": ["anthropic-tool-result:toolu_proven"],
+  };
+  await persistSessionTaskRegistry(stateDir, seeded, { expectedVersion: 0 });
+
+  const runtime = await startClaudeCodeGatewayRuntime({
+    config: normalizeTokenPilotClaudeCodeConfig({
+      stateDir,
+      proxyPort,
+      modules: { stabilizer: false, reduction: false, eviction: false },
+    }),
+    logger: createConsoleLogger(false),
+    forwarder: {
+      async request() {
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          text: JSON.stringify({
+            id: "msg_snapshot_tasks",
+            type: "message",
+            role: "assistant",
+            content: [],
+            stop_reason: "end_turn",
+          }),
+        };
+      },
+      async requestStream() { throw new Error("stream not used"); },
+    },
+  });
+  const messages = [
+    { role: "user", content: [{ type: "text", text: "read" }] },
+    {
+      role: "assistant",
+      content: [{ type: "tool_use", id: "toolu_proven", name: "Read", input: {} }],
+    },
+    {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "toolu_proven", content: "body" }],
+    },
+    { role: "assistant", content: [{ type: "text", text: "done" }] },
+    { role: "user", content: [{ type: "text", text: "current" }] },
+  ];
+
+  try {
+    const response = await fetch(`${runtime.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": sessionId },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        stream: false,
+        messages,
+        max_tokens: 32,
+      }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+
+    const snapshot = await readLatestClaudeSnapshotRecord(stateDir, sessionId);
+    const toolPair = snapshot?.snapshot.items.filter(
+      (item) => item.callId === "toolu_proven",
+    ) ?? [];
+    assert.equal(toolPair.length, 2);
+    assert.ok(toolPair.every((item) => (
+      JSON.stringify(item.taskIds) === JSON.stringify(["task-proven"])
+    )));
+    assert.equal(snapshot?.snapshot.items.at(-1)?.taskIds, undefined);
   } finally {
     await runtime.close();
     await rm(dir, { recursive: true, force: true });
@@ -1203,6 +1381,28 @@ test("gateway eviction preserves tool closure and the active user turn", async (
     forwarder,
   });
 
+  const originalMessages = [
+    { role: "user", content: [{ type: "text", text: "read the file" }] },
+    {
+      role: "assistant",
+      content: [{
+        type: "tool_use",
+        id: "toolu_eviction_1",
+        name: "Read",
+        input: { file_path: "/repo/large.txt" },
+      }],
+    },
+    {
+      role: "user",
+      content: [{
+        type: "tool_result",
+        tool_use_id: "toolu_eviction_1",
+        content: "EVICT_ME_" + "x".repeat(5000),
+      }],
+    },
+    { role: "assistant", content: [{ type: "text", text: "previous task complete" }] },
+    { role: "user", content: [{ type: "text", text: "KEEP_ME_current_user_turn" }] },
+  ];
   try {
     const response = await fetch(`${runtime.baseUrl}/v1/messages`, {
       method: "POST",
@@ -1213,28 +1413,7 @@ test("gateway eviction preserves tool closure and the active user turn", async (
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         stream: false,
-        messages: [
-          { role: "user", content: [{ type: "text", text: "read the file" }] },
-          {
-            role: "assistant",
-            content: [{
-              type: "tool_use",
-              id: "toolu_eviction_1",
-              name: "Read",
-              input: { file_path: "/repo/large.txt" },
-            }],
-          },
-          {
-            role: "user",
-            content: [{
-              type: "tool_result",
-              tool_use_id: "toolu_eviction_1",
-              content: "EVICT_ME_" + "x".repeat(5000),
-            }],
-          },
-          { role: "assistant", content: [{ type: "text", text: "previous task complete" }] },
-          { role: "user", content: [{ type: "text", text: "KEEP_ME_current_user_turn" }] },
-        ],
+        messages: originalMessages,
         max_tokens: 256,
       }),
     });
@@ -1260,6 +1439,21 @@ test("gateway eviction preserves tool closure and the active user turn", async (
     assert.equal(beforeCall?.evictionApplied, true);
     assert.equal(beforeCall?.evictionChangedToolResults, 1);
     assert.ok(Number(beforeCall?.evictionSavedChars) > 0);
+
+    const cleanerSnapshot = await readLatestClaudeSnapshotRecord(
+      join(dir, "state"),
+      "sess-eviction-1",
+    );
+    const originalRevision = createHash("sha256")
+      .update(JSON.stringify(originalMessages))
+      .digest("hex")
+      .slice(0, 32);
+    assert.equal(cleanerSnapshot?.snapshot.revision, originalRevision);
+    assert.equal(cleanerSnapshot?.snapshot.items.length, 5);
+    assert.equal(
+      cleanerSnapshot?.snapshot.items.find((item) => item.kind === "tool_result")?.chars,
+      ("EVICT_ME_" + "x".repeat(5000)).length,
+    );
   } finally {
     await runtime.close();
     await rm(dir, { recursive: true, force: true });
@@ -1617,6 +1811,21 @@ test("lifecycle estimator rewrites the real Claude upstream payload", async () =
     const beforeCall = trace.filter((entry) => entry.stage === "gateway_before_call").at(-1);
     assert.equal(beforeCall?.evictionPlanSource, "lifecycle");
     assert.equal(beforeCall?.evictionApplied, true);
+
+    const cleanerSnapshot = await readLatestClaudeSnapshotRecord(
+      join(dir, "state"),
+      "sess-lifecycle-e2e",
+    );
+    const attributedPair = cleanerSnapshot?.snapshot.items.filter(
+      (item) => item.callId === "toolu_lifecycle_e2e",
+    ) ?? [];
+    assert.equal(attributedPair.length, 2);
+    // turnToTaskIds alone is not enough proof for Cleaner item ownership.
+    assert.ok(attributedPair.every((item) => item.taskIds === undefined));
+    assert.equal(
+      cleanerSnapshot?.snapshot.items.at(-1)?.taskIds,
+      undefined,
+    );
   } finally {
     await runtime.close();
     await rm(dir, { recursive: true, force: true });
@@ -1646,7 +1855,7 @@ test("lifecycle registry persistence failure bypasses the plan and heuristic fal
       return {
         baseVersion: registry.version,
         taskUpdates: [{
-          taskId: "task-cas-e2e",
+          taskId: estimateCount > 1 ? "task-cas-uncommitted" : "task-cas-e2e",
           lifecycle: estimateCount > 1 ? "evictable" : "completed",
           objective: "finish the file task",
           completionEvidence: ["done"],
@@ -1708,6 +1917,14 @@ test("lifecycle registry persistence failure bypasses the plan and heuristic fal
     assert.equal(beforeCall?.evictionApplied, false);
     const registry = await loadSessionTaskRegistry(join(dir, "state"), "sess-cas-e2e");
     assert.equal(registry.tasks["task-cas-e2e"]?.lifecycle, "completed");
+    assert.equal(registry.tasks["task-cas-uncommitted"], undefined);
+    const cleanerSnapshot = await readLatestClaudeSnapshotRecord(
+      join(dir, "state"),
+      "sess-cas-e2e",
+    );
+    assert.ok(cleanerSnapshot?.snapshot.items.every(
+      (item) => !item.taskIds?.includes("task-cas-uncommitted"),
+    ));
   } finally {
     await runtime.close();
     await rm(dir, { recursive: true, force: true });
