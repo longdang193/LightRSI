@@ -6,6 +6,15 @@
     "role": "adapter"
   },
   "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/zjunlp/LightRSI.git",
