@@ -18,3 +18,7 @@ export {
   recoverContextCleanState,
   transitionContextCleanState,
 } from "./clean-state-coordinator.js";
+export {
+  createContextCleanerHostExecutionBridge,
+  type CreateContextCleanerHostExecutionBridgeParams,
+} from "./host-execution-bridge.js";

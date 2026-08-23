@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
+  type ContextCleanExecutionRequest,
+  type ContextCleanerHostExecutionBridge,
   type ContextCleanerHostBridge,
   type ContextCleanPendingReceipt,
   type ContextCleanReceipt,
@@ -219,3 +221,37 @@ const appliedWithFallback: ContextCleanReceipt = {
   },
 };
 void appliedWithFallback;
+
+const executionRequest: ContextCleanExecutionRequest = {
+  cleanPlanId: "clean-plan-1",
+  sessionId: "session-1",
+  baseRevision: "rev-1",
+  selectedTaskIds: ["task-a"],
+};
+void executionRequest;
+
+const fakeExecutionBridge: ContextCleanerHostExecutionBridge = {
+  hostId: "fake-host",
+  async prepareScheduledClean() {
+    return {
+      outcome: "missing",
+      bypassed: false,
+      reasons: ["clean_execution_missing"],
+    };
+  },
+  async recordCleanReceipt() {
+    return {
+      outcome: "missing",
+      bypassed: true,
+      reasons: ["clean_execution_missing"],
+    };
+  },
+};
+void fakeExecutionBridge;
+
+const executionRequestWithCallerSelectedItems: ContextCleanExecutionRequest = {
+  ...executionRequest,
+  // @ts-expect-error Runtime callers cannot replace the item scope frozen in the stored plan.
+  itemIds: ["item-a"],
+};
+void executionRequestWithCallerSelectedItems;
