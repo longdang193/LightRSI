@@ -3,8 +3,8 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, readlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 import process from "node:process";
 
 const execFileAsync = promisify(execFile);
@@ -69,17 +69,21 @@ try {
 
   const hostConfig = await readFile(hostConfigPath, "utf8");
   const auxiliaryConfig = await readFile(auxiliaryConfigPath, "utf8");
-  const installedConfig = `${hostConfig}\n${auxiliaryConfig}`;
-  assert.match(installedConfig, /hooks-handler\.js|tokenpilot-codex-hook\.cmd/);
-  assert.match(installedConfig, /mcp-server\.js|server\.js/);
+  const installedConfig = `${hostConfig}\n${auxiliaryConfig}`.replace(/\\+/g, "/");
+  const normalizedDistDir = distDir.replace(/\\+/g, "/");
+  const hookEntry = process.platform === "win32" && host === "codex"
+    ? "tokenpilot-codex-hook.cmd"
+    : "hooks-handler.js";
+  assert.match(installedConfig, new RegExp(`${normalizedDistDir}/${hookEntry}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(installedConfig, new RegExp(`${normalizedDistDir}/mcp-server.js`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
   assert.equal(await readlink(join(binDir, "lightrsi")), join(distDir, "lightrsi.js"));
   assert.equal(await readlink(join(binDir, "lightmem2")), join(distDir, "lightrsi.js"));
   assert.equal(await readlink(join(binDir, hostCliName)), join(distDir, "cli.js"));
 
   const skillsRoot = host === "codex" ? join(homeDir, ".codex", "skills") : join(homeDir, ".claude", "skills");
-  const skill = await readFile(join(skillsRoot, "lightrsi-doctor", "SKILL.md"), "utf8");
-  assert.match(skill, /lightrsi\.js/);
+  const skill = (await readFile(join(skillsRoot, "lightrsi-doctor", "SKILL.md"), "utf8")).replace(/\\+/g, "/");
+  assert.match(skill, new RegExp(`${normalizedDistDir}/lightrsi.js`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
   const loaded = await import(pathToFileURL(join(distDir, "index.js")).href);
   assert.ok(Object.keys(loaded).length > 0);

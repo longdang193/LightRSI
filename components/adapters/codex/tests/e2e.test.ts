@@ -515,7 +515,7 @@ test("Codex cold and warm requests expose prompt cache hit usage when stable pre
       const bodyB = await responseB.json() as Record<string, unknown>;
       assert.equal(typeof upstream.requests[0]?.prompt_cache_key, "string");
       assert.equal(upstream.requests[0]?.prompt_cache_key, upstream.requests[1]?.prompt_cache_key);
-      assert.match(String(upstream.requests[0]?.prompt_cache_key ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
+      assert.match(String(upstream.requests[0]?.prompt_cache_key ?? ""), /^lightrsi-family-[a-f0-9]{24}$/);
       assertColdWarmCacheUsage([bodyA.usage, bodyB.usage]);
 
       const sessions = await readVisualSessionList(stateDir);
@@ -635,7 +635,7 @@ test("Codex preserves different inbound prompt_cache_key values upstream while a
       assert.equal(responseA.status, 200);
       assert.equal(responseB.status, 200);
       assert.equal(typeof upstream.requests[0]?.prompt_cache_key, "string");
-      assert.match(String(upstream.requests[0]?.prompt_cache_key ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
+      assert.match(String(upstream.requests[0]?.prompt_cache_key ?? ""), /^lightrsi-family-[a-f0-9]{24}$/);
       assert.equal(upstream.requests[0]?.prompt_cache_key, upstream.requests[1]?.prompt_cache_key);
     } finally {
       await runtime.close();
@@ -768,7 +768,7 @@ test("Codex requests reuse synth sessions through prompt_cache_key when previous
         assert.equal(bindings[1]?.responseId, "resp-pk-2");
         assert.equal(typeof requests[0]?.prompt_cache_key, "string");
         assert.equal(requests[0]?.prompt_cache_key, requests[1]?.prompt_cache_key);
-        assert.match(String(requests[0]?.prompt_cache_key ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
+        assert.match(String(requests[0]?.prompt_cache_key ?? ""), /^lightrsi-family-[a-f0-9]{24}$/);
       } finally {
         await runtime.close();
       }

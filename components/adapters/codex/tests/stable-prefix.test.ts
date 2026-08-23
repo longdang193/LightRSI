@@ -27,12 +27,12 @@ test("cache contract stays uniform across aliases and future model names", () =>
   const models = ["gpt-5.6-sol", "cx/gpt-5.6-sol", "gpt-6.0-new", "provider/future-model"];
   const prepared = models.map((model) => prepareCodexStablePrefix(makeCacheFamilyEnvelope(model), config));
 
-  assert.equal(new Set(prepared.map((item) => item.metadata?.lightmem2CacheContractDigest)).size, 1);
+  assert.equal(new Set(prepared.map((item) => item.metadata?.lightrsiCacheContractDigest)).size, 1);
   assert.equal(new Set(prepared.map((item) => item.metadata?.cacheFamilyId)).size, 1);
   assert.deepEqual(prepared.map((item) => item.model), models);
   assert.deepEqual(prepared[1]?.messages, prepared[0]?.messages);
   assert.equal(prepared[1]?.instructions, prepared[0]?.instructions);
-  assert.match(String(prepared[0]?.metadata?.lightmem2CacheContractDigest ?? ""), /^[a-f0-9]{24}$/);
+  assert.match(String(prepared[0]?.metadata?.lightrsiCacheContractDigest ?? ""), /^[a-f0-9]{24}$/);
 });
 
 test("cache contract ignores volatile sender metadata inside system prompts", () => {
@@ -64,8 +64,8 @@ test("cache contract ignores volatile sender metadata inside system prompts", ()
   }, config);
 
   assert.equal(
-    first.metadata?.lightmem2CacheContractDigest,
-    second.metadata?.lightmem2CacheContractDigest,
+    first.metadata?.lightrsiCacheContractDigest,
+    second.metadata?.lightrsiCacheContractDigest,
   );
   assert.equal(first.messages[0]?.content, firstContent);
   assert.equal(second.messages[0]?.content, secondContent);
@@ -94,8 +94,8 @@ test("cache contract ignores volatile DeepAgents conversation-history entries", 
   }, config);
 
   assert.equal(
-    first.metadata?.lightmem2CacheContractDigest,
-    second.metadata?.lightmem2CacheContractDigest,
+    first.metadata?.lightrsiCacheContractDigest,
+    second.metadata?.lightrsiCacheContractDigest,
   );
   assert.equal(first.messages[0]?.content, firstContent);
   assert.equal(second.messages[0]?.content, secondContent);
@@ -138,8 +138,8 @@ test("cache contract includes every stable system message", () => {
   }, config);
 
   assert.notEqual(
-    first.metadata?.lightmem2CacheContractDigest,
-    second.metadata?.lightmem2CacheContractDigest,
+    first.metadata?.lightrsiCacheContractDigest,
+    second.metadata?.lightrsiCacheContractDigest,
   );
 });
 
@@ -172,7 +172,7 @@ test("cache family ignores stable messages after provider cache boundary", () =>
   }, config);
 
   assert.equal(first.metadata?.cacheFamilyId, followUp.metadata?.cacheFamilyId);
-  assert.equal(first.metadata?.lightmem2CacheContractDigest, followUp.metadata?.lightmem2CacheContractDigest);
+  assert.equal(first.metadata?.lightrsiCacheContractDigest, followUp.metadata?.lightrsiCacheContractDigest);
   assert.notEqual(first.metadata?.providerWirePrefixHash, "");
   assert.deepEqual(followUp.messages, [
     { role: "system", content: "Project rules.", metadata: { __codexOriginalRole: "system" } },
@@ -232,12 +232,12 @@ test("cache contract splits cache-relevant options and tool schemas", () => {
   }, config);
 
   assert.notEqual(
-    withLowReasoning.metadata?.lightmem2CacheContractDigest,
-    withHighReasoning.metadata?.lightmem2CacheContractDigest,
+    withLowReasoning.metadata?.lightrsiCacheContractDigest,
+    withHighReasoning.metadata?.lightrsiCacheContractDigest,
   );
   assert.notEqual(
-    withLowReasoning.metadata?.lightmem2CacheContractDigest,
-    withDifferentTool.metadata?.lightmem2CacheContractDigest,
+    withLowReasoning.metadata?.lightrsiCacheContractDigest,
+    withDifferentTool.metadata?.lightrsiCacheContractDigest,
   );
 });
 
@@ -283,12 +283,12 @@ test("cache contract ignores volatile Codex client metadata but preserves semant
   }, config);
 
   assert.equal(
-    first.metadata?.lightmem2CacheContractDigest,
-    second.metadata?.lightmem2CacheContractDigest,
+    first.metadata?.lightrsiCacheContractDigest,
+    second.metadata?.lightrsiCacheContractDigest,
   );
   assert.notEqual(
-    second.metadata?.lightmem2CacheContractDigest,
-    differentReasoning.metadata?.lightmem2CacheContractDigest,
+    second.metadata?.lightrsiCacheContractDigest,
+    differentReasoning.metadata?.lightrsiCacheContractDigest,
   );
 });
 
@@ -379,9 +379,9 @@ test("prepareCodexStablePrefix preserves instructions and developer prompt witho
   assert.equal((prepared.messages[0] as any)?.metadata?.__codexOriginalRole, "developer");
   assert.match(String(prepared.messages[0]?.content ?? ""), /Runtime: agent=agent-123 \| mode=interactive/);
   assert.equal(prepared.messages[1]?.content, "hello");
-  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightmem2-family-[0-9a-f]{24}$/);
+  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightrsi-family-[0-9a-f]{24}$/);
   assert.match(String(prepared.metadata?.providerWirePrefixHash ?? ""), /^[0-9a-f]{64}$/);
-  assert.match(String(prepared.metadata?.cacheFamilyId ?? ""), /^lightmem2-family-[0-9a-f]{24}$/);
+  assert.match(String(prepared.metadata?.cacheFamilyId ?? ""), /^lightrsi-family-[0-9a-f]{24}$/);
   assert.equal(prepared.metadata?.promptCacheRetention, undefined);
 });
 
@@ -649,7 +649,7 @@ test("prepareCodexStablePrefix preserves first user message when dynamic context
   assert.equal(prepared.messages[1]?.content, "please inspect the repo");
 });
 
-test("prepareCodexStablePrefix preserves inbound prompt_cache_key for audit while using family key", () => {
+test("prepareCodexStablePrefix does not expose inbound prompt_cache_key", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {
       dynamicContextTarget: "developer",
@@ -689,13 +689,13 @@ test("prepareCodexStablePrefix preserves inbound prompt_cache_key for audit whil
     },
   }, config);
 
-  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
-  assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightmem2-codex-/);
-  assert.equal(prepared.metadata?.originalPromptCacheKey, "upstream-existing-key");
+  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightrsi-family-[a-f0-9]{24}$/);
+  assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightrsi-codex-/);
+  assert.equal(prepared.metadata?.originalPromptCacheKey, undefined);
   assert.equal(prepared.metadata?.promptCacheRetention, undefined);
 });
 
-test("prepareCodexStablePrefix keeps inbound runtime keys while converging framework stable keys", () => {
+test("prepareCodexStablePrefix converges inbound runtime keys to one family key", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {
       dynamicContextTarget: "developer",
@@ -738,15 +738,15 @@ test("prepareCodexStablePrefix keeps inbound runtime keys while converging frame
   const preparedA = prepareCodexStablePrefix(makeEnvelope("legacy-key-a"), config);
   const preparedB = prepareCodexStablePrefix(makeEnvelope("legacy-key-b"), config);
 
-  assert.match(String(preparedA.metadata?.promptCacheKey ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
+  assert.match(String(preparedA.metadata?.promptCacheKey ?? ""), /^lightrsi-family-[a-f0-9]{24}$/);
   assert.equal(preparedA.metadata?.promptCacheKey, preparedB.metadata?.promptCacheKey);
-  assert.equal(preparedA.metadata?.originalPromptCacheKey, "legacy-key-a");
-  assert.equal(preparedB.metadata?.originalPromptCacheKey, "legacy-key-b");
+  assert.equal(preparedA.metadata?.originalPromptCacheKey, undefined);
+  assert.equal(preparedB.metadata?.originalPromptCacheKey, undefined);
   assert.equal(
     preparedA.metadata?.frameworkStablePromptCacheKey,
     preparedB.metadata?.frameworkStablePromptCacheKey,
   );
-  assert.match(String(preparedA.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightmem2-codex-/);
+  assert.match(String(preparedA.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightrsi-codex-/);
   assert.match(String(preparedA.metadata?.providerWirePrefixHash ?? ""), /^[a-f0-9]{64}$/);
-  assert.match(String(preparedA.metadata?.cacheFamilyId ?? ""), /^lightmem2-family-[a-f0-9]{24}$/);
+  assert.match(String(preparedA.metadata?.cacheFamilyId ?? ""), /^lightrsi-family-[a-f0-9]{24}$/);
 });

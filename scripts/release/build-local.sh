@@ -3,13 +3,45 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-VERSION="${1:-$(node -p "require('${REPO_ROOT}/package.json').version")}"
+NODE_BIN="${NODE_BIN:-$(command -v node || command -v node.exe || true)}"
+if [[ -z "${NODE_BIN}" ]]; then
+  printf '%s\n' "Node.js executable not found (expected node or node.exe)." >&2
+  exit 1
+fi
+to_node_path() {
+  if [[ "${NODE_BIN}" == *.exe ]] && command -v wslpath >/dev/null 2>&1; then
+    local windows_path
+    windows_path="$(wslpath -w "$1")"
+    printf '%s\n' "${windows_path//\\//}"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+NODE_REPO_ROOT="$(to_node_path "${REPO_ROOT}")"
+NODE_SCRIPT_DIR="$(to_node_path "${SCRIPT_DIR}")"
+VERSION="${1:-$("${NODE_BIN}" -p "require('${NODE_REPO_ROOT}/package.json').version")}"
 OUTPUT_ROOT="${RELEASE_OUTPUT_DIR:-${REPO_ROOT}/release-artifacts}"
 OUTPUT_DIR="${OUTPUT_ROOT}/v${VERSION}"
+NODE_OUTPUT_DIR="$(to_node_path "${OUTPUT_DIR}")"
+GIT_BIN="${GIT_BIN:-$(command -v git || command -v git.exe || true)}"
+GIT_REPO_ROOT="${REPO_ROOT}"
+if [[ -f "${REPO_ROOT}/.git" ]] && command -v git.exe >/dev/null 2>&1 && command -v wslpath >/dev/null 2>&1; then
+  GIT_BIN="$(command -v git.exe)"
+  GIT_REPO_ROOT="$(wslpath -w "${REPO_ROOT}")"
+  GIT_REPO_ROOT="${GIT_REPO_ROOT//\\//}"
+fi
+if [[ -z "${GIT_BIN}" ]]; then
+  printf '%s\n' "Git executable not found (expected git or git.exe)." >&2
+  exit 1
+fi
+PNPM_CMD=(pnpm)
+if [[ "${NODE_BIN}" == *.exe ]] && command -v cmd.exe >/dev/null 2>&1; then
+  PNPM_CMD=(cmd.exe /d /c pnpm)
+fi
 
 cd "${REPO_ROOT}"
 
-TRACKED_STATUS="$(git status --porcelain=v1 --untracked-files=no)"
+TRACKED_STATUS="$("${GIT_BIN}" -C "${GIT_REPO_ROOT}" status --porcelain=v1 --untracked-files=no)"
 DIRTY=false
 if [[ -n "${TRACKED_STATUS}" ]]; then
   DIRTY=true
@@ -20,10 +52,10 @@ if [[ -n "${TRACKED_STATUS}" ]]; then
   fi
 fi
 
-node "${SCRIPT_DIR}/verify-version.mjs" "${VERSION}"
-pnpm check:boundaries
-pnpm -r typecheck
-pnpm -r build
+"${NODE_BIN}" "${NODE_SCRIPT_DIR}/verify-version.mjs" "${VERSION}"
+"${PNPM_CMD[@]}" check:boundaries
+"${PNPM_CMD[@]}" -r typecheck
+"${PNPM_CMD[@]}" -r build
 
 rm -rf "${OUTPUT_DIR}"
 mkdir -p "${OUTPUT_DIR}"
@@ -55,9 +87,9 @@ pack_adapter() {
   ARCHIVE_NAMES+=("${archive_name}")
 
   if [[ "${host}" == "openclaw" ]]; then
-    node "${SCRIPT_DIR}/smoke-openclaw-package.mjs" "${OUTPUT_DIR}/${archive_name}" "${VERSION}"
+    "${NODE_BIN}" "${NODE_SCRIPT_DIR}/smoke-openclaw-package.mjs" "${NODE_OUTPUT_DIR}/${archive_name}" "${VERSION}"
   else
-    node "${SCRIPT_DIR}/smoke-host-package.mjs" "${OUTPUT_DIR}/${archive_name}" "${host}" "${VERSION}"
+    "${NODE_BIN}" "${NODE_SCRIPT_DIR}/smoke-host-package.mjs" "${NODE_OUTPUT_DIR}/${archive_name}" "${host}" "${VERSION}"
   fi
 }
 
@@ -70,10 +102,10 @@ pack_adapter "claude-code" "${REPO_ROOT}/components/adapters/claude-code/scripts
   sha256sum "${ARCHIVE_NAMES[@]}" > SHA256SUMS
 )
 
-COMMIT="$(git rev-parse HEAD)"
+COMMIT="$("${GIT_BIN}" -C "${GIT_REPO_ROOT}" rev-parse HEAD)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-node - "${OUTPUT_DIR}/release-manifest.json" "${VERSION}" "${COMMIT}" "${BUILT_AT}" "${DIRTY}" "${ARCHIVE_NAMES[@]}" <<'NODE'
+"${NODE_BIN}" - "${NODE_OUTPUT_DIR}/release-manifest.json" "${VERSION}" "${COMMIT}" "${BUILT_AT}" "${DIRTY}" "${ARCHIVE_NAMES[@]}" <<'NODE'
 const fs = require("node:fs");
 const [path, version, commit, builtAt, dirty, ...archives] = process.argv.slice(2);
 const packageByFile = {

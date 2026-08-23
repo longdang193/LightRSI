@@ -8,6 +8,16 @@ import { reserveUnusedPort } from "@lightrsi/host-adapter";
 import { daemonPaths, startDaemon, stopDaemon } from "../src/daemon.js";
 import { normalizeTokenPilotCodexConfig, writeTokenPilotCodexConfig } from "../src/config.js";
 
+async function waitForHealth(port: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`fixture did not become healthy on port ${port}`);
+}
+
 test("startDaemon replaces a stale pid when the configured proxy port is unhealthy", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-daemon-"));
   let dummy: ReturnType<typeof spawn> | undefined;
@@ -112,7 +122,7 @@ test("startDaemon reuses a healthy listener when its pid file is stale", async (
       "-e",
       `const http=require('node:http');const s=http.createServer((q,r)=>{if(q.url==='/health'){r.writeHead(200);r.end('ok');}else{r.writeHead(404);r.end();}});s.listen(${proxyPort},'127.0.0.1');setInterval(()=>{},1000);`,
     ], { stdio: "ignore" });
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await waitForHealth(proxyPort);
 
     const result = await startDaemon(config, { configPath, cliPath: join(process.cwd(), "dist", "cli.js") });
 

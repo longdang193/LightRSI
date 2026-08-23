@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@lightrsi/artifact-store": "workspace:*",
+    "@lightrsi/cleaner": "workspace:*",
     "@lightrsi/eviction": "workspace:*",
     "@lightrsi/history": "workspace:*",
     "@lightrsi/host-adapter": "workspace:*",

@@ -3,21 +3,26 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PNPM_CMD=(pnpm)
+if command -v node.exe >/dev/null 2>&1 && command -v cmd.exe >/dev/null 2>&1; then
+  PNPM_CMD=(cmd.exe /d /c pnpm)
+fi
 
 cd "${PLUGIN_DIR}"
 
 rm -f lightrsi-openclaw-adapter-*.tgz lightrsi-tokenpilot-openclaw-*.tgz tokenpilot-*.tgz
-npm run build >/dev/null 2>&1
+"${PNPM_CMD[@]}" build >/dev/null 2>&1
 
-NPM_CACHE_DIR="${NPM_CACHE_DIR:-/tmp/tokenpilot-npm-cache}"
-mkdir -p "${NPM_CACHE_DIR}"
-
-mkdir -p "${PLUGIN_DIR}/.tmp"
-PACK_TMP_DIR="$(mktemp -d "${PLUGIN_DIR}/.tmp/tokenpilot-pack-XXXXXX")"
+PACK_TMP_DIR="$(mktemp -d "${PLUGIN_DIR}/.tokenpilot-pack-XXXXXX")"
 cleanup() {
   rm -rf "${PACK_TMP_DIR}"
 }
 trap cleanup EXIT
+
+NPM_CACHE_DIR="${NPM_CACHE_DIR:-${PACK_TMP_DIR}/npm-cache}"
+if [[ "${NPM_CACHE_DIR}" == /* ]]; then
+  mkdir -p "${NPM_CACHE_DIR}"
+fi
 
 mkdir -p "${PACK_TMP_DIR}/package"
 cp -R dist "${PACK_TMP_DIR}/package/dist"
@@ -43,21 +48,14 @@ pkg.pop("scripts", None)
 dst.write_text(json.dumps(pkg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
 
-cd "${PACK_TMP_DIR}/package"
-npm_config_cache="${NPM_CACHE_DIR}" npm pack >/dev/null
-archive_path="$(find "${PACK_TMP_DIR}/package" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
-if [[ -z "${archive_path}" ]]; then
-  echo "npm pack produced no archive" >&2
-  exit 1
-fi
-archive_name="$(basename "${archive_path}")"
+archive_name="$(cd "${PACK_TMP_DIR}/package" && npm_config_cache="${NPM_CACHE_DIR}" npm pack --silent)"
+archive_path="${PACK_TMP_DIR}/package/${archive_name}"
 cp "${archive_path}" "${PLUGIN_DIR}/${archive_name}"
 archive_path="${PLUGIN_DIR}/${archive_name}"
-
 if command -v wslpath >/dev/null 2>&1; then
-  printf '%s\n' "$(wslpath -w "${archive_path}")"
+  archive_path="$(wslpath -w "${archive_path}")"
 elif command -v cygpath >/dev/null 2>&1; then
-  printf '%s\n' "$(cygpath -w "${archive_path}")"
-else
-  printf '%s\n' "${archive_path}"
+  archive_path="$(cygpath -w "${archive_path}")"
 fi
+
+printf '%s\n' "${archive_path}"

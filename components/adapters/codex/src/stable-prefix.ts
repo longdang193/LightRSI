@@ -3,12 +3,13 @@ import {
   extractContentText,
   extractStablePrefixContract,
   findFirstUserMessageIndex,
+  normalizeUserMessageText,
 } from "@lightrsi/stabilizer";
 import type { HostRequestEnvelope } from "@lightrsi/host-adapter";
 import type { TokenPilotCodexConfig } from "./config.js";
 import { canAttachPromptCacheBreakpoint } from "./responses-codec.js";
 
-const LIGHTMEM2_CACHE_CONTRACT_VERSION = 1;
+const LIGHTRSI_CACHE_CONTRACT_VERSION = 1;
 
 export function isGpt56OrLaterModel(model: string): boolean {
   const normalized = String(model ?? "").split("/").pop() ?? "";
@@ -101,10 +102,17 @@ function cacheRelevantRequestOptions(rawPayload: unknown): unknown {
   return canonicalizeJson(options);
 }
 
+function canonicalizeCodexCacheIdentityText(text: string): string {
+  return normalizeUserMessageText(text).replace(
+    /(?:[A-Za-z]:[\\/]|\/)[^\r\n"'`)]*?[\\/]\.deepagents[\\/]+conversation_history[\\/]+entry-[^\s"'`)]*/gi,
+    "<DEEPAGENTS_HISTORY_ENTRY>",
+  );
+}
+
 function isStableDeveloperMessage(message: HostRequestEnvelope["messages"][number]): boolean {
   return message?.role === "system"
     && (message as any)?.metadata?.__codexOriginalRole === "developer"
-    && (message as any)?.metadata?.__lightmem2DynamicContext !== true;
+    && (message as any)?.metadata?.__lightrsiDynamicContext !== true;
 }
 
 export function dedupeCodexStableDeveloperMessages(envelope: HostRequestEnvelope): HostRequestEnvelope {
@@ -128,10 +136,23 @@ function computeStablePromptCacheKey(params: {
   rawPayload: unknown;
 }): string {
   const identityEnvelope = dedupeCodexStableDeveloperMessages(params.envelope);
-  const contractEnvelope = identityEnvelope.session
-    ? identityEnvelope
+  const normalizedEnvelope = {
+    ...identityEnvelope,
+    instructions: typeof identityEnvelope.instructions === "string"
+      ? canonicalizeCodexCacheIdentityText(identityEnvelope.instructions)
+      : identityEnvelope.instructions,
+    messages: identityEnvelope.messages.map((message) => {
+      if (message.role !== "system") return message;
+      return {
+        ...message,
+        content: canonicalizeCodexCacheIdentityText(extractContentText(message.content)),
+      };
+    }),
+  };
+  const contractEnvelope = normalizedEnvelope.session
+    ? normalizedEnvelope
     : {
-        ...identityEnvelope,
+        ...normalizedEnvelope,
         session: {
           host: { hostId: "codex" },
         },
@@ -152,14 +173,14 @@ function computeStablePromptCacheKey(params: {
     }));
   const digest = createHash("sha256")
     .update(JSON.stringify({
-      v: LIGHTMEM2_CACHE_CONTRACT_VERSION,
+      v: LIGHTRSI_CACHE_CONTRACT_VERSION,
       host: "codex",
       stableCore: cacheableStableCore,
       options: cacheRelevantRequestOptions(params.rawPayload),
     }))
     .digest("hex")
     .slice(0, 24);
-  return `lightmem2-codex-${digest}`;
+  return `lightrsi-codex-${digest}`;
 }
 
 function computeProviderWirePrefixHash(
@@ -183,108 +204,11 @@ function computeProviderWirePrefixHash(
     .digest("hex");
 }
 
-function scoreRootPromptCandidate(message: HostRequestEnvelope["messages"][number]): number {
-  const originalRole = (message as any)?.metadata?.__codexOriginalRole;
-  const text = extractContentText((message as any)?.content);
-  let score = 0;
-  if (originalRole === "developer") score += 4;
-  else if (originalRole === "system") score += 2;
-  if (/Your working directory is:/i.test(text)) score += 2;
-  if (/Runtime:\s*agent=/i.test(text)) score += 2;
-  return score;
-}
-
-function findRootPromptCandidate(messages: HostRequestEnvelope["messages"]): {
-  index: number;
-  text: string;
-} | null {
-  let best: { index: number; text: string; score: number } | null = null;
-  for (let index = 0; index < messages.length; index += 1) {
-    const message = messages[index] as any;
-    if (!message || typeof message !== "object") continue;
-    if (message.role !== "system") continue;
-    const originalRole = message.metadata?.__codexOriginalRole;
-    if (originalRole !== "developer" && originalRole !== "system") continue;
-    const text = extractContentText(message.content);
-    if (!text.trim()) continue;
-    const score = scoreRootPromptCandidate(message);
-    if (!best || score > best.score) {
-      best = { index, text, score };
-    }
-  }
-  return best ? { index: best.index, text: best.text } : null;
-}
-
-function mergeDynamicContextTexts(...texts: Array<string | undefined>): string {
-  const merged: string[] = [];
-  for (const text of texts) {
-    for (const line of String(text ?? "").split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || merged.includes(trimmed)) continue;
-      merged.push(trimmed);
-    }
-  }
-  return merged.join("\n");
-}
-
-function hasDeveloperDynamicContextMessage(
-  messages: HostRequestEnvelope["messages"],
-  dynamicContextText: string,
-): boolean {
-  const target = dynamicContextText.trim();
-  if (!target) return true;
-  return messages.some((message: any) => {
-    if (!message || typeof message !== "object") return false;
-    if (message.role !== "system") return false;
-    const originalRole = message.metadata?.__codexOriginalRole;
-    if (originalRole !== "developer" && originalRole !== "system") return false;
-    return extractContentText(message.content).trim() === target;
-  });
-}
-
-function insertDeveloperDynamicContextMessage(params: {
-  envelope: HostRequestEnvelope;
-  dynamicContextText: string;
-  afterMessageIndex?: number;
-}): HostRequestEnvelope {
-  const dynamicContextText = params.dynamicContextText.trim();
-  if (!dynamicContextText) return params.envelope;
-  if (hasDeveloperDynamicContextMessage(params.envelope.messages, dynamicContextText)) {
-    return params.envelope;
-  }
-
-  const insertAt =
-    typeof params.afterMessageIndex === "number"
-      ? Math.max(0, Math.min(params.envelope.messages.length, params.afterMessageIndex + 1))
-      : (() => {
-          const userIndex = findFirstUserMessageIndex(params.envelope.messages);
-          return userIndex >= 0 ? userIndex : params.envelope.messages.length;
-        })();
-  const nextMessages = params.envelope.messages.slice();
-  nextMessages.splice(insertAt, 0, {
-    role: "system",
-    content: dynamicContextText,
-    metadata: {
-      __codexOriginalRole: "developer",
-      __lightmem2DynamicContext: true,
-    },
-  } as HostRequestEnvelope["messages"][number]);
-  return {
-    ...params.envelope,
-    messages: nextMessages,
-  };
-}
-
 export function prepareCodexStablePrefix(
   envelope: HostRequestEnvelope,
   config: TokenPilotCodexConfig,
 ): HostRequestEnvelope {
   if (!config.modules.stabilizer || config.proxyMode.pureForward) return envelope;
-  const originalPromptCacheKey =
-    typeof envelope.metadata?.promptCacheKey === "string" && envelope.metadata.promptCacheKey.trim().length > 0
-      ? envelope.metadata.promptCacheKey
-      : undefined;
-
   const rewrittenEnvelope = envelope;
   const dynamicContextText = "";
   const providerWirePrefixHash = computeProviderWirePrefixHash(
@@ -292,18 +216,17 @@ export function prepareCodexStablePrefix(
     dynamicContextText,
   );
   const nextPromptCacheKey = computeStablePromptCacheKey({
-    envelope: rewrittenEnvelope,
+    envelope,
     rawPayload: envelope.rawPayload,
   });
-  const cacheFamilyId = `lightmem2-family-${nextPromptCacheKey.slice("lightmem2-codex-".length)}`;
+  const cacheFamilyId = `lightrsi-family-${nextPromptCacheKey.slice("lightrsi-codex-".length)}`;
   const outboundPromptCacheKey = cacheFamilyId;
 
   const nextMetadata: Record<string, unknown> = {
     ...(rewrittenEnvelope.metadata ?? {}),
-    originalPromptCacheKey,
     frameworkStablePromptCacheKey: nextPromptCacheKey,
-    lightmem2CacheContractVersion: LIGHTMEM2_CACHE_CONTRACT_VERSION,
-    lightmem2CacheContractDigest: nextPromptCacheKey.slice("lightmem2-codex-".length),
+    lightrsiCacheContractVersion: LIGHTRSI_CACHE_CONTRACT_VERSION,
+    lightrsiCacheContractDigest: nextPromptCacheKey.slice("lightrsi-codex-".length),
     providerWirePrefixHash,
     cacheFamilyId,
     providerWirePrefixBoundary: "before_first_user",
@@ -327,15 +250,14 @@ export function prepareCodexStablePrefix(
   const metadataChanged =
     nextMetadata.promptCacheKey !== envelope.metadata?.promptCacheKey ||
     nextMetadata.frameworkStablePromptCacheKey !== envelope.metadata?.frameworkStablePromptCacheKey ||
-    nextMetadata.lightmem2CacheContractVersion !== envelope.metadata?.lightmem2CacheContractVersion ||
-    nextMetadata.lightmem2CacheContractDigest !== envelope.metadata?.lightmem2CacheContractDigest ||
+    nextMetadata.lightrsiCacheContractVersion !== envelope.metadata?.lightrsiCacheContractVersion ||
+    nextMetadata.lightrsiCacheContractDigest !== envelope.metadata?.lightrsiCacheContractDigest ||
     nextMetadata.providerWirePrefixHash !== envelope.metadata?.providerWirePrefixHash ||
     nextMetadata.cacheFamilyId !== envelope.metadata?.cacheFamilyId ||
     nextMetadata.providerWirePrefixBoundary !== envelope.metadata?.providerWirePrefixBoundary ||
     nextMetadata.promptCacheOptions !== envelope.metadata?.promptCacheOptions ||
     nextMetadata.promptCacheBreakpoint !== envelope.metadata?.promptCacheBreakpoint ||
-    nextMetadata.promptCacheRetention !== envelope.metadata?.promptCacheRetention ||
-    nextMetadata.originalPromptCacheKey !== envelope.metadata?.originalPromptCacheKey;
+    nextMetadata.promptCacheRetention !== envelope.metadata?.promptCacheRetention;
 
   return rewrittenEnvelope !== envelope || metadataChanged
     ? {

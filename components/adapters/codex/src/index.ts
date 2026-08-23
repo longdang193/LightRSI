@@ -1,5 +1,6 @@
 export * from "./config.js";
 export * from "./context-rewrite/index.js";
+export * from "./context-cleaner/index.js";
 export * from "./daemon.js";
 export * from "./install.js";
 export * from "./logger.js";

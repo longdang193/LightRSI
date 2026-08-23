@@ -20,6 +20,7 @@ import {
 import { runPrefixIfEnabled } from "./prefix-runner.js";
 import { runRequestModules, type ModuleExecutionRecord } from "./module-orchestrator.js";
 import { TOKENPILOT_REQUEST_MODULE_IDS } from "@lightrsi/tokenpilot";
+import type { CacheAuditSnapshot } from "@lightrsi/stabilizer";
 
 type ProxyRequestPreparation = {
   payload: any;
@@ -47,7 +48,7 @@ type ProxyRequestPreparation = {
   firstTurnCandidate: boolean;
   originalPromptCacheKey: string;
   reductionPassOptions: any;
-  cacheAuditSnapshot: Omit<import("../../cache-audit.js").OpenClawCacheAuditRecord, "at" | "responsePromptCacheKey" | "cachedInputTokens" | "inputTokens" | "cacheWriteTokens" | "usage" | "status">;
+  cacheAuditSnapshot: CacheAuditSnapshot;
 };
 
 function buildReductionSkippedResult(

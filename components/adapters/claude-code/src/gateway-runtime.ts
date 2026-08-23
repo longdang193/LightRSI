@@ -35,7 +35,7 @@ import {
   buildClaudeHistoryBlocks,
   type ClaudeEvictionApplySummary,
 } from "./eviction.js";
-import { persistSessionTaskRegistry } from "@lightrsi/history";
+import { loadSessionTaskRegistry, persistSessionTaskRegistry } from "@lightrsi/history";
 import { claudeContextRewriteBackend, relocateContextMutationPlan } from "./context-rewrite/backend.js";
 import { applyArchivePlan } from "./context-rewrite/archive.js";
 import { saveLatestClaudeSnapshot } from "./context-rewrite/snapshot-store.js";
@@ -64,6 +64,7 @@ import { buildAnthropicGatewayModelList, mapClaudeVisibleModelToUpstreamModel } 
 import { resolveLatestClaudeCodeSessionId } from "./session-state.js";
 import { lookupRealSessionId, recordSessionMapping } from "./context-rewrite/session-map.js";
 import { initializeClaudeCodeTokenPilotPreset } from "./preset.js";
+import { attributeClaudeSnapshotTasks } from "./context-cleaner/snapshot.js";
 
 export type ClaudeCodeGatewayRuntime = {
   baseUrl: string;
@@ -74,6 +75,7 @@ type ClaudeCodeGatewayRuntimeDependencies = {
   cloneRequestPayload?: typeof structuredClone;
   resolveEstimator?: typeof resolveClaudeTaskStateEstimator;
   persistTaskRegistry?: typeof persistSessionTaskRegistry;
+  saveSnapshot?: typeof saveLatestClaudeSnapshot;
 };
 
 const CLAUDE_LIFECYCLE_PLAN_SOURCE = "claude-lifecycle";
@@ -344,6 +346,10 @@ export async function startClaudeCodeGatewayRuntime(params: {
       const plannerMessages = Array.isArray((payload as Record<string, unknown>).messages)
         ? (payload as Record<string, unknown>).messages as unknown[]
         : [];
+      const cleanerSnapshotRevision = _createHash("sha256")
+        .update(JSON.stringify(plannerMessages))
+        .digest("hex")
+        .slice(0, 32);
 
       const evictionEnabled = config.modules.eviction && config.eviction.enabled;
       let evictionSummary: ClaudeEvictionApplySummary = {
@@ -457,6 +463,44 @@ export async function startClaudeCodeGatewayRuntime(params: {
         }
       }
 
+      // Persist the complete inbound history only after the lifecycle registry
+      // update attempt has settled, but before any eviction/reduction overlay.
+      // The store is side work: failure is visible in logs and never blocks the
+      // model request.
+      try {
+        const baseCleanerSnapshot = await claudeContextRewriteBackend.readSnapshot({
+          sessionId,
+          request: {
+            sessionId,
+            revision: cleanerSnapshotRevision,
+            messages: plannerMessages as unknown as RuntimeMessage[],
+          },
+        });
+        let cleanerSnapshot = baseCleanerSnapshot;
+        try {
+          const cleanerRegistry = await loadSessionTaskRegistry(config.stateDir, sessionId);
+          cleanerSnapshot = attributeClaudeSnapshotTasks({
+            snapshot: baseCleanerSnapshot,
+            messages: plannerMessages,
+            registry: cleanerRegistry,
+          });
+        } catch (error) {
+          // Task attribution is optional. Keep the canonical snapshot even when
+          // registry recovery fails so Cleaner can still inspect unassigned context.
+          logger.warn(`context cleaner task attribution failed (ignored): ${String(error)}`);
+        }
+        const saveResult = await (
+          params.dependencies?.saveSnapshot ?? saveLatestClaudeSnapshot
+        )(config.stateDir, sessionId, cleanerSnapshot, { model: envelope.model });
+        if (!saveResult.saved) {
+          logger.warn(
+            `context cleaner snapshot persistence failed (ignored): ${saveResult.reason}`,
+          );
+        }
+      } catch (error) {
+        logger.warn(`context cleaner snapshot persistence failed (ignored): ${String(error)}`);
+      }
+
       if (evictionEnabled) {
         try {
           const candidatePayload = (
@@ -499,10 +543,6 @@ export async function startClaudeCodeGatewayRuntime(params: {
               sessionId,
               request: overlayRequest,
             });
-            // Persist the latest complete snapshot (+ item fingerprints) for this
-            // session so the overlay has a durable, restart-surviving view of the
-            // current turn (§4.5 claude-context). Fail-open, never blocks the request.
-            await saveLatestClaudeSnapshot(config.stateDir, sessionId, snapshot);
             const loaded = plannerPlan
               ? { plans: [], bypassed: false, reasons: [] }
               : await loadActiveContextMutationPlans({

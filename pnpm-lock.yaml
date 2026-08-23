@@ -23,6 +23,9 @@ importers:
       '@lightrsi/artifact-store':
         specifier: workspace:*
         version: link:../../packages/foundation/artifact-store
+      '@lightrsi/cleaner':
+        specifier: workspace:*
+        version: link:../../packages/features/cleaner
       '@lightrsi/eviction':
         specifier: workspace:*
         version: link:../../packages/features/eviction
@@ -66,6 +69,9 @@ importers:
       '@lightrsi/artifact-store':
         specifier: workspace:*
         version: link:../../packages/foundation/artifact-store
+      '@lightrsi/cleaner':
+        specifier: workspace:*
+        version: link:../../packages/features/cleaner
       '@lightrsi/eviction':
         specifier: workspace:*
         version: link:../../packages/features/eviction
@@ -94,6 +100,24 @@ importers:
         specifier: workspace:*
         version: link:../../presets/tokenpilot
     devDependencies:
+      esbuild:
+        specifier: ^0.25.10
+        version: 0.25.12
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  components/adapters/deepseek-harness:
+    devDependencies:
+      '@lightrsi/eviction':
+        specifier: workspace:*
+        version: link:../../packages/features/eviction
+      '@lightrsi/history':
+        specifier: workspace:*
+        version: link:../../packages/foundation/history
       esbuild:
         specifier: ^0.25.10
         version: 0.25.12
@@ -149,6 +173,12 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+
+  components/packages/features/cleaner:
+    dependencies:
+      '@lightrsi/host-adapter':
+        specifier: workspace:*
+        version: link:../../foundation/host-adapter
 
   components/packages/features/eviction:
     dependencies:

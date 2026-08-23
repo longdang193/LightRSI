@@ -1095,8 +1095,8 @@ export async function startCodexResponsesProxy(params: {
         payload: nextPayload,
         inboundAuthorization: authorization,
         lightmem2CacheContractDigest:
-          typeof prepared.envelope.metadata?.lightmem2CacheContractDigest === "string"
-            ? prepared.envelope.metadata.lightmem2CacheContractDigest
+          typeof prepared.envelope.metadata?.lightrsiCacheContractDigest === "string"
+            ? prepared.envelope.metadata.lightrsiCacheContractDigest
             : undefined,
         stateDir: config.stateDir,
       });
@@ -1537,14 +1537,14 @@ export async function startCodexResponsesProxy(params: {
           previousResponseId: logicalPreviousResponseId ?? null,
           contextRewriteOutcome: contextRewriteOutcome ?? null,
           lightmem2CacheContractDigest:
-            prepared.envelope.metadata?.lightmem2CacheContractDigest ?? null,
+            prepared.envelope.metadata?.lightrsiCacheContractDigest ?? null,
           routerCacheTelemetry: collectRouterCacheTelemetry({
             headers: paramsForRecord.headers ?? {},
             upstreamName: upstream.name,
             upstreamBaseUrl: upstream.baseUrl,
             usage: snapshot.usage ?? null,
             receivedLightmem2CacheContractDigest:
-              prepared.envelope.metadata?.lightmem2CacheContractDigest,
+              prepared.envelope.metadata?.lightrsiCacheContractDigest,
             lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
           }),
         });
@@ -1588,8 +1588,8 @@ export async function startCodexResponsesProxy(params: {
           payload,
           inboundAuthorization: authorization,
           lightmem2CacheContractDigest:
-            typeof prepared.envelope.metadata?.lightmem2CacheContractDigest === "string"
-              ? prepared.envelope.metadata.lightmem2CacheContractDigest
+            typeof prepared.envelope.metadata?.lightrsiCacheContractDigest === "string"
+              ? prepared.envelope.metadata.lightrsiCacheContractDigest
               : undefined,
           stateDir: config.stateDir,
         });
@@ -1738,7 +1738,7 @@ export async function startCodexResponsesProxy(params: {
         previousResponseId: previousResponseId ?? null,
         contextRewriteOutcome: contextRewriteOutcome ?? null,
         lightmem2CacheContractDigest:
-          prepared.envelope.metadata?.lightmem2CacheContractDigest ?? null,
+          prepared.envelope.metadata?.lightrsiCacheContractDigest ?? null,
         routerCacheTelemetry: collectRouterCacheTelemetry({
           headers: upstreamResp.headers,
           upstreamName: upstream.name,
@@ -1746,7 +1746,7 @@ export async function startCodexResponsesProxy(params: {
           responseModel: responseJson?.model,
           usage: providerUsage,
           receivedLightmem2CacheContractDigest:
-            prepared.envelope.metadata?.lightmem2CacheContractDigest,
+            prepared.envelope.metadata?.lightrsiCacheContractDigest,
           lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
         }),
       });
