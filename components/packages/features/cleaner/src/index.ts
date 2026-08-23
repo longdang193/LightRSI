@@ -18,3 +18,22 @@ export {
   recoverContextCleanState,
   transitionContextCleanState,
 } from "./clean-state-coordinator.js";
+export {
+  attributeItems,
+  mapTaskLifecycle,
+} from "./task-attribution.js";
+export type {
+  AttributedItem,
+  ContextCleanItemBucket,
+  TaskAttributionInput,
+} from "./task-attribution.js";
+export {
+  aggregateTaskAccounting,
+  buildContextCleanBreakdown,
+  buildItemTokenCounts,
+} from "./token-accounting.js";
+export type {
+  ContextCleanBreakdown,
+  ItemTokenCounts,
+  TokenAccountingBreakdown,
+} from "./token-accounting.js";
