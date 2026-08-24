@@ -321,6 +321,10 @@ async function prepareScheduledClean(params: {
       if (!item || item.fingerprint !== task.itemDigests[itemId]) {
         return bypassed(["clean_execution_item_stale"], stored.receipt);
       }
+      if (item.kind === "system" || item.kind === "developer"
+        || item.role === "system" || item.role === "developer") {
+        return bypassed(["clean_execution_protected_item_targeted"], stored.receipt);
+      }
       if (!item.taskIds?.includes(task.taskId)) {
         return bypassed(["clean_execution_task_attribution_stale"], stored.receipt);
       }

@@ -33,7 +33,14 @@ export type AttributedItem = {
   taskIds: string[];
   bucket: ContextCleanItemBucket;
   /** Present when bucket === "protected". */
-  protectedReason?: "shared" | "system_developer";
+  protectedReason?: "shared" | "system_developer" | "protocol";
+};
+
+type ResolvedItem = {
+  callId?: string;
+  kind: ContextItemRef["kind"];
+  taskIds: string[];
+  protectedReason?: AttributedItem["protectedReason"];
 };
 
 const SYSTEM_DEVELOPER_KINDS = new Set(["system", "developer"]);
@@ -69,26 +76,32 @@ function resolveItemTaskIds(item: ContextItemRef, input: TaskAttributionInput): 
 }
 
 /**
- * Tool call/result pairs must stay in the same task. Items sharing a callId get
- * the union of their resolved task ids, so a pair split across tasks becomes a
- * shared item and lands in the protected bucket instead of being split. Items
- * whose ids were unresolved inherit the pair's task ids (the pair belongs
- * together); a fully unresolved pair stays unresolved.
+ * Complete tool call/result pairs must stay in the same task. A pair gets the
+ * union of its resolved task ids, so a pair split across tasks becomes shared
+ * and protected instead of being split. Missing IDs, orphaned calls/results,
+ * and duplicate protocol items are protected because their closure is unsafe.
  */
-function pairByCallId(
-  resolved: Map<string, { callId?: string; taskIds: string[] }>,
-): void {
-  const unionByCallId = new Map<string, string[]>();
+function pairByCallId(resolved: Map<string, ResolvedItem>): void {
+  const groups = new Map<string, ResolvedItem[]>();
   for (const info of resolved.values()) {
-    if (info.callId) {
-      unionByCallId.set(info.callId, dedupeNonBlank([
-        ...(unionByCallId.get(info.callId) ?? []),
-        ...info.taskIds,
-      ]));
+    if (info.kind !== "tool_call" && info.kind !== "tool_result") continue;
+    const callId = info.callId?.trim();
+    if (!callId) {
+      info.protectedReason = "protocol";
+      continue;
     }
+    groups.set(callId, [...(groups.get(callId) ?? []), info]);
   }
-  for (const info of resolved.values()) {
-    if (info.callId) info.taskIds = unionByCallId.get(info.callId) as string[];
+
+  for (const group of groups.values()) {
+    const calls = group.filter((info) => info.kind === "tool_call");
+    const results = group.filter((info) => info.kind === "tool_result");
+    if (calls.length !== 1 || results.length !== 1) {
+      for (const info of group) info.protectedReason = "protocol";
+      continue;
+    }
+    const taskIds = dedupeNonBlank(group.flatMap((info) => info.taskIds));
+    for (const info of group) info.taskIds = taskIds;
   }
 }
 
@@ -96,17 +109,18 @@ function pairByCallId(
  * Resolves every snapshot item to a single accounting bucket:
  *
  * - task: exactly one task id after tool-pair union.
- * - protected: system/developer content, or items shared by multiple tasks
- *   (including pairs split across tasks). Only content NOT attributed to a
- *   single task may land here, so task + protected + unassigned never
- *   double-count an item.
+ * - protected: system/developer content, malformed tool protocol groups, or
+ *   items shared by multiple tasks (including pairs split across tasks).
+ *   Each protected item is excluded from its task bucket, so task + protected
+ *   + unassigned never double-count an item.
  * - unassigned: nothing could be attributed and the item is not protected.
  */
 export function attributeItems(input: TaskAttributionInput): AttributedItem[] {
-  const resolved = new Map<string, { callId?: string; taskIds: string[] }>();
+  const resolved = new Map<string, ResolvedItem>();
   for (const item of input.snapshot.items) {
     resolved.set(item.stableId, {
       callId: item.callId,
+      kind: item.kind,
       taskIds: dedupeNonBlank(resolveItemTaskIds(item, input)),
     });
   }
@@ -114,16 +128,17 @@ export function attributeItems(input: TaskAttributionInput): AttributedItem[] {
 
   const attributed: AttributedItem[] = [];
   for (const item of input.snapshot.items) {
-    const info = resolved.get(item.stableId) as { callId?: string; taskIds: string[] };
+    const info = resolved.get(item.stableId) as ResolvedItem;
     let bucket: ContextCleanItemBucket;
     let protectedReason: AttributedItem["protectedReason"];
-    if (info.taskIds.length === 0) {
-      if (isSystemOrDeveloper(item)) {
-        bucket = "protected";
-        protectedReason = "system_developer";
-      } else {
-        bucket = "unassigned";
-      }
+    if (isSystemOrDeveloper(item)) {
+      bucket = "protected";
+      protectedReason = "system_developer";
+    } else if (info.protectedReason) {
+      bucket = "protected";
+      protectedReason = info.protectedReason;
+    } else if (info.taskIds.length === 0) {
+      bucket = "unassigned";
     } else if (info.taskIds.length > 1) {
       bucket = "protected";
       protectedReason = "shared";

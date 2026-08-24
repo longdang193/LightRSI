@@ -306,6 +306,34 @@ test("protocol closure failure does not expose a partially applicable mutation p
   }
 });
 
+test("execution bridge independently rejects protected system content", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-execution-protected-"));
+  try {
+    await saveScheduledPlan(root);
+    const protectedSnapshot = sampleSnapshot();
+    protectedSnapshot.items[0] = {
+      ...protectedSnapshot.items[0]!,
+      kind: "system",
+    };
+    const bridge = createContextCleanerHostExecutionBridge({
+      stateDir: root,
+      hostId: "codex",
+      async readExecutionSnapshot() {
+        return {
+          snapshot: protectedSnapshot,
+          activeTaskIds: [],
+          evictableTaskIds: ["task-a"],
+        };
+      },
+    });
+    const result = await bridge.prepareScheduledClean(request());
+    assert.equal(result.outcome, "bypassed");
+    assert.deepEqual(result.reasons, ["clean_execution_protected_item_targeted"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("execution bridge recovers an interrupted scheduled transition after restart", async () => {
   const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-execution-recovery-"));
   try {

@@ -37,6 +37,7 @@ export type {
   ItemTokenCounts,
   TokenAccountingBreakdown,
 } from "./token-accounting.js";
+export {
   createContextCleanerHostExecutionBridge,
   type CreateContextCleanerHostExecutionBridgeParams,
 } from "./host-execution-bridge.js";

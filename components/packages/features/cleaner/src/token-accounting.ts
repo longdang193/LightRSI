@@ -27,8 +27,8 @@ export type ItemTokenCounts = {
   tokenCountMethod: string;
 };
 
-function isNonNegativeFinite(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 /**
@@ -60,7 +60,7 @@ export function buildItemTokenCounts(input: {
   for (const item of input.items) {
     charsByStableId[item.stableId] = item.chars;
     const precomputed = input.itemTokenCounts?.[item.stableId];
-    if (isNonNegativeFinite(precomputed)) {
+    if (isNonNegativeSafeInteger(precomputed)) {
       tokensByStableId[item.stableId] = precomputed;
       continue;
     }

@@ -100,6 +100,21 @@ test("system and developer items without task ids are protected", () => {
   assert.equal("protectedReason" in (attributed[2] ?? {}), false);
 });
 
+test("system and developer items stay protected even when attributed to a task", () => {
+  const attributed = attribute({
+    snapshot: snapshot([
+      item("item-sys", { kind: "system", taskIds: ["task-a"] }),
+      item("item-dev", { role: "developer", taskIds: ["task-a"] }),
+    ]),
+    registry: sampleRegistry(),
+  });
+  assert.deepEqual(attributed.map((entry) => entry.bucket), ["protected", "protected"]);
+  assert.deepEqual(
+    attributed.map((entry) => entry.protectedReason),
+    ["system_developer", "system_developer"],
+  );
+});
+
 test("items shared by multiple tasks are protected once and never double-counted", () => {
   const attributed = attribute({
     snapshot: snapshot([
@@ -144,6 +159,45 @@ test("tool call/result pairs share one task and split pairs become protected", (
   assert.deepEqual(unresolvedInherits[1]?.taskIds, ["task-a"]);
 });
 
+test("malformed tool protocol groups are protected instead of offered for cleaning", () => {
+  const attributed = attribute({
+    snapshot: snapshot([
+      item("orphan-call", {
+        kind: "tool_call", callId: "orphan", taskIds: ["task-a"],
+      }),
+      item("missing-id", { kind: "tool_result", taskIds: ["task-a"] }),
+      item("duplicate-call-a", {
+        kind: "tool_call", callId: "duplicate", taskIds: ["task-a"],
+      }),
+      item("duplicate-call-b", {
+        kind: "tool_call", callId: "duplicate", taskIds: ["task-a"],
+      }),
+      item("duplicate-result", {
+        kind: "tool_result", callId: "duplicate", taskIds: ["task-a"],
+      }),
+    ]),
+    registry: sampleRegistry(),
+  });
+  assert.deepEqual(attributed.map((entry) => entry.bucket), [
+    "protected", "protected", "protected", "protected", "protected",
+  ]);
+  assert.ok(attributed.every((entry) => entry.protectedReason === "protocol"));
+});
+
+test("non-protocol items do not join tool pairs merely because they carry a call id", () => {
+  const attributed = attribute({
+    snapshot: snapshot([
+      item("call", { kind: "tool_call", callId: "pair", taskIds: ["task-a"] }),
+      item("result", { kind: "tool_result", callId: "pair", taskIds: ["task-a"] }),
+      item("note", { kind: "assistant", callId: "pair", taskIds: ["task-current"] }),
+    ]),
+    registry: sampleRegistry(),
+  });
+  assert.deepEqual(attributed[0]?.taskIds, ["task-a"]);
+  assert.deepEqual(attributed[1]?.taskIds, ["task-a"]);
+  assert.deepEqual(attributed[2]?.taskIds, ["task-current"]);
+});
+
 test("taskIdsByStableId fallback attributes items whose snapshot lacks taskIds", () => {
   const attributed = attribute({
     snapshot: snapshot([item("item-a"), item("item-b")]),
@@ -159,19 +213,24 @@ test("callIdToTurnAbsId joins through registry.turnToTaskIds", () => {
   const attributed = attribute({
     snapshot: snapshot([
       item("call-4", { kind: "tool_call", callId: "call-4" }),
+      item("result-4", { kind: "tool_result", callId: "call-4" }),
     ]),
     registry: sampleRegistry(),
     callIdToTurnAbsId: new Map([["call-4", "turn-5"]]),
   });
   assert.deepEqual(attributed[0]?.taskIds, ["task-a"]);
   assert.equal(attributed[0]?.bucket, "task");
+  assert.deepEqual(attributed[1]?.taskIds, ["task-a"]);
+  assert.equal(attributed[1]?.bucket, "task");
 });
 
 test("duplicate task ids are deduplicated and blank ids dropped", () => {
   const attributed = attribute({
     snapshot: snapshot([
-      item("item-a", { taskIds: ["task-a", "task-a", "  "], callId: "pair" }),
-      item("item-b", { taskIds: [], callId: "pair" }),
+      item("item-a", {
+        kind: "tool_call", taskIds: ["task-a", "task-a", "  "], callId: "pair",
+      }),
+      item("item-b", { kind: "tool_result", taskIds: [], callId: "pair" }),
     ]),
     registry: sampleRegistry(),
   });

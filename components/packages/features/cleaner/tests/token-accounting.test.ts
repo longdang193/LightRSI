@@ -86,6 +86,16 @@ test("precomputed item counts produce exact mode", () => {
   assert.equal(counts.tokenCountMethod, TOKEN_COUNT_METHOD_EXACT);
 });
 
+test("fractional precomputed token counts are not treated as exact usage", () => {
+  const counts = buildItemTokenCounts({
+    items: [item("item-a")],
+    itemTokenCounts: { "item-a": 1.5 },
+  });
+  assert.equal(counts.tokensByStableId["item-a"], null);
+  assert.equal(counts.tokenCountMode, "chars_only");
+  assert.equal(counts.tokenCountMethod, TOKEN_COUNT_METHOD_CHARS_ONLY);
+});
+
 test("known model counts text exactly with the model tokenizer", () => {
   const counts = buildItemTokenCounts({
     items: [item("item-a")],
