@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir } from "node:fs/promises";
+import { Readable } from "node:stream";
 import {
   findFirstMessageText,
   prepareObservedBeforeCall,
@@ -15,6 +16,7 @@ import {
   type HostRequestEnvelope,
   prepareBeforeCallWithReductionSummary,
   recordUxEffect,
+  forwardGatewayRawRequest,
   sendJsonResponse,
   startHostGatewayRuntimeServer,
   setForwardResponseHeaders,
@@ -453,6 +455,68 @@ function canAttemptCodexRebase(params: {
   );
 }
 
+function upstreamRequestPath(baseUrl: string, inboundPath: string): string {
+  const base = baseUrl.replace(/\/+$/, "");
+  if (base.endsWith("/v1")) {
+    return inboundPath.startsWith("/v1") ? inboundPath.slice(3) || "/" : inboundPath;
+  }
+  return inboundPath.startsWith("/v1") ? inboundPath : `/v1${inboundPath}`;
+}
+
+async function forwardPureProviderWire(params: {
+  upstream: Awaited<ReturnType<typeof resolveUpstreamProvider>>;
+  req: import("node:http").IncomingMessage;
+  res: import("node:http").ServerResponse;
+  pathname: string;
+  body: string;
+}): Promise<void> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  params.req.once("aborted", abort);
+  params.res.once("close", abort);
+  try {
+    const authorization = params.req.headers.authorization;
+    const inboundAuthorization = Array.isArray(authorization)
+      ? authorization.join(", ")
+      : authorization;
+    const response = await forwardGatewayRawRequest({
+      upstream: {
+        baseUrl: params.upstream.baseUrl,
+        apiKey: params.upstream.apiKey,
+        name: params.upstream.name,
+        protocol: "custom",
+      },
+      method: params.req.method ?? "POST",
+      requestPath: upstreamRequestPath(params.upstream.baseUrl, params.pathname),
+      body: params.body,
+      inboundAuthorization,
+      inboundHeaders: params.req.headers,
+      includeJsonContentType: false,
+      signal: controller.signal,
+    });
+    params.res.statusCode = response.status;
+    setForwardResponseHeaders(
+      params.res,
+      Object.fromEntries(response.headers.entries()),
+      "application/octet-stream",
+    );
+    if (!response.body) {
+      params.res.end();
+      return;
+    }
+    Readable.fromWeb(response.body as any).pipe(params.res);
+  } catch (error) {
+    if (controller.signal.aborted || params.res.destroyed) return;
+    if (!params.res.headersSent) {
+      sendJsonResponse(params.res, 502, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } else {
+      params.res.destroy(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+}
+
 export async function startCodexResponsesProxy(params: {
   config: TokenPilotCodexConfig;
   logger: TokenPilotCodexLogger;
@@ -537,6 +601,21 @@ export async function startCodexResponsesProxy(params: {
       adapter: "tokenpilot-codex",
       upstream: upstreamProviderName,
       stateDir: config.stateDir,
+    },
+    async handleRoute({ req, res, pathname, readBody }) {
+      if (!config.proxyMode.pureForward
+        || req.method !== "POST"
+        || !["/v1/responses", "/v1/chat/completions"].includes(pathname)) {
+        return false;
+      }
+      await forwardPureProviderWire({
+        upstream,
+        req,
+        res,
+        pathname,
+        body: await readBody(),
+      });
+      return true;
     },
     async handleRequest({ req, res, body }) {
       const inboundPayload = JSON.parse(body) as JsonObject;

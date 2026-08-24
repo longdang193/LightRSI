@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import type {
   HostGatewayForwarder,
   HostGatewayHttpResponse,
+  HostGatewayRawRequest,
   HostGatewayStreamResponse,
   HostGatewayUpstreamConfig,
 } from "../contracts/gateway-runtime.js";
@@ -39,6 +40,12 @@ function normalizeHeaderValue(value: string | string[] | undefined): string | un
 }
 
 function shouldSkipForwardHeader(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (lower.startsWith("x-lightrsi-")
+    || lower.startsWith("x-lightmem2-")
+    || lower.startsWith("x-tokenpilot-")) {
+    return true;
+  }
   switch (name.toLowerCase()) {
     case "host":
     case "connection":
@@ -120,16 +127,34 @@ export async function forwardGatewayRequest(params: {
 }): Promise<Response> {
   const method = params.method ?? "POST";
   const hasPayload = params.payload !== undefined;
-  const headers = buildGatewayForwardHeaders({
+  return forwardGatewayRawRequest({
     upstream: params.upstream,
+    method,
+    payload: hasPayload ? JSON.stringify(params.payload) : undefined,
     inboundAuthorization: params.inboundAuthorization,
     inboundHeaders: params.inboundHeaders,
     includeJsonContentType: hasPayload,
   });
+}
+
+export async function forwardGatewayRawRequest(
+  params: HostGatewayRawRequest & {
+    payload?: string | Uint8Array;
+    includeJsonContentType?: boolean;
+  },
+): Promise<Response> {
+  const body = params.payload ?? params.body;
+  const headers = buildGatewayForwardHeaders({
+    upstream: params.upstream,
+    inboundAuthorization: params.inboundAuthorization,
+    inboundHeaders: params.inboundHeaders,
+    includeJsonContentType: params.includeJsonContentType ?? body !== undefined,
+  });
   return fetch(resolveGatewayRequestUrl(params.upstream, params.requestPath), {
-    method,
+    method: params.method ?? "POST",
     headers,
-    body: hasPayload ? JSON.stringify(params.payload) : undefined,
+    body: body as BodyInit | undefined,
+    signal: params.signal,
   });
 }
 
@@ -165,5 +190,6 @@ export function createDefaultGatewayForwarder(): HostGatewayForwarder {
   return {
     request: forwardGatewayJsonRequest,
     requestStream: forwardGatewayJsonStreamRequest,
+    requestRaw: forwardGatewayRawRequest,
   };
 }
