@@ -176,6 +176,9 @@ importers:
 
   components/packages/features/cleaner:
     dependencies:
+      '@lightrsi/history':
+        specifier: workspace:*
+        version: link:../../foundation/history
       '@lightrsi/host-adapter':
         specifier: workspace:*
         version: link:../../foundation/host-adapter
