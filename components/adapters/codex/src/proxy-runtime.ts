@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir } from "node:fs/promises";
-import { Readable } from "node:stream";
+import { performance } from "node:perf_hooks";
+import { Readable, Transform } from "node:stream";
 import {
   findFirstMessageText,
   prepareObservedBeforeCall,
@@ -469,11 +470,56 @@ async function forwardPureProviderWire(params: {
   res: import("node:http").ServerResponse;
   pathname: string;
   body: string;
+  stateDir: string;
+  requestStartedAt: number;
+  bodyReceivedAt: number;
 }): Promise<void> {
   const controller = new AbortController();
-  const abort = () => controller.abort();
-  params.req.once("aborted", abort);
-  params.res.once("close", abort);
+  const requestId = randomUUID();
+  const dispatchAt = performance.now();
+  const requestBytes = Buffer.byteLength(params.body, "utf8");
+  let responseStatus: number | null = null;
+  let headersAt: number | null = null;
+  let firstResponseBodyChunkAt: number | null = null;
+  let lastResponseBodyChunkAt: number | null = null;
+  let downstreamFinishAt: number | null = null;
+  let abortSource: string | null = null;
+  const traceTiming = () => ({
+    pre_upstream_ms: dispatchAt - params.requestStartedAt,
+    body_received_ms: params.bodyReceivedAt - params.requestStartedAt,
+    upstream_headers_ms: headersAt === null ? null : headersAt - dispatchAt,
+    upstream_first_chunk_ms: firstResponseBodyChunkAt === null || headersAt === null
+      ? null
+      : firstResponseBodyChunkAt - headersAt,
+    upstream_stream_ms: firstResponseBodyChunkAt === null || lastResponseBodyChunkAt === null
+      ? null
+      : lastResponseBodyChunkAt - firstResponseBodyChunkAt,
+    downstream_drain_ms: downstreamFinishAt === null
+      ? null
+      : downstreamFinishAt - (lastResponseBodyChunkAt ?? headersAt ?? dispatchAt),
+    total_ms: downstreamFinishAt === null ? null : downstreamFinishAt - params.requestStartedAt,
+  });
+  const appendTimingTrace = (stage: string, extra: Record<string, unknown> = {}) => {
+    void appendTrace(params.stateDir, {
+      stage,
+      requestId,
+      method: params.req.method ?? "POST",
+      pathname: params.pathname,
+      requestBytes,
+      responseStatus,
+      hasResponseBody: firstResponseBodyChunkAt !== null,
+      ...traceTiming(),
+      ...extra,
+    }).catch(() => {});
+  };
+  params.req.once("aborted", () => {
+    abortSource = "request_aborted";
+    controller.abort();
+  });
+  params.res.once("close", () => {
+    abortSource = params.res.writableFinished ? "response_close_after_finish" : "response_close_before_finish";
+    controller.abort();
+  });
   try {
     const authorization = params.req.headers.authorization;
     const inboundAuthorization = Array.isArray(authorization)
@@ -494,6 +540,8 @@ async function forwardPureProviderWire(params: {
       includeJsonContentType: false,
       signal: controller.signal,
     });
+    responseStatus = response.status;
+    headersAt = performance.now();
     params.res.statusCode = response.status;
     setForwardResponseHeaders(
       params.res,
@@ -501,12 +549,45 @@ async function forwardPureProviderWire(params: {
       "application/octet-stream",
     );
     if (!response.body) {
-      params.res.end();
+      await new Promise<void>((resolve, reject) => {
+        params.res.once("finish", resolve);
+        params.res.once("error", reject);
+        params.res.end();
+      });
+      downstreamFinishAt = performance.now();
+      appendTimingTrace("pure_forward_timing", { hasResponseBody: false });
       return;
     }
-    Readable.fromWeb(response.body as any).pipe(params.res);
+    const observer = new Transform({
+      transform(chunk, _encoding, callback) {
+        const now = performance.now();
+        if (firstResponseBodyChunkAt === null) firstResponseBodyChunkAt = now;
+        lastResponseBodyChunkAt = now;
+        callback(null, chunk);
+      },
+    });
+    const upstreamStream = Readable.fromWeb(response.body as any);
+    await new Promise<void>((resolve, reject) => {
+      params.res.once("finish", () => {
+        downstreamFinishAt = performance.now();
+        resolve();
+      });
+      params.res.once("error", reject);
+      upstreamStream.once("error", reject);
+      observer.once("error", reject);
+      upstreamStream.pipe(observer).pipe(params.res);
+    });
+    appendTimingTrace("pure_forward_timing");
   } catch (error) {
-    if (controller.signal.aborted || params.res.destroyed) return;
+    if (controller.signal.aborted || params.res.destroyed) {
+      appendTimingTrace("pure_forward_cancelled", {
+        abortSource,
+        responseDestroyed: params.res.destroyed,
+        responseWritableEnded: params.res.writableEnded,
+        responseWritableFinished: params.res.writableFinished,
+      });
+      return;
+    }
     if (!params.res.headersSent) {
       sendJsonResponse(params.res, 502, {
         error: error instanceof Error ? error.message : String(error),
@@ -514,6 +595,13 @@ async function forwardPureProviderWire(params: {
     } else {
       params.res.destroy(error instanceof Error ? error : new Error(String(error)));
     }
+    appendTimingTrace("pure_forward_failed", {
+      errorClass: error instanceof Error ? error.name : "unknown",
+      abortSource,
+      responseDestroyed: params.res.destroyed,
+      responseWritableEnded: params.res.writableEnded,
+      responseWritableFinished: params.res.writableFinished,
+    });
   }
 }
 
@@ -608,12 +696,18 @@ export async function startCodexResponsesProxy(params: {
         || !["/v1/responses", "/v1/chat/completions"].includes(pathname)) {
         return false;
       }
+      const requestStartedAt = performance.now();
+      const body = await readBody();
+      const bodyReceivedAt = performance.now();
       await forwardPureProviderWire({
         upstream,
         req,
         res,
         pathname,
-        body: await readBody(),
+        body,
+        stateDir: config.stateDir,
+        requestStartedAt,
+        bodyReceivedAt,
       });
       return true;
     },

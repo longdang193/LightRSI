@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { reserveUnusedPort } from "@lightrsi/host-adapter";
@@ -12,9 +12,12 @@ async function startWireUpstream(params: {
   path: string;
   body: string;
   contentType: string;
+  responseChunks?: string[];
+  chunkDelayMs?: number;
 }) {
   const port = await reserveUnusedPort();
   const requests: string[] = [];
+  let upstreamAbortCount = 0;
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
@@ -24,9 +27,18 @@ async function startWireUpstream(params: {
       res.end("not found");
       return;
     }
+    res.on("close", () => {
+      if (!res.writableEnded) upstreamAbortCount += 1;
+    });
     res.statusCode = 200;
     res.setHeader("content-type", params.contentType);
-    res.end(params.body);
+    const responseChunks = params.responseChunks ?? [params.body];
+    for (const chunk of responseChunks) {
+      if (res.destroyed) return;
+      res.write(chunk);
+      if (params.chunkDelayMs) await new Promise((resolve) => setTimeout(resolve, params.chunkDelayMs));
+    }
+    if (!res.destroyed) res.end();
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -38,6 +50,9 @@ async function startWireUpstream(params: {
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     requests,
+    get upstreamAbortCount() {
+      return upstreamAbortCount;
+    },
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
@@ -62,8 +77,27 @@ async function startPureForwardProxy(upstreamBaseUrl: string) {
   });
   return {
     runtime,
+    stateDir,
     cleanup: () => rm(stateDir, { recursive: true, force: true }),
   };
+}
+
+async function readPureForwardTrace(stateDir: string, stage = "pure_forward_timing") {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const rows = (await readFile(`${stateDir}/event-trace.jsonl`, "utf8").catch(() => ""))
+      .split(/\r?\n/u)
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line) as Record<string, unknown>];
+        } catch {
+          return [];
+        }
+      });
+    const row = rows.find((entry) => entry.stage === stage);
+    if (row) return row;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return undefined;
 }
 
 test("pure forward preserves unknown JSON fields on chat completions", async () => {
@@ -101,6 +135,8 @@ test("pure forward preserves SSE bytes and content type", async () => {
     path: "/v1/responses",
     contentType: "text/event-stream",
     body: streamBody,
+    responseChunks: ["event: response.created\ndata: {\"id\":\"resp_capture\"}\n\n", "event: response.completed\ndata: {}\n\n"],
+    chunkDelayMs: 20,
   });
   const proxy = await startPureForwardProxy(upstream.baseUrl);
   try {
@@ -119,6 +155,86 @@ test("pure forward preserves SSE bytes and content type", async () => {
     assert.equal(response.headers.get("content-type"), "text/event-stream");
     assert.equal(await response.text(), streamBody);
     assert.deepEqual(upstream.requests, [requestBody]);
+    const trace = await readPureForwardTrace(proxy.stateDir);
+    assert.equal(trace?.stage, "pure_forward_timing");
+    assert.equal(trace?.responseStatus, 200);
+    assert.equal(typeof trace?.requestId, "string");
+    assert.equal(trace?.requestBytes, Buffer.byteLength(requestBody));
+    assert.equal(trace?.responseStatus, 200);
+    assert.equal(trace?.hasResponseBody, true);
+    assert.equal(typeof trace?.pre_upstream_ms, "number");
+    assert.equal(typeof trace?.upstream_headers_ms, "number");
+    assert.equal(typeof trace?.upstream_first_chunk_ms, "number");
+    assert.equal(typeof trace?.upstream_stream_ms, "number");
+    assert.equal(typeof trace?.downstream_drain_ms, "number");
+    assert.equal(typeof trace?.total_ms, "number");
+    assert.equal(Number(trace?.upstream_first_chunk_ms) >= 0, true);
+    assert.equal(Number(trace?.upstream_stream_ms) >= 0, true);
+    assert.equal(Number(trace?.downstream_drain_ms) >= 0, true);
+  } finally {
+    await proxy.runtime.close();
+    await proxy.cleanup();
+    await upstream.close();
+  }
+});
+
+test("pure forward records empty-body timing without inventing chunks", async () => {
+  const upstream = await startWireUpstream({
+    path: "/v1/responses",
+    contentType: "application/json",
+    body: "",
+  });
+  const proxy = await startPureForwardProxy(upstream.baseUrl);
+  try {
+    const response = await fetch(`${proxy.runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "capture-model", input: [] }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "");
+    const trace = await readPureForwardTrace(proxy.stateDir);
+    assert.equal(trace?.hasResponseBody, false);
+    assert.equal(trace?.upstream_first_chunk_ms, null);
+    assert.equal(trace?.upstream_stream_ms, null);
+    assert.equal(typeof trace?.downstream_drain_ms, "number");
+  } finally {
+    await proxy.runtime.close();
+    await proxy.cleanup();
+    await upstream.close();
+  }
+});
+
+test("pure forward abort cancels upstream response without unhandled rejection", async () => {
+  const upstream = await startWireUpstream({
+    path: "/v1/responses",
+    contentType: "text/event-stream",
+    body: "",
+    responseChunks: ["event: response.created\\n\\n", "event: response.completed\\n\\n"],
+    chunkDelayMs: 500,
+  });
+  const proxy = await startPureForwardProxy(upstream.baseUrl);
+  try {
+    const response = await fetch(`${proxy.runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "capture-model", stream: true, input: [] }),
+    });
+    const reader = response.body?.getReader();
+    assert.ok(reader);
+    try {
+      await reader.read();
+    } catch (error) {
+      assert.equal((error as Error).name, "AbortError");
+    }
+    await reader.cancel().catch(() => {});
+    for (let attempt = 0; attempt < 40 && upstream.upstreamAbortCount === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(upstream.upstreamAbortCount > 0, true);
+    const trace = await readPureForwardTrace(proxy.stateDir, "pure_forward_cancelled");
+    assert.equal(trace?.stage, "pure_forward_cancelled");
+    assert.equal(["request_aborted", "response_close_before_finish"].includes(String(trace?.abortSource)), true);
   } finally {
     await proxy.runtime.close();
     await proxy.cleanup();
