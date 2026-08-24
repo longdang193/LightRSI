@@ -1,4 +1,5 @@
 import type {
+  ContextMutationPlan,
   ModelContextRewriteMode,
   ModelContextSnapshot,
 } from "@lightrsi/host-adapter";
@@ -135,6 +136,13 @@ export type ContextCleanPendingReceipt = ContextCleanReceiptBase & {
   fallbackUsed: false;
 };
 
+export type ContextCleanScheduledReceipt = Omit<
+  ContextCleanPendingReceipt,
+  "status"
+> & {
+  status: "scheduled";
+};
+
 export type ContextCleanAppliedReceipt = ContextCleanReceiptBase & {
   status: "applied";
   appliedSavedTokens: number | null;
@@ -218,6 +226,62 @@ export type ExecuteApprovedContextCleanParams = {
   selectedTasks: ApprovedContextCleanTask[];
 };
 
+/**
+ * The only user-approved values accepted at a Host request boundary. Exact
+ * item ids and digests are recovered from the immutable stored plan rather
+ * than accepted again from a caller.
+ */
+export type ContextCleanExecutionRequest = {
+  cleanPlanId: string;
+  sessionId: string;
+  baseRevision: string;
+  selectedTaskIds: string[];
+};
+
+/** Canonical, Host-neutral state used to validate a scheduled clean. */
+export type ContextCleanExecutionSnapshot = {
+  snapshot: ModelContextSnapshot;
+  activeTaskIds: readonly string[];
+  evictableTaskIds: readonly string[];
+};
+
+export type ContextCleanPreparedExecution = {
+  cleanPlanId: string;
+  hostId: string;
+  sessionId: string;
+  baseRevision: string;
+  selectedTasks: ApprovedContextCleanTask[];
+  mutationPlan: ContextMutationPlan;
+  scheduledReceipt: ContextCleanScheduledReceipt;
+};
+
+export type ContextCleanExecutionPrepareResult =
+  | {
+      outcome: "ready";
+      execution: ContextCleanPreparedExecution;
+      bypassed: false;
+      reasons: [];
+    }
+  | {
+      /** A terminal receipt is replayed without preparing another mutation. */
+      outcome: "terminal";
+      receipt: ContextCleanReceipt;
+      bypassed: false;
+      reasons: [];
+    }
+  | {
+      outcome: "missing";
+      bypassed: false;
+      reasons: string[];
+    }
+  | {
+      /** The original Host request must be preserved for this outcome. */
+      outcome: "bypassed";
+      receipt?: ContextCleanReceipt;
+      bypassed: true;
+      reasons: string[];
+    };
+
 export function isAppliedContextCleanReceipt(
   receipt: ContextCleanReceipt,
 ): receipt is ContextCleanAppliedReceipt {
@@ -244,3 +308,17 @@ export type ContextCleanerControlPlane = Pick<
   ContextCleanerHostBridge,
   "executeApprovedClean" | "readCleanReceipt" | "cancelCleanPlan"
 >;
+
+/**
+ * Shared scheduled-plan consumer used inside a Host's existing request lock.
+ * Host-specific request payloads and actual rewrite commits stay in adapters.
+ */
+export interface ContextCleanerHostExecutionBridge {
+  readonly hostId: string;
+  prepareScheduledClean(
+    params: ContextCleanExecutionRequest,
+  ): Promise<ContextCleanExecutionPrepareResult>;
+  recordCleanReceipt(
+    receipt: ContextCleanReceipt,
+  ): Promise<ContextCleanStoreWriteResult<ContextCleanPlanRecord>>;
+}
