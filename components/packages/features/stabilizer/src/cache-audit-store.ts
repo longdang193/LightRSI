@@ -133,10 +133,16 @@ export type CacheAuditSummary = {
   warmHits: number;
   warmMisses: number;
   hitRatePercent: number;
+  warmInputTokens: number;
+  warmCachedInputTokens: number;
+  warmCachedInputTokenRatioPercent: number;
   familyWarmCandidates: number;
   familyWarmHits: number;
   familyWarmMisses: number;
   familyHitRatePercent: number;
+  familyWarmInputTokens: number;
+  familyWarmCachedInputTokens: number;
+  familyWarmCachedInputTokenRatioPercent: number;
   inputTokens: number;
   cachedInputTokens: number;
   cacheWriteTokens: number;
@@ -202,24 +208,38 @@ function cacheFamilyIdentity(record: {
   return wirePrefixHash ? `wire:${wirePrefixHash}` : null;
 }
 
-function countWarmReuse(
+type WarmReuseStats = {
+  candidates: number;
+  hits: number;
+  misses: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+};
+
+function summarizeWarmReuse(
   records: CacheAuditRecord[],
   identityFor: (record: CacheAuditRecord) => string | null,
-): { candidates: number; hits: number; misses: number } {
+): WarmReuseStats {
   const seen = new Set<string>();
   let candidates = 0;
   let hits = 0;
   let misses = 0;
+  let inputTokens = 0;
+  let cachedInputTokens = 0;
   for (const record of records) {
     const identity = identityFor(record);
     if (identity && seen.has(identity)) {
       candidates += 1;
-      if (record.cachedInputTokens > 0) hits += 1;
+      const input = Math.max(0, record.inputTokens ?? 0);
+      const cached = Math.max(0, record.cachedInputTokens ?? 0);
+      inputTokens += input;
+      cachedInputTokens += cached;
+      if (cached > 0) hits += 1;
       else misses += 1;
     }
     if (identity) seen.add(identity);
   }
-  return { candidates, hits, misses };
+  return { candidates, hits, misses, inputTokens, cachedInputTokens };
 }
 
 function topCounts(counts: Map<string, number>, limit = 5): Array<{ key: string; count: number }> {
@@ -265,8 +285,8 @@ export function summarizeCacheAudit<T extends CacheAuditRecord>(
   records: T[],
 ): CacheAuditSummary {
   const ordered = records.slice().reverse();
-  const identityReuse = countWarmReuse(ordered, cacheIdentity);
-  const familyReuse = countWarmReuse(ordered, cacheFamilyIdentity);
+  const identityReuse = summarizeWarmReuse(ordered, cacheIdentity);
+  const familyReuse = summarizeWarmReuse(ordered, cacheFamilyIdentity);
   let promptCacheKeyMismatchCount = 0;
   const entropyCounts = new Map<string, number>();
   const driftCounts = new Map<string, number>();
@@ -301,11 +321,21 @@ export function summarizeCacheAudit<T extends CacheAuditRecord>(
     hitRatePercent: identityDenominator > 0
       ? Math.round((identityReuse.hits / identityDenominator) * 1000) / 10
       : 0,
+    warmInputTokens: identityReuse.inputTokens,
+    warmCachedInputTokens: identityReuse.cachedInputTokens,
+    warmCachedInputTokenRatioPercent: identityReuse.inputTokens > 0
+      ? Math.round((identityReuse.cachedInputTokens / identityReuse.inputTokens) * 1000) / 10
+      : 0,
     familyWarmCandidates: familyReuse.candidates,
     familyWarmHits: familyReuse.hits,
     familyWarmMisses: familyReuse.misses,
     familyHitRatePercent: familyDenominator > 0
       ? Math.round((familyReuse.hits / familyDenominator) * 1000) / 10
+      : 0,
+    familyWarmInputTokens: familyReuse.inputTokens,
+    familyWarmCachedInputTokens: familyReuse.cachedInputTokens,
+    familyWarmCachedInputTokenRatioPercent: familyReuse.inputTokens > 0
+      ? Math.round((familyReuse.cachedInputTokens / familyReuse.inputTokens) * 1000) / 10
       : 0,
     inputTokens,
     cachedInputTokens,

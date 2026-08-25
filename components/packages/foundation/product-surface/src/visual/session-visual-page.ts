@@ -678,10 +678,13 @@ function renderCacheAuditPanel(cacheAuditSummary, entries) {
   );
   return '<div class="pass-list" style="margin-top:16px;">'
     + '<div class="pass-item"><strong>Cache Audit</strong><br />'
-    + 'warm hits=' + escapeHtml(fmtInt(cacheAuditSummary.warmHits || 0))
+    + 'warm request hits=' + escapeHtml(fmtInt(cacheAuditSummary.warmHits || 0))
     + ' / ' + escapeHtml(fmtInt(cacheAuditSummary.warmCandidates || 0))
     + ' · misses=' + escapeHtml(fmtInt(cacheAuditSummary.warmMisses || 0))
     + ' · hit rate=' + escapeHtml(String(cacheAuditSummary.hitRatePercent || 0)) + '%'
+    + '<br />warm token coverage=' + escapeHtml(fmtInt(cacheAuditSummary.warmCachedInputTokens || 0))
+      + ' / ' + escapeHtml(fmtInt(cacheAuditSummary.warmInputTokens || 0))
+      + ' (' + escapeHtml(String(cacheAuditSummary.warmCachedInputTokenRatioPercent || 0)) + '%)'
     + '<br />response key rewrites=' + escapeHtml(fmtInt(rewriteCount))
     + '<br />entropy hotspots=' + escapeHtml(entropy)
     + '<br />drift hotspots=' + escapeHtml(drift)
@@ -891,7 +894,7 @@ function renderPromptCacheTransition(item, matchedCacheEntry, matchedFingerprint
     + '<br />prompt cache transition=' + escapeHtml(item.promptCacheKeyBefore || "-")
     + ' -> ' + escapeHtml(item.promptCacheKeyAfter || "-")
     + '<br />matched fingerprint=' + escapeHtml(matchedFingerprint)
-    + ' · warm hits=' + escapeHtml(warmSummary)
+    + ' · warm request hits=' + escapeHtml(warmSummary)
     + '<br />matched result=' + escapeHtml(diagnosis.matchedResult)
     + ' · rewrite detected=' + escapeHtml(String(Boolean(diagnosis.rewriteDetected)))
     + '<br />matched request key=' + escapeHtml(matchedRequestKey)
@@ -1102,7 +1105,7 @@ function renderSessionList() {
     const active = session.sessionId === state.activeSessionId ? "active" : "";
     const savings = savingsSummary(session);
     const cache = session.cacheAuditSummary && session.cacheAuditSummary.warmCandidates > 0
-      ? '<span>C ' + fmtInt(session.cacheAuditSummary.warmHits) + '/' + fmtInt(session.cacheAuditSummary.warmCandidates) + '</span>'
+      ? '<span>C ' + fmtInt(session.cacheAuditSummary.warmCachedInputTokenRatioPercent || 0) + '%</span>'
       : '';
     return '<button class="session-item ' + active + '" data-session-id="' + escapeHtml(session.sessionId) + '" data-index="' + (index + 1) + '" type="button">'
       + '<div class="session-id">' + escapeHtml(session.sessionId) + '</div>'
@@ -1239,7 +1242,7 @@ function renderStability(item) {
     ["Sender blocks", fmtInt(item.senderMetadataBlocksBefore) + " -> " + fmtInt(item.senderMetadataBlocksAfter)],
     ["First turn candidate", String(Boolean(item.firstTurnCandidate))],
     ...(cacheAuditSummary
-      ? [["Warm hit rate", fmtInt(cacheAuditSummary.warmHits || 0) + "/" + fmtInt(cacheAuditSummary.warmCandidates || 0) + " (" + String(cacheAuditSummary.hitRatePercent || 0) + "%)"]]
+      ? [["Warm request hit rate", fmtInt(cacheAuditSummary.warmHits || 0) + "/" + fmtInt(cacheAuditSummary.warmCandidates || 0) + " (" + String(cacheAuditSummary.hitRatePercent || 0) + "%)"], ["Warm token coverage", fmtInt(cacheAuditSummary.warmCachedInputTokens || 0) + "/" + fmtInt(cacheAuditSummary.warmInputTokens || 0) + " (" + String(cacheAuditSummary.warmCachedInputTokenRatioPercent || 0) + "%)"]]
       : []),
   ].map(([label, value]) => '<div class="chip">' + escapeHtml(label) + ': ' + escapeHtml(value) + '</div>').join("");
   el.compareRoot.innerHTML = '<div class="pass-list">'

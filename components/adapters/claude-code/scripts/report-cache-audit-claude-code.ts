@@ -23,7 +23,8 @@ async function main() {
   console.log(`- warm candidates: ${summary.warmCandidates}`);
   console.log(`- warm cache hits: ${summary.warmHits}`);
   console.log(`- warm cache misses: ${summary.warmMisses}`);
-  console.log(`- warm hit rate: ${summary.hitRatePercent}%`);
+  console.log(`- warm request hit rate: ${summary.hitRatePercent}%`);
+  console.log(`- warm token coverage: ${summary.warmCachedInputTokens}/${summary.warmInputTokens} (${summary.warmCachedInputTokenRatioPercent}%)`);
   console.log(`- response cache key rewrites: ${summary.responsePromptCacheKeyRewriteCount}`);
   console.log(
     `- top entropy kinds: ${summary.topEntropyKinds.length > 0

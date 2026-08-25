@@ -75,6 +75,9 @@ export type ProductSurfaceSessionReportData = {
     warmHits: number;
     warmMisses: number;
     hitRatePercent: number;
+    warmInputTokens?: number;
+    warmCachedInputTokens?: number;
+    warmCachedInputTokenRatioPercent?: number;
     responsePromptCacheKeyRewriteCount?: number;
     promptCacheKeyMismatchCount: number;
     topEntropyKinds: Array<{ key: string; count: number }>;
@@ -441,7 +444,8 @@ export function formatSessionReport(params: {
       if (skippedReasons) lines.push(`- recent skipped reasons: ${skippedReasons}`);
     }
     if (cacheAuditSummary && cacheAuditSummary.warmCandidates > 0) {
-      lines.push(`- cache warm hits: ${formatInt(cacheAuditSummary.warmHits)}/${formatInt(cacheAuditSummary.warmCandidates)} (${formatPercent(cacheAuditSummary.hitRatePercent)})`);
+      lines.push(`- cache warm request hits: ${formatInt(cacheAuditSummary.warmHits)}/${formatInt(cacheAuditSummary.warmCandidates)} (${formatPercent(cacheAuditSummary.hitRatePercent)})`);
+      lines.push(`- cache warm token coverage: ${formatInt(cacheAuditSummary.warmCachedInputTokens ?? 0)}/${formatInt(cacheAuditSummary.warmInputTokens ?? 0)} (${formatPercent(cacheAuditSummary.warmCachedInputTokenRatioPercent ?? 0)})`);
       if (cacheAuditSummary.warmMisses > 0) {
         lines.push(`- cache warm misses: ${formatInt(cacheAuditSummary.warmMisses)}`);
       }
@@ -504,7 +508,8 @@ export function buildSessionReportText(params: ProductSurfaceSessionReportData):
         }
       }
       if (cacheAuditSummary && cacheAuditSummary.warmCandidates > 0) {
-        lines.push(`- cache warm hits: ${formatInt(cacheAuditSummary.warmHits)}/${formatInt(cacheAuditSummary.warmCandidates)} (${formatPercent(cacheAuditSummary.hitRatePercent)})`);
+        lines.push(`- cache warm request hits: ${formatInt(cacheAuditSummary.warmHits)}/${formatInt(cacheAuditSummary.warmCandidates)} (${formatPercent(cacheAuditSummary.hitRatePercent)})`);
+        lines.push(`- cache warm token coverage: ${formatInt(cacheAuditSummary.warmCachedInputTokens ?? 0)}/${formatInt(cacheAuditSummary.warmInputTokens ?? 0)} (${formatPercent(cacheAuditSummary.warmCachedInputTokenRatioPercent ?? 0)})`);
       }
       lines.push(...buildLatestNonWarmDiagnosisLines(latestNonWarmCacheDiagnosis));
     }

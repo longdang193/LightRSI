@@ -270,6 +270,12 @@ test("summarizeCacheAudit reports family reuse and token metrics", async () => {
     assert.equal(summary.cachedInputTokens, 80);
     assert.equal(summary.cacheWriteTokens, 120);
     assert.equal(summary.cachedInputTokenRatioPercent, 40);
+    assert.equal(summary.warmInputTokens, 100);
+    assert.equal(summary.warmCachedInputTokens, 80);
+    assert.equal(summary.warmCachedInputTokenRatioPercent, 80);
+    assert.equal(summary.familyWarmInputTokens, 100);
+    assert.equal(summary.familyWarmCachedInputTokens, 80);
+    assert.equal(summary.familyWarmCachedInputTokenRatioPercent, 80);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

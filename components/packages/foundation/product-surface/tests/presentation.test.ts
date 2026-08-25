@@ -31,6 +31,9 @@ test("formatSessionReport prefers char aggregates when latest mode is chars", ()
       warmHits: 1,
       warmMisses: 1,
       hitRatePercent: 50,
+      warmInputTokens: 100,
+      warmCachedInputTokens: 80,
+      warmCachedInputTokenRatioPercent: 80,
       responsePromptCacheKeyRewriteCount: 3,
       promptCacheKeyMismatchCount: 3,
       topEntropyKinds: [{ key: "abs_path", count: 2 }],
@@ -52,7 +55,8 @@ test("formatSessionReport prefers char aggregates when latest mode is chars", ()
   assert.match(text, /avg saved chars per optimized turn: 81,398/);
   assert.match(text, /latest request savings: 80,000 chars/);
   assert.match(text, /latest response savings: 1,397 chars/);
-  assert.match(text, /cache warm hits: 1\/2 \(50%\)/);
+  assert.match(text, /cache warm request hits: 1\/2 \(50%\)/);
+  assert.match(text, /cache warm token coverage: 80\/100 \(80%\)/);
   assert.match(text, /cache warm misses: 1/);
   assert.match(text, /response cache key rewrites: 3/);
   assert.match(text, /cache entropy hotspots: abs_path=2/);
