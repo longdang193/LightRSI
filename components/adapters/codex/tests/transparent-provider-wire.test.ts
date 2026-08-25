@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,15 +14,20 @@ async function startWireUpstream(params: {
   body: string;
   contentType: string;
   responseChunks?: string[];
+  responseStatus?: number;
   chunkDelayMs?: number;
 }) {
   const port = await reserveUnusedPort();
   const requests: string[] = [];
+  const requestPaths: string[] = [];
+  const requestMethods: string[] = [];
   let upstreamAbortCount = 0;
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
     requests.push(Buffer.concat(chunks).toString("utf8"));
+    requestPaths.push(req.url ?? "");
+    requestMethods.push(req.method ?? "");
     if (req.method !== "POST" || req.url !== params.path) {
       res.statusCode = 404;
       res.end("not found");
@@ -30,7 +36,7 @@ async function startWireUpstream(params: {
     res.on("close", () => {
       if (!res.writableEnded) upstreamAbortCount += 1;
     });
-    res.statusCode = 200;
+    res.statusCode = params.responseStatus ?? 200;
     res.setHeader("content-type", params.contentType);
     const responseChunks = params.responseChunks ?? [params.body];
     for (const chunk of responseChunks) {
@@ -50,6 +56,8 @@ async function startWireUpstream(params: {
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     requests,
+    requestPaths,
+    requestMethods,
     get upstreamAbortCount() {
       return upstreamAbortCount;
     },
@@ -69,7 +77,7 @@ async function startPureForwardProxy(upstreamBaseUrl: string) {
       wireApi: "responses",
     },
     proxyMode: { pureForward: true },
-    modules: { stabilizer: false, reduction: false },
+    modules: { stabilizer: true, reduction: true },
   });
   const runtime = await startCodexResponsesProxy({
     config,
@@ -178,6 +186,70 @@ test("pure forward preserves SSE bytes and content type", async () => {
   }
 });
 
+test("pure forward preserves provider payload and endpoint with normal defaults", async () => {
+  const streamBody = "event: response.completed\n\n";
+  const upstream = await startWireUpstream({
+    path: "/v1/responses",
+    contentType: "text/event-stream",
+    body: streamBody,
+    responseChunks: [streamBody],
+  });
+  const proxy = await startPureForwardProxy(upstream.baseUrl);
+  try {
+    const requestBody = JSON.stringify({
+      model: "capture-model",
+      stream: true,
+      prompt_cache_key: "session-cache-key",
+      input: [{ role: "user", content: "hello" }],
+    });
+    const response = await fetch(`${proxy.runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: requestBody,
+    });
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), streamBody);
+    assert.deepEqual(upstream.requestMethods, ["POST"]);
+    assert.deepEqual(upstream.requestPaths, ["/v1/responses"]);
+    assert.equal(upstream.requests.length, 1);
+    assert.equal(upstream.requests[0], requestBody);
+    assert.equal(
+      createHash("sha256").update(upstream.requests[0]).digest("hex"),
+      createHash("sha256").update(requestBody).digest("hex"),
+    );
+    assert.equal(upstream.requestPaths.some((path) => path.endsWith("/models")), false);
+  } finally {
+    await proxy.runtime.close();
+    await proxy.cleanup();
+    await upstream.close();
+  }
+});
+
+test("pure forward preserves upstream error status and body", async () => {
+  const errorBody = JSON.stringify({ error: { type: "rate_limit_error" } });
+  const upstream = await startWireUpstream({
+    path: "/v1/responses",
+    contentType: "application/json",
+    body: errorBody,
+    responseStatus: 429,
+  });
+  const proxy = await startPureForwardProxy(upstream.baseUrl);
+  try {
+    const response = await fetch(`${proxy.runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "capture-model", input: [] }),
+    });
+    assert.equal(response.status, 429);
+    assert.equal(await response.text(), errorBody);
+    assert.deepEqual(upstream.requestMethods, ["POST"]);
+    assert.deepEqual(upstream.requestPaths, ["/v1/responses"]);
+  } finally {
+    await proxy.runtime.close();
+    await proxy.cleanup();
+    await upstream.close();
+  }
+});
 test("pure forward records empty-body timing without inventing chunks", async () => {
   const upstream = await startWireUpstream({
     path: "/v1/responses",

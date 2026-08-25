@@ -52,6 +52,9 @@ function shouldSkipForwardHeader(name: string): boolean {
     case "content-length":
     case "content-encoding":
     case "transfer-encoding":
+    case "accept-language":
+    case "sec-fetch-mode":
+    case "user-agent":
       return true;
     default:
       return false;
