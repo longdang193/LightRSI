@@ -252,6 +252,9 @@ importers:
       '@lightrsi/host-adapter':
         specifier: workspace:*
         version: link:../host-adapter
+      '@lightrsi/kernel':
+        specifier: workspace:*
+        version: link:../kernel
 
   components/packages/foundation/runtime-core:
     dependencies:

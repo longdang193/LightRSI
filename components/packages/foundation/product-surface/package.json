@@ -10,7 +10,8 @@
   "types": "src/index.ts",
   "dependencies": {
     "@lightrsi/artifact-store": "workspace:*",
-    "@lightrsi/host-adapter": "workspace:*"
+    "@lightrsi/host-adapter": "workspace:*",
+    "@lightrsi/kernel": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
