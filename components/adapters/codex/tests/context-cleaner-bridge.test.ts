@@ -24,7 +24,19 @@ import {
   appendCodexResponseJournalEntry,
 } from "../src/context-history/index.js";
 import { createCodexContextCleanerBridge } from "../src/context-cleaner/index.js";
+import { readCodexCleanerSchedule } from "../src/context-cleaner/scheduler.js";
 import { upsertCodexSessionSnapshot } from "../src/session-state.js";
+
+async function withTempState(
+  run: (stateDir: string) => Promise<void>,
+): Promise<void> {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cleaner-bridge-"));
+  try {
+    await run(stateDir);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+}
 
 function pendingReceipt(
   status: ContextCleanPendingReceipt["status"],
@@ -80,11 +92,12 @@ function fakeControlPlane(): ContextCleanerControlPlane {
 }
 
 test("Codex cleaner bridge preserves approved targets and control-plane receipts", async () => {
+  await withTempState(async (stateDir) => {
   let captured: ExecuteApprovedContextCleanParams | undefined;
   const applied = appliedReceipt();
   const cancelled = terminalReceipt("cancelled");
   const bridge = createCodexContextCleanerBridge({
-    stateDir: "unused-state-dir",
+    stateDir,
     controlPlane: {
       async executeApprovedClean(request) {
         captured = request;
@@ -127,6 +140,14 @@ test("Codex cleaner bridge preserves approved targets and control-plane receipts
     itemIds: ["item-1"],
   });
   assert.strictEqual(await bridge.cancelCleanPlan(request.cleanPlanId), cancelled);
+  const stored = await readCodexCleanerSchedule({ stateDir, sessionId: request.sessionId });
+  assert.equal(stored.outcome, "ready");
+  if (stored.outcome === "ready") {
+    assert.equal(stored.record.cleanPlanId, request.cleanPlanId);
+    assert.equal(stored.record.baseRevision, request.baseRevision);
+    assert.deepEqual(stored.record.selectedTaskIds, ["task-1"]);
+  }
+  });
 });
 
 test("Codex cleaner bridge rejects cross-host approvals before control-plane execution", async () => {
@@ -241,6 +262,38 @@ test("Codex cleaner bridge rejects malformed applied receipts loaded at runtime"
     bridge.readCleanReceipt("clean-plan-1"),
     /codex_clean_receipt_mismatch/,
   );
+});
+
+test("Codex cleaner bridge does not schedule a non-scheduled control-plane receipt", async () => {
+  await withTempState(async (stateDir) => {
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane: {
+        ...fakeControlPlane(),
+        async executeApprovedClean() {
+          return pendingReceipt("approved");
+        },
+      },
+    });
+    const receipt = await bridge.executeApprovedClean({
+      schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+      cleanPlanId: "clean-plan-1",
+      hostId: "codex",
+      sessionId: "codex-cleaner-session",
+      baseRevision: "revision-before",
+      approvedAt: "2026-08-21T00:00:00.000Z",
+      selectedTasks: [{
+        taskId: "task-1",
+        itemIds: ["item-1"],
+        itemDigests: { "item-1": "digest-1" },
+      }],
+    });
+    assert.equal(receipt.status, "approved");
+    assert.equal((await readCodexCleanerSchedule({
+      stateDir,
+      sessionId: "codex-cleaner-session",
+    })).outcome, "missing");
+  });
 });
 
 test("Codex cleaner bridge lists persisted sessions and reads canonical effective history", async () => {

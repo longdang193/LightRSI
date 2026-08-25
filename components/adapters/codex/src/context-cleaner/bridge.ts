@@ -18,6 +18,7 @@ import { buildCodexLifecycleBackendRequest } from "../context-rewrite/lifecycle-
 import {
   loadCodexSessionSnapshot,
 } from "../session-state.js";
+import { scheduleCodexCleanerPlan } from "./scheduler.js";
 import { listCodexCleanerSessions } from "./session-catalog.js";
 
 const CODEX_HOST_ID = "codex";
@@ -256,12 +257,26 @@ export function createCodexContextCleanerBridge(params: {
     },
     async executeApprovedClean(request) {
       const selectedTaskIds = validateApprovedRequest(request);
-      return validateReceipt({
+      const receipt = validateReceipt({
         receipt: await params.controlPlane.executeApprovedClean(request),
         planId: request.cleanPlanId,
         sessionId: request.sessionId,
         selectedTaskIds,
       });
+      if (receipt.status === "scheduled") {
+        const scheduled = await scheduleCodexCleanerPlan({
+          stateDir: params.stateDir,
+          sessionId: request.sessionId,
+          cleanPlanId: request.cleanPlanId,
+          baseRevision: request.baseRevision,
+          selectedTaskIds,
+          scheduledAt: receipt.updatedAt,
+        });
+        if (scheduled.outcome !== "stored" && scheduled.outcome !== "unchanged") {
+          throw new Error(`codex_clean_schedule_failed:${scheduled.reasons.join(",")}`);
+        }
+      }
+      return receipt;
     },
     async readCleanReceipt(planId) {
       if (!planId.trim()) throw new Error("codex_clean_plan_id_invalid");

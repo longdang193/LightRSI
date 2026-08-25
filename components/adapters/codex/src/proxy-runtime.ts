@@ -97,6 +97,17 @@ import type {
   CodexMutationPlan,
   CodexRebaseRequestResult,
 } from "./context-rewrite/types.js";
+import {
+  finalizeCodexCleanerHandoffFailure,
+  isCodexCleanerStaleReasonCode,
+  prepareCodexCleanerRebase,
+  revalidateCodexCleanerPreparedRebase,
+  type CodexCleanerPreparedRebase,
+} from "./context-cleaner/runtime.js";
+import {
+  appendCodexCleanerCommitted,
+  readCodexCleanerSchedule,
+} from "./context-cleaner/scheduler.js";
 
 export type CodexProxyRuntime = {
   baseUrl: string;
@@ -563,9 +574,18 @@ export async function startCodexResponsesProxy(params: {
       let rebaseRequest: CodexRebaseRequestResult | undefined;
       let rebasePlanId: string | undefined;
       let lifecyclePreparedPlan: CodexLifecyclePreparedPlan | undefined;
+      let cleanerPreparedRebase: CodexCleanerPreparedRebase | undefined;
       let continuationReplayRequest: CodexRebaseRequestResult | undefined;
       let rebaseAccounting = rebaseRequest?.accounting;
-      const mutationPlan = lifecyclePlanningConfigured ? undefined : activeMutationPlan(config);
+      const cleanerSchedule = await readCodexCleanerSchedule({
+        stateDir: config.stateDir,
+        sessionId,
+      });
+      const manualCleanerReserved = cleanerSchedule.outcome === "ready"
+        || cleanerSchedule.outcome === "bypassed";
+      const mutationPlan = manualCleanerReserved || lifecyclePlanningConfigured
+        ? undefined
+        : activeMutationPlan(config);
       let effectiveHistoryViewPromise: ReturnType<typeof buildCodexEffectiveHistoryView> | undefined;
       const buildEffectiveHistoryViewForHead = (): ReturnType<typeof buildCodexEffectiveHistoryView> => {
         if (!requestJournalEntry || typeof originalPayload.previous_response_id !== "string") {
@@ -612,7 +632,94 @@ export async function startCodexResponsesProxy(params: {
         await effectiveHistoryViewForHead()
       ).history;
 
-      if (lifecyclePlanningConfigured) {
+      if (manualCleanerReserved) {
+        if (!config.contextRewrite.enabled) {
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: ["feature_disabled"],
+            fallbackUsed: true,
+          });
+        } else if (!requestJournalEntry) {
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: ["request_journal_unavailable"],
+            fallbackUsed: true,
+          });
+        } else if (typeof originalPayload.previous_response_id !== "string"
+          || !originalPayload.previous_response_id) {
+          await emitContextRewriteStage("context_rewrite_deferred", {
+            reasonCodes: ["response_chain_head_missing"],
+          });
+        } else if (!config.contextRewrite.retryOriginalRequest
+          || config.contextRewrite.mode !== "response_chain_rebase"
+          || config.contextRewrite.failureMode !== "bypass") {
+          await emitContextRewriteStage("context_rewrite_bypassed", {
+            reasonCodes: ["rewrite_configuration_unsupported"],
+            fallbackUsed: true,
+          });
+        } else {
+          try {
+            const effectiveHistoryView = await effectiveHistoryViewForHead();
+            const cleanerResult = await prepareCodexCleanerRebase({
+              stateDir: config.stateDir,
+              sessionId,
+              view: effectiveHistoryView,
+              backendRequest: {
+                sessionId,
+                payload: originalPayload,
+                effectiveHistory: effectiveHistoryView.history,
+                currentInput: originalPayload.input,
+              },
+            });
+            await appendTrace(config.stateDir, {
+              stage: "context_cleaner_runtime_prepared",
+              sessionId,
+              model,
+              outcome: cleanerResult.outcome,
+              reasonCodes: cleanerResult.reasonCodes,
+            });
+            if (cleanerResult.outcome === "ready") {
+              cleanerPreparedRebase = cleanerResult.prepared;
+              activeLifecyclePlan = codexSharedLifecyclePlan(
+                cleanerResult.prepared.execution.mutationPlan,
+              );
+              rebaseRequest = cleanerResult.prepared.rebaseRequest;
+              rebasePlanId = cleanerResult.prepared.execution.mutationPlan.planId;
+              rebaseAccounting = cleanerResult.prepared.rebaseRequest.accounting;
+              activeLifecyclePlan = {
+                ...activeLifecyclePlan,
+                previousRevision: rebaseRequest.oldRevision,
+                nextRevision: rebaseRequest.rebaseRevision,
+                estimatedSavedChars: rebaseRequest.accounting.plannedSavedChars,
+                savedChars: rebaseRequest.accounting.actuallyRemovedChars,
+              };
+              await emitContextRewriteStage("context_rewrite_planned");
+            } else {
+              await emitContextRewriteStage(
+                cleanerResult.outcome === "stale" || cleanerResult.outcome === "reserved"
+                  ? "context_rewrite_deferred"
+                  : "context_rewrite_bypassed",
+                {
+                  reasonCodes: cleanerResult.reasonCodes.length > 0
+                    ? cleanerResult.reasonCodes
+                    : [`cleaner_runtime_${cleanerResult.outcome}`],
+                  fallbackUsed: cleanerResult.outcome !== "stale",
+                },
+              );
+            }
+          } catch (err) {
+            cleanerPreparedRebase = undefined;
+            await appendTrace(config.stateDir, {
+              stage: "context_cleaner_runtime_failed",
+              sessionId,
+              model,
+              reason: err instanceof Error ? err.message : String(err),
+            });
+            await emitContextRewriteStage("context_rewrite_bypassed", {
+              reasonCodes: ["cleaner_runtime_failed"],
+              fallbackUsed: true,
+            });
+          }
+        }
+      } else if (lifecyclePlanningConfigured) {
         if (!config.contextRewrite.enabled) {
           await emitContextRewriteStage("context_rewrite_bypassed", {
             reasonCodes: ["feature_disabled"],
@@ -826,6 +933,7 @@ export async function startCodexResponsesProxy(params: {
       }
 
       const canPrepareContinuationReplay = !rebaseRequest
+        && !manualCleanerReserved
         && requestJournalEntry
         && typeof originalPayload.previous_response_id === "string"
         && config.contextRewrite.providerCompatibilityProbe !== "disabled";
@@ -1284,7 +1392,35 @@ export async function startCodexResponsesProxy(params: {
                 cooldownMs: config.contextRewrite.cooldownMs,
               },
               capabilityStore,
-              executionGuard: lifecyclePreparedPlan
+              executionGuard: cleanerPreparedRebase
+                ? async () => {
+                    let currentView;
+                    try {
+                      currentView = await buildEffectiveHistoryViewForHead();
+                    } catch {
+                      return {
+                        allowed: false,
+                        reason: "cleaner_runtime_snapshot_changed",
+                      };
+                    }
+                    const handoff = await revalidateCodexCleanerPreparedRebase({
+                      stateDir: config.stateDir,
+                      sessionId,
+                      prepared: cleanerPreparedRebase,
+                      view: currentView,
+                      backendRequest: {
+                        sessionId,
+                        payload: originalPayload,
+                        effectiveHistory: currentView.history,
+                        currentInput: originalPayload.input,
+                      },
+                    });
+                    return {
+                      allowed: handoff.valid,
+                      reason: handoff.reasonCodes[0],
+                    };
+                  }
+                : lifecyclePreparedPlan
                 ? async () => {
                     let currentView;
                     try {
@@ -1314,6 +1450,44 @@ export async function startCodexResponsesProxy(params: {
                   }
                 : undefined,
             });
+            if (result.outcome === "committed"
+              && cleanerPreparedRebase
+              && result.epoch?.status === "committed") {
+              const localCommit = await appendCodexCleanerCommitted({
+                stateDir: config.stateDir,
+                sessionId,
+                cleanPlanId: cleanerPreparedRebase.execution.cleanPlanId,
+                mutationPlanId: cleanerPreparedRebase.execution.mutationPlan.planId,
+                epochId: result.epoch.epochId,
+                updatedAt: result.epoch.updatedAt,
+              });
+              if (localCommit.outcome !== "transitioned"
+                && localCommit.outcome !== "unchanged") {
+                await appendTrace(config.stateDir, {
+                  stage: "context_cleaner_local_commit_failed",
+                  sessionId,
+                  model,
+                  reasonCodes: localCommit.reasons,
+                });
+              }
+            }
+            if (result.outcome === "bypassed"
+              && cleanerPreparedRebase
+              && isCodexCleanerStaleReasonCode(result.reason)) {
+              const finalized = await finalizeCodexCleanerHandoffFailure({
+                stateDir: config.stateDir,
+                sessionId,
+                prepared: cleanerPreparedRebase,
+                reasonCodes: [result.reason!],
+              });
+              await appendTrace(config.stateDir, {
+                stage: "context_cleaner_handoff_finalized",
+                sessionId,
+                model,
+                outcome: finalized.outcome,
+                reasonCodes: finalized.reasonCodes,
+              });
+            }
             contextRewriteOutcome = result.outcome;
             contextRewriteValidationPassed = Boolean(result.rebaseResponse)
               || result.outcome === "committed";
