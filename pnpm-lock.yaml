@@ -176,6 +176,9 @@ importers:
 
   components/packages/features/cleaner:
     dependencies:
+      '@lightrsi/history':
+        specifier: workspace:*
+        version: link:../../foundation/history
       '@lightrsi/host-adapter':
         specifier: workspace:*
         version: link:../../foundation/host-adapter
@@ -249,6 +252,9 @@ importers:
       '@lightrsi/host-adapter':
         specifier: workspace:*
         version: link:../host-adapter
+      '@lightrsi/kernel':
+        specifier: workspace:*
+        version: link:../kernel
 
   components/packages/foundation/runtime-core:
     dependencies:
