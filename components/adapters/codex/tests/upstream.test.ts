@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { requestUpstreamResponses, resolveModelFromCatalog } from "../src/upstream.js";
+import {
+  requestUpstreamResponses,
+  requestUpstreamResponsesStream,
+  resolveModelFromCatalog,
+} from "../src/upstream.js";
 
 test("model catalog resolver handles qualified, unique, unknown, and ambiguous names uniformly", () => {
   const catalog = [
@@ -232,6 +236,72 @@ test("unsupported prompt_cache_options is persisted and retried once without tha
     assert.equal(requests.length, 2);
     assert.deepEqual(requests[0]?.prompt_cache_options, { mode: "explicit", ttl: "30m" });
     assert.equal("prompt_cache_options" in (requests[1] ?? {}), false);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("stream upstream learns unsupported nested prompt_cache_breakpoint and retries without it", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-breakpoint-capability-"));
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    requests.push(payload);
+    const input = Array.isArray(payload.input) ? payload.input : [];
+    const firstContent = input[0] && typeof input[0] === "object" && Array.isArray((input[0] as any).content)
+      ? (input[0] as any).content
+      : [];
+    if (firstContent[0]?.prompt_cache_breakpoint) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: { message: "prompt_cache_breakpoint is not supported on this model" } }));
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader("content-type", "text/event-stream");
+    res.end("event: response.completed\n\n");
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const payload = {
+    model: "gpt-5.6-luna",
+    input: [{
+      role: "developer",
+      content: [{ type: "input_text", text: "stable", prompt_cache_breakpoint: { mode: "explicit" } }],
+    }],
+  };
+  try {
+    const first = await requestUpstreamResponsesStream({
+      upstream: { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses", requiresOpenAIAuth: false },
+      payload,
+      stateDir,
+    });
+    for await (const _chunk of first.stream) {
+    }
+    assert.equal(first.status, 200);
+    assert.equal(requests.length, 2);
+    assert.ok((requests[0]?.input as any[])?.[0]?.content?.[0]?.prompt_cache_breakpoint);
+    assert.equal((requests[1]?.input as any[])?.[0]?.content?.[0]?.prompt_cache_breakpoint, undefined);
+
+    const second = await requestUpstreamResponsesStream({
+      upstream: { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses", requiresOpenAIAuth: false },
+      payload,
+      stateDir,
+    });
+    for await (const _chunk of second.stream) {
+    }
+    assert.equal(second.status, 200);
+    assert.equal(requests.length, 3);
+    assert.equal((requests[2]?.input as any[])?.[0]?.content?.[0]?.prompt_cache_breakpoint, undefined);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await rm(stateDir, { recursive: true, force: true });

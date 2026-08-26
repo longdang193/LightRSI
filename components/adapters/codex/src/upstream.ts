@@ -17,7 +17,11 @@ export type UpstreamStreamResponse = {
   stream: Readable;
 };
 
-type OptionalResponsesField = "prompt_cache_options" | "prompt_cache_retention" | "prompt_cache_key";
+type OptionalResponsesField =
+  | "prompt_cache_options"
+  | "prompt_cache_retention"
+  | "prompt_cache_key"
+  | "prompt_cache_breakpoint";
 
 type UpstreamResponsesCapabilityRecord = {
   endpoint: string;
@@ -133,6 +137,25 @@ function requestHeaders(params: {
 }
 function clonePayloadWithoutOptionalField(payload: any, field: OptionalResponsesField): any {
   if (!payload || typeof payload !== "object") return payload;
+  if (field === "prompt_cache_breakpoint") {
+    if (!Array.isArray(payload.input)) return payload;
+    let inputChanged = false;
+    const input = payload.input.map((item: any) => {
+      if (!item || typeof item !== "object" || !Array.isArray(item.content)) return item;
+      let contentChanged = false;
+      const content = item.content.map((block: any) => {
+        if (!block || typeof block !== "object" || !("prompt_cache_breakpoint" in block)) return block;
+        contentChanged = true;
+        const nextBlock = { ...block };
+        delete nextBlock.prompt_cache_breakpoint;
+        return nextBlock;
+      });
+      if (!contentChanged) return item;
+      inputChanged = true;
+      return { ...item, content };
+    });
+    return inputChanged ? { ...payload, input } : payload;
+  }
   if (!(field in payload)) return payload;
   const next = { ...(payload as Record<string, unknown>) };
   delete next[field];
@@ -152,6 +175,9 @@ function clonePayloadWithoutUnsupportedFields(
 
 function unsupportedOptionalFieldFromText(text: string): OptionalResponsesField | undefined {
   if (!text) return undefined;
+  if (/prompt_cache_breakpoint.*(?:not supported|unsupported)|(?:not supported|unsupported).*prompt_cache_breakpoint/i.test(text)) {
+    return "prompt_cache_breakpoint";
+  }
   if (/unsupported parameter:\s*prompt_cache_options/i.test(text)) {
     return "prompt_cache_options";
   }
@@ -215,7 +241,10 @@ async function loadUnsupportedOptionalFields(
   const fields = fresh && Array.isArray(record?.unsupportedOptionalFields)
     ? record.unsupportedOptionalFields.filter(
       (value): value is OptionalResponsesField =>
-        value === "prompt_cache_options" || value === "prompt_cache_retention" || value === "prompt_cache_key",
+        value === "prompt_cache_options"
+          || value === "prompt_cache_retention"
+          || value === "prompt_cache_key"
+          || value === "prompt_cache_breakpoint",
     )
     : [];
   return new Set(fields);
