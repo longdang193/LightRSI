@@ -284,6 +284,33 @@ test("applyStablePrefixToInstructions rewrites instructions and injects dynamic 
   assert.match(String(result.messages[0]?.content ?? ""), /AGENT_ID: worker-123/);
 });
 
+test("applyStablePrefixToInstructions adds structured dynamic context without rewriting user blocks", () => {
+  const userContent: Array<{ type: "text"; text: string } | { type: "image"; imageUrl: string }> = [
+    { type: "text", text: "[IMPORTANT] exact user text\r\n---\nvalue: 1" },
+    { type: "image", imageUrl: "https://example.com/exact.png" },
+  ];
+  const envelope: HostRequestEnvelope = {
+    session: {
+      host: { hostId: "test", displayName: "Test Host" },
+      sessionId: "session-structured",
+      sessionMode: "single",
+    },
+    model: "gpt-5.4",
+    stream: true,
+    instructions: "Your working directory is: /repo/demo\nRuntime: agent=worker-123 | mode=interactive",
+    messages: [{ role: "user", content: userContent }],
+    rawPayload: {},
+  };
+
+  const result = applyStablePrefixToInstructions({ envelope, dynamicContextTarget: "user" });
+
+  assert.deepEqual(envelope.messages[0]?.content, userContent);
+  assert.deepEqual(result.messages[0]?.content, [
+    { type: "input_text", text: "- WORKDIR: /repo/demo\n- AGENT_ID: worker-123" },
+    ...userContent,
+  ]);
+});
+
 test("applyStablePrefixToInstructions can keep dynamic context inside instructions for developer-targeted hosts", () => {
   const envelope: HostRequestEnvelope = {
     session: {

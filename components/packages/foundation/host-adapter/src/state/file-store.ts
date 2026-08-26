@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { appendFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const writeQueues = new Map<string, Promise<void>>();
+export const JSONL_TAIL_READ_CHUNK_BYTES = 64 * 1024;
 
 export async function readJsonFile<T>(path: string): Promise<T | null> {
   try {
@@ -55,11 +56,37 @@ export async function readRecentJsonlEntries<T>(
   limit = 8,
   isEntry?: (value: unknown) => value is T,
 ): Promise<T[]> {
+  const target = Math.max(1, limit);
   try {
-    const raw = await readFile(path, "utf8");
+    const handle = await open(path, "r");
+    let raw = "";
+    try {
+      const size = (await handle.stat()).size;
+      let offset = size;
+      let buffer = Buffer.alloc(0);
+      let newlineCount = 0;
+      while (offset > 0 && newlineCount <= target) {
+        const chunkSize = Math.min(JSONL_TAIL_READ_CHUNK_BYTES, offset);
+        offset -= chunkSize;
+        const chunk = Buffer.alloc(chunkSize);
+        await handle.read(chunk, 0, chunkSize, offset);
+        buffer = Buffer.concat([chunk, buffer]);
+        newlineCount = 0;
+        for (const byte of buffer) {
+          if (byte === 0x0a) newlineCount += 1;
+        }
+      }
+      raw = buffer.toString("utf8");
+      if (offset > 0) {
+        const firstNewline = raw.indexOf("\n");
+        raw = firstNewline >= 0 ? raw.slice(firstNewline + 1) : "";
+      }
+    } finally {
+      await handle.close();
+    }
     const lines = raw.split(/\r?\n/).filter(Boolean);
     return lines
-      .slice(-Math.max(1, limit))
+      .slice(-target)
       .reverse()
       .map((line) => JSON.parse(line) as unknown)
       .filter((entry): entry is T => (isEntry ? isEntry(entry) : true));

@@ -213,7 +213,10 @@ test("rewritePayloadForStablePrefix keeps provider payload unchanged while deriv
       },
       {
         role: "user",
-        content: [{ type: "input_text", text: "Please continue." }],
+        content: [{
+          type: "input_text",
+          text: "[IMPORTANT]\r\n---\nkind: user-owned\n---\n```json\n{\"request_id\":\"user-owned\"}\n```  ",
+        }],
       },
     ],
   };
@@ -224,6 +227,10 @@ test("rewritePayloadForStablePrefix keeps provider payload unchanged while deriv
   });
 
   assert.deepEqual(payload.input, before.input);
+  assert.equal(
+    payload.input[1].content[0].text,
+    "[IMPORTANT]\r\n---\nkind: user-owned\n---\n```json\n{\"request_id\":\"user-owned\"}\n```  ",
+  );
   assert.ok(out.userContentRewrites > 0);
   assert.match(out.promptCacheKey, /^runtime-pfx-/);
 });

@@ -11,7 +11,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "bench:hotspots": "node --import tsx scripts/bench-hotspots.mjs"
   },
   "dependencies": {
     "@lightrsi/artifact-store": "workspace:*",

@@ -200,7 +200,7 @@ test("shared host helpers return shared report fallback messages and report text
   assert.equal(noAggregate.text, "No TokenPilot savings recorded yet for session session-latest.");
   assert.match(report.text, /session: session-a/);
   assert.match(report.text, /saved chars: 800/);
-  assert.match(report.text, /cache warm hits: 1\/1 \(100%\)/i);
+  assert.match(report.text, /cache warm request hits: 1\/1 \(100%\)/i);
   assert.match(report.text, /response cache key rewrites: 1/i);
   assert.match(report.text, /latest cold miss drift: instructions/i);
   assert.match(report.text, /latest cold miss hint: (Session-local change|Fingerprint drift|Cold miss)/i);
@@ -268,7 +268,7 @@ test("buildSessionReportResult surfaces cache audit summary even when savings ag
   assert.match(report.text, /^TokenPilot report:/);
   assert.match(report.text, /session: session-cache-only/);
   assert.match(report.text, /no savings recorded yet/i);
-  assert.match(report.text, /cache warm hits: 1\/1 \(100%\)/i);
+  assert.match(report.text, /cache warm request hits: 1\/1 \(100%\)/i);
 });
 
 test("selectLatestNonWarmCacheDiagnosisFromCacheAudit returns newest non-warm diagnosis details", () => {

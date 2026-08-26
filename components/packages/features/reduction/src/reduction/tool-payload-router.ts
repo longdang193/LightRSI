@@ -202,9 +202,10 @@ function summarizeJsonTextWithContext(
   text: string,
   cfg: PayloadBlockConfig,
   context?: ToolPayloadRoutingContext,
+  parsedOverride?: unknown,
 ): string {
   try {
-    const parsed = JSON.parse(text);
+    const parsed = parsedOverride ?? JSON.parse(text);
     const minified = JSON.stringify(parsed);
     if (minified.length <= cfg.maxChars) {
       return minified;
@@ -705,7 +706,7 @@ function reduceByClassification(
     case "json_array":
     case "json_object":
       try {
-        const parsed = JSON.parse(text);
+        const parsed = classification.parsed ?? JSON.parse(text);
         const specialized =
           hint?.toolName === "web_fetch" ||
           hint?.toolName === "web_search" ||
@@ -714,7 +715,7 @@ function reduceByClassification(
             : undefined;
         nextText = specialized ?? summarizeJsonTextWithContext(text, blockCfg, context);
       } catch {
-        nextText = summarizeJsonTextWithContext(text, blockCfg, context);
+      nextText = summarizeJsonTextWithContext(text, blockCfg, context, classification.parsed);
       }
       break;
     case "search_results":

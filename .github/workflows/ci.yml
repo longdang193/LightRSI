@@ -41,26 +41,5 @@ jobs:
       - name: Check package boundaries
         run: pnpm check:boundaries
 
-      - name: Test OpenClaw adapter
-        run: pnpm --dir components/adapters/openclaw test
-
-      - name: Test Claude Code adapter
-        run: pnpm --dir components/adapters/claude-code test
-
-      - name: Test Codex adapter
-        run: pnpm --dir components/adapters/codex test
-
-      - name: Test host adapter package
-        run: pnpm --dir components/packages/foundation/host-adapter test
-
-      - name: Test history package
-        run: pnpm --dir components/packages/foundation/history test
-
-      - name: Test TokenPilot preset
-        run: pnpm --dir components/presets/tokenpilot test
-
-      - name: Test runtime core package
-        run: pnpm --dir components/packages/foundation/runtime-core test
-
-      - name: Test product surface package
-        run: pnpm --dir components/packages/foundation/product-surface test
+      - name: Test workspace
+        run: pnpm test

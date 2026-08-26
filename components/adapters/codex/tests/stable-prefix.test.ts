@@ -687,6 +687,44 @@ test("prepareCodexStablePrefix preserves first user message when dynamic context
   assert.equal(prepared.messages[1]?.content, "please inspect the repo");
 });
 
+test("prepareCodexStablePrefix preserves structured user bytes and deterministic identity", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const userContent = [{
+    type: "input_text",
+    text: "[IMPORTANT]\r\n---\nvalue: user-owned\n---\n```json\n{\"id\":\"123e4567-e89b-12d3-a456-426614174000\"}\n```  ",
+  }];
+  const makeEnvelope = (agentId: string) => ({
+    session: {
+      host: { hostId: "codex", displayName: "Codex" },
+      sessionId: "codex-structured-identity",
+      sessionMode: "single" as const,
+      metadata: {},
+    },
+    model: "gpt-5.4",
+    stream: true,
+    instructions: `Your working directory is: /repo/demo\nRuntime: agent=${agentId} | mode=interactive`,
+    messages: [
+      {
+        role: "system" as const,
+        content: "Developer policy.",
+        metadata: { __codexOriginalRole: "developer" },
+      },
+      { role: "user" as const, content: userContent },
+    ],
+    rawPayload: {},
+    metadata: {},
+  });
+
+  const first = makeEnvelope("agent-123");
+  const second = makeEnvelope("agent-999");
+  const preparedFirst = prepareCodexStablePrefix(first, config);
+  const preparedSecond = prepareCodexStablePrefix(second, config);
+
+  assert.deepEqual(preparedFirst.messages[1]?.content, userContent);
+  assert.deepEqual(preparedSecond.messages[1]?.content, userContent);
+  assert.equal(preparedFirst.metadata?.promptCacheKey, preparedSecond.metadata?.promptCacheKey);
+});
+
 test("prepareCodexStablePrefix does not expose inbound prompt_cache_key", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {

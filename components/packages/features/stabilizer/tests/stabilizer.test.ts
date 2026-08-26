@@ -64,6 +64,52 @@ test("default stable prefix preparation preserves user payload bytes", () => {
   assert.equal(prepared.messages[0]?.content, userText);
 });
 
+test("default stable prefix preparation preserves adversarial user payloads and envelope identity", () => {
+  const payloads = [
+    "[IMPORTANT] preserve this marker",
+    "---\nUSER: keep this uppercase YAML-like text\n---",
+    "---\ntitle: user document\n---\nBody stays exact.",
+    '{"session_id":"user-owned","value":"keep exact"}',
+    "```json\n{\"request_id\":\"user-owned\"}\n```",
+    "UUID 123e4567-e89b-12d3-a456-426614174000 and timestamp 2026-08-26T12:34:56Z",
+    "C:\\Users\\user\\repo\\file.txt and /tmp/user/file.txt",
+    "  leading and trailing whitespace  \r\n\r\nkeep blank lines\r\n",
+    "Sender (untrusted metadata): ```json\n{\"agent\":\"user-owned\"}\n```\r\nKeep exact.",
+  ];
+
+  for (const userText of payloads) {
+    const input = envelope(userText);
+    input.instructions = "Stable instructions";
+    const prepared = defaultPrepareStablePrefix(input);
+
+    assert.equal(prepared, input);
+    assert.equal(prepared.messages[0]?.content, userText);
+  }
+});
+
+test("default stable prefix preparation preserves structured user content while injecting context additively", () => {
+  const content: Array<{ type: "text"; text: string } | { type: "image"; imageUrl: string }> = [
+    { type: "text", text: "[IMPORTANT] keep exact\r\n---\nvalue: user-owned" },
+    { type: "image", imageUrl: "https://example.com/user-owned.png" },
+  ];
+  const input: StabilizerRequestEnvelope = {
+    session: { host: { hostId: "test-host" } },
+    model: "test-model",
+    instructions: "Your working directory is: C:\\repo\\project\nRuntime: agent=agent-123 | session_id=session-456",
+    messages: [{ role: "user", content }],
+    tools: [],
+  };
+
+  const prepared = defaultPrepareStablePrefix(input);
+
+  assert.notEqual(prepared, input);
+  assert.deepEqual(input.messages[0]?.content, content);
+  assert.deepEqual(prepared.messages[0]?.content, [
+    { type: "input_text", text: "- WORKDIR: C:\\repo\\project\n- AGENT_ID: agent-123\nsession_id=session-456" },
+    ...content,
+  ]);
+});
+
 test("stable prefix fingerprint excludes volatile user tail", () => {
   const first = envelope("first request");
   const second = envelope("second request");

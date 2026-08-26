@@ -93,3 +93,24 @@ test("runtime session router resolves bound upstream session for matched user pa
 
   assert.equal(resolved, "upstream-existing-session");
 });
+
+test("runtime session router normalizes only derived turn keys and preserves payload nodes", () => {
+  const router = createRouter();
+  const payload = {
+    input: [{ role: "user", content: "  EXISTING BOUND MESSAGE  " }],
+  };
+  const before = structuredClone(payload);
+
+  router.bindSessionStart({
+    sessionKey: "existing-session-key",
+    sessionId: "upstream-existing-session",
+  });
+  router.rememberUserMessageBinding(
+    { sessionKey: "existing-session-key" },
+    "existing bound message",
+    "upstream-existing-session",
+  );
+
+  assert.equal(router.resolveSessionIdForPayload(payload), "upstream-existing-session");
+  assert.deepEqual(payload, before);
+});

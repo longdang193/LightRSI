@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import {
   appendRecentTurnBinding,
+  appendJsonl,
   loadRecentTurnBindings,
   loadSessionSnapshot,
+  readRecentJsonlEntries,
   resolveLatestSessionId,
   sessionSnapshotPath,
   writeJsonFileAtomic,
@@ -83,6 +85,54 @@ test("shared atomic writer serializes concurrent writes", async () => {
     assert.ok(snapshot);
     assert.ok(Number.isInteger(snapshot.value));
     assert.ok(snapshot.value >= 0 && snapshot.value < 32);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("recent JSONL reads preserve UTF-8, oversized records, ordering, and short histories", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-jsonl-tail-"));
+  const path = join(stateDir, "records.jsonl");
+  const oversized = "😀".repeat(40_000);
+  try {
+    await writeFile(path, [
+      JSON.stringify({ id: 1, text: "é" }),
+      JSON.stringify({ id: 2, text: oversized }),
+      JSON.stringify({ id: 3, text: "latest" }),
+    ].join("\n"), "utf8");
+
+    const records = await readRecentJsonlEntries<{ id: number; text: string }>(path, 8);
+
+    assert.deepEqual(records.map((record) => record.id), [3, 2, 1]);
+    assert.equal(records[1]?.text, oversized);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("recent JSONL reads fail closed on malformed final records and tolerate fewer records than requested", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-jsonl-malformed-"));
+  const path = join(stateDir, "records.jsonl");
+  try {
+    await writeFile(path, `${JSON.stringify({ id: 1 })}\n${JSON.stringify({ id: 2 })}`, "utf8");
+    const short = await readRecentJsonlEntries<{ id: number }>(path, 8);
+    assert.deepEqual(short.map((record) => record.id), [2, 1]);
+
+    await appendFile(path, "{partial", "utf8");
+    assert.deepEqual(await readRecentJsonlEntries(path, 8), []);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("concurrent JSONL appends remain readable as complete records", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-jsonl-concurrent-"));
+  const path = join(stateDir, "records.jsonl");
+  try {
+    await Promise.all(Array.from({ length: 32 }, (_, id) => appendJsonl(path, { id })));
+    const records = await readRecentJsonlEntries<{ id: number }>(path, 32);
+    assert.equal(records.length, 32);
+    assert.equal(new Set(records.map((record) => record.id)).size, 32);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

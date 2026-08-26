@@ -10,6 +10,17 @@ export function findFirstUserMessageIndex(messages: StabilizerRequestEnvelope["m
   return messages.findIndex((message) => message?.role === "user");
 }
 
+function prependDynamicContextToContent(
+  content: StabilizerRequestEnvelope["messages"][number]["content"],
+  dynamicContextText: string,
+): ReturnType<typeof prependTextToContent> {
+  if (!Array.isArray(content)) return prependTextToContent(content, dynamicContextText);
+  return [
+    { type: "input_text", text: dynamicContextText },
+    ...content.map((item) => item && typeof item === "object" ? { ...item } : item),
+  ];
+}
+
 export function applyStablePrefixToInstructions<TEnvelope extends StabilizerRequestEnvelope>(params: {
   envelope: TEnvelope;
   dynamicContextTarget?: "developer" | "user";
@@ -44,7 +55,7 @@ export function applyStablePrefixToInstructions<TEnvelope extends StabilizerRequ
         nextMessages = envelope.messages.slice();
         nextMessages[userIndex] = {
           ...userMessage,
-          content: prependTextToContent(userMessage.content, rewrite.dynamicContextText),
+          content: prependDynamicContextToContent(userMessage.content, rewrite.dynamicContextText),
         };
         changed = true;
       }
@@ -101,7 +112,7 @@ export function applyStablePrefixToMessage<TEnvelope extends StabilizerRequestEn
       if (!currentText.includes(rewrite.dynamicContextText)) {
         nextMessages[userIndex] = {
           ...userMessage,
-          content: prependTextToContent(userMessage.content, rewrite.dynamicContextText),
+          content: prependDynamicContextToContent(userMessage.content, rewrite.dynamicContextText),
         };
         changed = true;
       }
@@ -193,7 +204,7 @@ function injectDynamicContext(
   const nextMessages = messages.slice();
   nextMessages[userIndex] = {
     ...userMessage,
-    content: prependTextToContent(userMessage.content, dynamicContextText),
+    content: prependDynamicContextToContent(userMessage.content, dynamicContextText),
   };
   return { changed: true, messages: nextMessages };
 }

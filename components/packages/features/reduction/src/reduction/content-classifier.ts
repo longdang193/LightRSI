@@ -14,6 +14,7 @@ export type ToolPayloadContentType =
 export type ToolPayloadClassification = {
   contentType: ToolPayloadContentType;
   reason: string;
+  parsed?: unknown;
 };
 
 export type ToolPayloadHint = {
@@ -218,10 +219,10 @@ export function classifyToolPayloadContentWithHint(
   ) {
     const parsed = tryParseJson(trimmed);
     if (Array.isArray(parsed)) {
-      return { contentType: "json_array", reason: "tool_json_hint_array" };
+      return { contentType: "json_array", reason: "tool_json_hint_array", parsed };
     }
     if (parsed && typeof parsed === "object") {
-      return { contentType: "json_object", reason: "tool_json_hint_object" };
+      return { contentType: "json_object", reason: "tool_json_hint_object", parsed };
     }
   }
 
@@ -231,10 +232,10 @@ export function classifyToolPayloadContentWithHint(
 
   const parsed = tryParseJson(trimmed);
   if (Array.isArray(parsed)) {
-    return { contentType: "json_array", reason: "json_parse_array" };
+    return { contentType: "json_array", reason: "json_parse_array", parsed };
   }
   if (parsed && typeof parsed === "object") {
-    return { contentType: "json_object", reason: "json_parse_object" };
+    return { contentType: "json_object", reason: "json_parse_object", parsed };
   }
 
   const lines = trimmed.split("\n").filter((line) => line.length > 0);
