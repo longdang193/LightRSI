@@ -5,6 +5,7 @@ import {
   applyStablePrefixToInstructions,
   buildStabilityVisualSnapshotFromTexts,
   canonicalizeTools,
+  defaultPrepareStablePrefix,
   fingerprintStablePrefixEnvelope,
   rewriteTextForStablePrefix,
   type StabilizerRequestEnvelope,
@@ -46,6 +47,21 @@ test("stable prefix preparation preserves host-specific envelope fields", () => 
   assert.equal(prepared.transport, "responses");
   assert.equal(prepared.instructions, "Runtime: agent=agent-123");
   assert.match(String(prepared.messages[0].content), /Current date: 2026-07-21/);
+});
+
+test("default stable prefix preparation preserves user payload bytes", () => {
+  const userText = " [request-123] \r\n- CURRENT_DATE: 2026-08-26\r\nSender (untrusted metadata): ```json\n{\"x\":1}\n```\r\nKeep exact.";
+  const input: StabilizerRequestEnvelope = {
+    session: { host: { hostId: "test-host" } },
+    model: "test-model",
+    instructions: "Stable instructions",
+    messages: [{ role: "user", content: userText }],
+    tools: [],
+  };
+
+  const prepared = defaultPrepareStablePrefix(input);
+
+  assert.equal(prepared.messages[0]?.content, userText);
 });
 
 test("stable prefix fingerprint excludes volatile user tail", () => {
