@@ -12,7 +12,15 @@ components/adapters/openclaw/*.tgz
 components/adapters/codex/*.tgz
 components/adapters/claude-code/*.tgz
 release-artifacts/
-docs/superpowers/
+
+# Local planning artifacts
+/docs/superpowers/
+
+# Local runtime/disposable state
+/.deepagents/
+/.serena/
+/.tura/
+/.tmp-tests/
 
 # Local-only logo exports
 figs/lightrsi_logo_long_running.png
