@@ -133,6 +133,7 @@ export async function forwardGatewayRequest(params: {
   return forwardGatewayRawRequest({
     upstream: params.upstream,
     method,
+    requestPath: params.requestPath,
     payload: hasPayload ? JSON.stringify(params.payload) : undefined,
     inboundAuthorization: params.inboundAuthorization,
     inboundHeaders: params.inboundHeaders,
