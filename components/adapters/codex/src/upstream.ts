@@ -175,19 +175,15 @@ function clonePayloadWithoutUnsupportedFields(
 
 function unsupportedOptionalFieldFromText(text: string): OptionalResponsesField | undefined {
   if (!text) return undefined;
-  if (/prompt_cache_breakpoint.*(?:not supported|unsupported)|(?:not supported|unsupported).*prompt_cache_breakpoint/i.test(text)) {
-    return "prompt_cache_breakpoint";
+  if (!/\b(?:unsupported|not supported|unknown|unrecognized|unexpected|not allowed|not permitted|extra inputs?|additional propert(?:y|ies))\b/i.test(text)) {
+    return undefined;
   }
-  if (/unsupported parameter:\s*prompt_cache_options/i.test(text)) {
-    return "prompt_cache_options";
-  }
-  if (/unsupported parameter:\s*prompt_cache_retention/i.test(text)) {
-    return "prompt_cache_retention";
-  }
-  if (/unsupported parameter:\s*prompt_cache_key/i.test(text)) {
-    return "prompt_cache_key";
-  }
-  return undefined;
+  return ([
+    "prompt_cache_options",
+    "prompt_cache_retention",
+    "prompt_cache_key",
+    "prompt_cache_breakpoint",
+  ] as OptionalResponsesField[]).find((field) => new RegExp(`\\b${field}\\b`, "i").test(text));
 }
 
 function encryptedReasoningRequested(payload: any): boolean {

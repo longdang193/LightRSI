@@ -251,12 +251,13 @@ test("stream upstream learns unsupported nested prompt_cache_breakpoint and retr
     const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
     requests.push(payload);
     const input = Array.isArray(payload.input) ? payload.input : [];
-    const firstContent = input[0] && typeof input[0] === "object" && Array.isArray((input[0] as any).content)
-      ? (input[0] as any).content
-      : [];
-    if (firstContent[0]?.prompt_cache_breakpoint) {
+    const hasBreakpoint = input.some((item: any) => Array.isArray(item?.content)
+      && item.content.some((block: any) => block?.prompt_cache_breakpoint));
+    if (hasBreakpoint) {
       res.statusCode = 400;
-      res.end(JSON.stringify({ error: { message: "prompt_cache_breakpoint is not supported on this model" } }));
+      res.end(JSON.stringify({ error: {
+        message: "Unsupported parameter: input[0].content[1].prompt_cache_breakpoint",
+      } }));
       return;
     }
     res.statusCode = 200;
@@ -276,7 +277,10 @@ test("stream upstream learns unsupported nested prompt_cache_breakpoint and retr
     model: "gpt-5.6-luna",
     input: [{
       role: "developer",
-      content: [{ type: "input_text", text: "stable", prompt_cache_breakpoint: { mode: "explicit" } }],
+      content: [
+        { type: "input_text", text: "stable" },
+        { type: "input_text", text: "boundary", prompt_cache_breakpoint: { mode: "explicit" } },
+      ],
     }],
   };
   try {
@@ -289,8 +293,8 @@ test("stream upstream learns unsupported nested prompt_cache_breakpoint and retr
     }
     assert.equal(first.status, 200);
     assert.equal(requests.length, 2);
-    assert.ok((requests[0]?.input as any[])?.[0]?.content?.[0]?.prompt_cache_breakpoint);
-    assert.equal((requests[1]?.input as any[])?.[0]?.content?.[0]?.prompt_cache_breakpoint, undefined);
+    assert.ok((requests[0]?.input as any[])?.[0]?.content?.[1]?.prompt_cache_breakpoint);
+    assert.equal((requests[1]?.input as any[])?.[0]?.content?.[1]?.prompt_cache_breakpoint, undefined);
 
     const second = await requestUpstreamResponsesStream({
       upstream: { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses", requiresOpenAIAuth: false },
@@ -301,7 +305,7 @@ test("stream upstream learns unsupported nested prompt_cache_breakpoint and retr
     }
     assert.equal(second.status, 200);
     assert.equal(requests.length, 3);
-    assert.equal((requests[2]?.input as any[])?.[0]?.content?.[0]?.prompt_cache_breakpoint, undefined);
+    assert.equal((requests[2]?.input as any[])?.[0]?.content?.[1]?.prompt_cache_breakpoint, undefined);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await rm(stateDir, { recursive: true, force: true });
