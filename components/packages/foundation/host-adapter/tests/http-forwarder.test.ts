@@ -20,7 +20,7 @@ test("forward headers omit transport metadata that can split provider cache iden
       "upgrade": "websocket",
       "x-api-key": "inbound-key",
       "x-request-id": "request",
-      "x-lightmem2-cache-contract": "internal",
+      "x-lightrsi-cache-contract": "internal",
     },
   });
 
@@ -39,6 +39,14 @@ test("forward headers preserve inbound authorization only without an explicit up
     inboundHeaders: { authorization: "Bearer inbound" },
   });
   assert.equal(headers.authorization, "Bearer inbound");
+});
+
+test("forward headers no longer reserve the legacy LightMem2 prefix", () => {
+  const headers = buildGatewayForwardHeaders({
+    upstream: { baseUrl: "http://provider.test/v1", protocol: "custom" },
+    inboundHeaders: { "x-lightmem2-legacy": "preserved" },
+  });
+  assert.equal(headers["x-lightmem2-legacy"], "preserved");
 });
 
 test("aborted body reads fail before consuming request data", async () => {

@@ -42,7 +42,6 @@ function normalizeHeaderValue(value: string | string[] | undefined): string | un
 function shouldSkipForwardHeader(name: string): boolean {
   const lower = name.toLowerCase();
   if (lower.startsWith("x-lightrsi-")
-    || lower.startsWith("x-lightmem2-")
     || lower.startsWith("x-tokenpilot-")) {
     return true;
   }

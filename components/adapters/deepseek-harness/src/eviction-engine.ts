@@ -79,12 +79,11 @@ function hasUnrecognizedRequiredEvent(events: readonly DshLogEventWithMeta[]): b
 /** Build the stable-revision descriptor from the live session (§4.1). */
 function describeSurface(session: DshSession) {
   const eventSeqs = session.events.map((event) => event.seq);
-  const surfaceSeqs = session.surface.nodes ?? eventSeqs;
   return {
     sessionId: session.id,
     lastEventSeq: eventSeqs.length > 0 ? eventSeqs[eventSeqs.length - 1] : 0,
     surfaceReplaceGeneration: session.surface.replaceGeneration,
-    orderedSurfaceNodeSeqs: [...surfaceSeqs],
+    orderedSurfaceNodeSeqs: [...session.surface.nodes],
   };
 }
 
