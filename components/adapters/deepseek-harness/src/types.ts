@@ -9,7 +9,7 @@
  * they already match structurally, so no conversion logic is needed there.
  *
  * Every field below is mirrored from the pinned DSH source
- * (deepseek-harness @ 141eb6f):
+ * (deepseek-harness @ cd5ef8148158c3a752a658978873241fdf8e2bbc):
  *   - SessionEventMap            packages/core/session/src/types.ts:236
  *   - Message / *Message         packages/llm/llm/src/message.ts:135-160
  *   - ContentBlock union         packages/llm/llm/src/types.ts:54-110
@@ -72,7 +72,7 @@ export type DshLogEvent = DshDurableEvent | DshUnknownEvent;
 /* ------------------------------------------------------------------ *
  * Runtime bridge (agent/pre-step). Minimal structural mirrors of the
  * DSH runtime surface the eviction pre-step handler touches, verified
- * against deepseek-harness @ 141eb6f:
+ * against deepseek-harness @ cd5ef8148158c3a752a658978873241fdf8e2bbc:
  *   - Session.events / .surface.replaceGeneration  core/session/src/index.ts:559,431
  *   - agent.session on the pre-step payload         compaction-basic/src/index.ts:66
  *   - PreStepDecision                               api-catalog.ts:3633
@@ -85,7 +85,7 @@ export type DshLogEventWithMeta = DshLogEvent & { ignorable?: true };
 
 export interface DshSessionSurface {
   /** Current model-visible surface event seqs in canonical order. */
-  readonly nodes?: readonly number[];
+  readonly nodes: readonly number[];
   /** Monotonic count of committed surface `replace` ops. */
   replaceGeneration: number;
 }

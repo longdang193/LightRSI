@@ -105,10 +105,10 @@ test("upstream encrypted-reasoning repair is bounded to two retries", async () =
   });
 });
 
-test("upstream forwards the versioned LightMem2 cache contract boundary", async () => {
+test("upstream forwards the versioned LightRSI cache contract boundary", async () => {
   let receivedContract: string | undefined;
   const server = createServer(async (req, res) => {
-    receivedContract = req.headers["x-lightmem2-cache-contract"] as string | undefined;
+    receivedContract = req.headers["x-lightrsi-cache-contract"] as string | undefined;
     for await (const _chunk of req) {
       // Drain request body before replying.
     }

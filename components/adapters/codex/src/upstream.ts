@@ -131,7 +131,7 @@ function requestHeaders(params: {
     authorization: `Bearer ${upstreamApiKey(params.upstream, params.inboundAuthorization)}`,
   };
   if (params.lightmem2CacheContractDigest) {
-    headers["x-lightmem2-cache-contract"] = `v1:${params.lightmem2CacheContractDigest}`;
+    headers["x-lightrsi-cache-contract"] = `v1:${params.lightmem2CacheContractDigest}`;
   }
   return headers;
 }
