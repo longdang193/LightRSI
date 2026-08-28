@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { reserveUnusedPort } from "@lightrsi/host-adapter";
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
@@ -67,7 +68,7 @@ async function startWireUpstream(params: {
 
 async function startPureForwardProxy(upstreamBaseUrl: string) {
   const proxyPort = await reserveUnusedPort();
-  const stateDir = await mkdtemp(`${tmpdir()}\\lightrsi-pure-forward-`);
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-pure-forward-"));
   const config = normalizeTokenPilotCodexConfig({
     proxyPort,
     stateDir,
