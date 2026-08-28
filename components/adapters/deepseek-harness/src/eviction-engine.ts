@@ -78,14 +78,13 @@ function hasUnrecognizedRequiredEvent(events: readonly DshLogEventWithMeta[]): b
 
 /** Build the stable-revision descriptor from the live session (§4.1). */
 function describeSurface(session: DshSession) {
-  const seqs = session.events.map((event) => event.seq);
+  const eventSeqs = session.events.map((event) => event.seq);
+  const surfaceSeqs = session.surface.nodes ?? eventSeqs;
   return {
     sessionId: session.id,
-    lastEventSeq: seqs.length > 0 ? seqs[seqs.length - 1] : 0,
+    lastEventSeq: eventSeqs.length > 0 ? eventSeqs[eventSeqs.length - 1] : 0,
     surfaceReplaceGeneration: session.surface.replaceGeneration,
-    // Node-level granularity is a refinement for when the surface-node API is
-    // pinned; durable seqs give a correct, deterministic revision today.
-    orderedSurfaceNodeSeqs: seqs,
+    orderedSurfaceNodeSeqs: [...surfaceSeqs],
   };
 }
 
@@ -126,7 +125,9 @@ export function registerEvictionPreStep(ctx: DshPluginContext, config: TokenPilo
 
       // Codec: durable events -> raw semantic snapshot -> estimator delta.
       const logEvents: readonly DshLogEvent[] = events;
-      const snapshot = buildDshRawSemanticSnapshot(session.id, logEvents);
+      const snapshot = buildDshRawSemanticSnapshot(session.id, logEvents, {
+        surfaceEventSeqs: session.surface.nodes,
+      });
       const revision = computeDshSnapshotRevision(describeSurface(session));
       const delta = buildDshDeltaView(snapshot, { fromTurnSeqExclusive: 0 });
       void revision;
