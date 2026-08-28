@@ -43,10 +43,11 @@ function validTimestamp(value: string): boolean {
 
 function appliedTokenSavings(
   execution: ContextCleanPreparedExecution,
+  epoch: CodexRebaseEpoch,
 ): number | null | undefined {
   if (execution.scheduledReceipt.tokenCountMode === "chars_only") return null;
-  const savedTokens = execution.scheduledReceipt.estimatedSavedTokens;
-  return savedTokens !== null && nonNegativeInteger(savedTokens)
+  const savedTokens = epoch.accounting?.actuallyRemovedTokens;
+  return nonNegativeInteger(savedTokens)
     ? savedTokens
     : undefined;
 }
@@ -87,7 +88,7 @@ export function buildCodexCleanerAppliedReceipt(
     || epoch.accounting.fallbackExtraRequestCount !== 0) {
     return { reasons: ["cleaner_receipt_epoch_invalid"] };
   }
-  const appliedSavedTokens = appliedTokenSavings(execution);
+  const appliedSavedTokens = appliedTokenSavings(execution, epoch);
   if (appliedSavedTokens === undefined) {
     return { reasons: ["cleaner_receipt_token_accounting_invalid"] };
   }
