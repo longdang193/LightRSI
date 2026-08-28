@@ -80,6 +80,7 @@ The installer will:
 - register a `tokenpilot_memory_fault_recover` MCP server in Codex config
 - write a conservative `startup_timeout_sec` for the recovery MCP server
 - write TokenPilot runtime config
+- start the local TokenPilot proxy immediately
 - register TokenPilot hooks for `SessionStart`, `PreToolUse`, `PostToolUse`, and `Stop`
 - install read-only Codex skill bridge entries under the local Codex skills directory
 - run a post-install MCP startup probe and report degraded mode if recovery MCP is still unavailable
@@ -108,7 +109,7 @@ Then use the first real-session path:
 
 1. Start Codex normally.
 2. If Codex asks you to review or trust the TokenPilot hooks, approve them.
-3. Open a new Codex session so `SessionStart` can start the local proxy.
+3. Open a new Codex session so `SessionStart` can verify or restart the local proxy.
 4. In another terminal, verify through the shared CLI:
 
 ```bash
