@@ -244,7 +244,7 @@ The current Codex path uses the standalone CLI plus Codex hooks.
 1. Run the Codex install flow shown above.
 2. Start Codex normally.
 3. If Codex asks you to review or trust the installed TokenPilot hooks, approve them.
-4. Open a new Codex session so `SessionStart` can start the local proxy.
+4. Open a new Codex session so `SessionStart` can verify or restart the local proxy.
 5. In another terminal, verify the adapter:
 
 ```bash
@@ -262,7 +262,7 @@ Expected first-run shape:
 - `lightrsi codex status` shows `stabilizer` and `reduction` enabled
 - after a few turns, `lightrsi codex report` no longer says `No TokenPilot session stats yet.`
 
-Install success does not always mean the proxy is already running before the first trusted session. If doctor still reports `proxy healthy: no` after trusting hooks and opening a new Codex session, use the manual fallback:
+Install starts the local proxy immediately. If doctor still reports `proxy healthy: no`, use the manual fallback:
 
 ```bash
 tokenpilot-codex status
