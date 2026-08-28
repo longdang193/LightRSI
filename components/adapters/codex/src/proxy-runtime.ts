@@ -107,6 +107,7 @@ import type {
   CodexRebaseRequestResult,
 } from "./context-rewrite/types.js";
 import {
+  finalizeCodexCleanerAppliedReceipt,
   finalizeCodexCleanerHandoffFailure,
   isCodexCleanerStaleReasonCode,
   prepareCodexCleanerRebase,
@@ -114,7 +115,6 @@ import {
   type CodexCleanerPreparedRebase,
 } from "./context-cleaner/runtime.js";
 import {
-  appendCodexCleanerCommitted,
   readCodexCleanerSchedule,
 } from "./context-cleaner/scheduler.js";
 
@@ -481,11 +481,11 @@ async function forwardPureProviderWire(params: {
   res: import("node:http").ServerResponse;
   pathname: string;
   body: string;
+  controller: AbortController;
   stateDir: string;
   requestStartedAt: number;
   bodyReceivedAt: number;
 }): Promise<void> {
-  const controller = new AbortController();
   const requestId = randomUUID();
   const dispatchAt = performance.now();
   const requestBytes = Buffer.byteLength(params.body, "utf8");
@@ -525,11 +525,11 @@ async function forwardPureProviderWire(params: {
   };
   params.req.once("aborted", () => {
     abortSource = "request_aborted";
-    controller.abort();
+    params.controller.abort();
   });
   params.res.once("close", () => {
     abortSource = params.res.writableFinished ? "response_close_after_finish" : "response_close_before_finish";
-    controller.abort();
+    params.controller.abort();
   });
   try {
     const authorization = params.req.headers.authorization;
@@ -549,7 +549,7 @@ async function forwardPureProviderWire(params: {
       inboundAuthorization,
       inboundHeaders: params.req.headers,
       includeJsonContentType: false,
-      signal: controller.signal,
+      signal: params.controller.signal,
     });
     responseStatus = response.status;
     headersAt = performance.now();
@@ -590,7 +590,7 @@ async function forwardPureProviderWire(params: {
     });
     appendTimingTrace("pure_forward_timing");
   } catch (error) {
-    if (controller.signal.aborted || params.res.destroyed) {
+    if (params.controller.signal.aborted || params.res.destroyed) {
       appendTimingTrace("pure_forward_cancelled", {
         abortSource,
         responseDestroyed: params.res.destroyed,
@@ -708,18 +708,33 @@ export async function startCodexResponsesProxy(params: {
         return false;
       }
       const requestStartedAt = performance.now();
-      const body = await readBody();
-      const bodyReceivedAt = performance.now();
-      await forwardPureProviderWire({
-        upstream,
-        req,
-        res,
-        pathname,
-        body,
-        stateDir: config.stateDir,
-        requestStartedAt,
-        bodyReceivedAt,
-      });
+      const controller = new AbortController();
+      const onRequestAborted = () => controller.abort();
+      const onResponseClose = () => {
+        if (!res.writableFinished) controller.abort();
+      };
+      req.once("aborted", onRequestAborted);
+      res.once("close", onResponseClose);
+      try {
+        const body = await readBody(controller.signal);
+        const bodyReceivedAt = performance.now();
+        await forwardPureProviderWire({
+          upstream,
+          req,
+          res,
+          pathname,
+          body,
+          controller,
+          stateDir: config.stateDir,
+          requestStartedAt,
+          bodyReceivedAt,
+        });
+      } catch (error) {
+        if (!controller.signal.aborted && !res.destroyed) throw error;
+      } finally {
+        req.off("aborted", onRequestAborted);
+        res.off("close", onResponseClose);
+      }
       return true;
     },
     async handleRequest({ req, res, body }) {
@@ -1710,21 +1725,25 @@ export async function startCodexResponsesProxy(params: {
             if (result.outcome === "committed"
               && cleanerPreparedRebase
               && result.epoch?.status === "committed") {
-              const localCommit = await appendCodexCleanerCommitted({
+              const finalized = await finalizeCodexCleanerAppliedReceipt({
                 stateDir: config.stateDir,
                 sessionId,
-                cleanPlanId: cleanerPreparedRebase.execution.cleanPlanId,
-                mutationPlanId: cleanerPreparedRebase.execution.mutationPlan.planId,
-                epochId: result.epoch.epochId,
-                updatedAt: result.epoch.updatedAt,
+                prepared: cleanerPreparedRebase,
+                epoch: result.epoch,
               });
-              if (localCommit.outcome !== "transitioned"
-                && localCommit.outcome !== "unchanged") {
+              await appendTrace(config.stateDir, {
+                stage: "context_cleaner_applied_receipt_finalized",
+                sessionId,
+                model,
+                outcome: finalized.outcome,
+                reasonCodes: finalized.reasonCodes,
+              });
+              if (finalized.outcome !== "applied") {
                 await appendTrace(config.stateDir, {
-                  stage: "context_cleaner_local_commit_failed",
+                  stage: "context_cleaner_applied_receipt_failed",
                   sessionId,
                   model,
-                  reasonCodes: localCommit.reasons,
+                  reasonCodes: finalized.reasonCodes,
                 });
               }
             }
