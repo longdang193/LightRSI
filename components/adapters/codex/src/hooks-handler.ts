@@ -111,8 +111,7 @@ function workspaceHintFromEvent(input: Record<string, unknown>): string | undefi
 
 function successOutputForHook(hookEventName: string): string | undefined {
   if (hookEventName === "Stop") {
-    // Stop hooks require JSON on stdout for successful exit-0 completion.
-    return "{}\n";
+    return "{\"continue\":true}\n";
   }
   return undefined;
 }

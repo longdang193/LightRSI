@@ -122,7 +122,7 @@ test("processCodexHookEvent writes directly into the synthesized session after a
   }
 });
 
-test("processCodexHookEvent returns minimal JSON output for Stop hooks", async () => {
+test("processCodexHookEvent returns an allow payload for Stop hooks", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-hooks-handler-stop-"));
   const originalCodexConfig = process.env.TOKENPILOT_CODEX_CONFIG;
   try {
@@ -144,7 +144,7 @@ test("processCodexHookEvent returns minimal JSON output for Stop hooks", async (
       cwd: "/repo/from-hook",
     });
 
-    assert.equal(output, "{}\n");
+    assert.equal(output, "{\"continue\":true}\n");
   } finally {
     if (originalCodexConfig === undefined) {
       delete process.env.TOKENPILOT_CODEX_CONFIG;
