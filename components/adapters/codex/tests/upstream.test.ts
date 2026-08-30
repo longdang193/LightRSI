@@ -312,6 +312,78 @@ test("stream upstream learns unsupported nested prompt_cache_breakpoint and retr
   }
 });
 
+test("stream breakpoint downgrade bypasses 9Router negative cache", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-breakpoint-negative-cache-"));
+  const requests: Array<Record<string, unknown>> = [];
+  const cooldownUntil = new Map<string, number>();
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    requests.push(payload);
+    const input = Array.isArray(payload.input) ? payload.input : [];
+    const hasBreakpoint = input.some((item: any) => Array.isArray(item?.content)
+      && item.content.some((block: any) => block?.prompt_cache_breakpoint));
+    const cacheKey = typeof payload.prompt_cache_key === "string" ? payload.prompt_cache_key : "";
+    if (hasBreakpoint || (cooldownUntil.get(cacheKey) ?? 0) > Date.now()) {
+      if (hasBreakpoint) cooldownUntil.set(cacheKey, Date.now() + 50);
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: {
+        message: '[codex/gpt-5.6-luna] [400]: {"error":{"message":"prompt_cache_breakpoint is not supported on this model"}} (reset after 0s)',
+      } }));
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader("content-type", "text/event-stream");
+    res.end("event: response.completed\n\n");
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const payload = {
+    model: "gpt-5.6-luna",
+    prompt_cache_key: "stable-key",
+    prompt_cache_options: { mode: "explicit", ttl: "30m" },
+    input: [{
+      role: "developer",
+      content: [{ type: "input_text", text: "stable", prompt_cache_breakpoint: { mode: "explicit" } }],
+    }],
+  };
+  try {
+    const first = await requestUpstreamResponsesStream({
+      upstream: { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses", requiresOpenAIAuth: false },
+      payload,
+      stateDir,
+    });
+    for await (const _chunk of first.stream) {
+    }
+    assert.equal(first.status, 200);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0]?.prompt_cache_key, "stable-key");
+    assert.equal(requests[1]?.prompt_cache_key, "stable-key");
+
+    const second = await requestUpstreamResponsesStream({
+      upstream: { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses", requiresOpenAIAuth: false },
+      payload,
+      stateDir,
+    });
+    for await (const _chunk of second.stream) {
+    }
+    assert.equal(second.status, 200);
+    assert.equal(requests.length, 3);
+    assert.equal(requests[2]?.prompt_cache_key, "stable-key");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("upstream resolves bare 9Router model names from its live catalog", async () => {
   let forwardedModel: string | undefined;
   const server = createServer(async (req, res) => {

@@ -186,6 +186,13 @@ function unsupportedOptionalFieldFromText(text: string): OptionalResponsesField 
   ] as OptionalResponsesField[]).find((field) => new RegExp(`\\b${field}\\b`, "i").test(text));
 }
 
+function unsupportedRetryDelayMs(text: string): number {
+  const match = /\(reset after (\d+)s\)/i.exec(text);
+  if (!match) return 0;
+  const seconds = Number(match[1]);
+  return Number.isFinite(seconds) ? Math.min(seconds * 1000 + 250, 60_000) : 0;
+}
+
 function encryptedReasoningRequested(payload: any): boolean {
   return Array.isArray(payload?.include) && payload.include.includes("reasoning.encrypted_content");
 }
@@ -284,6 +291,8 @@ export async function requestUpstreamResponses(params: {
       await persistUnsupportedOptionalField(params.stateDir, params.upstream, unsupportedField);
       const downgraded = clonePayloadWithoutOptionalField(payload, unsupportedField);
       if (downgraded !== payload) {
+        const retryDelayMs = unsupportedRetryDelayMs(text);
+        if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
         payload = downgraded;
         resp = await send(payload);
         text = await resp.text();
@@ -328,6 +337,8 @@ export async function requestUpstreamResponsesStream(params: {
       await persistUnsupportedOptionalField(params.stateDir, params.upstream, unsupportedField);
       const downgraded = clonePayloadWithoutOptionalField(payload, unsupportedField);
       if (downgraded !== payload) {
+        const retryDelayMs = unsupportedRetryDelayMs(text);
+        if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
         payload = downgraded;
         resp = await send(payload);
       } else {
