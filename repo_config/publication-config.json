@@ -1,0 +1,37 @@
+{
+  "publicPaths": [
+    "README.md"
+  ],
+  "forbiddenPaths": [
+    "AGENTS.md",
+    ".agents",
+    ".codex",
+    ".cursor",
+    "docs/AGENTS.md",
+    "docs/features",
+    "docs/generated",
+    "docs/intent",
+    "docs/operating_system",
+    "docs/superpowers",
+    "logs",
+    "tmp",
+    "tools",
+    "sample",
+    ".worktrees"
+  ],
+  "requiredPaths": [
+    "README.md"
+  ],
+  "allowedGeneratedPaths": [],
+  "scrubPrivateReferencePaths": [
+    "README.md",
+    "docs/features"
+  ],
+  "forbiddenMetadataMarkers": [
+    "repo: private"
+  ],
+  "forbiddenFilenameMarkers": [
+    ".private.",
+    ".local."
+  ]
+}

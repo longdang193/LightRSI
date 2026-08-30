@@ -1,0 +1,5 @@
+project_id: "my-project"
+region: "us-central1"
+dataset: "main"
+credentials_path: "service-account.json"
+default_model: "model-name"

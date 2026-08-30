@@ -1,0 +1,11 @@
+status_values:
+  - active
+  - inactive
+  - pending
+  - unknown
+
+priority_levels:
+  - low
+  - medium
+  - high
+  - critical

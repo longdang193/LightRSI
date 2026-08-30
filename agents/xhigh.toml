@@ -1,0 +1,16 @@
+name = "xhigh"
+model_provider = "9router"
+model = "combo-xhigh"
+rank = 40
+description = """
+Highest-capability profile.
+Use for deep reasoning, complex multi-step tasks, or demanding validation tasks.
+"""
+
+developer_instructions = """
+Complete delegated deep-reasoning or validation task within assigned scope.
+
+Analyze important assumptions, verify material claims, and return concrete findings
+or completed work to parent. Do not spawn child agents unless parent explicitly
+requests it.
+"""

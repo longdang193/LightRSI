@@ -1,4 +1,4 @@
-"""Launch DeepAgents with local Codex binding and shared project roles."""
+"""Launch bounded delegated workers with local Codex binding and shared roles."""
 
 from __future__ import annotations
 
@@ -9,9 +9,16 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tomllib
+import uuid
+try:
+    from agent_profile_registry import load_agent_profiles
+except ModuleNotFoundError:
+    from scripts.agent_profile_registry import load_agent_profiles
+
 
 
 _ROLE_VIEWS_MARKER = ".dcode-project-owned"
@@ -53,12 +60,19 @@ _ALLOWED_RUNTIME_VALUE_OPTIONS = {
     "--mcp-select",
     "--handoff-file",
     "--role",
+    "--executor",
 }
 _FIXED_LOCAL_CAPABILITY_OPTIONS = (
     "--allow-fs-tools",
     "all",
     "--shell-allow-list",
     "git,py",
+)
+_PROJECT_GUIDANCE_INSTRUCTION = (
+    "Project guidance: read repository root `AGENTS.md` before acting. "
+    "Before modifying any file, read every applicable ancestor `AGENTS.md`. "
+    "Read only explicitly named canonical project skills at "
+    "`.agents/skills/<name>/SKILL.md`; do not scan or copy unrelated skills."
 )
 
 
@@ -151,44 +165,22 @@ def _load_roles(
     repo_root: Path,
     runtime_provider: str,
 ) -> list[dict[str, object]]:
-    roles_root = repo_root / "agents"
-    roles: list[dict[str, object]] = []
-    ranks: set[int] = set()
-    for source in sorted(roles_root.glob("*.toml")):
-        values = _load_toml(source, "role template")
-        required = {"name", "model_provider", "model", "rank", "description", "developer_instructions"}
-        if set(values) != required:
-            raise RuntimeError(f"Unsupported role template fields: {source}")
-        name = _required_string(values, "name", str(source))
-        if source.stem != name:
-            raise RuntimeError(f"Role filename must match name: {source}")
-        model_provider = _required_string(values, "model_provider", str(source))
-        if model_provider != runtime_provider:
-            raise RuntimeError(
-                f"Role provider `{model_provider}` does not match runtime provider `{runtime_provider}`: {source}"
-            )
-        rank = values.get("rank")
-        if isinstance(rank, bool) or not isinstance(rank, int) or rank <= 0:
-            raise RuntimeError(f"Role rank must be a positive integer: {source}")
-        if rank in ranks:
-            raise RuntimeError(f"Role ranks must be unique: {source}")
-        ranks.add(rank)
-        roles.append(
-            {
-                "name": name,
-                "model_provider": model_provider,
-                "rank": rank,
-                "description": _required_string(values, "description", str(source)),
-                "developer_instructions": _required_string(
-                    values, "developer_instructions", str(source)
-                ),
-                "model": _required_string(values, "model", str(source)),
-            }
-        )
-    if not roles:
-        raise RuntimeError(f"No role templates found: {roles_root}")
-    return roles
-
+    try:
+        profiles = load_agent_profiles(repo_root / "agents", runtime_provider=runtime_provider)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    return [
+        {
+            "name": profile.name,
+            "model_provider": profile.model_provider,
+            "model": profile.model,
+            "rank": profile.rank,
+            "deepagents_compatible": profile.deepagents_compatible,
+            "description": profile.description,
+            "developer_instructions": profile.developer_instructions,
+        }
+        for profile in profiles.values()
+    ]
 
 def _role_view_path(agents_root: Path, role_name: str) -> Path:
     return agents_root / role_name / "AGENTS.md"
@@ -401,6 +393,13 @@ def _sha256_json(value: object) -> str:
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 def _runtime_binding_digest(
     provider_name: str,
     model: str,
@@ -435,16 +434,19 @@ def _parse_mcp_selection(values: list[str], capabilities: dict[str, object]) -> 
             selected.add(selector)
     return sorted(selected)
 
-def _controller_options(argv: list[str]) -> tuple[list[str], list[str], str | None, str | None]:
+def _controller_options(
+    argv: list[str],
+) -> tuple[list[str], list[str], str | None, str | None, str | None]:
     child: list[str] = []
     selections: list[str] = []
     handoff_file: str | None = None
     role_name: str | None = None
+    executor: str | None = None
     index = 0
     while index < len(argv):
         argument = argv[index]
         option, separator, inline_value = argument.partition("=")
-        if option in {"--mcp-select", "--handoff-file", "--role"}:
+        if option in {"--mcp-select", "--handoff-file", "--role", "--executor"}:
             if separator:
                 value = inline_value
             elif index + 1 < len(argv):
@@ -460,14 +462,49 @@ def _controller_options(argv: list[str]) -> tuple[list[str], list[str], str | No
                 if role_name is not None:
                     raise RuntimeError("dcode-project accepts only one `--role`.")
                 role_name = value
-            elif handoff_file is not None:
-                raise RuntimeError("dcode-project accepts only one `--handoff-file`.")
-            else:
+            elif option == "--handoff-file":
+                if handoff_file is not None:
+                    raise RuntimeError("dcode-project accepts only one `--handoff-file`.")
                 handoff_file = value
+            elif executor is not None:
+                raise RuntimeError("dcode-project accepts only one `--executor`.")
+            else:
+                executor = value
         else:
             child.append(argument)
         index += 1
-    return child, selections, handoff_file, role_name
+    return child, selections, handoff_file, role_name, executor
+
+
+def _resolve_executor(config: dict[str, object], explicit: str | None) -> str:
+    if explicit is not None:
+        selected = explicit.strip().lower()
+    else:
+        delegation = config.get("delegation")
+        if not isinstance(delegation, dict):
+            raise RuntimeError("Missing `[delegation].default_executor` configuration.")
+        value = delegation.get("default_executor")
+        if not isinstance(value, str) or not value.strip():
+            raise RuntimeError("Missing `[delegation].default_executor` configuration.")
+        selected = value.strip().lower()
+    if selected not in {"tura", "deepagents"}:
+        raise RuntimeError(f"Unsupported executor `{selected}`; use `tura` or `deepagents`.")
+    return selected
+
+
+def _tura_worker_paths(config: dict[str, object]) -> tuple[Path, Path]:
+    paths = config.get("paths")
+    if not isinstance(paths, dict):
+        raise RuntimeError("Missing local `[paths]` configuration.")
+    executable = Path(_required_string(paths, "tura_executable", "local paths")).expanduser()
+    provider_config = Path(
+        _required_string(paths, "tura_provider_config", "local paths")
+    ).expanduser()
+    if not executable.is_file():
+        raise RuntimeError(f"Tura executable is missing: {executable}")
+    if not provider_config.is_file():
+        raise RuntimeError(f"Tura provider config is missing: {provider_config}")
+    return executable.resolve(), provider_config.resolve()
 
 def _handoff_root() -> Path:
     return Path.home().joinpath(*_HANDOFF_ROOT_PARTS)
@@ -493,7 +530,7 @@ def _safe_handoff_path(raw_path: str) -> Path:
         resolved.relative_to(root)
     except (OSError, ValueError) as exc:
         raise RuntimeError("Handoff path resolves outside approved root.") from exc
-    return candidate
+    return resolved
 
 def _parse_timestamp(value: object) -> datetime:
     if not isinstance(value, str) or len(value) > 64:
@@ -594,14 +631,43 @@ def _validate_handoff(
         not isinstance(item, str) or len(item) > _HANDOFF_MAX_STRING for item in constraints
     ):
         raise RuntimeError("Handoff constraints are invalid.")
+    _reject_sensitive_value(constraints)
     return path, payload
 
+def _canonicalize_handoff_for_prompt(payload: dict[str, object]) -> dict[str, object]:
+    sources = payload["sources"]
+    facts = payload["facts"]
+    if not isinstance(sources, list) or not isinstance(facts, list):
+        return payload
+    if any(
+        not isinstance(fact, dict) or not isinstance(fact.get("source"), int)
+        for fact in facts
+    ):
+        return payload
+
+    source_order = sorted(range(len(sources)), key=lambda index: _sha256_json(sources[index]))
+    source_indexes = {old: new for new, old in enumerate(source_order)}
+    canonical_facts = [
+        {
+            **fact,
+            "source": source_indexes[fact["source"]],
+        }
+        for fact in facts
+    ]
+    canonical_facts.sort(key=_sha256_json)
+    return {
+        **payload,
+        "sources": [sources[index] for index in source_order],
+        "facts": canonical_facts,
+    }
+
 def _handoff_stdin(argv: list[str], payload: dict[str, object]) -> str:
+    canonical_payload = _canonicalize_handoff_for_prompt(payload)
     delegated_payload = {
-        "schema": payload["schema"],
-        "sources": payload["sources"],
-        "facts": payload["facts"],
-        "constraints": payload.get("constraints", []),
+        "schema": canonical_payload["schema"],
+        "sources": canonical_payload["sources"],
+        "facts": canonical_payload["facts"],
+        "constraints": canonical_payload.get("constraints", []),
     }
     instruction = (
         " Use this validated Codex MCP handoff payload: "
@@ -660,24 +726,289 @@ def _append_bounded_task_context(argv: list[str], repo_root: Path) -> None:
                 return
 
 
+def _task_argument(argv: list[str]) -> str:
+    for index, argument in enumerate(argv):
+        if argument in {"-n", "--non-interactive"}:
+            if index + 1 >= len(argv) or argv[index + 1].startswith("-"):
+                raise RuntimeError("Tura task text is missing.")
+            return argv[index + 1]
+        for option in ("-n=", "--non-interactive="):
+            if argument.startswith(option):
+                task = argument[len(option) :]
+                if not task:
+                    raise RuntimeError("Tura task text is missing.")
+                return task
+    raise RuntimeError("Tura worker requires non-interactive task text via `-n`.")
+
+
+def _tura_worker_task(
+    argv: list[str],
+    repo_root: Path,
+    role_name: str,
+    developer_instructions: str,
+    payload: dict[str, object],
+) -> str:
+    canonical_payload = _canonicalize_handoff_for_prompt(payload)
+    delegated_payload = {
+        "schema": canonical_payload["schema"],
+        "sources": canonical_payload["sources"],
+        "facts": canonical_payload["facts"],
+        "constraints": canonical_payload.get("constraints", []),
+    }
+    return (
+        "Bounded task guidance for profile `"
+        + role_name
+        + "` (task guidance, not a Tura system/developer message):\n"
+        + developer_instructions.strip()
+        + "\n"
+        + _PROJECT_GUIDANCE_INSTRUCTION
+        + "\n"
+        + _bounded_task_context(repo_root)
+        + "\nCaller task:\n"
+        + _task_argument(argv)
+        + "\nValidated Codex MCP handoff facts (use only these facts; do not call MCP tools):\n"
+        + json.dumps(delegated_payload, separators=(",", ":"), sort_keys=True)
+    )
+
+
+def _tura_worker_argv(
+    executable: Path,
+    repo_root: Path,
+    model: str,
+    session_id: str,
+    task: str,
+) -> list[str]:
+    return [
+        str(executable),
+        "--quiet",
+        "--json",
+        "--sandbox",
+        "--session-id",
+        session_id,
+        "--agent-id",
+        "balanced",
+        "-C",
+        str(repo_root.resolve()),
+        "-m",
+        f"openai/{model}",
+        task,
+    ]
+
+
+def _tura_worker_environment(
+    api_key: str,
+    provider_config: Path,
+    repo_root: Path,
+) -> dict[str, str]:
+    environment = os.environ.copy()
+    for key in ("OPENAI_BASE_URL", "OPENAI_API_BASE", "TURA_PROVIDER_CONFIG", "TURA_PROJECT_ROOT"):
+        environment.pop(key, None)
+    environment["OPENAI_API_KEY"] = api_key
+    environment["TURA_PROVIDER_CONFIG"] = str(provider_config.resolve())
+    environment["TURA_PROJECT_ROOT"] = str(repo_root.resolve())
+    environment["PYTHONUTF8"] = "1"
+    environment["PYTHONIOENCODING"] = "utf-8"
+    return environment
+
+
+def _tura_timeout(argv: list[str]) -> float:
+    for index, argument in enumerate(argv):
+        if argument == "--timeout":
+            if index + 1 >= len(argv):
+                raise RuntimeError("Tura worker requires a value for `--timeout`.")
+            value = argv[index + 1]
+        elif argument.startswith("--timeout="):
+            value = argument.split("=", 1)[1]
+        else:
+            continue
+        try:
+            timeout = float(value)
+        except ValueError as exc:
+            raise RuntimeError("Tura worker timeout must be a positive number.") from exc
+        if timeout <= 0:
+            raise RuntimeError("Tura worker timeout must be a positive number.")
+        return timeout
+    return 120.0
+
+def _create_windows_job(process: subprocess.Popen[object]) -> object | None:
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class BasicLimitInformation(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class IoCounters(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_ulonglong) for name in (
+            "ReadOperationCount",
+            "WriteOperationCount",
+            "OtherOperationCount",
+            "ReadTransferCount",
+            "WriteTransferCount",
+            "OtherTransferCount",
+        )]
+
+    class ExtendedLimitInformation(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", BasicLimitInformation),
+            ("IoInfo", IoCounters),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    job = kernel32.CreateJobObjectW(None, None)
+    process_handle = getattr(process, "_handle", None)
+    if not job or process_handle is None:
+        if job:
+            kernel32.CloseHandle(job)
+        return None
+    limits = ExtendedLimitInformation()
+    limits.BasicLimitInformation.LimitFlags = 0x2000
+    if not kernel32.SetInformationJobObject(
+        job,
+        9,
+        ctypes.byref(limits),
+        ctypes.sizeof(limits),
+    ) or not kernel32.AssignProcessToJobObject(job, process_handle):
+        kernel32.CloseHandle(job)
+        return None
+    return job
+
+def _close_windows_job(job: object | None) -> None:
+    if job is None or os.name != "nt":
+        return
+    import ctypes
+
+    ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(job)
+
+def _kill_windows_process_tree(pid: int) -> None:
+    if os.name != "nt":
+        return
+    subprocess.run(
+        ["taskkill", "/PID", str(pid), "/T", "/F"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=2,
+    )
+
+
+def _run_bounded_worker(
+    argv: list[str],
+    environment: dict[str, str],
+    repo_root: Path,
+    handoff_stdin: str | None,
+    timeout: float,
+    worker_name: str,
+) -> int:
+    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
+    popen_kwargs: dict[str, object] = {
+        "cwd": repo_root,
+        "env": environment,
+        "creationflags": creationflags,
+        "stdin": subprocess.PIPE if handoff_stdin is not None else None,
+        "text": handoff_stdin is not None,
+    }
+    if os.name != "nt":
+        popen_kwargs["start_new_session"] = True
+    process = subprocess.Popen(argv, **popen_kwargs)
+    job = _create_windows_job(process)
+    fallback_kill = False
+    try:
+        if handoff_stdin is None:
+            return_code = process.wait(timeout=timeout)
+        else:
+            process.communicate(input=handoff_stdin, timeout=timeout)
+            return_code = process.returncode
+    except subprocess.TimeoutExpired as exc:
+        if job is None and os.name == "nt":
+            _kill_windows_process_tree(process.pid)
+            fallback_kill = True
+        elif job is None:
+            try:
+                os.killpg(process.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+            except ProcessLookupError:
+                pass
+        else:
+            _close_windows_job(job)
+            job = None
+        process.wait()
+        raise RuntimeError(
+            f"{worker_name} worker timed out; child process tree terminated."
+        ) from exc
+    finally:
+        if job is not None:
+            _close_windows_job(job)
+        elif os.name == "nt" and not fallback_kill:
+            _kill_windows_process_tree(process.pid)
+    return return_code
+
+def _run_tura_worker(
+    argv: list[str],
+    environment: dict[str, str],
+    repo_root: Path,
+    timeout: float,
+) -> int:
+    return _run_bounded_worker(argv, environment, repo_root, None, timeout, "Tura")
+
+def _run_deepagents_worker(
+    argv: list[str],
+    environment: dict[str, str],
+    repo_root: Path,
+    handoff_stdin: str | None,
+    timeout: float,
+) -> int:
+    return _run_bounded_worker(
+        argv,
+        environment,
+        repo_root,
+        handoff_stdin,
+        timeout,
+        "DeepAgents",
+    )
+
+
 def _find_dcode() -> str | None:
-    return shutil.which("dcode") or next(
+    return next(
         (
             str(candidate)
             for candidate in (
+                Path.home() / ".local" / "share" / "dcode-project" / "bin" / "dcode.exe",
                 Path.home() / ".local" / "bin" / "dcode.exe",
                 Path.home() / ".local" / "bin" / "dcode",
             )
             if candidate.is_file()
         ),
         None,
-    )
+    ) or shutil.which("dcode")
 
 
 def _runtime_environment(base_url: str, api_key: str) -> dict[str, str]:
     environment = os.environ.copy()
     environment["PYTHONUTF8"] = "1"
     environment["PYTHONIOENCODING"] = "utf-8"
+    environment["DEEPAGENTS_CODE_AUTO_UPDATE"] = "0"
+    if os.name == "nt":
+        environment["DEEPAGENTS_CODE_UI_CHARSET_MODE"] = "ascii"
+        environment["LOG_COLOR"] = "false"
     environment["DEEPAGENTS_CODE_OPENAI_BASE_URL"] = base_url
     environment["DEEPAGENTS_CODE_OPENAI_API_KEY"] = api_key
     environment["OPENAI_BASE_URL"] = base_url
@@ -685,8 +1016,15 @@ def _runtime_environment(base_url: str, api_key: str) -> dict[str, str]:
     return environment
 
 
+def _deepagents_home() -> Path:
+    configured = os.environ.get("DEEPAGENTS_HOME")
+    if configured:
+        return Path(os.path.expandvars(configured)).expanduser().resolve()
+    return Path.home() / ".deepagents"
+
+
 def _reject_conflicting_user_openai_base_url() -> None:
-    config_path = Path.home() / ".deepagents" / "config.toml"
+    config_path = _deepagents_home() / "config.toml"
     if not config_path.exists():
         return
     values = _load_toml(config_path, "DeepAgents user config")
@@ -701,9 +1039,10 @@ def _reject_conflicting_user_openai_base_url() -> None:
 
 def main(argv: list[str]) -> int:
     _reject_unmanaged_runtime_options(argv)
-    child_argv, selection_values, handoff_file, role_name = _controller_options(argv)
+    child_argv, selection_values, handoff_file, role_name, explicit_executor = _controller_options(argv)
     config = _load_toml(_config_path(), "dcode-project config")
     repo_root = _repo_root()
+    executor = _resolve_executor(config, explicit_executor)
     model, base_url, api_key, provider_name = _runtime_binding(config)
     codex_config = _codex_config(config)
     capabilities = _mcp_capabilities(codex_config)
@@ -721,6 +1060,10 @@ def main(argv: list[str]) -> int:
             "mcp_servers": capabilities["mcp_servers"],
             "mcp_tools": capabilities["mcp_tools"],
             "selected_mcp": selected,
+            "default_executor": config.get("delegation", {}).get("default_executor")
+            if isinstance(config.get("delegation"), dict)
+            else None,
+            "selected_executor": executor,
             "runtime_binding_digest": _runtime_binding_digest(
                 provider_name,
                 model,
@@ -729,6 +1072,15 @@ def main(argv: list[str]) -> int:
             "mcp_capability_digest": capabilities["mcp_capability_digest"],
             "roles_path": str(repo_root / ".deepagents" / "agents"),
         }
+        paths = config.get("paths")
+        if isinstance(paths, dict):
+            for key in ("tura_executable", "tura_provider_config"):
+                value = paths.get(key)
+                if isinstance(value, str) and value.strip():
+                    path = Path(value).expanduser()
+                    payload[key] = str(path)
+                    if key == "tura_executable" and path.is_file():
+                        payload["tura_executable_sha256"] = _sha256_file(path)
         if selected_role is not None:
             payload["selected_role"] = selected_role["name"]
             payload["effective_model"] = f"openai:{selected_role['model']}"
@@ -737,7 +1089,46 @@ def main(argv: list[str]) -> int:
         )
         return 0
     if selected_role is None:
-        raise RuntimeError("dcode-project requires `--role <low|normal|high|xhigh>` for task execution.")
+        names = "|".join(sorted(role_by_name))
+        raise RuntimeError(f"dcode-project requires `--role <{names}>` for task execution.")
+    if executor == "deepagents" and not selected_role["deepagents_compatible"]:
+        raise RuntimeError(
+            f"Role `{selected_role['name']}` is not compatible with DeepAgents for "
+            f"model `{selected_role['model']}`; use `project-delegate --role "
+            f"{selected_role['name']}` or repair the provider Responses API route."
+        )
+    if executor == "tura":
+        executable, provider_config = _tura_worker_paths(config)
+        if handoff_file is None:
+            handoff_payload: dict[str, object] = {
+                "schema": _HANDOFF_SCHEMA,
+                "sources": [],
+                "facts": [],
+                "constraints": [],
+            }
+        else:
+            _, handoff_payload = _validate_handoff(handoff_file, capabilities, selected)
+        task = _tura_worker_task(
+            child_argv,
+            repo_root,
+            str(selected_role["name"]),
+            str(selected_role["developer_instructions"]),
+            handoff_payload,
+        )
+        session_id = f"dcode-project-{uuid.uuid4().hex}"
+        tura_argv = _tura_worker_argv(
+            executable,
+            repo_root,
+            str(selected_role["model"]),
+            session_id,
+            task,
+        )
+        return _run_tura_worker(
+            tura_argv,
+            _tura_worker_environment(api_key, provider_config, repo_root),
+            repo_root,
+            _tura_timeout(child_argv),
+        )
     _append_bounded_task_context(child_argv, repo_root)
     handoff_stdin: str | None = None
     if handoff_file is not None:
@@ -750,21 +1141,21 @@ def main(argv: list[str]) -> int:
     environment = _runtime_environment(base_url, api_key)
     _write_role_views(repo_root, roles)
     try:
-        completed = subprocess.run(
-            [
-                dcode,
-                "-M",
-                f"openai:{selected_role['model']}",
-                *_FIXED_LOCAL_CAPABILITY_OPTIONS,
-                *(arg for arg in child_argv if arg != "--no-mcp"),
-                "--no-mcp",
-            ],
-            env=environment,
-            cwd=repo_root,
-            input=handoff_stdin,
-            text=handoff_stdin is not None,
+        dcode_argv = [
+            dcode,
+            "-M",
+            f"openai:{selected_role['model']}",
+            *_FIXED_LOCAL_CAPABILITY_OPTIONS,
+            *(arg for arg in child_argv if arg != "--no-mcp"),
+            "--no-mcp",
+        ]
+        return _run_deepagents_worker(
+            dcode_argv,
+            environment,
+            repo_root,
+            handoff_stdin,
+            _tura_timeout(child_argv),
         )
-        return completed.returncode
     finally:
         _remove_role_views(repo_root, roles)
 
