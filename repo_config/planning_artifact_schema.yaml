@@ -1,0 +1,95 @@
+schema_version: 1
+
+shared_base_fields:
+  artifact_type:
+    type: string
+    required: true
+  template_id:
+    type: string
+    required: false
+  name:
+    type: string
+    required: false
+  status:
+    type: string
+    required: true
+  layer:
+    type: string
+    required: true
+
+shared_optional_reference_fields:
+  parent_spec:
+    type: repo_relative_path
+    required: false
+
+shared_optional_context_fields:
+  targets:
+    type: repo_relative_path_list
+    required: false
+  related_features:
+    type: string_list
+    required: false
+  related_stages:
+    type: string_list
+    required: false
+
+allowed_values:
+  status:
+    spec:
+      - proposed
+      - active
+      - completed
+      - superseded
+    plan:
+      - proposed
+      - active
+      - completed
+      - superseded
+  executor:
+    shared:
+      - codex
+      - deepagents
+      - tura
+  layer:
+    shared:
+      - intent
+      - operating_system
+      - change
+
+artifacts:
+  spec:
+    description: Detailed specification artifact.
+    path_globs:
+      - docs/superpowers/specs/*.md
+    required_fields:
+      - template_id
+    identity:
+      canonical_field: name
+      legacy_field: none
+    optional_fields:
+      - template_id
+      - name
+      - targets
+      - related_features
+      - related_stages
+    required_values:
+      artifact_type: spec
+
+  plan:
+    description: Implementation plan artifact.
+    path_globs:
+      - docs/superpowers/plans/*.md
+    required_fields:
+      - template_id
+    identity:
+      canonical_field: name
+      legacy_field: none
+    optional_fields:
+      - template_id
+      - name
+      - parent_spec
+      - targets
+      - related_features
+      - related_stages
+    required_values:
+      artifact_type: plan

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Generate a review package for committed and current working-tree changes.
+#
+# Usage: review-package BASE [HEAD] [OUTFILE]
+# Without HEAD, include staged, unstaged, and untracked changes against BASE.
+set -euo pipefail
+
+if [ $# -lt 1 ] || [ $# -gt 3 ]; then
+  echo "usage: review-package BASE [HEAD] [OUTFILE]" >&2
+  exit 2
+fi
+
+base=$1
+head=""
+out=""
+if [ $# -ge 2 ]; then
+  head=$2
+fi
+if [ $# -eq 3 ]; then
+  out=$3
+fi
+
+git rev-parse --verify --quiet "$base" >/dev/null || { echo "bad BASE: $base" >&2; exit 2; }
+if [ -n "$head" ]; then
+  git rev-parse --verify --quiet "$head" >/dev/null || { echo "bad HEAD: $head" >&2; exit 2; }
+fi
+
+if [ -z "$out" ]; then
+  dir=$("$(cd "$(dirname "$0")" && pwd)/sdd-workspace")
+  suffix="worktree"
+  if [ -n "$head" ]; then
+    suffix=$(git rev-parse --short "$head")
+  fi
+  out="$dir/review-$(git rev-parse --short "$base")..${suffix}.diff"
+fi
+
+{
+  if [ -n "$head" ]; then
+    echo "# Review package: ${base}..${head}"
+    echo
+    echo "## Commits"
+    git log --oneline "${base}..${head}"
+    echo
+    echo "## Files changed"
+    git diff --stat "${base}..${head}"
+    echo
+    echo "## Diff"
+    git diff -U10 "${base}..${head}"
+  else
+    echo "# Review package: ${base}..working-tree"
+    echo
+    echo "## Commits"
+    git log --oneline "${base}..HEAD"
+    echo
+    echo "## Files changed"
+    git diff --stat "$base"
+    echo
+    echo "## Working-tree status"
+    git status --short
+    echo
+    echo "## Diff"
+    git diff -U10 "$base"
+    echo
+    echo "## Untracked files"
+    while IFS= read -r -d '' file; do
+      echo
+      echo "### $file"
+      git diff --no-index -U10 -- /dev/null "$file" || true
+    done < <(git ls-files --others --exclude-standard -z)
+  fi
+} > "$out"
+
+commits=$(git rev-list --count "${base}..${head:-HEAD}")
+echo "wrote ${out}: ${commits} commit(s), $(wc -c < "$out" | tr -d ' ') bytes"

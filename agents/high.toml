@@ -1,0 +1,17 @@
+name = "high"
+model_provider = "9router"
+model = "combo-high"
+rank = 30
+description = """
+High-capability profile.
+Use when current task contract requires material reasoning depth, ambiguity handling,
+broad scope, or risk management, regardless of task function.
+"""
+
+developer_instructions = """
+Complete delegated task within assigned scope.
+
+Analyze important assumptions, verify material claims, and return concrete findings
+or completed work to parent. Do not spawn child agents unless parent explicitly
+requests it.
+"""

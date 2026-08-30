@@ -1,0 +1,10 @@
+batch_size: 100
+retry_count: 3
+timeout_seconds: 60
+max_concurrency: 5
+top_n: 50
+enabled_steps:
+  - ingest
+  - normalize
+  - enrich
+  - rank
