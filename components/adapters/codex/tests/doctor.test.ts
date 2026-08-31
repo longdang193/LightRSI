@@ -73,7 +73,7 @@ test("inspectCodexDoctor reports missing provider and hooks honestly", async () 
     assert.equal(report.hooksComplete, false);
     assert.equal(report.hooksMatchExpectedCommand, false);
     assert.deepEqual(report.installedHookEvents, []);
-    assert.deepEqual(report.missingHookEvents, ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]);
+    assert.deepEqual(report.missingHookEvents, ["SessionStart", "PreToolUse", "PostToolUse"]);
     assert.equal(report.daemonRunning, false);
     assert.equal(report.mcpInstalled, false);
     assert.equal(report.mcpStateDirMatches, false);
@@ -184,7 +184,7 @@ test("formatCodexDoctorReport redacts credentials embedded in diagnostic URLs", 
     hooksInstalled: true,
     hooksComplete: true,
     hooksMatchExpectedCommand: true,
-    installedHookEvents: ["SessionStart", "PreToolUse", "PostToolUse", "Stop"],
+    installedHookEvents: ["SessionStart", "PreToolUse", "PostToolUse"],
     missingHookEvents: [],
     daemonRunning: false,
     proxyHealthy: false,
@@ -521,7 +521,7 @@ test("inspectCodexDoctor reports partial hook installs explicitly", async () => 
     assert.equal(report.hooksComplete, false);
     assert.equal(report.hooksMatchExpectedCommand, false);
     assert.deepEqual(report.installedHookEvents, ["SessionStart", "PostToolUse"]);
-    assert.deepEqual(report.missingHookEvents, ["PreToolUse", "Stop"]);
+    assert.deepEqual(report.missingHookEvents, ["PreToolUse"]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -772,7 +772,7 @@ test("formatCodexDoctorReport shows degraded mode when core runtime is healthy b
     hooksInstalled: true,
     hooksComplete: true,
     hooksMatchExpectedCommand: true,
-    installedHookEvents: ["SessionStart", "PreToolUse", "PostToolUse", "Stop"],
+    installedHookEvents: ["SessionStart", "PreToolUse", "PostToolUse"],
     missingHookEvents: [],
     daemonRunning: true,
     proxyHealthy: true,
@@ -814,7 +814,7 @@ test("formatCodexDoctorReport explains first-run SessionStart remediation when t
     hooksInstalled: true,
     hooksComplete: true,
     hooksMatchExpectedCommand: true,
-    installedHookEvents: ["SessionStart", "PreToolUse", "PostToolUse", "Stop"],
+    installedHookEvents: ["SessionStart", "PreToolUse", "PostToolUse"],
     missingHookEvents: [],
     mcpInstalled: true,
     mcpStateDirMatches: true,
@@ -852,7 +852,7 @@ test("formatCodexDoctorReport explains disabled adapter without suggesting daemo
     hooksInstalled: true,
     hooksComplete: true,
     hooksMatchExpectedCommand: true,
-    installedHookEvents: ["SessionStart", "PreToolUse", "PostToolUse", "Stop"],
+    installedHookEvents: ["SessionStart", "PreToolUse", "PostToolUse"],
     missingHookEvents: [],
     mcpInstalled: true,
     mcpStateDirMatches: true,

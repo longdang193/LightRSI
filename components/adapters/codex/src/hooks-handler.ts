@@ -228,7 +228,14 @@ export async function processCodexHookEvent(event: Record<string, unknown>): Pro
 }
 
 async function main() {
-  const event = await readStdinJson();
+  let event: Record<string, unknown>;
+  try {
+    event = await readStdinJson();
+  } catch (err) {
+    console.error(`hook input parse failed; continuing without hook action: ${hookErrorMessage(err)}`);
+    writeSuccessOutput("Stop");
+    return;
+  }
   const output = await processCodexHookEvent(event);
   if (typeof output === "string" && output.length > 0) {
     process.stdout.write(output);
