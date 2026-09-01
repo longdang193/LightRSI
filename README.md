@@ -73,7 +73,7 @@ LightRSI separates reusable improvement capabilities from shared runtime infrast
 
 ### 1. Prepare the Repository Once
 
-Clone the repository and build the shared packages:
+Clone the repository and build the shared packages. Use Node.js `22.19.0` or newer:
 
 ```bash
 git clone https://github.com/zjunlp/LightRSI.git
@@ -125,8 +125,8 @@ pnpm component:install:tokenpilot:openclaw
 Default install:
 
 ```bash
-npm --prefix components/adapters/codex run build
-npm --prefix components/adapters/codex run install:codex
+pnpm --dir components/adapters/codex run build
+pnpm --dir components/adapters/codex run install:codex
 ```
 
 This keeps your current active Codex provider name, reroutes that provider through the local TokenPilot proxy, writes `~/.codex/tokenpilot.json`, registers hooks in `~/.codex/hooks.json`, registers the shared `tokenpilot_memory_fault_recover` MCP server, and creates the standalone `lightrsi` CLI entrypoint at `~/.local/bin/lightrsi`.
@@ -142,8 +142,8 @@ export TOKENPILOT_CODEX_CONFIG="/path/to/tokenpilot.json"
 Then run the same install flow:
 
 ```bash
-npm --prefix components/adapters/codex run build
-npm --prefix components/adapters/codex run install:codex
+pnpm --dir components/adapters/codex run build
+pnpm --dir components/adapters/codex run install:codex
 ```
 
 If `lightrsi` is not found after install, make sure `~/.local/bin` is on your `PATH`.
@@ -158,8 +158,8 @@ If `lightrsi` is not found after install, make sure `~/.local/bin` is on your `P
 Default install:
 
 ```bash
-npm --prefix components/adapters/claude-code run build
-npm --prefix components/adapters/claude-code run install:claude-code
+pnpm --dir components/adapters/claude-code run build
+pnpm --dir components/adapters/claude-code run install:claude-code
 ```
 
 This updates `~/.claude/settings.json` for local gateway routing, writes `~/.claude/tokenpilot.json`, registers the shared `tokenpilot_memory_fault_recover` MCP server in `~/.claude/.claude.json`, installs a `SessionStart` hook that auto-starts the local gateway on first use, and preserves existing Claude files as `.tokenpilot.bak` backups before rewriting.
@@ -175,8 +175,8 @@ export TOKENPILOT_CLAUDE_CODE_CONFIG="/path/to/tokenpilot.json"
 Then run the same install flow:
 
 ```bash
-npm --prefix components/adapters/claude-code run build
-npm --prefix components/adapters/claude-code run install:claude-code
+pnpm --dir components/adapters/claude-code run build
+pnpm --dir components/adapters/claude-code run install:claude-code
 ```
 
 If `lightrsi` is not found after install, make sure `~/.local/bin` is on your `PATH`.

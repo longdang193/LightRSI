@@ -5,22 +5,19 @@ The LightRSI repository is organized around the plugin platform and its componen
 ```text
 LightRSI/
 ├── components/
-│   └── tokenpilot/              # TokenPilot plugin
-│       ├── adapters/            # Host-specific integration
-│       │   ├── openclaw/        #   OpenClaw native plugin adapter
-│       │   ├── codex/           #   Codex CLI proxy + hooks adapter
-│       │   └── claude-code/     #   Claude Code gateway + MCP adapter
-│       ├── products/
-│       │   ├── cli/             #   Shared lightrsi CLI
-│       │   └── mcp/             #   Shared MCP recovery server
-│       └── packages/
-│           ├── host-adapter/    #   Shared adapter contracts
-│           ├── runtime-core/    #   Host-agnostic runtime engine
-│           ├── kernel/          #   Shared types, interfaces, events
-│           └── layers/
-│               ├── history/     #   Canonical state, turns, task registry
-│               ├── decision/    #   Policy analysis, reduction/eviction
-│               └── memory/      #   Experimental memory layer
+│   ├── adapters/                # Host-specific integration
+│   │   ├── openclaw/            #   OpenClaw native plugin adapter
+│   │   ├── codex/               #   Codex CLI proxy + hooks adapter
+│   │   ├── claude-code/         #   Claude Code gateway + MCP adapter
+│   │   └── deepseek-harness/    #   DeepSeek Harness compatibility adapter
+│   ├── products/
+│   │   ├── cli/                 #   Shared lightrsi CLI
+│   │   └── mcp/                 #   Shared MCP recovery server
+│   ├── presets/
+│   │   └── tokenpilot/          #   TokenPilot composition preset
+│   └── packages/
+│       ├── foundation/          #   Shared contracts and runtime primitives
+│       └── features/            #   Reduction, eviction, cleaner, memory, stabilizer
 ├── docs/                        # Public-facing notes and helpers
 ├── website/                     # This documentation site
 ├── figs/                        # Images for README
@@ -33,12 +30,12 @@ Benchmark tasks, runners, profiles, and analysis are maintained in the separate 
 
 | Directory | Purpose |
 | :-- | :-- |
-| `components/tokenpilot/packages/kernel/` | Types, interfaces, events — the contract layer |
-| `components/tokenpilot/packages/runtime-core/` | Plugin execution engine |
-| `components/tokenpilot/packages/layers/` | Stateful processing (history, decision, memory) |
-| `components/tokenpilot/adapters/` | One adapter per host |
-| `components/tokenpilot/products/cli/` | The `lightrsi` CLI |
-| `components/tokenpilot/products/mcp/` | Shared MCP server |
+| `components/packages/foundation/kernel/` | Types, interfaces, events — the contract layer |
+| `components/packages/foundation/runtime-core/` | Plugin execution engine |
+| `components/packages/features/` | Stateful processing and policy features |
+| `components/adapters/` | One adapter per host |
+| `components/products/cli/` | The `lightrsi` CLI |
+| `components/products/mcp/` | Shared MCP server |
 
 ## Workspace
 

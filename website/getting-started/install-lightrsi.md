@@ -6,7 +6,7 @@ This page covers the LightRSI platform installation — the shared runtime that 
 
 | Requirement | Minimum | Notes |
 | :-- | :-- | :-- |
-| **Node.js** | ≥ 18 | v20+ recommended |
+| **Node.js** | ≥ 22.19 | v22.19+ required for the full workspace |
 | **pnpm** | ≥ 9 | v10.32+ used in development |
 | **OS** | macOS, Linux, Windows (WSL) | Windows native may work but is less tested |
 | **Target Host** | OpenClaw / Codex / Claude Code | At least one must be installed |
@@ -73,7 +73,7 @@ This shows your current default host, pinned session, and config target.
 | :-- | :-- | :-- |
 | `lightrsi` CLI | `~/.local/bin/lightrsi` | Standalone CLI for all hosts |
 | Shared packages | `node_modules/` (workspace) | Runtime engine, types, contracts |
-| Host adapter code | `components/tokenpilot/adapters/` | Per-host integration code |
+| Host adapter code | `components/adapters/` | Per-host integration code |
 
 ## Next
 

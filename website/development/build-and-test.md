@@ -13,9 +13,9 @@ pnpm lightrsi:build
 pnpm lightrsi:install
 
 # Build specific adapter
-npm --prefix components/tokenpilot/adapters/openclaw run build
-npm --prefix components/tokenpilot/adapters/codex run build
-npm --prefix components/tokenpilot/adapters/claude-code run build
+pnpm --dir components/adapters/openclaw run build
+pnpm --dir components/adapters/codex run build
+pnpm --dir components/adapters/claude-code run build
 ```
 
 ## Typecheck
@@ -25,7 +25,7 @@ npm --prefix components/tokenpilot/adapters/claude-code run build
 pnpm typecheck
 
 # Typecheck specific package
-npm --prefix components/tokenpilot/packages/runtime-core run typecheck
+pnpm --dir components/packages/foundation/runtime-core run typecheck
 ```
 
 ## Test
@@ -35,7 +35,7 @@ npm --prefix components/tokenpilot/packages/runtime-core run typecheck
 pnpm lightrsi:test
 
 # Run tests for specific package
-npm --prefix components/tokenpilot/products/cli test
+pnpm --dir components/products/cli test
 ```
 
 ## CI

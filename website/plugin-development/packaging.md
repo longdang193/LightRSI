@@ -16,8 +16,8 @@ Adapter install scripts:
 | Host | Install Command |
 | :-- | :-- |
 | OpenClaw | `pnpm component:install:tokenpilot:openclaw` |
-| Codex CLI | `npm --prefix components/tokenpilot/adapters/codex run install:codex` |
-| Claude Code | `npm --prefix components/tokenpilot/adapters/claude-code run install:claude-code` |
+| Codex CLI | `pnpm --dir components/adapters/codex run install:codex` |
+| Claude Code | `pnpm --dir components/adapters/claude-code run install:claude-code` |
 
 ## Related Pages
 

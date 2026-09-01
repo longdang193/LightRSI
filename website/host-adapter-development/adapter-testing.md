@@ -12,13 +12,13 @@ pnpm typecheck
 
 ```bash
 # OpenClaw adapter
-npm --prefix components/tokenpilot/adapters/openclaw test
+pnpm --dir components/adapters/openclaw test
 
 # Codex adapter
-npm --prefix components/tokenpilot/adapters/codex test
+pnpm --dir components/adapters/codex test
 
 # Claude Code adapter
-npm --prefix components/tokenpilot/adapters/claude-code test
+pnpm --dir components/adapters/claude-code test
 ```
 
 ### Doctor Self-Check
@@ -32,9 +32,9 @@ lightrsi <host> doctor
 Or per-adapter:
 
 ```bash
-npm --prefix components/tokenpilot/adapters/openclaw run doctor:openclaw
-npm --prefix components/tokenpilot/adapters/codex run doctor:codex
-npm --prefix components/tokenpilot/adapters/claude-code run doctor:claude-code
+pnpm --dir components/adapters/openclaw run doctor:openclaw
+pnpm --dir components/adapters/codex run doctor:codex
+pnpm --dir components/adapters/claude-code run doctor:claude-code
 ```
 
 Test directories exist at `adapters/<host>/tests/`.

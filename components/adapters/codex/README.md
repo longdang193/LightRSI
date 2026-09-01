@@ -52,7 +52,7 @@ Build the adapter:
 
 ```bash
 cd /path/to/LightRSI
-npm --prefix components/adapters/codex run build
+pnpm --dir components/adapters/codex run build
 ```
 
 If your Codex files are not under the default `~/.codex`, set:
@@ -67,7 +67,7 @@ Then install:
 
 ```bash
 cd /path/to/LightRSI
-npm --prefix components/adapters/codex run install:codex
+pnpm --dir components/adapters/codex run install:codex
 ```
 
 If `lightrsi` is not found after install, make sure `~/.local/bin` is on your `PATH`.
@@ -102,7 +102,7 @@ You can run the adapter doctor immediately after install:
 
 ```bash
 cd /path/to/LightRSI
-npm --prefix components/adapters/codex run doctor:codex
+pnpm --dir components/adapters/codex run doctor:codex
 ```
 
 Then use the first real-session path:
@@ -162,7 +162,7 @@ Automatic lifecycle eviction remains default-disabled. To opt in, set both `task
 The response-chain rebase path has a credential-free smoke command for local development and CI:
 
 ```bash
-npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
+pnpm --dir components/adapters/codex run smoke:context-rebase:codex -- \
   --mode=mock \
   --output-dir=/path/to/sanitized-evidence
 ```
@@ -176,7 +176,7 @@ The command never reads an API key. Its evidence is explicitly marked `mode: moc
 The same command exposes a separate, explicit provider mode:
 
 ```bash
-npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
+pnpm --dir components/adapters/codex run smoke:context-rebase:codex -- \
   --mode=provider \
   --model=gpt-5.4-mini \
   --output-dir=/path/to/sanitized-evidence
@@ -185,7 +185,7 @@ npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
 To extend the real-provider item matrix with a hosted web-search replay, opt in to the additional scenario:
 
 ```bash
-npm --prefix components/adapters/codex run smoke:context-rebase:codex -- \
+pnpm --dir components/adapters/codex run smoke:context-rebase:codex -- \
   --mode=provider \
   --compatibility-scenarios=web-search \
   --output-dir=/path/to/sanitized-evidence
@@ -294,7 +294,7 @@ cat ~/.codex/tokenpilot.json
 cat ~/.codex/hooks.json
 rg "model_provider|base_url" ~/.codex/config.toml
 rg "mcp_servers.tokenpilot_memory_fault_recover" ~/.codex/config.toml
-npm --prefix components/adapters/codex run doctor:codex
+pnpm --dir components/adapters/codex run doctor:codex
 tokenpilot-codex status
 ```
 
@@ -309,24 +309,24 @@ If Codex reports that hooks need review, trust the TokenPilot hooks in Codex, op
 If Codex displays `PostToolUse hook (failed)` after a repository reorganization, rebuild and reinstall the adapter so `~/.codex/hooks.json` points at the current handler. Reinstall also removes legacy TokenPilot `Stop` hooks:
 
 ```bash
-npm --prefix components/adapters/codex run build
-npm --prefix components/adapters/codex run install:codex
+pnpm --dir components/adapters/codex run build
+pnpm --dir components/adapters/codex run install:codex
 ```
 
-The expected handler path is `components/adapters/codex/dist/hooks-handler.js`. The handler uses bounded iterative traversal for large or deeply nested tool results, and observation write failures are best-effort so they do not fail a successful Codex tool call.
+The expected handler path is `components/adapters/codex/dist/hooks-handler.js`. On Windows, the installer generates `dist/tokenpilot-codex-hook.cmd`; it is ignored build output and embeds local absolute paths. Rebuild and reinstall after moving the checkout or pulling adapter changes; do not edit that file by hand. The handler uses bounded iterative traversal for large or deeply nested tool results, and observation write failures are best-effort so they do not fail a successful Codex tool call.
 
 ## Package Scripts
 
 Primary package scripts:
 
 ```bash
-npm --prefix components/adapters/codex run build
-npm --prefix components/adapters/codex run typecheck
-npm --prefix components/adapters/codex test
-npm --prefix components/adapters/codex run smoke:context-rebase:codex -- --mode=mock
-npm --prefix components/adapters/codex run install:codex
-npm --prefix components/adapters/codex run doctor:codex
-npm --prefix components/adapters/codex run pack:release
+pnpm --dir components/adapters/codex run build
+pnpm --dir components/adapters/codex run typecheck
+pnpm --dir components/adapters/codex test
+pnpm --dir components/adapters/codex run smoke:context-rebase:codex -- --mode=mock
+pnpm --dir components/adapters/codex run install:codex
+pnpm --dir components/adapters/codex run doctor:codex
+pnpm --dir components/adapters/codex run pack:release
 ```
 
 `pack:release` is the Linux/CI Bash path. On Windows, build the Codex adapter, shared CLI, and MCP packages first, then use `pack:release:portable`; it creates the same minimal archive through a temporary directory without requiring WSL.

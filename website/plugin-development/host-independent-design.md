@@ -7,7 +7,7 @@ From the [components/README.md](https://github.com/zjunlp/LightRSI/blob/main/com
 - **Component packages**: reusable runtime logic, state and policy layers, host-agnostic contracts
 - **Host adapters**: installation and bootstrap, transcript/session bridging, host-specific command and hook surfaces
 
-From the [adapters/README.md](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/adapters/README.md):
+From the [adapters/README.md](https://github.com/zjunlp/LightRSI/blob/main/components/adapters/README.md):
 
 **Adapter responsibilities** (keep inside adapter layer):
 - Host install and uninstall flow
@@ -26,11 +26,11 @@ From the [adapters/README.md](https://github.com/zjunlp/LightRSI/blob/main/compo
 - Shared command semantics in `packages/product-surface/`
 - Standalone product entrypoints in `products/`
 
-From the [HOSTS.md boundary section](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/HOSTS.md):
+From the [HOSTS.md boundary section](https://github.com/zjunlp/LightRSI/blob/main/components/adapters/HOSTS.md):
 
-- `components/tokenpilot/packages/*` — reusable component logic
-- `components/tokenpilot/products/*` — shared product surfaces
-- `components/tokenpilot/adapters/<host>` — host-specific integration layer
+- `components/packages/*` — reusable component logic
+- `components/products/*` — shared product surfaces
+- `components/adapters/<host>` — host-specific integration layer
 
 ## Related Pages
 

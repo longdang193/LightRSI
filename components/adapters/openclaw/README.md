@@ -139,8 +139,8 @@ Primary package scripts:
 ```bash
 corepack pnpm build
 corepack pnpm typecheck
-npm test
-npm run doctor:openclaw
+pnpm test
+pnpm run doctor:openclaw
 ```
 
 The package still contains a small release-helper surface under `components/adapters/openclaw/scripts/`. Benchmarking and evaluation flows live in the separate [TokenPilot experiment repository](https://github.com/Xubqpanda/TokenPilot).

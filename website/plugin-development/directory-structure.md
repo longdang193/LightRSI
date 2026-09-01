@@ -5,7 +5,7 @@ The TokenPilot reference component is organized as follows.
 ## Top-Level Layout
 
 ```text
-components/tokenpilot/
+components/
 ├── adapters/
 │   ├── openclaw/         # OpenClaw adapter, hooks, commands, embedded proxy
 │   ├── codex/            # Codex CLI adapter, hooks, provider install, local proxy
@@ -52,7 +52,7 @@ components/tokenpilot/
 | `products/cli/` | Standalone CLI surface for hosts without native slash commands |
 | `products/mcp/` | Shared MCP server surface (e.g., `memory_fault_recover`) |
 
-The adapter internal structure is described in [adapters/README.md](https://github.com/zjunlp/LightRSI/blob/main/components/tokenpilot/adapters/README.md).
+The adapter internal structure is described in [adapters/README.md](https://github.com/zjunlp/LightRSI/blob/main/components/adapters/README.md).
 
 ## Related Pages
 

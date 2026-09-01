@@ -14,13 +14,13 @@ pnpm component:install:tokenpilot:openclaw
 ```
 
 ```bash [Codex]
-npm --prefix components/tokenpilot/adapters/codex run build
-npm --prefix components/tokenpilot/adapters/codex run install:codex
+pnpm --dir components/adapters/codex run build
+pnpm --dir components/adapters/codex run install:codex
 ```
 
 ```bash [Claude Code]
-npm --prefix components/tokenpilot/adapters/claude-code run build
-npm --prefix components/tokenpilot/adapters/claude-code run install:claude-code
+pnpm --dir components/adapters/claude-code run build
+pnpm --dir components/adapters/claude-code run install:claude-code
 ```
 :::
 

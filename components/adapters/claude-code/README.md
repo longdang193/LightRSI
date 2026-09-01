@@ -49,7 +49,7 @@ Build the adapter:
 
 ```bash
 cd /path/to/LightRSI
-npm --prefix components/adapters/claude-code run build
+pnpm --dir components/adapters/claude-code run build
 ```
 
 If your Claude Code files are not under the default `~/.claude`, set:
@@ -64,7 +64,7 @@ Then install:
 
 ```bash
 cd /path/to/LightRSI
-npm --prefix components/adapters/claude-code run install:claude-code
+pnpm --dir components/adapters/claude-code run install:claude-code
 ```
 
 If `lightrsi` is not found after install, make sure `~/.local/bin` is on your `PATH`.
@@ -96,7 +96,7 @@ You can run the adapter doctor immediately after install:
 
 ```bash
 cd /path/to/LightRSI
-npm --prefix components/adapters/claude-code run doctor:claude-code
+pnpm --dir components/adapters/claude-code run doctor:claude-code
 ```
 
 Then use the first real-session path:
@@ -221,7 +221,7 @@ Useful checks:
 cat ~/.claude/tokenpilot.json
 cat ~/.claude/settings.json
 cat ~/.claude/.claude.json
-npm --prefix components/adapters/claude-code run doctor:claude-code
+pnpm --dir components/adapters/claude-code run doctor:claude-code
 ```
 
 If install finishes in degraded MCP mode, gateway routing and reduction remain usable; only the real `memory_fault_recover` tool path is unavailable until MCP startup succeeds.
@@ -231,9 +231,9 @@ If install finishes in degraded MCP mode, gateway routing and reduction remain u
 Primary package scripts:
 
 ```bash
-npm --prefix components/adapters/claude-code run build
-npm --prefix components/adapters/claude-code run typecheck
-npm --prefix components/adapters/claude-code test
-npm --prefix components/adapters/claude-code run install:claude-code
-npm --prefix components/adapters/claude-code run doctor:claude-code
+pnpm --dir components/adapters/claude-code run build
+pnpm --dir components/adapters/claude-code run typecheck
+pnpm --dir components/adapters/claude-code test
+pnpm --dir components/adapters/claude-code run install:claude-code
+pnpm --dir components/adapters/claude-code run doctor:claude-code
 ```

@@ -6,9 +6,9 @@ TokenPilot is now structured as a reusable LightRSI component with multiple host
 
 | Host | Status | Integration Mode | Install Surface | Main Adapter Docs |
 | :-- | :-- | :-- | :-- | :-- |
-| `OpenClaw` | production | bundled plugin + embedded runtime | `pnpm component:install:tokenpilot:openclaw` or `npm --prefix components/adapters/openclaw run install:release` | [openclaw/README.md](./openclaw/README.md) |
-| `Codex CLI` | available | hooks + local Responses proxy + shared CLI | `npm --prefix components/adapters/codex run build` then `npm --prefix components/adapters/codex run install:codex` | [codex/README.md](./codex/README.md) |
-| `Claude Code` | available | gateway routing + observability hooks + shared CLI | `npm --prefix components/adapters/claude-code run build` then `npm --prefix components/adapters/claude-code run install:claude-code` | [claude-code/README.md](./claude-code/README.md) |
+| `OpenClaw` | production | bundled plugin + embedded runtime | `pnpm component:install:tokenpilot:openclaw` or `pnpm --dir components/adapters/openclaw run install:release` | [openclaw/README.md](./openclaw/README.md) |
+| `Codex CLI` | available | hooks + local Responses proxy + shared CLI | `pnpm --dir components/adapters/codex run build` then `pnpm --dir components/adapters/codex run install:codex` | [codex/README.md](./codex/README.md) |
+| `Claude Code` | available | gateway routing + observability hooks + shared CLI | `pnpm --dir components/adapters/claude-code run build` then `pnpm --dir components/adapters/claude-code run install:claude-code` | [claude-code/README.md](./claude-code/README.md) |
 
 Each host adapter binds the versioned TokenPilot preset explicitly. OpenClaw and Codex declare Stabilizer, Reduction, and Eviction; Claude Code currently declares Stabilizer and Reduction. The same adapter-owned product registrations are used by the shared CLI and browser Visual surface for host discovery.
 

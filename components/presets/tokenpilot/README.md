@@ -157,7 +157,7 @@ lightrsi codex stabilizer target user
 
 Recommended first-run order for Codex:
 
-1. `npm --prefix components/adapters/codex run install:codex`
+1. `pnpm --dir components/adapters/codex run install:codex`
 2. trust hooks in Codex if prompted
 3. open a new Codex session
 4. `lightrsi codex doctor`
@@ -178,7 +178,7 @@ lightrsi claude-code stabilizer target developer
 
 Recommended first-run order for Claude Code:
 
-1. `npm --prefix components/adapters/claude-code run install:claude-code`
+1. `pnpm --dir components/adapters/claude-code run install:claude-code`
 2. open a new Claude Code session
 3. `lightrsi claude-code doctor`
 4. `lightrsi claude-code status`
