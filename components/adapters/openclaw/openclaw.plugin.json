@@ -9,7 +9,8 @@
   "description": "Token-efficiency runtime plugin for OpenClaw with pluggable routing and optimization hooks.",
   "contracts": {
     "tools": [
-      "memory_fault_recover"
+      "memory_fault_recover",
+      "himalaya_mail"
     ]
   },
   "author": "TokenPilot",

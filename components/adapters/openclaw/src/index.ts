@@ -72,6 +72,7 @@ import { __testHooks, contextSafeRecovery, proxyRuntimeHelpers } from "./plugin-
 import { createWorkspaceHintStore } from "./plugin-workspace-hints.js";
 import { createOpenClawStatePathResolver } from "./context-stack/integration/host-adapter.js";
 import { initializeOpenClawTokenPilotPreset } from "./preset.js";
+import { registerHimalayaMailTool } from "./mail/himalaya-tool.js";
 
 module.exports = {
   id: "tokenpilot",
@@ -94,6 +95,8 @@ module.exports = {
       logger.info("[plugin-runtime] Plugin disabled by config.");
       return;
     }
+
+    registerHimalayaMailTool(api, logger);
 
     registerToolCallHooks({
       api,

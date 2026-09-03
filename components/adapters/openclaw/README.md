@@ -18,6 +18,13 @@ Current adapter responsibilities:
 - tool-result persistence
 - canonical history rewrite and eviction
 - recovery protocol and recovery tool wiring
+- read-only OVGU student mail through the `himalaya_mail` tool
+
+The mail tool runs `himalaya` with fixed account `ovgu` and supports only
+listing, searching, and reading messages. Himalaya must have working IMAP
+credentials in the gateway process. Do not store the password in this
+repository or `openclaw.json`; use a user-local secret store or encrypted
+PowerShell credential file that the Scheduled Task account can decrypt.
 
 ## Install
 
