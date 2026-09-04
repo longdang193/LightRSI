@@ -1,0 +1,6 @@
+{
+  "id": "codex-hook-portable",
+  "version": "1.0.0",
+  "baseCommit": "c0d86ae519d0eb4f1c3e3fefdd22b696a9e70c33",
+  "patch": "codex-hook-portable.patch"
+}
