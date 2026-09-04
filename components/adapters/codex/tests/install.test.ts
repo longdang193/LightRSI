@@ -433,6 +433,7 @@ test("installCodexTokenPilot writes Windows hook wrappers into hooks.json", asyn
     const wrapperPath = result.expectedHookCommand.slice(1, -1);
     const wrapper = await readFile(wrapperPath, "utf8");
     assert.equal(wrapper.includes("\\\\"), false);
+    assert.match(wrapper, /node\.exe "%~dp0hooks-handler\.js" %\*/);
 
     const hooks = JSON.parse(await readFile(hooksConfigPath, "utf8")) as {
       hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>;

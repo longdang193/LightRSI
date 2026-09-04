@@ -256,7 +256,7 @@ async function ensureWindowsHookWrapper(adapterRoot: string): Promise<string> {
   await mkdir(dirname(wrapperPath), { recursive: true });
   await writeFile(wrapperPath, [
     "@echo off",
-    `${shellQuote(process.execPath, "win32")} ${shellQuote(hookScriptPath(adapterRoot), "win32")} %*`,
+    'node.exe "%~dp0hooks-handler.js" %*',
     "",
   ].join("\r\n"), "utf8");
   return wrapperPath;

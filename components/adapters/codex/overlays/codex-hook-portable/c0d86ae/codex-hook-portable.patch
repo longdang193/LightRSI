@@ -1,0 +1,19 @@
+diff --git a/components/adapters/codex/src/install.ts b/components/adapters/codex/src/install.ts
+--- a/components/adapters/codex/src/install.ts
++++ b/components/adapters/codex/src/install.ts
+@@ -256,6 +256,6 @@
+   await mkdir(dirname(wrapperPath), { recursive: true });
+   await writeFile(wrapperPath, [
+     "@echo off",
+-    `${shellQuote(process.execPath, "win32")} ${shellQuote(hookScriptPath(adapterRoot), "win32")} %*`,
++    'node.exe "%~dp0hooks-handler.js" %*',
+     "",
+   ].join("\r\n"), "utf8");
+diff --git a/components/adapters/codex/tests/install.test.ts b/components/adapters/codex/tests/install.test.ts
+--- a/components/adapters/codex/tests/install.test.ts
++++ b/components/adapters/codex/tests/install.test.ts
+@@ -430,4 +430,5 @@
+     const wrapperPath = result.expectedHookCommand.slice(1, -1);
+     const wrapper = await readFile(wrapperPath, "utf8");
+     assert.equal(wrapper.includes("\\\\"), false);
++    assert.match(wrapper, /node\.exe "%~dp0hooks-handler\.js" %\*/);

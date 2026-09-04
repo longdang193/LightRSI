@@ -313,7 +313,19 @@ pnpm --dir components/adapters/codex run build
 pnpm --dir components/adapters/codex run install:codex
 ```
 
-The expected handler path is `components/adapters/codex/dist/hooks-handler.js`. On Windows, the installer generates `dist/tokenpilot-codex-hook.cmd`; it is ignored build output and embeds local absolute paths. Rebuild and reinstall after moving the checkout or pulling adapter changes; do not edit that file by hand. The handler uses bounded iterative traversal for large or deeply nested tool results, and observation write failures are best-effort so they do not fail a successful Codex tool call.
+The expected handler path is `components/adapters/codex/dist/hooks-handler.js`. On Windows, the installer generates `dist/tokenpilot-codex-hook.cmd`; it is ignored build output and resolves the handler relative to its own location. Rebuild after pulling adapter changes; do not edit that file by hand. The handler uses bounded iterative traversal for large or deeply nested tool results, and observation write failures are best-effort so they do not fail a successful Codex tool call.
+
+### Keeping local Windows hook fixes across updates
+
+The local Windows wrapper fix is stored as a versioned overlay under `components/adapters/codex/overlays/codex-hook-portable/`. Each overlay declares the exact upstream base commit it supports. The reconciler refuses unknown bases or fuzzy patching, then rebuilds and reinstalls only when source or generated output needs it.
+
+Run once from PowerShell to apply the matching overlay and install a login-time reconciler:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File components/adapters/codex/scripts/ensure-codex-hook-overlay.ps1 -TargetRoot $PWD -InstallStartup
+```
+
+After an upstream update, add a new overlay directory with the rebased patch and new `baseCommit`; do not edit `dist/tokenpilot-codex-hook.cmd`. If no matching overlay exists, startup reconciliation stops without changing the checkout.
 
 ## Package Scripts
 
