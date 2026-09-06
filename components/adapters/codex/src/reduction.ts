@@ -772,6 +772,18 @@ export async function reduceCodexRequestEnvelope(params: {
   envelope: HostRequestEnvelope;
   summary: CodexReductionSummary;
 }> {
+  const withUpdatedProviderPayload = (rawPayload: any): HostRequestEnvelope => {
+    const decoded = params.codec.decodeRequest(rawPayload);
+    return {
+      ...decoded,
+      session: params.envelope.session,
+      rawPayload,
+      metadata: {
+        ...(params.envelope.metadata ?? {}),
+        ...(decoded.metadata?.inputText === undefined ? {} : { inputText: decoded.metadata.inputText }),
+      },
+    };
+  };
   const rawPayload = params.codec.encodeRequest(params.envelope) as any;
   normalizeResponsesInputForUpstream(rawPayload?.input);
   const summary = await applyBeforeCallReductionToPayload({
@@ -786,7 +798,7 @@ export async function reduceCodexRequestEnvelope(params: {
     };
   }
   return {
-    envelope: params.codec.decodeRequest(rawPayload),
+    envelope: withUpdatedProviderPayload(rawPayload),
     summary,
   };
 }

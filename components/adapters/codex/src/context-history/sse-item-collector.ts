@@ -17,6 +17,9 @@ type CollectorState = {
   eventTypeCounts: Record<string, number>;
   responseId?: string;
   previousResponseId?: string;
+  responsePromptCacheKey?: string;
+  usage?: Record<string, unknown>;
+  assistantText: string;
   status: CodexJournalStatus;
 };
 
@@ -29,7 +32,15 @@ export type CodexSseItemCollectorResult = {
   malformedEventTypeCounts: Record<string, number>;
   responseId?: string;
   previousResponseId?: string;
+  responsePromptCacheKey?: string;
+  usage?: Record<string, unknown>;
+  assistantText: string;
   status: CodexJournalStatus;
+};
+
+export type CodexSseItemCollector = {
+  feed(chunk: string | Uint8Array): void;
+  finish(): CodexSseItemCollectorResult;
 };
 
 function safeJsonParse(text: string): unknown {
@@ -318,6 +329,8 @@ function setReasoningText(item: JsonObject, data: JsonObject): void {
 function responseMetadata(data: JsonObject): {
   responseId?: string;
   previousResponseId?: string;
+  responsePromptCacheKey?: string;
+  usage?: Record<string, unknown>;
   output?: unknown[];
 } {
   const response = asJsonObject(data.response);
@@ -332,8 +345,27 @@ function responseMetadata(data: JsonObject): {
       : typeof data.previous_response_id === "string"
         ? data.previous_response_id
         : undefined,
+    responsePromptCacheKey: typeof response?.prompt_cache_key === "string"
+      ? response.prompt_cache_key
+      : typeof data.prompt_cache_key === "string"
+        ? data.prompt_cache_key
+        : undefined,
+    usage: asJsonObject(response?.usage) ?? asJsonObject(data.usage),
     output: Array.isArray(response?.output) ? response.output : undefined,
   };
+}
+
+function textFromDelta(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(textFromDelta).join("");
+  if (!value || typeof value !== "object") return "";
+  const object = value as Record<string, unknown>;
+  return [
+    typeof object.text === "string" ? object.text : "",
+    typeof object.output_text === "string" ? object.output_text : "",
+    textFromDelta(object.content),
+    textFromDelta(object.delta),
+  ].join("");
 }
 
 function outputItemForEvent(
@@ -355,6 +387,11 @@ function updateResponseState(state: CollectorState, data: JsonObject, eventType:
   const metadata = responseMetadata(data);
   state.responseId = metadata.responseId ?? state.responseId;
   state.previousResponseId = metadata.previousResponseId ?? state.previousResponseId;
+  state.responsePromptCacheKey = metadata.responsePromptCacheKey ?? state.responsePromptCacheKey;
+  state.usage = metadata.usage ?? state.usage;
+  if (eventType === "response.output_text.delta" || eventType === "response.content_part.delta") {
+    state.assistantText += textFromDelta(data.delta);
+  }
   if (eventType === "response.completed") state.status = "completed";
   if (eventType === "response.failed") state.status = "failed";
   if (eventType === "response.incomplete") state.status = "incomplete";
@@ -501,29 +538,98 @@ const EVENT_HANDLERS: Record<string, EventHandler | undefined> = {
   "response.reasoning_text.done": handleReasoningTextDone,
 };
 
-export function collectCodexResponseItemsFromStream(rawStreamText: string): CodexSseItemCollectorResult {
-  const parsed = parseSseEvents(rawStreamText);
-  const state: CollectorState = {
+function collectorState(): CollectorState {
+  return {
     outputItems: new Map(),
     aliases: { byItemId: new Map(), byOutputIndex: new Map() },
     eventTypeCounts: {},
+    assistantText: "",
     status: "incomplete",
   };
+}
 
-  parsed.events.forEach(({ event, data }, index) => {
-    const eventType = eventTypeFromData(event, data);
-    state.eventTypeCounts[eventType] = (state.eventTypeCounts[eventType] ?? 0) + 1;
-    updateResponseState(state, data, eventType);
-    EVENT_HANDLERS[eventType]?.(state, data, index);
-  });
-
+function collectorResult(
+  state: CollectorState,
+  malformedEventCount: number,
+  malformedEventTypeCounts: Record<string, number>,
+): CodexSseItemCollectorResult {
   return {
     outputItems: Array.from(state.outputItems.values()).map((item) => cloneJson(sanitizeValue(item)) as JsonObject),
     eventTypeCounts: state.eventTypeCounts,
-    malformedEventCount: parsed.malformedEventCount,
-    malformedEventTypeCounts: parsed.malformedEventTypeCounts,
+    malformedEventCount,
+    malformedEventTypeCounts,
     responseId: state.responseId,
     previousResponseId: state.previousResponseId,
+    responsePromptCacheKey: state.responsePromptCacheKey,
+    usage: state.usage,
+    assistantText: state.assistantText,
     status: state.status,
   };
+}
+
+export function createCodexResponseItemsCollector(): CodexSseItemCollector {
+  const state = collectorState();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let eventIndex = 0;
+  let malformedEventCount = 0;
+  const malformedEventTypeCounts: Record<string, number> = {};
+  let finished = false;
+
+  const consume = (raw: string, flush: boolean) => {
+    buffer += raw;
+    while (true) {
+      const separator = /\r?\n\r?\n/.exec(buffer);
+      if (!separator || separator.index === undefined) break;
+      const block = buffer.slice(0, separator.index);
+      buffer = buffer.slice(separator.index + separator[0].length);
+      const parsed = parseSseEvents(block);
+      malformedEventCount += parsed.malformedEventCount;
+      for (const [eventType, count] of Object.entries(parsed.malformedEventTypeCounts)) {
+        malformedEventTypeCounts[eventType] = (malformedEventTypeCounts[eventType] ?? 0) + count;
+      }
+      for (const { event, data } of parsed.events) {
+        const eventType = eventTypeFromData(event, data);
+        state.eventTypeCounts[eventType] = (state.eventTypeCounts[eventType] ?? 0) + 1;
+        updateResponseState(state, data, eventType);
+        EVENT_HANDLERS[eventType]?.(state, data, eventIndex);
+        eventIndex += 1;
+      }
+    }
+    if (flush && buffer) {
+      const parsed = parseSseEvents(buffer);
+      malformedEventCount += parsed.malformedEventCount;
+      for (const [eventType, count] of Object.entries(parsed.malformedEventTypeCounts)) {
+        malformedEventTypeCounts[eventType] = (malformedEventTypeCounts[eventType] ?? 0) + count;
+      }
+      for (const { event, data } of parsed.events) {
+        const eventType = eventTypeFromData(event, data);
+        state.eventTypeCounts[eventType] = (state.eventTypeCounts[eventType] ?? 0) + 1;
+        updateResponseState(state, data, eventType);
+        EVENT_HANDLERS[eventType]?.(state, data, eventIndex);
+        eventIndex += 1;
+      }
+      buffer = "";
+    }
+  };
+
+  return {
+    feed(chunk) {
+      if (finished) return;
+      consume(typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true }), false);
+    },
+    finish() {
+      if (!finished) {
+        finished = true;
+        consume(decoder.decode(), true);
+      }
+      return collectorResult(state, malformedEventCount, malformedEventTypeCounts);
+    },
+  };
+}
+
+export function collectCodexResponseItemsFromStream(rawStreamText: string): CodexSseItemCollectorResult {
+  const collector = createCodexResponseItemsCollector();
+  collector.feed(rawStreamText);
+  return collector.finish();
 }

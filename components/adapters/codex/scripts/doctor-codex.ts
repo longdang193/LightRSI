@@ -32,7 +32,7 @@ async function main() {
   const upstream = await resolveUpstreamProvider(config, codexConfigPath).catch(() => undefined);
   const daemon = await readDaemonStatus(config);
   const hooksText = existsSync(hooksConfigPath) ? await readFile(hooksConfigPath, "utf8").catch(() => "") : "";
-  const hookHandlerCount = (hooksText.match(/hooks-handler\.js/g) ?? []).length;
+  const hookHandlerCount = (hooksText.match(/(?:hooks-handler\.js|tokenpilot-codex-hook\.cmd)/g) ?? []).length;
   console.log(JSON.stringify({
     ok: doctor.coreRuntimeHealthy && Boolean(upstream),
     codexConfigPath,
@@ -42,6 +42,8 @@ async function main() {
     hooks: {
       installed: doctor.hooksInstalled,
       handlerCount: hookHandlerCount,
+      installedHookEvents: doctor.installedHookEvents,
+      missingHookEvents: doctor.missingHookEvents,
       duplicateWarning: hookHandlerCount > 4
         ? "multiple TokenPilot hooks are registered; rerun install to dedupe hooks.json"
         : undefined,

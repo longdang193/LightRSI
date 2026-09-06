@@ -151,6 +151,19 @@ test("GPT-5.6 omits explicit cache options when no structured cache block exists
   assert.equal(prepared.metadata?.promptCacheBreakpoint, undefined);
 });
 
+test("GPT-5.6 preserves caller cache policy", () => {
+  const config = normalizeTokenPilotCodexConfig({});
+  const promptCacheOptions = { mode: "explicit", ttl: "1h" };
+  const promptCacheBreakpoint = { mode: "explicit" };
+  const prepared = prepareCodexStablePrefix({
+    ...makeCacheFamilyEnvelope("gpt-5.6"),
+    metadata: { promptCacheOptions, promptCacheBreakpoint },
+  }, config);
+
+  assert.deepEqual(prepared.metadata?.promptCacheOptions, promptCacheOptions);
+  assert.deepEqual(prepared.metadata?.promptCacheBreakpoint, promptCacheBreakpoint);
+});
+
 test("cache family ignores stable messages after provider cache boundary", () => {
   const config = normalizeTokenPilotCodexConfig({});
   const base = makeCacheFamilyEnvelope("gpt-5.6-sol");

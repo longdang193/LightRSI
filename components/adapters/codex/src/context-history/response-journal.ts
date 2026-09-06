@@ -1,5 +1,8 @@
 import { appendCodexContextHistoryJournalEntry } from "./journal-append.js";
-import { collectCodexResponseItemsFromStream } from "./sse-item-collector.js";
+import {
+  collectCodexResponseItemsFromStream,
+  type CodexSseItemCollectorResult,
+} from "./sse-item-collector.js";
 import {
   cloneJson,
   normalizeObservedAt,
@@ -53,6 +56,7 @@ export async function appendCodexResponseJournalEntry(params: {
   requestId?: string;
   response?: JsonObject;
   rawStreamText?: string;
+  collected?: CodexSseItemCollectorResult;
   previousResponseId?: string | null;
   status?: CodexJournalStatus;
   error?: string;
@@ -62,9 +66,10 @@ export async function appendCodexResponseJournalEntry(params: {
     || (params.requestId !== undefined && !params.requestId.trim())) {
     throw new TypeError("Codex response journal requires non-empty session and request ids");
   }
-  const streamCollected = typeof params.rawStreamText === "string"
-    ? collectCodexResponseItemsFromStream(params.rawStreamText)
-    : undefined;
+  const streamCollected = params.collected
+    ?? (typeof params.rawStreamText === "string"
+      ? collectCodexResponseItemsFromStream(params.rawStreamText)
+      : undefined);
   const response = params.response ?? {};
   const outputItems = streamCollected
     ? streamCollected.outputItems
@@ -89,7 +94,7 @@ export async function appendCodexResponseJournalEntry(params: {
       ? params.previousResponseId
       : streamCollected?.previousResponseId
         ?? (typeof response.previous_response_id === "string" ? response.previous_response_id : undefined),
-    stream: typeof params.rawStreamText === "string",
+    stream: Boolean(params.collected || typeof params.rawStreamText === "string"),
     outputItems,
     outputItemRefs: outputRefs(outputItems),
     eventTypeCounts: streamCollected?.eventTypeCounts,

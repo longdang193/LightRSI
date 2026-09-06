@@ -314,3 +314,34 @@ test("summarizeCacheAudit records Anthropic cache creation tokens", async () => 
     await rm(stateDir, { recursive: true, force: true });
   }
 });
+
+test("summarizeCacheAudit excludes failed and unknown cache evidence", () => {
+  const base = {
+    at: new Date().toISOString(),
+    schemaVersion: 2 as const,
+    sessionId: "session-evidence",
+    model: "gpt-5.6",
+    stream: false,
+    stablePrefixFingerprint: "fp-evidence",
+    stablePrefix: { schemaVersion: 1 as const, stableCore: [], semiStableContext: [] },
+    entropyFindings: [],
+    driftReasons: [],
+    originalRequestPromptCacheKey: null,
+    requestPromptCacheKey: "pk-evidence",
+    responsePromptCacheKey: "pk-evidence",
+    cachedInputTokens: 0,
+    inputTokens: 100,
+    cacheWriteTokens: 0,
+    usage: null,
+    status: 200,
+    baselineKind: "identity" as const,
+  };
+  const summary = summarizeCacheAudit([
+    { ...base, cacheEvidence: "unknown" as const },
+    { ...base, cacheEvidence: "miss" as const, requestSuccess: false, status: 500 },
+    { ...base, cacheEvidence: "hit" as const, cachedInputTokens: 80 },
+  ]);
+  assert.equal(summary.warmCandidates, 0);
+  assert.equal(summary.warmHits, 0);
+  assert.equal(summary.warmMisses, 0);
+});

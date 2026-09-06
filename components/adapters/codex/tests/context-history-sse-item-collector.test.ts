@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   collectCodexResponseItemsFromStream,
+  createCodexResponseItemsCollector,
   type JsonObject,
 } from "../src/context-history/index.js";
 
@@ -545,4 +546,27 @@ test("CDH-03 SSE Item Collector parses multiline data fields", () => {
 
   assert.equal(result.responseId, "resp-multiline");
   assert.equal(result.previousResponseId, "resp-prev");
+});
+
+test("CDH-03 incremental collector matches compatibility wrapper across split chunks", () => {
+  const raw = sseStream(
+    sseBlock("response.created", { response: { id: "resp-split" } }),
+    sseBlock("response.output_item.added", {
+      output_index: 0,
+      item: { id: "msg-split", type: "message", role: "assistant", content: [] },
+    }),
+    sseBlock("response.output_text.delta", {
+      item_id: "msg-split",
+      output_index: 0,
+      delta: "split response",
+    }),
+    sseBlock("response.completed", { response: { id: "resp-split" } }),
+  );
+  const expected = collectCodexResponseItemsFromStream(raw);
+  const collector = createCodexResponseItemsCollector();
+  for (let offset = 0; offset < raw.length; offset += 7) {
+    collector.feed(raw.slice(offset, offset + 7));
+  }
+
+  assert.deepEqual(collector.finish(), expected);
 });

@@ -7,7 +7,6 @@ import {
 } from "@lightrsi/stabilizer";
 import type { HostRequestEnvelope } from "@lightrsi/host-adapter";
 import type { TokenPilotCodexConfig } from "./config.js";
-import { canAttachPromptCacheBreakpoint } from "./responses-codec.js";
 
 const LIGHTRSI_CACHE_CONTRACT_VERSION = 1;
 
@@ -232,14 +231,7 @@ export function prepareCodexStablePrefix(
     providerWirePrefixBoundary: "before_first_user",
     promptCacheKey: outboundPromptCacheKey,
   };
-  delete nextMetadata.promptCacheOptions;
-  delete nextMetadata.promptCacheBreakpoint;
-  if (isGpt56OrLaterModel(rewrittenEnvelope.model) && canAttachPromptCacheBreakpoint(rewrittenEnvelope.messages)) {
-    Object.assign(nextMetadata, {
-      promptCacheOptions: { mode: "explicit", ttl: "30m" },
-      promptCacheBreakpoint: { mode: "explicit" },
-    });
-  } else if (!isGpt56OrLaterModel(rewrittenEnvelope.model)) {
+  if (!isGpt56OrLaterModel(rewrittenEnvelope.model)) {
     Object.assign(nextMetadata, {
       ...(typeof envelope.metadata?.promptCacheRetention === "string"
         ? { promptCacheRetention: envelope.metadata.promptCacheRetention }
