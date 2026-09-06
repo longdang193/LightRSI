@@ -2,16 +2,26 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile, open } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import type { TokenPilotCodexConfig } from "./config.js";
+
+const execFileAsync = promisify(execFile);
 
 export type DaemonStatus = {
   running: boolean;
   pid?: number;
   pidPath: string;
   logPath: string;
+  cliPath?: string;
   detectedBy?: "pid" | "health";
+  pidVerified?: boolean;
   started?: boolean;
+};
+
+type DaemonRecord = {
+  pid: number;
+  cliPath?: string;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -36,6 +46,43 @@ function isProcessRunning(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+function parseDaemonRecord(raw: string): DaemonRecord {
+  const [pidLine, cliPath] = raw.trim().split(/\r?\n/, 2);
+  return {
+    pid: Number.parseInt(pidLine ?? "", 10),
+    cliPath: cliPath?.trim() || undefined,
+  };
+}
+
+async function readProcessCommandLine(pid: number): Promise<string | undefined> {
+  try {
+    if (process.platform === "win32") {
+      const command = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}'; if ($p) { $p.CommandLine }`;
+      return (await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], {
+        timeout: 1_000,
+        windowsHide: true,
+      })).stdout.trim();
+    }
+    return (await readFile(`/proc/${pid}/cmdline`, "utf8")).replaceAll("\0", " ").trim();
+  } catch {
+    return undefined;
+  }
+}
+
+async function isDaemonProcess(record: DaemonRecord): Promise<boolean> {
+  if (!record.cliPath || !isProcessRunning(record.pid)) return false;
+  const commandLine = await readProcessCommandLine(record.pid);
+  if (!commandLine) return false;
+  const normalize = (value: string) => value.replaceAll("\\", "/").toLowerCase();
+  return normalize(commandLine).includes(normalize(record.cliPath)) && /(?:^|\s)serve(?:\s|$)/i.test(commandLine);
+}
+
+async function isLikelyDaemonProcess(pid: number): Promise<boolean> {
+  if (!isProcessRunning(pid)) return false;
+  const commandLine = await readProcessCommandLine(pid);
+  return Boolean(commandLine && /cli\.js/i.test(commandLine) && /(?:^|\s)serve(?:\s|$)/i.test(commandLine));
 }
 
 async function waitForProcessExit(pid: number, timeoutMs = 3_000, intervalMs = 100): Promise<boolean> {
@@ -117,6 +164,15 @@ async function isPortOccupied(port: number, timeoutMs = 500): Promise<boolean> {
   });
 }
 
+async function waitForPortFree(port: number, timeoutMs = 3_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    if (!await isPortOccupied(port, 100)) return true;
+    await sleep(100);
+  }
+  return !await isPortOccupied(port, 100);
+}
+
 async function waitForProxyHealthy(config: TokenPilotCodexConfig, params?: {
   timeoutMs?: number;
   intervalMs?: number;
@@ -126,7 +182,8 @@ async function waitForProxyHealthy(config: TokenPilotCodexConfig, params?: {
   const intervalMs = params?.intervalMs ?? 150;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
-    if (await isProxyHealthy(config)) return true;
+    const health = await readProxyHealth(config);
+    if (health.healthy && (!params?.pid || health.pid === params.pid)) return true;
     if (params?.pid && !isProcessRunning(params.pid)) return false;
     await sleep(intervalMs);
   }
@@ -136,23 +193,38 @@ async function waitForProxyHealthy(config: TokenPilotCodexConfig, params?: {
 export async function readDaemonStatus(config: TokenPilotCodexConfig): Promise<DaemonStatus> {
   const { pidPath, logPath } = daemonPaths(config);
   const raw = await readFile(pidPath, "utf8").catch(() => "");
-  const pid = Number.parseInt(raw.trim(), 10);
+  const record = parseDaemonRecord(raw);
   const health = await readProxyHealth(config);
   if (health.healthy) {
+    const persistedPid = await isLikelyDaemonProcess(record.pid) ? record.pid : undefined;
+    const pid = health.pid ?? persistedPid;
+    const pidVerified = pid === record.pid && (record.cliPath
+      ? await isDaemonProcess(record)
+      : Boolean(persistedPid));
     return {
       running: true,
-      pid: health.pid ?? (isProcessRunning(pid) ? pid : undefined),
+      pid,
       pidPath,
       logPath,
+      cliPath: record.pid === pid ? record.cliPath : undefined,
       detectedBy: "health",
+      pidVerified,
     };
   }
+  const { pid } = record;
   if (!existsSync(pidPath)) return { running: false, pidPath, logPath };
   if (!isProcessRunning(pid)) {
     await rm(pidPath, { force: true }).catch(() => undefined);
     return { running: false, pidPath, logPath };
   }
-  return { running: true, pid, pidPath, logPath, detectedBy: "pid" };
+  return {
+    running: true,
+    pid,
+    pidPath,
+    logPath,
+    detectedBy: "pid",
+    pidVerified: await isDaemonProcess(record),
+  };
 }
 
 async function acquireDaemonStartLock(config: TokenPilotCodexConfig): Promise<() => Promise<void>> {
@@ -188,9 +260,18 @@ export async function startDaemon(config: TokenPilotCodexConfig, params?: {
 }): Promise<DaemonStatus> {
   const releaseStartLock = await acquireDaemonStartLock(config);
   try {
+    const cliPath = params?.cliPath ?? process.argv[1];
     const current = await readDaemonStatus(config);
     if (current.running) {
-      if (current.detectedBy === "health") return { ...current, started: false };
+      if (current.detectedBy === "health") {
+        if (!current.cliPath && !current.pidVerified) return { ...current, started: false };
+        const currentMatchesRequestedRuntime = current.cliPath && current.pid
+          ? await isDaemonProcess({ pid: current.pid, cliPath })
+          : false;
+        if (currentMatchesRequestedRuntime) return { ...current, started: false };
+        if (current.pid) await terminateProcess(current.pid);
+        await waitForPortFree(config.proxyPort);
+      }
       await rm(current.pidPath, { force: true }).catch(() => undefined);
     }
     if (await isPortOccupied(config.proxyPort)) {
@@ -206,7 +287,6 @@ export async function startDaemon(config: TokenPilotCodexConfig, params?: {
     await mkdir(dirname(pidPath), { recursive: true });
     const out = await open(logPath, "a");
     const err = await open(logPath, "a");
-    const cliPath = params?.cliPath ?? process.argv[1];
     const child = spawn(params?.nodePath ?? process.execPath, [cliPath, "serve"], {
       detached: true,
       stdio: ["ignore", out.fd, err.fd],
@@ -217,7 +297,7 @@ export async function startDaemon(config: TokenPilotCodexConfig, params?: {
       },
     });
     child.unref();
-    await writeFile(pidPath, `${child.pid}\n`, "utf8");
+    await writeFile(pidPath, `${child.pid}\n${cliPath}\n`, "utf8");
     await out.close().catch(() => undefined);
     await err.close().catch(() => undefined);
     if (!await waitForProxyHealthy(config, { pid: child.pid })) {
@@ -245,7 +325,7 @@ export async function startDaemon(config: TokenPilotCodexConfig, params?: {
 
 export async function stopDaemon(config: TokenPilotCodexConfig): Promise<DaemonStatus & { stopped: boolean }> {
   const status = await readDaemonStatus(config);
-  if (!status.running || !status.pid || status.detectedBy !== "health") {
+  if (!status.running || !status.pid || (status.detectedBy !== "health" && !status.pidVerified)) {
     if (status.detectedBy === "pid") await rm(status.pidPath, { force: true }).catch(() => undefined);
     return { ...status, stopped: false };
   }
