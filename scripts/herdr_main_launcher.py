@@ -230,14 +230,15 @@ def resolve_launch(
 ) -> tuple[list[str], dict[str, Any]]:
     repo_root = Path(__file__).resolve().parents[1]
     selected = _profile(repo_root / "agents", profile_name)
-    runtime = _codex_runtime(cwd, codex_home)
+    lane_root = cwd.resolve()
+    runtime = _codex_runtime(lane_root, codex_home)
     environment = _codex_environment(Path(runtime["codex_home"]))
     herdr = _executable("herdr")
     codex = _executable("codex")
-    git = _git_identity(cwd, expected_base)
-    pane_state = _herdr_pane(cwd, session, pane, herdr, env=environment)
+    git = _git_identity(lane_root, expected_base)
+    pane_state = _herdr_pane(lane_root, session, pane, herdr, env=environment)
     agent_name = name or f"{selected.name}-main"
-    codex_arguments = _codex_arguments(selected, cwd)
+    codex_arguments = _codex_arguments(selected, lane_root)
     command = [
         herdr,
         "--session",

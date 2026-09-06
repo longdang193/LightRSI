@@ -44,6 +44,46 @@ def test_codex_arguments_project_complete_contract(tmp_path: Path) -> None:
     assert 'developer_instructions="do not modify files"' in arguments
 
 
+def test_resolve_launch_normalizes_relative_cwd_for_codex(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    monkeypatch.setattr(
+        LAUNCHER,
+        "_codex_runtime",
+        lambda cwd, configured_home=None: {
+            "codex_home": str(codex_home),
+            "stop_hook_scopes": [],
+        },
+    )
+    monkeypatch.setattr(LAUNCHER, "_codex_environment", lambda home: {})
+    monkeypatch.setattr(LAUNCHER, "_executable", lambda name: name)
+    monkeypatch.setattr(
+        LAUNCHER,
+        "_git_identity",
+        lambda cwd, expected_base: {"worktree": str(cwd)},
+    )
+    monkeypatch.setattr(
+        LAUNCHER,
+        "_herdr_pane",
+        lambda cwd, session, pane, herdr, *, env: {"pane": {"cwd": str(cwd)}},
+    )
+    monkeypatch.setattr(LAUNCHER, "_version", lambda path, *, env: "test")
+
+    command, _ = LAUNCHER.resolve_launch(
+        profile_name="xhigh",
+        session="session",
+        pane="pane",
+        cwd=Path(".worktrees/lane"),
+        expected_base="HEAD",
+    )
+
+    arguments = command[command.index("--") + 1 :]
+    assert arguments[:2] == ["-C", str((tmp_path / ".worktrees/lane").resolve())]
+
+
 def test_redaction_hides_developer_instructions() -> None:
     arguments = ["-c", 'model="combo-xhigh"', "-c", 'developer_instructions="secret"']
 
