@@ -82,6 +82,7 @@ The installer will:
 - write TokenPilot runtime config
 - start the local TokenPilot proxy immediately
 - register TokenPilot hooks for `SessionStart`, `PreToolUse`, and `PostToolUse`
+- on Windows, register a per-user watchdog that retries `cli.js start` every minute after reboot or app restart
 - install read-only Codex skill bridge entries under the local Codex skills directory
 - run a post-install MCP startup probe and report degraded mode if recovery MCP is still unavailable
 

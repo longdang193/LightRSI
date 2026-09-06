@@ -40,7 +40,11 @@ async function main() {
 
   if (command === "serve") {
     const logger = createConsoleLogger(config.logLevel === "debug");
-    await startCodexResponsesProxy({ config, logger });
+    await startCodexResponsesProxy({
+      config,
+      logger,
+      codexConfigPath: process.env.CODEX_CONFIG_PATH,
+    });
     await new Promise(() => undefined);
     return;
   }
