@@ -12,14 +12,26 @@ import { installCodexTokenPilot } from "../src/install.js";
 
 const execFileAsync = promisify(execFile);
 
-async function installWindowsWatchdog(cliPath: string): Promise<void> {
+function quotePowerShell(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+async function installWindowsWatchdog(params: {
+  cliPath: string;
+  codexConfigPath: string;
+  tokenPilotConfigPath: string;
+}): Promise<void> {
   if (process.platform !== "win32") return;
 
+  const taskCommand = [
+    `$env:CODEX_CONFIG_PATH = ${quotePowerShell(params.codexConfigPath)}`,
+    `$env:TOKENPILOT_CODEX_CONFIG = ${quotePowerShell(params.tokenPilotConfigPath)}`,
+    `& ${quotePowerShell(process.execPath)} ${quotePowerShell(params.cliPath)} start`,
+  ].join("; ");
+  const encodedTaskCommand = Buffer.from(taskCommand, "utf16le").toString("base64");
   const script = [
     '$taskName = "TokenPilot Codex Proxy"',
-    '$nodePath = $env:TOKENPILOT_CODEX_NODE',
-    '$cliPath = $env:TOKENPILOT_CODEX_CLI',
-    '$action = New-ScheduledTaskAction -Execute $nodePath -Argument (\'"\' + $cliPath + \'" start\')',
+    '$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ("-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + $env:TOKENPILOT_CODEX_TASK_COMMAND)',
     '$logon = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\\$env:USERNAME"',
     '$repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650)',
     '$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel Limited',
@@ -39,8 +51,7 @@ async function installWindowsWatchdog(cliPath: string): Promise<void> {
     windowsHide: true,
     env: {
       ...process.env,
-      TOKENPILOT_CODEX_NODE: process.execPath,
-      TOKENPILOT_CODEX_CLI: cliPath,
+      TOKENPILOT_CODEX_TASK_COMMAND: encodedTaskCommand,
     },
   });
 }
@@ -59,7 +70,15 @@ installCodexTokenPilot({
     codexConfigPath,
     cliPath,
   });
-  await installWindowsWatchdog(cliPath);
+  try {
+    await installWindowsWatchdog({
+      cliPath,
+      codexConfigPath,
+      tokenPilotConfigPath: configPath,
+    });
+  } catch (error) {
+    console.warn(`Windows watchdog registration skipped: ${error instanceof Error ? error.message : String(error)}`);
+  }
   console.log(`Installed TokenPilot Codex routing on provider '${result.providerName}'`);
   console.log(`Codex config: ${result.codexConfigPath}`);
   console.log(`TokenPilot config: ${result.tokenPilotConfigPath}`);
