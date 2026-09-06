@@ -31,7 +31,7 @@ async function installWindowsWatchdog(params: {
   const encodedTaskCommand = Buffer.from(taskCommand, "utf16le").toString("base64");
   const script = [
     '$taskName = "TokenPilot Codex Proxy"',
-    '$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ("-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + $env:TOKENPILOT_CODEX_TASK_COMMAND)',
+    '$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ("-WindowStyle Hidden -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + $env:TOKENPILOT_CODEX_TASK_COMMAND)',
     '$logon = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\\$env:USERNAME"',
     '$repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650)',
     '$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel Limited',
