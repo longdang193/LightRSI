@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import {
   defaultCodexConfigPath,
   defaultTokenPilotConfigPath,
@@ -9,6 +10,10 @@ import {
 } from "../src/config.js";
 import { startDaemon } from "../src/daemon.js";
 import { installCodexTokenPilot } from "../src/install.js";
+import {
+  buildWindowsWatchdogScript,
+  buildWindowsWatchdogTaskArguments,
+} from "../src/windows-watchdog.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,19 +28,20 @@ async function installWindowsWatchdog(params: {
 }): Promise<void> {
   if (process.platform !== "win32") return;
 
-  const taskCommand = [
-    `$env:CODEX_CONFIG_PATH = ${quotePowerShell(params.codexConfigPath)}`,
-    `$env:TOKENPILOT_CODEX_CONFIG = ${quotePowerShell(params.tokenPilotConfigPath)}`,
-    `& ${quotePowerShell(process.execPath)} ${quotePowerShell(params.cliPath)} start`,
-  ].join("; ");
-  const encodedTaskCommand = Buffer.from(taskCommand, "utf16le").toString("base64");
+  const watchdogPath = resolve(dirname(params.cliPath), "tokenpilot-codex-watchdog.vbs");
+  await writeFile(watchdogPath, buildWindowsWatchdogScript({
+    nodePath: process.execPath,
+    cliPath: params.cliPath,
+    codexConfigPath: params.codexConfigPath,
+    tokenPilotConfigPath: params.tokenPilotConfigPath,
+  }), "utf8");
   const script = [
     '$taskName = "TokenPilot Codex Proxy"',
-    '$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ("-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + $env:TOKENPILOT_CODEX_TASK_COMMAND)',
+    `$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ${quotePowerShell(buildWindowsWatchdogTaskArguments(watchdogPath))}`,
     '$logon = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\\$env:USERNAME"',
     '$repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650)',
     '$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel Limited',
-    '$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable',
+    '$settings = New-ScheduledTaskSettingsSet -Hidden -MultipleInstances IgnoreNew -StartWhenAvailable',
     'Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($logon, $repeat) -Principal $principal -Settings $settings -Force | Out-Null',
   ].join("; ");
 
@@ -49,10 +55,6 @@ async function installWindowsWatchdog(params: {
     script,
   ], {
     windowsHide: true,
-    env: {
-      ...process.env,
-      TOKENPILOT_CODEX_TASK_COMMAND: encodedTaskCommand,
-    },
   });
 }
 
