@@ -176,6 +176,38 @@ test("startDaemon trusts the health owner instead of a reused pid", async () => 
   }
 });
 
+test("startDaemon replaces a healthy proxy owned by a different cli path", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-daemon-runtime-drift-"));
+  let healthy: ReturnType<typeof spawn> | undefined;
+  try {
+    const proxyPort = await reserveUnusedPort();
+    const stateDir = join(dir, "state");
+    const configPath = join(dir, "tokenpilot.json");
+    const config = normalizeTokenPilotCodexConfig({ proxyPort, stateDir });
+    await mkdir(stateDir, { recursive: true });
+    await writeTokenPilotCodexConfig(config, configPath);
+    healthy = spawn(process.execPath, [
+      "-e",
+      `const http=require('node:http');const s=http.createServer((q,r)=>{if(q.url==='/health'){r.writeHead(200,{'content-type':'application/json'});r.end(JSON.stringify({ok:true,adapter:'tokenpilot-codex',pid:process.pid}));}else{r.writeHead(404);r.end();}});s.listen(${proxyPort},'127.0.0.1');setInterval(()=>{},1000);`,
+    ], { stdio: "ignore" });
+    await waitForHealth(proxyPort);
+
+    const result = await startDaemon(config, {
+      configPath,
+      cliPath: join(process.cwd(), "dist", "cli.js"),
+    });
+
+    assert.equal(result.running, true);
+    assert.equal(result.started, true);
+    assert.notEqual(result.pid, healthy.pid);
+  } finally {
+    if (healthy?.pid) {
+      try { process.kill(healthy.pid, "SIGKILL"); } catch {}
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("stopDaemon does not kill a live process from a legacy pid file", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-daemon-legacy-pid-"));
   let unrelated: ReturnType<typeof spawn> | undefined;

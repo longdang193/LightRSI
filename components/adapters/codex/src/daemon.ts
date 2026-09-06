@@ -237,9 +237,16 @@ export async function startDaemon(config: TokenPilotCodexConfig, params?: {
 }): Promise<DaemonStatus> {
   const releaseStartLock = await acquireDaemonStartLock(config);
   try {
+    const cliPath = params?.cliPath ?? process.argv[1];
     const current = await readDaemonStatus(config);
     if (current.running) {
-      if (current.detectedBy === "health") return { ...current, started: false };
+      if (current.detectedBy === "health") {
+        const currentMatchesRequestedRuntime = current.pid
+          ? await isDaemonProcess({ pid: current.pid, cliPath })
+          : false;
+        if (currentMatchesRequestedRuntime) return { ...current, started: false };
+        if (current.pid) await terminateProcess(current.pid);
+      }
       await rm(current.pidPath, { force: true }).catch(() => undefined);
     }
     if (await isPortOccupied(config.proxyPort)) {
@@ -255,7 +262,6 @@ export async function startDaemon(config: TokenPilotCodexConfig, params?: {
     await mkdir(dirname(pidPath), { recursive: true });
     const out = await open(logPath, "a");
     const err = await open(logPath, "a");
-    const cliPath = params?.cliPath ?? process.argv[1];
     const child = spawn(params?.nodePath ?? process.execPath, [cliPath, "serve"], {
       detached: true,
       stdio: ["ignore", out.fd, err.fd],
