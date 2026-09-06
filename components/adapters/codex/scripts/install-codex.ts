@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { resolve } from "node:path";
 import {
   defaultCodexConfigPath,
@@ -8,6 +10,41 @@ import {
 import { startDaemon } from "../src/daemon.js";
 import { installCodexTokenPilot } from "../src/install.js";
 
+const execFileAsync = promisify(execFile);
+
+async function installWindowsWatchdog(cliPath: string): Promise<void> {
+  if (process.platform !== "win32") return;
+
+  const script = [
+    '$taskName = "TokenPilot Codex Proxy"',
+    '$nodePath = $env:TOKENPILOT_CODEX_NODE',
+    '$cliPath = $env:TOKENPILOT_CODEX_CLI',
+    '$action = New-ScheduledTaskAction -Execute $nodePath -Argument (\'"\' + $cliPath + \'" start\')',
+    '$logon = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\\$env:USERNAME"',
+    '$repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650)',
+    '$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel Limited',
+    '$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable',
+    'Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($logon, $repeat) -Principal $principal -Settings $settings -Force | Out-Null',
+  ].join("; ");
+
+  await execFileAsync("powershell.exe", [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    script,
+  ], {
+    windowsHide: true,
+    env: {
+      ...process.env,
+      TOKENPILOT_CODEX_NODE: process.execPath,
+      TOKENPILOT_CODEX_CLI: cliPath,
+    },
+  });
+}
+
 installCodexTokenPilot({
   codexConfigPath: process.env.CODEX_CONFIG_PATH,
   tokenPilotConfigPath: process.env.TOKENPILOT_CODEX_CONFIG,
@@ -16,11 +53,13 @@ installCodexTokenPilot({
   const configPath = process.env.TOKENPILOT_CODEX_CONFIG ?? defaultTokenPilotConfigPath();
   const codexConfigPath = process.env.CODEX_CONFIG_PATH ?? defaultCodexConfigPath();
   const config = await loadTokenPilotCodexConfig(configPath);
+  const cliPath = resolve(__dirname, "..", "dist", "cli.js");
   const daemon = await startDaemon(config, {
     configPath,
     codexConfigPath,
-    cliPath: resolve(__dirname, "..", "dist", "cli.js"),
+    cliPath,
   });
+  await installWindowsWatchdog(cliPath);
   console.log(`Installed TokenPilot Codex routing on provider '${result.providerName}'`);
   console.log(`Codex config: ${result.codexConfigPath}`);
   console.log(`TokenPilot config: ${result.tokenPilotConfigPath}`);
@@ -40,7 +79,7 @@ installCodexTokenPilot({
   console.log(`Recovery MCP probe detail: ${result.mcpProbe.detail}`);
   console.log(`Proxy base URL: ${result.baseUrl}`);
   console.log(`Proxy status: ${daemon.started ? "started" : "already healthy"}`);
-  console.log("TokenPilot will also auto-start from Codex SessionStart hooks after hooks are trusted.");
+  console.log("TokenPilot will auto-recover from a per-user Windows watchdog and Codex SessionStart hooks.");
   console.log("Next step: trust the TokenPilot hooks if Codex asks for hook review.");
   console.log("Next step: start a new Codex session so SessionStart can verify or restart the local proxy.");
   console.log(`Codex default provider remains '${result.providerName}', and TokenPilot forwards upstream to '${result.activeProviderName}'.`);
