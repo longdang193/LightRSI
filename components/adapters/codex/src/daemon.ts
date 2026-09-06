@@ -63,7 +63,12 @@ async function terminateProcess(pid: number): Promise<void> {
   await waitForProcessExit(pid, 2_000).catch(() => undefined);
 }
 
-async function isProxyHealthy(config: TokenPilotCodexConfig, timeoutMs = 500): Promise<boolean> {
+type ProxyHealth = {
+  healthy: boolean;
+  pid?: number;
+};
+
+async function readProxyHealth(config: TokenPilotCodexConfig, timeoutMs = 500): Promise<ProxyHealth> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   timeout.unref?.();
@@ -71,12 +76,24 @@ async function isProxyHealthy(config: TokenPilotCodexConfig, timeoutMs = 500): P
     const resp = await fetch(`http://127.0.0.1:${config.proxyPort}/health`, {
       signal: controller.signal,
     });
-    return resp.ok;
+    if (!resp.ok) return { healthy: false };
+    const payload = await resp.json() as { ok?: unknown; adapter?: unknown; pid?: unknown };
+    const pid = typeof payload.pid === "number" && Number.isInteger(payload.pid) && payload.pid > 0
+      ? payload.pid
+      : undefined;
+    return {
+      healthy: payload.ok === true && payload.adapter === "tokenpilot-codex",
+      pid,
+    };
   } catch {
-    return false;
+    return { healthy: false };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function isProxyHealthy(config: TokenPilotCodexConfig, timeoutMs = 500): Promise<boolean> {
+  return (await readProxyHealth(config, timeoutMs)).healthy;
 }
 
 async function isPortOccupied(port: number, timeoutMs = 500): Promise<boolean> {
@@ -118,14 +135,19 @@ async function waitForProxyHealthy(config: TokenPilotCodexConfig, params?: {
 
 export async function readDaemonStatus(config: TokenPilotCodexConfig): Promise<DaemonStatus> {
   const { pidPath, logPath } = daemonPaths(config);
-  if (!existsSync(pidPath)) {
-    if (await isProxyHealthy(config)) {
-      return { running: true, pidPath, logPath, detectedBy: "health" };
-    }
-    return { running: false, pidPath, logPath };
-  }
   const raw = await readFile(pidPath, "utf8").catch(() => "");
   const pid = Number.parseInt(raw.trim(), 10);
+  const health = await readProxyHealth(config);
+  if (health.healthy) {
+    return {
+      running: true,
+      pid: health.pid ?? (isProcessRunning(pid) ? pid : undefined),
+      pidPath,
+      logPath,
+      detectedBy: "health",
+    };
+  }
+  if (!existsSync(pidPath)) return { running: false, pidPath, logPath };
   if (!isProcessRunning(pid)) {
     await rm(pidPath, { force: true }).catch(() => undefined);
     return { running: false, pidPath, logPath };
@@ -168,11 +190,7 @@ export async function startDaemon(config: TokenPilotCodexConfig, params?: {
   try {
     const current = await readDaemonStatus(config);
     if (current.running) {
-      const healthy = await isProxyHealthy(config);
-      if (healthy) return { ...current, started: false };
-      if (current.pid) {
-        await terminateProcess(current.pid);
-      }
+      if (current.detectedBy === "health") return { ...current, started: false };
       await rm(current.pidPath, { force: true }).catch(() => undefined);
     }
     if (await isPortOccupied(config.proxyPort)) {
@@ -227,7 +245,10 @@ export async function startDaemon(config: TokenPilotCodexConfig, params?: {
 
 export async function stopDaemon(config: TokenPilotCodexConfig): Promise<DaemonStatus & { stopped: boolean }> {
   const status = await readDaemonStatus(config);
-  if (!status.running || !status.pid) return { ...status, stopped: false };
+  if (!status.running || !status.pid || status.detectedBy !== "health") {
+    if (status.detectedBy === "pid") await rm(status.pidPath, { force: true }).catch(() => undefined);
+    return { ...status, stopped: false };
+  }
   await terminateProcess(status.pid);
   await rm(status.pidPath, { force: true }).catch(() => undefined);
   return {
