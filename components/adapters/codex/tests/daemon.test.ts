@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { reserveUnusedPort } from "@lightrsi/host-adapter";
-import { daemonPaths, startDaemon, stopDaemon } from "../src/daemon.js";
+import { daemonPaths, readDaemonStatus, startDaemon, stopDaemon } from "../src/daemon.js";
 import { normalizeTokenPilotCodexConfig, writeTokenPilotCodexConfig } from "../src/config.js";
 
 async function waitForHealth(port: number): Promise<void> {
@@ -18,7 +18,7 @@ async function waitForHealth(port: number): Promise<void> {
   throw new Error(`fixture did not become healthy on port ${port}`);
 }
 
-test("startDaemon replaces a stale pid when the configured proxy port is unhealthy", async () => {
+test("startDaemon ignores a stale live pid when the configured proxy port is free", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-daemon-"));
   let dummy: ReturnType<typeof spawn> | undefined;
   try {
@@ -54,6 +54,7 @@ test("startDaemon replaces a stale pid when the configured proxy port is unhealt
     assert.equal(result.running, true);
     assert.equal(result.started, true);
     assert.notEqual(result.pid, dummy.pid);
+    assert.doesNotThrow(() => process.kill(dummy?.pid ?? 0, 0));
     const persistedPid = Number.parseInt((await readFile(pidPath, "utf8")).trim(), 10);
     assert.equal(persistedPid, result.pid);
     assert.match(await readFile(logPath, "utf8"), /proxy listening at http:\/\/127\.0\.0\.1:/);
@@ -120,7 +121,7 @@ test("startDaemon reuses a healthy listener when its pid file is stale", async (
     await writeFile(pidPath, "2147483647\n", "utf8");
     dummy = spawn(process.execPath, [
       "-e",
-      `const http=require('node:http');const s=http.createServer((q,r)=>{if(q.url==='/health'){r.writeHead(200);r.end('ok');}else{r.writeHead(404);r.end();}});s.listen(${proxyPort},'127.0.0.1');setInterval(()=>{},1000);`,
+      `const http=require('node:http');const s=http.createServer((q,r)=>{if(q.url==='/health'){r.writeHead(200,{'content-type':'application/json'});r.end(JSON.stringify({ok:true,adapter:'tokenpilot-codex',pid:process.pid}));}else{r.writeHead(404);r.end();}});s.listen(${proxyPort},'127.0.0.1');setInterval(()=>{},1000);`,
     ], { stdio: "ignore" });
     await waitForHealth(proxyPort);
 
@@ -132,6 +133,93 @@ test("startDaemon reuses a healthy listener when its pid file is stale", async (
   } finally {
     if (dummy?.pid) {
       try { process.kill(dummy.pid, "SIGKILL"); } catch {}
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+
+test("startDaemon trusts the health owner instead of a reused pid", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-daemon-pid-reuse-"));
+  let healthy: ReturnType<typeof spawn> | undefined;
+  let unrelated: ReturnType<typeof spawn> | undefined;
+  try {
+    const proxyPort = await reserveUnusedPort();
+    const stateDir = join(dir, "state");
+    const configPath = join(dir, "tokenpilot.json");
+    const config = normalizeTokenPilotCodexConfig({ proxyPort, stateDir });
+    await mkdir(stateDir, { recursive: true });
+    await writeTokenPilotCodexConfig(config, configPath);
+    healthy = spawn(process.execPath, [
+      "-e",
+      `const http=require('node:http');const s=http.createServer((q,r)=>{if(q.url==='/health'){r.writeHead(200,{'content-type':'application/json'});r.end(JSON.stringify({ok:true,adapter:'tokenpilot-codex',pid:process.pid}));}else{r.writeHead(404);r.end();}});s.listen(${proxyPort},'127.0.0.1');setInterval(()=>{},1000);`,
+    ], { stdio: "ignore" });
+    await waitForHealth(proxyPort);
+    unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    const { pidPath } = daemonPaths(config);
+    await writeFile(pidPath, `${unrelated.pid}\n`, "utf8");
+
+    const result = await startDaemon(config, { configPath, cliPath: join(process.cwd(), "dist", "cli.js") });
+
+    assert.equal(result.running, true);
+    assert.equal(result.started, false);
+    assert.equal(result.detectedBy, "health");
+    assert.equal(result.pid, healthy.pid);
+    assert.doesNotThrow(() => process.kill(unrelated?.pid ?? 0, 0));
+  } finally {
+    for (const child of [healthy, unrelated]) {
+      if (child?.pid) {
+        try { process.kill(child.pid, "SIGKILL"); } catch {}
+      }
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("stopDaemon does not kill a live process from a legacy pid file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-daemon-legacy-pid-"));
+  let unrelated: ReturnType<typeof spawn> | undefined;
+  try {
+    const proxyPort = await reserveUnusedPort();
+    const config = normalizeTokenPilotCodexConfig({ proxyPort, stateDir: join(dir, "state") });
+    await mkdir(config.stateDir, { recursive: true });
+    unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    await writeFile(daemonPaths(config).pidPath, `${unrelated.pid}\n`, "utf8");
+
+    const result = await stopDaemon(config);
+
+    assert.equal(result.stopped, false);
+    assert.equal((await readDaemonStatus(config)).running, false);
+    assert.doesNotThrow(() => process.kill(unrelated?.pid ?? 0, 0));
+  } finally {
+    if (unrelated?.pid) {
+      try { process.kill(unrelated.pid, "SIGKILL"); } catch {}
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("stopDaemon stops a verified owner when health is unavailable", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-daemon-verified-pid-"));
+  let daemon: ReturnType<typeof spawn> | undefined;
+  try {
+    const proxyPort = await reserveUnusedPort();
+    const stateDir = join(dir, "state");
+    const cliPath = join(dir, "tokenpilot-codex-cli.js");
+    const config = normalizeTokenPilotCodexConfig({ proxyPort, stateDir });
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(cliPath, "setInterval(() => {}, 1000);\n", "utf8");
+    daemon = spawn(process.execPath, [cliPath, "serve"], { stdio: "ignore" });
+    await writeFile(daemonPaths(config).pidPath, `${daemon.pid}\n${cliPath}\n`, "utf8");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const result = await stopDaemon(config);
+
+    assert.equal(result.stopped, true);
+    assert.equal((await readDaemonStatus(config)).running, false);
+  } finally {
+    if (daemon?.pid) {
+      try { process.kill(daemon.pid, "SIGKILL"); } catch {}
     }
     await rm(dir, { recursive: true, force: true });
   }

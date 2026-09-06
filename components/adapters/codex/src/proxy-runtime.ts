@@ -698,6 +698,7 @@ export async function startCodexResponsesProxy(params: {
     healthPayload: {
       ok: true,
       adapter: "tokenpilot-codex",
+      pid: process.pid,
       upstream: upstreamProviderName,
       stateDir: config.stateDir,
     },
