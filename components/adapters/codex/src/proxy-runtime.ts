@@ -1588,6 +1588,7 @@ export async function startCodexResponsesProxy(params: {
           sessionId,
           requestId: requestJournalEntry.requestId,
           payload: originalPayload,
+          acceptedInputItems: Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined,
           committedInputItems: paramsForJournal.committed
             ? committedContextInputItems()
             : undefined,
@@ -1627,6 +1628,7 @@ export async function startCodexResponsesProxy(params: {
           sessionId,
           requestId: requestJournalEntry.requestId,
           payload: originalPayload,
+          acceptedInputItems: Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined,
           committedInputItems: paramsForJournal.committed
             ? committedContextInputItems()
             : undefined,

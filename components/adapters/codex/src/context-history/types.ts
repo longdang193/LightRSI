@@ -26,6 +26,7 @@ export type CodexRequestJournalEntry = {
   previousResponseId?: string;
   promptCacheKey?: string;
   inputItems: JsonObject[];
+  acceptedInputItems?: JsonObject[];
   committedInputItems?: JsonObject[];
   status: CodexJournalStatus;
   error?: string;

@@ -80,6 +80,7 @@ async function appendCodexRequestJournalEntryLocked(params: {
   stateDir: string;
   sessionId: string;
   payload: JsonObject;
+  acceptedInputItems?: JsonObject[];
   committedInputItems?: JsonObject[];
   requestId?: string;
   turnOrdinal?: number;
@@ -130,6 +131,11 @@ async function appendCodexRequestJournalEntryLocked(params: {
       typeof params.payload.prompt_cache_key === "string" ? params.payload.prompt_cache_key : undefined
     ),
     inputItems: existing?.inputItems ?? sanitizedInputItems(params.payload),
+    acceptedInputItems: existing?.acceptedInputItems ?? (
+      params.acceptedInputItems
+        ? cloneJson(sanitizeValue(params.acceptedInputItems)) as JsonObject[]
+        : undefined
+    ),
     committedInputItems: existing?.committedInputItems ?? (
       params.committedInputItems
         ? cloneJson(sanitizeValue(params.committedInputItems)) as JsonObject[]
@@ -147,6 +153,7 @@ export async function appendCodexRequestJournalEntry(params: {
   stateDir: string;
   sessionId: string;
   payload: JsonObject;
+  acceptedInputItems?: JsonObject[];
   committedInputItems?: JsonObject[];
   requestId?: string;
   turnOrdinal?: number;

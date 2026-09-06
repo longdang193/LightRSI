@@ -5,6 +5,7 @@ import type {
   ReductionModuleConfig,
   ReductionPhase,
   ReductionPassRegistry,
+  ReductionPassHandler,
   ReductionPassSpec,
   ReductionReportEntry,
 } from "./types.js";
@@ -139,6 +140,9 @@ const totalSegmentChars = (ctx: RuntimeTurnContext): number =>
 const isPhaseMatch = (spec: ReductionPassSpec, phase: ReductionPhase): boolean =>
   (spec.phase ?? "before_call") === phase;
 
+const cloneTurnContext = (turnCtx: RuntimeTurnContext): RuntimeTurnContext =>
+  structuredClone(turnCtx);
+
 export function readReductionMetadata(metadata?: Record<string, unknown>): ReductionMetadata {
   const raw = metadata?.reduction;
   if (!raw || typeof raw !== "object") return {};
@@ -194,10 +198,29 @@ export async function runReductionBeforeCall(
     }
 
     const beforeChars = totalSegmentChars(currentCtx);
-    const outcome = await handler.beforeCall({
-      turnCtx: currentCtx,
-      spec,
-    });
+    const beforeCtx = cloneTurnContext(currentCtx);
+    const startedAt = Date.now();
+    let outcome: Awaited<ReturnType<NonNullable<ReductionPassHandler["beforeCall"]>>>;
+    try {
+      outcome = await handler.beforeCall({
+        turnCtx: currentCtx,
+        spec,
+      });
+    } catch (error) {
+      currentCtx = beforeCtx;
+      report.push({
+        id: spec.id,
+        phase: "before_call",
+        target: spec.target ?? "result_content",
+        changed: false,
+        skippedReason: "pass_error",
+        note: error instanceof Error ? error.message : String(error),
+        beforeChars,
+        afterChars: beforeChars,
+        durationMs: Date.now() - startedAt,
+      });
+      continue;
+    }
 
     if (outcome.turnCtx) {
       currentCtx = outcome.metadata
@@ -228,6 +251,7 @@ export async function runReductionBeforeCall(
       skippedReason: outcome.skippedReason,
       beforeChars,
       afterChars: totalSegmentChars(currentCtx),
+      durationMs: Date.now() - startedAt,
       touchedSegmentIds: outcome.touchedSegmentIds,
     });
   }
@@ -273,12 +297,36 @@ export async function runReductionAfterCall(
     }
 
     const beforeChars = currentResult.content.length;
-    const outcome = await handler.afterCall({
-      turnCtx,
-      originalResult: result,
-      currentResult,
-      spec,
-    });
+    const beforeResult = structuredClone(currentResult);
+    const beforeTurnCtx = cloneTurnContext(turnCtx);
+    const startedAt = Date.now();
+    let outcome: Awaited<ReturnType<NonNullable<ReductionPassHandler["afterCall"]>>>;
+    try {
+      outcome = await handler.afterCall({
+        turnCtx,
+        originalResult: result,
+        currentResult,
+        spec,
+      });
+    } catch (error) {
+      currentResult = beforeResult;
+      for (const key of Object.keys(turnCtx)) {
+        if (!(key in beforeTurnCtx)) delete (turnCtx as Record<string, unknown>)[key];
+      }
+      Object.assign(turnCtx, beforeTurnCtx);
+      report.push({
+        id: spec.id,
+        phase: "after_call",
+        target: spec.target ?? "result_content",
+        changed: false,
+        skippedReason: "pass_error",
+        note: error instanceof Error ? error.message : String(error),
+        beforeChars,
+        afterChars: beforeChars,
+        durationMs: Date.now() - startedAt,
+      });
+      continue;
+    }
 
     if (outcome.result) {
       currentResult = outcome.metadata
@@ -309,6 +357,7 @@ export async function runReductionAfterCall(
       skippedReason: outcome.skippedReason,
       beforeChars,
       afterChars: currentResult.content.length,
+      durationMs: Date.now() - startedAt,
     });
   }
 

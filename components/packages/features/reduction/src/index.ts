@@ -15,3 +15,4 @@ export {
 export * from "./reduction/pipeline.js";
 export * from "./reduction/registry.js";
 export * from "./reduction/types.js";
+export * from "./reduction/resource-key.js";
