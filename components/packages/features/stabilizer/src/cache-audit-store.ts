@@ -3,11 +3,13 @@ import { mkdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   appendJsonl,
+  normalizeCacheUsageEvidence,
   readCachedInputTokens,
   readCacheWriteTokens,
   readInputTokens,
   readRecentJsonlEntries,
 } from "@lightrsi/host-adapter";
+import type { CacheEvidence } from "@lightrsi/host-adapter";
 import {
   extractStablePrefixContract,
   fingerprintStablePrefixEnvelope,
@@ -90,6 +92,7 @@ function compactUsage(usage: Record<string, unknown> | null | undefined): Record
   return compacted;
 }
 export type CacheAuditRecord = {
+  schemaVersion?: 1 | 2;
   at: string;
   sessionId: string;
   model: string;
@@ -108,6 +111,16 @@ export type CacheAuditRecord = {
   cacheFamilyId?: string;
   usage: Record<string, unknown> | null;
   status: number;
+  requestSuccess?: boolean;
+  cacheEvidence?: CacheEvidence;
+  inputTotal?: number;
+  inputUncached?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  attempt?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  durationMs?: number | null;
   baselineKind?: CacheAuditBaselineKind;
 };
 
@@ -227,14 +240,22 @@ function summarizeWarmReuse(
   let inputTokens = 0;
   let cachedInputTokens = 0;
   for (const record of records) {
+    const requestSuccess = record.requestSuccess === true
+      || (record.schemaVersion !== 2 && record.status >= 200 && record.status < 300);
+    if (!requestSuccess) continue;
+    const evidence = record.cacheEvidence
+      ?? (record.schemaVersion === undefined && record.requestSuccess === undefined
+        ? record.cachedInputTokens > 0 ? "hit" : "miss"
+        : record.schemaVersion !== 2 && record.cachedInputTokens > 0 ? "hit" : "unknown");
+    if (evidence === "unknown") continue;
     const identity = identityFor(record);
     if (identity && seen.has(identity)) {
       candidates += 1;
-      const input = Math.max(0, record.inputTokens ?? 0);
-      const cached = Math.max(0, record.cachedInputTokens ?? 0);
+      const input = Math.max(0, record.inputTotal ?? record.inputTokens ?? 0);
+      const cached = Math.max(0, record.cacheRead ?? record.cachedInputTokens ?? 0);
       inputTokens += input;
       cachedInputTokens += cached;
-      if (cached > 0) hits += 1;
+      if (evidence === "hit") hits += 1;
       else misses += 1;
     }
     if (identity) seen.add(identity);
@@ -309,9 +330,9 @@ export function summarizeCacheAudit<T extends CacheAuditRecord>(
 
   const identityDenominator = identityReuse.hits + identityReuse.misses;
   const familyDenominator = familyReuse.hits + familyReuse.misses;
-  const inputTokens = ordered.reduce((sum, record) => sum + Math.max(0, record.inputTokens ?? 0), 0);
-  const cachedInputTokens = ordered.reduce((sum, record) => sum + Math.max(0, record.cachedInputTokens ?? 0), 0);
-  const cacheWriteTokens = ordered.reduce((sum, record) => sum + Math.max(0, record.cacheWriteTokens ?? 0), 0);
+  const inputTokens = ordered.reduce((sum, record) => sum + Math.max(0, record.inputTotal ?? record.inputTokens ?? 0), 0);
+  const cachedInputTokens = ordered.reduce((sum, record) => sum + Math.max(0, record.cacheRead ?? record.cachedInputTokens ?? 0), 0);
+  const cacheWriteTokens = ordered.reduce((sum, record) => sum + Math.max(0, record.cacheWrite ?? record.cacheWriteTokens ?? 0), 0);
   const latest = ordered[ordered.length - 1];
   return {
     totalRecords: ordered.length,
@@ -394,6 +415,11 @@ export async function appendCacheAuditRecord<T extends CacheAuditRecord>(params:
   responsePromptCacheKey?: string | null;
   usage?: Record<string, unknown> | null;
   status: number;
+  requestSuccess?: boolean;
+  attempt?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  durationMs?: number | null;
 }): Promise<T> {
   await mkdir(params.stateDir, { recursive: true });
   const previousEntries = await readRecentCacheAuditRecordsForSession<T>(
@@ -422,8 +448,11 @@ export async function appendCacheAuditRecord<T extends CacheAuditRecord>(params:
         ? "request_key"
         : previous
           ? "session"
-          : "none";
+        : "none";
+  const normalizedUsage = normalizeCacheUsageEvidence(params.usage, params.snapshot.model);
+  const requestSuccess = params.requestSuccess ?? (params.status >= 200 && params.status < 300);
   const record = {
+    schemaVersion: 2 as const,
     at: new Date().toISOString(),
     ...params.snapshot,
     stablePrefix: compactedStablePrefix,
@@ -439,6 +468,16 @@ export async function appendCacheAuditRecord<T extends CacheAuditRecord>(params:
     cacheWriteTokens: readCacheWriteTokens(params.usage),
     usage: compactUsage(params.usage),
     status: params.status,
+    requestSuccess,
+    cacheEvidence: normalizedUsage.evidence,
+    ...(normalizedUsage.inputTotal === undefined ? {} : { inputTotal: normalizedUsage.inputTotal }),
+    ...(normalizedUsage.inputUncached === undefined ? {} : { inputUncached: normalizedUsage.inputUncached }),
+    ...(normalizedUsage.cacheRead === undefined ? {} : { cacheRead: normalizedUsage.cacheRead }),
+    ...(normalizedUsage.cacheWrite === undefined ? {} : { cacheWrite: normalizedUsage.cacheWrite }),
+    ...(params.attempt === undefined ? {} : { attempt: params.attempt }),
+    ...(params.startedAt === undefined ? {} : { startedAt: params.startedAt }),
+    ...(params.completedAt === undefined ? {} : { completedAt: params.completedAt }),
+    ...(params.durationMs === undefined ? {} : { durationMs: params.durationMs }),
     baselineKind,
   } satisfies CacheAuditRecord;
   const auditPath = cacheAuditPath(params.stateDir);

@@ -455,6 +455,17 @@ export async function appendCodexContextHistoryJournalEntryLocked(
   await mkdir(dirname(path), { recursive: true });
   await recoverCodexContextHistoryJournalTailLocked(stateDir, sessionId);
   const current = await readCodexContextHistoryJournal(stateDir, sessionId);
+  await appendCodexContextHistoryJournalEntryLockedValidated(stateDir, sessionId, payload, current);
+}
+
+export async function appendCodexContextHistoryJournalEntryLockedValidated(
+  stateDir: string,
+  sessionId: string,
+  payload: unknown,
+  current: CodexContextHistoryJournalReadResult,
+): Promise<void> {
+  const path = codexContextHistoryJournalPath(stateDir, sessionId);
+  await mkdir(dirname(path), { recursive: true });
   if (current.oversized) {
     await quarantineOversizedCodexContextHistoryJournalLocked(stateDir, sessionId);
   } else if (current.readError || current.malformedLineCount > 0) {

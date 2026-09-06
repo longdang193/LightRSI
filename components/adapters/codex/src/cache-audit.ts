@@ -57,6 +57,11 @@ export async function appendCodexCacheAuditRecord(params: {
   responsePromptCacheKey?: string | null;
   usage?: Record<string, unknown> | null;
   status: number;
+  requestSuccess?: boolean;
+  attempt?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  durationMs?: number | null;
 }): Promise<CodexCacheAuditRecord> {
   return appendCacheAuditRecord<CodexCacheAuditRecord>(params);
 }

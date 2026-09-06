@@ -86,6 +86,7 @@ export type CodexUpstreamResponse = {
   status: number;
   headers: Record<string, string>;
   text: string;
+  transportFetches?: number;
 };
 
 export type CodexRebaseFallbackResult = {

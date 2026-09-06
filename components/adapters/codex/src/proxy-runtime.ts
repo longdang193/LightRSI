@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir } from "node:fs/promises";
+import { once } from "node:events";
 import { performance } from "node:perf_hooks";
 import { Readable, Transform } from "node:stream";
 import {
@@ -73,6 +74,7 @@ import {
   appendCodexResponseJournalEntry,
   buildCodexEffectiveHistoryView,
   collectCodexResponseItemsFromStream,
+  createCodexResponseItemsCollector,
   parseCodexRollout,
   validateCodexRolloutBootstrap,
 } from "./context-history/index.js";
@@ -1387,7 +1389,16 @@ export async function startCodexResponsesProxy(params: {
       });
 
       const authorization = typeof req.headers.authorization === "string" ? req.headers.authorization : undefined;
-      const sendUpstream = (nextPayload: JsonObject) => requestUpstreamResponses({
+      let transportFetches = 0;
+      let logicalUpstreamSends = 0;
+      let successfulGenerations = 0;
+      const countUpstreamResponse = <T extends { status: number; transportFetches?: number }>(response: T): T => {
+        logicalUpstreamSends += 1;
+        transportFetches += response.transportFetches ?? 1;
+        if (response.status >= 200 && response.status < 300) successfulGenerations += 1;
+        return response;
+      };
+      const sendUpstream = async (nextPayload: JsonObject) => countUpstreamResponse(await requestUpstreamResponses({
         upstream,
         payload: nextPayload,
         inboundAuthorization: authorization,
@@ -1396,7 +1407,7 @@ export async function startCodexResponsesProxy(params: {
             ? prepared.envelope.metadata.lightrsiCacheContractDigest
             : undefined,
         stateDir: config.stateDir,
-      });
+      }));
       const acceptedEvidence: CodexRebaseCapabilityEvidence[] = params.allowMockFixtureEvidence
         ? ["real_provider", "mock_fixture"]
         : ["real_provider"];
@@ -1544,21 +1555,26 @@ export async function startCodexResponsesProxy(params: {
 
       const appendStreamContextHistory = async (paramsForJournal: {
         status: number;
-        rawStreamText: string;
+        rawStreamText?: string;
+        collected?: ReturnType<typeof collectCodexResponseItemsFromStream>;
         committed: boolean;
       }): Promise<void> => {
         if (!requestJournalEntry) return;
-        const collected = collectCodexResponseItemsFromStream(paramsForJournal.rawStreamText);
+        const collected = paramsForJournal.collected
+          ?? collectCodexResponseItemsFromStream(paramsForJournal.rawStreamText ?? "");
         const status = streamRequestStatus({
           httpStatus: paramsForJournal.status,
           collected,
         });
-        const error = status === "failed" ? truncateJournalError(paramsForJournal.rawStreamText) : undefined;
+        const error = status === "failed" && paramsForJournal.rawStreamText
+          ? truncateJournalError(paramsForJournal.rawStreamText)
+          : undefined;
         await appendCodexResponseJournalEntry({
           stateDir: config.stateDir,
           sessionId,
           requestId: requestJournalEntry.requestId,
           rawStreamText: paramsForJournal.rawStreamText,
+          collected,
           previousResponseId: paramsForJournal.committed
             ? null
             : typeof originalPayload.previous_response_id === "string"
@@ -1843,39 +1859,38 @@ export async function startCodexResponsesProxy(params: {
       };
       const recordStreamResponse = async (paramsForRecord: {
         status: number;
-        rawStreamText: string;
+        rawStreamText?: string;
+        responseChars: number;
         headers?: Record<string, string>;
-      }): Promise<void> => {
-        const snapshot = snapshotCodexResponsesStream(paramsForRecord.rawStreamText);
+        collected?: ReturnType<typeof collectCodexResponseItemsFromStream>;
+      }): Promise<() => Promise<void>> => {
+        const collected = paramsForRecord.collected
+          ?? collectCodexResponseItemsFromStream(paramsForRecord.rawStreamText ?? "");
+        const snapshot = paramsForRecord.collected
+          ? {
+              assistantText: collected.assistantText,
+              usage: collected.usage,
+              responseId: collected.responseId,
+              previousResponseId: collected.previousResponseId,
+              responsePromptCacheKey: collected.responsePromptCacheKey,
+              rawStreamText: paramsForRecord.rawStreamText ?? "",
+            }
+          : snapshotCodexResponsesStream(paramsForRecord.rawStreamText ?? "");
         const logicalPreviousResponseId = startsNewResponseChain(contextRewriteOutcome)
           ? undefined
           : typeof originalPayload.previous_response_id === "string"
             ? originalPayload.previous_response_id
             : undefined;
-        const collected = collectCodexResponseItemsFromStream(paramsForRecord.rawStreamText);
         const requestStatus = streamRequestStatus({
           httpStatus: paramsForRecord.status,
           collected,
-        });
-        await recordCodexUxReduction({
-          stateDir: config.stateDir,
-          sessionId,
-          model,
-          originalRequestText,
-          reducedRequestText: requestText,
-        });
-        await appendCodexCacheAuditRecord({
-          stateDir: config.stateDir,
-          snapshot: cacheAuditSnapshot,
-          responsePromptCacheKey: snapshot.responsePromptCacheKey ?? null,
-          usage: snapshot.usage ?? null,
-          status: paramsForRecord.status,
         });
         if (requestJournalEntry && !contextHistoryJournalPersisted) {
           try {
             await appendStreamContextHistory({
               status: paramsForRecord.status,
               rawStreamText: paramsForRecord.rawStreamText,
+              collected,
               committed: startsNewResponseChain(contextRewriteOutcome),
             });
           } catch (err) {
@@ -1889,32 +1904,6 @@ export async function startCodexResponsesProxy(params: {
           }
         }
         await finalizeContextRewriteLifecycle(requestStatus);
-        await appendTrace(config.stateDir, {
-          stage: "proxy_after_call",
-          sessionId,
-          model,
-          status: paramsForRecord.status,
-          stream: true,
-          completed: requestStatus === "completed",
-          streamStatus: collected.status,
-          malformedEventCount: collected.malformedEventCount,
-          responseChars: paramsForRecord.rawStreamText.length,
-          assistantChars: snapshot.assistantText.length,
-          responseId: snapshot.responseId ?? null,
-          previousResponseId: logicalPreviousResponseId ?? null,
-          contextRewriteOutcome: contextRewriteOutcome ?? null,
-          lightmem2CacheContractDigest:
-            prepared.envelope.metadata?.lightrsiCacheContractDigest ?? null,
-          routerCacheTelemetry: collectRouterCacheTelemetry({
-            headers: paramsForRecord.headers ?? {},
-            upstreamName: upstream.name,
-            upstreamBaseUrl: upstream.baseUrl,
-            usage: snapshot.usage ?? null,
-            receivedLightmem2CacheContractDigest:
-              prepared.envelope.metadata?.lightrsiCacheContractDigest,
-            lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
-          }),
-        });
         await upsertCodexSessionSnapshot(config.stateDir, sessionId, {
           latestResponseId: snapshot.responseId,
           previousResponseId: logicalPreviousResponseId,
@@ -1931,11 +1920,59 @@ export async function startCodexResponsesProxy(params: {
           previousResponseId: logicalPreviousResponseId,
           model,
           requestChars: requestText.length,
-          responseChars: paramsForRecord.rawStreamText.length,
+          responseChars: paramsForRecord.responseChars,
           assistantChars: snapshot.assistantText.length,
           stream: true,
           updatedAt: new Date().toISOString(),
         });
+        return async () => {
+          await Promise.allSettled([
+            recordCodexUxReduction({
+              stateDir: config.stateDir,
+              sessionId,
+              model,
+              originalRequestText,
+              reducedRequestText: requestText,
+            }),
+            appendCodexCacheAuditRecord({
+              stateDir: config.stateDir,
+              snapshot: cacheAuditSnapshot,
+              responsePromptCacheKey: snapshot.responsePromptCacheKey ?? null,
+              usage: snapshot.usage ?? null,
+              status: paramsForRecord.status,
+              requestSuccess: requestStatus === "completed",
+            }),
+            appendTrace(config.stateDir, {
+              stage: "proxy_after_call",
+              sessionId,
+              model,
+              status: paramsForRecord.status,
+              stream: true,
+              completed: requestStatus === "completed",
+              streamStatus: collected.status,
+              malformedEventCount: collected.malformedEventCount,
+              responseChars: paramsForRecord.responseChars,
+              assistantChars: snapshot.assistantText.length,
+              responseId: snapshot.responseId ?? null,
+              previousResponseId: logicalPreviousResponseId ?? null,
+              contextRewriteOutcome: contextRewriteOutcome ?? null,
+              lightmem2CacheContractDigest:
+                prepared.envelope.metadata?.lightrsiCacheContractDigest ?? null,
+              routerCacheTelemetry: collectRouterCacheTelemetry({
+                headers: paramsForRecord.headers ?? {},
+                upstreamName: upstream.name,
+                upstreamBaseUrl: upstream.baseUrl,
+                usage: snapshot.usage ?? null,
+                receivedLightmem2CacheContractDigest:
+                  prepared.envelope.metadata?.lightrsiCacheContractDigest,
+                lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
+              }),
+              transportFetches,
+              logicalUpstreamSends,
+              successfulGenerations,
+            }),
+          ]);
+        };
       };
       if (payload.stream === true) {
         if ((rebaseRequest && requestJournalEntry)
@@ -1943,14 +1980,17 @@ export async function startCodexResponsesProxy(params: {
           const upstreamResp = await sendRebasedOrCurrentPayload();
           res.statusCode = upstreamResp.status;
           setForwardResponseHeaders(res, upstreamResp.headers, "text/event-stream; charset=utf-8");
-          await recordStreamResponse({
+          const runOptional = await recordStreamResponse({
             status: upstreamResp.status,
             rawStreamText: upstreamResp.text,
+            responseChars: upstreamResp.text.length,
           });
+          await runOptional();
           res.end(upstreamResp.text);
           return;
         }
-        const upstreamResp = await requestUpstreamResponsesStream({
+        const abortController = new AbortController();
+        const upstreamResp = countUpstreamResponse(await requestUpstreamResponsesStream({
           upstream,
           payload,
           inboundAuthorization: authorization,
@@ -1959,25 +1999,39 @@ export async function startCodexResponsesProxy(params: {
               ? prepared.envelope.metadata.lightrsiCacheContractDigest
               : undefined,
           stateDir: config.stateDir,
-        });
+          signal: abortController.signal,
+        }));
         res.statusCode = upstreamResp.status;
         setForwardResponseHeaders(res, upstreamResp.headers, "text/event-stream; charset=utf-8");
-        const streamChunks: Buffer[] = [];
-        upstreamResp.stream.on("data", (chunk) => {
-          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-          streamChunks.push(buffer);
-          res.write(buffer);
-        });
-        upstreamResp.stream.once("end", async () => {
-          const rawStreamText = Buffer.concat(streamChunks).toString("utf8");
+        let responseChars = 0;
+        const collector = createCodexResponseItemsCollector();
+        let terminal = false;
+        let destroyedUpstream = false;
+        const destroyUpstream = () => {
+          if (destroyedUpstream) return;
+          destroyedUpstream = true;
+          if (!upstreamResp.stream.destroyed) upstreamResp.stream.destroy();
+        };
+        const finalize = async (kind: "complete" | "error" | "client_abort", error?: unknown) => {
+          if (terminal) return;
+          terminal = true;
+          res.off("close", onClose);
+          if (kind !== "complete") {
+            abortController.abort();
+            destroyUpstream();
+            if (!res.destroyed) res.destroy(error instanceof Error ? error : undefined);
+            return;
+          }
           try {
-            await recordStreamResponse({
+            const runOptional = await recordStreamResponse({
               status: upstreamResp.status,
-              rawStreamText,
+              responseChars,
               headers: upstreamResp.headers,
+              collected: collector.finish(),
             });
-            res.end();
-          } catch (err) {
+            if (!res.writableEnded && !res.destroyed) res.end();
+            await runOptional();
+          } catch (recordError) {
             void appendTrace(config.stateDir, {
               stage: "proxy_after_call",
               sessionId,
@@ -1985,27 +2039,27 @@ export async function startCodexResponsesProxy(params: {
               status: upstreamResp.status,
               stream: true,
               completed: false,
-              error: err instanceof Error ? err.message : String(err),
+              error: recordError instanceof Error ? recordError.message : String(recordError),
             });
-            if (!res.destroyed) {
-              res.destroy(err instanceof Error ? err : new Error(String(err)));
-            }
+            if (!res.destroyed) res.destroy(recordError instanceof Error ? recordError : new Error(String(recordError)));
           }
-        });
-        upstreamResp.stream.once("error", (err) => {
-          void appendTrace(config.stateDir, {
-            stage: "proxy_after_call",
-            sessionId,
-            model,
-            status: upstreamResp.status,
-            stream: true,
-            completed: false,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          if (!res.destroyed) {
-            res.destroy(err instanceof Error ? err : new Error(String(err)));
+        };
+        const onClose = () => {
+          if (!terminal && !res.writableEnded) void finalize("client_abort");
+        };
+        res.once("close", onClose);
+        try {
+          for await (const chunk of upstreamResp.stream) {
+            if (terminal) break;
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+            responseChars += buffer.byteLength;
+            collector.feed(buffer);
+            if (!res.write(buffer)) await once(res, "drain");
           }
-        });
+          await finalize("complete");
+        } catch (error) {
+          await finalize("error", error);
+        }
         return;
       }
 
@@ -2116,6 +2170,9 @@ export async function startCodexResponsesProxy(params: {
             prepared.envelope.metadata?.lightrsiCacheContractDigest,
           lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
         }),
+        transportFetches,
+        logicalUpstreamSends,
+        successfulGenerations,
       });
       res.statusCode = upstreamResp.status;
       setForwardResponseHeaders(res, upstreamResp.headers, "application/json; charset=utf-8");

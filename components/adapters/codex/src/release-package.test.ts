@@ -83,8 +83,8 @@ test("packaged Codex codec emits GPT-5.6 cache boundaries without mutating user 
     };
     const prepared = bundled.prepareCodexStablePrefix(codec.decodeRequest(raw), config);
     const encoded = codec.encodeRequest(prepared);
-    assert.deepEqual(encoded.prompt_cache_options, { mode: "explicit", ttl: "30m" });
-    assert.deepEqual(encoded.input[0].content[0].prompt_cache_breakpoint, { mode: "explicit" });
+    assert.equal(encoded.prompt_cache_options, undefined);
+    assert.equal(encoded.input[0].content[0].prompt_cache_breakpoint, undefined);
     assert.equal(encoded.input[1].content, "Keep exact user text.");
     assert.equal("prompt_cache_retention" in encoded, false);
   } finally {

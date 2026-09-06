@@ -72,7 +72,7 @@ async function withReasoningFixture(
   }
 }
 
-test("upstream retries up to twice when requested encrypted reasoning is omitted", async () => {
+test("upstream does not regenerate successful responses when encrypted reasoning is omitted", async () => {
   await withReasoningFixture([{}, {}, { encrypted: "opaque-retry-state" }], async (baseUrl, requestCount) => {
     const response = await requestUpstreamResponses({
       upstream: { baseUrl, wireApi: "responses", requiresOpenAIAuth: false },
@@ -84,12 +84,13 @@ test("upstream retries up to twice when requested encrypted reasoning is omitted
       },
     });
     assert.equal(response.status, 200);
-    assert.equal(requestCount(), 3);
-    assert.match(response.text, /opaque-retry-state/);
+    assert.equal(requestCount(), 1);
+    assert.equal(response.transportFetches, 1);
+    assert.doesNotMatch(response.text, /opaque-retry-state/);
   });
 });
 
-test("upstream encrypted-reasoning repair is bounded to two retries", async () => {
+test("upstream reports one fetch when encrypted reasoning remains absent", async () => {
   await withReasoningFixture([{}, {}, {}], async (baseUrl, requestCount) => {
     const response = await requestUpstreamResponses({
       upstream: { baseUrl, wireApi: "responses", requiresOpenAIAuth: false },
@@ -100,7 +101,8 @@ test("upstream encrypted-reasoning repair is bounded to two retries", async () =
       },
     });
     assert.equal(response.status, 200);
-    assert.equal(requestCount(), 3);
+    assert.equal(requestCount(), 1);
+    assert.equal(response.transportFetches, 1);
     assert.doesNotMatch(response.text, /encrypted_content":"opaque/);
   });
 });

@@ -7,6 +7,76 @@ function finiteNumber(value: unknown): number | undefined {
   return Number.isFinite(num) ? num : undefined;
 }
 
+function nonNegativeNumber(value: unknown): number | undefined {
+  const num = finiteNumber(value);
+  return typeof num === "number" && num >= 0 ? num : undefined;
+}
+
+function firstField(record: Record<string, unknown>, names: string[]): number | undefined {
+  for (const name of names) {
+    const value = nonNegativeNumber(record[name]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function nestedField(record: Record<string, unknown>, names: string[]): number | undefined {
+  const inputDetails = asRecord(record.input_tokens_details);
+  const promptDetails = asRecord(record.prompt_tokens_details);
+  return firstField(inputDetails ?? {}, names) ?? firstField(promptDetails ?? {}, names);
+}
+
+export type CacheEvidence = "hit" | "miss" | "unknown";
+
+export type CacheUsageEvidence = {
+  inputTotal?: number;
+  inputUncached?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  evidence: CacheEvidence;
+};
+
+export function normalizeCacheUsageEvidence(
+  usage: unknown,
+  providerHint?: string,
+): CacheUsageEvidence {
+  const record = asRecord(usage);
+  if (!record) return { evidence: "unknown" };
+
+  const cacheRead = firstField(record, ["cache_read_input_tokens", "cached_tokens"])
+    ?? nestedField(record, ["cached_tokens"]);
+  const cacheWrite = firstField(record, ["cache_write_tokens", "cache_creation_input_tokens"])
+    ?? nestedField(record, ["cache_write_tokens"]);
+  const input = firstField(record, ["input_tokens", "prompt_tokens"]);
+  const anthropic = /anthropic|claude/i.test(String(providerHint ?? ""))
+    || Object.prototype.hasOwnProperty.call(record, "cache_creation_input_tokens");
+  const inputTotal = input === undefined
+    ? [cacheRead, cacheWrite].every((value) => value !== undefined)
+      ? (cacheRead as number) + (cacheWrite as number)
+      : undefined
+    : anthropic
+      ? input + (cacheRead ?? 0) + (cacheWrite ?? 0)
+      : input;
+  const inputUncached = input === undefined
+    ? undefined
+    : anthropic
+      ? input
+      : cacheRead === undefined && cacheWrite === undefined
+        ? input
+        : Math.max(0, input - (cacheRead ?? 0) - (cacheWrite ?? 0));
+  const evidence: CacheEvidence = cacheRead !== undefined
+    ? cacheRead > 0 ? "hit" : "miss"
+    : cacheWrite !== undefined ? "miss" : "unknown";
+
+  return {
+    ...(inputTotal === undefined ? {} : { inputTotal }),
+    ...(inputUncached === undefined ? {} : { inputUncached }),
+    ...(cacheRead === undefined ? {} : { cacheRead }),
+    ...(cacheWrite === undefined ? {} : { cacheWrite }),
+    evidence,
+  };
+}
+
 export function readCachedInputTokens(usage: unknown): number {
   const record = asRecord(usage);
   if (!record) return 0;

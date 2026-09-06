@@ -1,6 +1,6 @@
 import { readCodexContextHistoryJournal } from "./journal-store.js";
 import {
-  appendCodexContextHistoryJournalEntryLocked,
+  appendCodexContextHistoryJournalEntryLockedValidated,
   quarantineOversizedCodexContextHistoryJournalLocked,
   recoverCodexContextHistoryJournalTailLocked,
   withCodexContextHistoryJournalLock,
@@ -139,7 +139,7 @@ async function appendCodexRequestJournalEntryLocked(params: {
     error: params.error,
     observedAt,
   };
-  await appendCodexContextHistoryJournalEntryLocked(params.stateDir, params.sessionId, entry);
+  await appendCodexContextHistoryJournalEntryLockedValidated(params.stateDir, params.sessionId, entry, journal);
   return entry;
 }
 

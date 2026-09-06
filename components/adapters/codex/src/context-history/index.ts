@@ -19,7 +19,10 @@ export type {
 } from "./journal-append.js";
 export { appendCodexRequestJournalEntry } from "./request-journal.js";
 export { appendCodexResponseJournalEntry } from "./response-journal.js";
-export { collectCodexResponseItemsFromStream } from "./sse-item-collector.js";
+export {
+  collectCodexResponseItemsFromStream,
+  createCodexResponseItemsCollector,
+} from "./sse-item-collector.js";
 export {
   codexReplayabilityForItem,
   isCodexDeferredItem,

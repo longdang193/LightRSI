@@ -122,7 +122,18 @@ test("reduceCodexRequestEnvelope trims large tool output and preserves developer
   });
 
   const reduced = await reduceCodexRequestEnvelope({
-    envelope,
+    envelope: {
+      ...envelope,
+      session: {
+        ...envelope.session,
+        sessionId: "session-preserve",
+      },
+      metadata: {
+        ...envelope.metadata,
+        localMarker: "keep",
+        inputText: "stale",
+      },
+    },
     codec,
     config,
   });
@@ -132,6 +143,10 @@ test("reduceCodexRequestEnvelope trims large tool output and preserves developer
   const encoded = codec.encodeRequest(reduced.envelope) as any;
   assert.equal(encoded.input[0].role, "developer");
   assert.ok(String(encoded.input[2].output).length < longOutput.length);
+  assert.equal(reduced.envelope.session.sessionId, "session-preserve");
+  assert.equal(reduced.envelope.metadata?.localMarker, "keep");
+  assert.notEqual(reduced.envelope.metadata?.inputText, "stale");
+  assert.deepEqual((reduced.envelope.rawPayload as any).input, encoded.input);
 });
 
 test("applyBeforeCallReductionToPayload reuses disclosed read paths from session snapshot", async () => {
