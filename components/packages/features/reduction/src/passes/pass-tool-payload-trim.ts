@@ -18,6 +18,7 @@ import {
   MEMORY_FAULT_RECOVER_TOOL_NAME,
 } from "@lightrsi/artifact-store";
 import { classifyReadStates, isReadOutputSegment } from "../reduction/read-state-compaction.js";
+import { resourceKey } from "../reduction/resource-key.js";
 
 const DEFAULT_MAX_CHARS = 1200;
 const DEFAULT_HEAD_LINES = 8;
@@ -152,8 +153,10 @@ const reduceSegment = (
     },
     {
       queryText:
-        typeof turnCtx.metadata?.latestUserQuery === "string"
-          ? turnCtx.metadata.latestUserQuery
+        typeof meta?.precedingUserQuery === "string"
+          ? meta.precedingUserQuery
+          : typeof turnCtx.metadata?.latestUserQuery === "string"
+            ? turnCtx.metadata.latestUserQuery
           : typeof turnCtx.metadata?.currentQuery === "string"
             ? turnCtx.metadata.currentQuery
             : undefined,
@@ -203,7 +206,7 @@ const extractToolName = (segment: ContextSegment): string => {
 
 const normalizeDisclosedReadPath = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
-  const normalized = value.trim().toLowerCase();
+  const normalized = resourceKey(value);
   return normalized.length > 0 ? normalized : undefined;
 };
 

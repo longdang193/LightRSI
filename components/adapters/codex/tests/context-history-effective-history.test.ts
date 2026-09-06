@@ -372,6 +372,9 @@ test("CDH-04 Effective History View attributes committed replay input to the sem
       payload: {
         input: [{ id: "current-input", role: "user", content: "current" }],
       },
+      acceptedInputItems: [
+        { id: "current-input", role: "user", content: "current" },
+      ],
       committedInputItems: [
         { id: "prior-input", role: "user", content: "prior context" },
         { id: "current-input", role: "user", content: "current" },

@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import type { ContextSegment, RuntimeTurnContext } from "@lightrsi/kernel";
+import type { ContextSegment, RuntimeTurnContext, RuntimeTurnResult } from "@lightrsi/kernel";
 import { classifyReadStates } from "../src/reduction/read-state-compaction.js";
 import { readStateCompactionPass } from "../src/passes/pass-read-state-compaction.js";
-import { resolveReductionPasses, runReductionBeforeCall } from "../src/reduction/pipeline.js";
+import { resolveReductionPasses, runReductionAfterCall, runReductionBeforeCall } from "../src/reduction/pipeline.js";
 
 function buildSegment(
   id: string,
@@ -78,6 +78,73 @@ test("classifyReadStates ignores non-output read argument segments", () => {
 
   assert.equal(states.has("read-1-arguments"), false);
   assert.equal(states.get("read-1-output"), "fresh");
+});
+
+test("runReductionBeforeCall restores nested context after pass failure", async () => {
+  const turnCtx: RuntimeTurnContext = {
+    sessionId: "failure-session",
+    sessionMode: "single",
+    provider: "test",
+    model: "test-model",
+    apiFamily: "other",
+    prompt: "test",
+    budget: { maxInputTokens: 0, reserveOutputTokens: 0 },
+    segments: [buildSegment("segment-1", "read", "/repo/a.ts", "original", "output")],
+    metadata: { nested: { value: "original" } },
+  };
+  const result = await runReductionBeforeCall({
+    turnCtx,
+    passes: [{ id: "throwing_pass", phase: "before_call", target: "context_segment" }],
+    registry: {
+      throwing_pass: {
+        beforeCall({ turnCtx: current }) {
+          (current.metadata as any).nested.value = "mutated";
+          (current.segments[0]!.metadata as any).nested = "mutated";
+          throw new Error("fixture failure");
+        },
+      },
+    },
+  });
+
+  assert.equal((result.turnCtx.metadata as any).nested.value, "original");
+  assert.equal((result.turnCtx.segments[0]!.metadata as any).nested, undefined);
+  assert.equal(result.report[0]?.skippedReason, "pass_error");
+  assert.equal(typeof result.report[0]?.durationMs, "number");
+});
+
+test("runReductionAfterCall restores nested context after pass failure", async () => {
+  const turnCtx: RuntimeTurnContext = {
+    sessionId: "after-call-failure-session",
+    sessionMode: "single",
+    provider: "test",
+    model: "test-model",
+    apiFamily: "other",
+    prompt: "test",
+    budget: { maxInputTokens: 0, reserveOutputTokens: 0 },
+    segments: [buildSegment("segment-1", "read", "/repo/a.ts", "original", "output")],
+    metadata: { nested: { value: "original" } },
+  };
+  const result: RuntimeTurnResult = { content: "original result" };
+  const reduced = await runReductionAfterCall({
+    turnCtx,
+    result,
+    passes: [{ id: "throwing_after_call", phase: "after_call", target: "result_content" }],
+    registry: {
+      throwing_after_call: {
+        afterCall({ turnCtx: current }) {
+          (current.metadata as any).nested.value = "mutated";
+          (current.segments[0]!.metadata as any).nested = "mutated";
+          throw new Error("fixture failure");
+        },
+      },
+    },
+  });
+
+  assert.equal((turnCtx.metadata as any).nested.value, "original");
+  assert.equal((turnCtx.segments[0]!.metadata as any).nested, undefined);
+  assert.deepEqual(reduced.result, result);
+  assert.equal(reduced.report[0]?.skippedReason, "pass_error");
+  assert.equal(typeof reduced.report[0]?.durationMs, "number");
 });
 
 test("readStateCompactionPass replaces superseded reads with state stub", async () => {

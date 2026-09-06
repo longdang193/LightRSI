@@ -113,6 +113,9 @@ function canonicalRequestEntry(
 ): CodexRequestJournalEntry | undefined {
   const requestId = nonBlankString(candidate.requestId);
   const inputItems = jsonObjectArray(candidate.inputItems);
+  const acceptedInputItems = candidate.acceptedInputItems === undefined
+    ? undefined
+    : jsonObjectArray(candidate.acceptedInputItems);
   const committedInputItems = candidate.committedInputItems === undefined
     ? undefined
     : jsonObjectArray(candidate.committedInputItems);
@@ -126,6 +129,7 @@ function canonicalRequestEntry(
     || (candidate.turnOrdinal as number) <= 0
     || typeof candidate.stream !== "boolean"
     || !inputItems
+    || (candidate.acceptedInputItems !== undefined && !acceptedInputItems)
     || (candidate.committedInputItems !== undefined && !committedInputItems)
     || (candidate.model !== undefined && !model)
     || (candidate.previousResponseId !== undefined && !previousResponseId)
@@ -144,6 +148,7 @@ function canonicalRequestEntry(
     ...(previousResponseId ? { previousResponseId } : {}),
     ...(promptCacheKey ? { promptCacheKey } : {}),
     inputItems,
+    ...(acceptedInputItems ? { acceptedInputItems } : {}),
     ...(committedInputItems ? { committedInputItems } : {}),
     status,
     ...(error ? { error } : {}),

@@ -136,6 +136,7 @@ test("CDH-01 request journal stores sanitized input metadata and deduplicates re
       requestId: "request-1",
       turnOrdinal: 7,
       payload,
+      acceptedInputItems: [{ role: "user", content: "accepted reduced input" }],
       status: "completed",
       observedAt: "2026-07-24T10:00:00.000Z",
     });
@@ -157,6 +158,7 @@ test("CDH-01 request journal stores sanitized input metadata and deduplicates re
     assert.equal(journal[0]?.previousResponseId, "resp-prev-1");
     assert.equal(journal[0]?.turnOrdinal, 7);
     assert.equal(journal[0]?.inputItems.length, 2);
+    assert.deepEqual(journal[0]?.acceptedInputItems, [{ role: "user", content: "accepted reduced input" }]);
     assert.doesNotMatch(JSON.stringify(journal[0]), /authorization|headers|sk-should-not-persist|Bearer secret/i);
   });
 });

@@ -97,8 +97,10 @@ function semanticPreviousResponseId(turn: CommittedTurn): string | undefined {
   return previousResponseId(turn) ?? turn.request.entry.previousResponseId;
 }
 
-function committedInputItems(turn: CommittedTurn): JsonObject[] {
-  return turn.request.entry.committedInputItems ?? turn.request.entry.inputItems;
+function modelVisibleInputItems(turn: CommittedTurn): JsonObject[] {
+  return turn.request.entry.committedInputItems
+    ?? turn.request.entry.acceptedInputItems
+    ?? turn.request.entry.inputItems;
 }
 
 function buildCommittedChain(params: {
@@ -258,7 +260,7 @@ function buildAttributedTurns(params: {
     };
     turn.request.entry.inputItems.forEach((item) => attribute(item, "input"));
     const sourceKeys = new Set(turn.request.entry.inputItems.map(turnAttributionKey));
-    committedInputItems(turn)
+    modelVisibleInputItems(turn)
       .filter((item) => !sourceKeys.has(turnAttributionKey(item)))
       .forEach((item) => attribute(item, "input", false));
     turn.response.entry.outputItems.forEach((item) => attribute(item, "output"));
@@ -645,7 +647,7 @@ export async function buildCodexEffectiveHistoryView(
   const effectiveItemRecords: EffectiveItemRecord[] = [];
   const seen = new Set<string>();
   for (const turn of committedChain.chain) {
-    committedInputItems(turn).forEach((item, itemOrdinal) => {
+    modelVisibleInputItems(turn).forEach((item, itemOrdinal) => {
       appendEffectiveItem({
         item,
         sessionId: params.sessionId,

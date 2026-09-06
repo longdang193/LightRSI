@@ -8,6 +8,7 @@ import {
   inferJsonAnchorPattern,
   selectJsonArrayAnchorIndices,
 } from "./json-anchor-selector.js";
+import { resourceKey } from "./resource-key.js";
 
 export type ToolPayloadKind = "stdout" | "stderr" | "json" | "blob";
 
@@ -523,7 +524,7 @@ function summarizeCodeLike(
 
   const repeatedRead = Boolean(
     hint?.path
-    && context?.previouslyReadPaths?.has(hint.path.trim().toLowerCase()),
+    && context?.previouslyReadPaths?.has(resourceKey(hint.path)),
   );
   const headerNote = looksLikeExplicitRangeIntent(text, hint)
     ? "explicit_range_hint_detected"
@@ -733,7 +734,7 @@ function reduceByClassification(
     case "code_like":
       if (
         hint?.path
-        && context?.previouslyReadPaths?.has(hint.path.trim().toLowerCase())
+        && context?.previouslyReadPaths?.has(resourceKey(hint.path))
       ) {
         return {
           text,

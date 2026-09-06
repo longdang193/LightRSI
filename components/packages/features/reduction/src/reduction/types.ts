@@ -79,6 +79,7 @@ export type ReductionReportEntry = {
   skippedReason?: string;
   beforeChars: number;
   afterChars: number;
+  durationMs?: number;
   touchedSegmentIds?: string[];
 };
 

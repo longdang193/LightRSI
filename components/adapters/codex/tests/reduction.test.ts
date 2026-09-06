@@ -240,3 +240,54 @@ export function saveConfig(file: string, text: string) {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("applyBeforeCallReductionToPayload keeps case-sensitive read resources distinct", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-case-sensitive-read-"));
+  try {
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir: join(dir, "state"),
+      reduction: {
+        triggerMinChars: 256,
+        maxToolChars: 400,
+        passes: {
+          readStateCompaction: false,
+          toolPayloadTrim: true,
+          htmlSlimming: false,
+          execOutputTruncation: false,
+          agentsStartupOptimization: false,
+        },
+      },
+    });
+    const codePayload = "export const value = 1;\n".repeat(80);
+    await upsertCodexSessionSnapshot(config.stateDir, "case-session", {
+      disclosedReadPaths: ["/repo/FILE.ts"],
+    });
+    const payload: any = {
+      model: "tokenpilot/gpt-5.4-mini",
+      input: [
+        {
+          type: "function_call",
+          call_id: "case-read",
+          name: "Read",
+          arguments: JSON.stringify({ path: "/repo/file.ts" }),
+        },
+        {
+          type: "function_call_output",
+          call_id: "case-read",
+          output: codePayload,
+        },
+      ],
+    };
+
+    await applyBeforeCallReductionToPayload({
+      payload,
+      sessionId: "case-session",
+      config,
+    });
+
+    assert.notEqual(payload.input[1]?.output, codePayload);
+    assert.match(String(payload.input[1]?.output ?? ""), /\[code reduced lines=/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

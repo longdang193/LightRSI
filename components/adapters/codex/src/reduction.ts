@@ -6,6 +6,7 @@ import {
   analyzeToolPayloadTrim,
   resolveReductionPasses,
   runReductionBeforeCall,
+  resourceKey,
 } from "@lightrsi/reduction";
 import type { TokenPilotCodexConfig } from "./config.js";
 import { loadCodexSessionSnapshot } from "./session-state.js";
@@ -36,6 +37,7 @@ export type CodexReductionPassEffect = {
   beforeChars: number;
   afterChars: number;
   savedChars: number;
+  durationMs?: number;
   touchedSegmentIds?: string[];
 };
 
@@ -55,6 +57,7 @@ type CodexReductionReportEntry = {
   note?: string;
   beforeChars: number;
   afterChars: number;
+  durationMs?: number;
   touchedSegmentIds?: string[];
 };
 
@@ -90,7 +93,7 @@ function normalizeDisclosedReadPaths(value: unknown): string[] | undefined {
   const next = new Set<string>();
   for (const entry of value) {
     if (typeof entry !== "string") continue;
-    const normalized = entry.trim().toLowerCase();
+    const normalized = resourceKey(entry);
     if (normalized) next.add(normalized);
   }
   return next.size > 0 ? [...next] : undefined;
@@ -251,6 +254,7 @@ function segmentForText(params: {
       type: params.item?.type,
       fieldName: params.field,
       latestUserQuery: params.latestUserQuery,
+      precedingUserQuery: params.latestUserQuery,
       ...(params.path ? { path: params.path } : {}),
       ...(isToolLike
         ? {
@@ -278,18 +282,14 @@ function segmentForText(params: {
   };
 }
 
-function extractLatestUserQuery(input: any): string {
-  if (!Array.isArray(input)) return "";
-  for (let i = input.length - 1; i >= 0; i -= 1) {
-    const item = input[i];
-    if (!item || typeof item !== "object" || String(item.role ?? "") !== "user") continue;
-    if (typeof item.content === "string") return item.content;
-    if (Array.isArray(item.content)) {
-      return item.content
-        .map((block: any) => block && typeof block === "object" && typeof block.text === "string" ? block.text : "")
-        .filter(Boolean)
-        .join("\n");
-    }
+function extractUserQuery(item: any): string {
+  if (!item || typeof item !== "object" || String(item.role ?? "") !== "user") return "";
+  if (typeof item.content === "string") return item.content;
+  if (Array.isArray(item.content)) {
+    return item.content
+      .map((block: any) => block && typeof block === "object" && typeof block.text === "string" ? block.text : "")
+      .filter(Boolean)
+      .join("\n");
   }
   return "";
 }
@@ -305,7 +305,7 @@ function buildTurnContext(
 } {
   const segments: ContextSegment[] = [];
   const bindings: SegmentBinding[] = [];
-  const latestUserQuery = extractLatestUserQuery(payload?.input);
+  let currentUserQuery = "";
   const toolCallHints = new Map<string, { toolName?: string; path?: string }>();
   let inputItems = 0;
   let toolLikeItems = 0;
@@ -313,6 +313,8 @@ function buildTurnContext(
     payload.input.forEach((item: any, itemIndex: number) => {
       if (!item || typeof item !== "object") return;
       inputItems += 1;
+      const itemUserQuery = extractUserQuery(item);
+      if (itemUserQuery) currentUserQuery = itemUserQuery;
       if (String(item.type ?? "").toLowerCase() === "function_call") {
         const callId = typeof item.call_id === "string"
           ? item.call_id
@@ -335,7 +337,7 @@ function buildTurnContext(
           source: "responses.input.output",
           item,
           field: "output",
-          latestUserQuery,
+          latestUserQuery: currentUserQuery,
           path: callHint?.path,
           toolName: callHint?.toolName,
         }));
@@ -354,7 +356,7 @@ function buildTurnContext(
           source: "responses.input.arguments",
           item,
           field: "arguments",
-          latestUserQuery,
+          latestUserQuery: currentUserQuery,
           path: callHint?.path,
           toolName: callHint?.toolName,
         }));
@@ -373,7 +375,7 @@ function buildTurnContext(
           source: "responses.input.content",
           item,
           field: "content",
-          latestUserQuery,
+          latestUserQuery: currentUserQuery,
           path: callHint?.path,
           toolName: callHint?.toolName,
         }));
@@ -396,7 +398,7 @@ function buildTurnContext(
             source: `responses.input.content.${blockKey}`,
             item,
             field: "content",
-            latestUserQuery,
+            latestUserQuery: currentUserQuery,
             path: callHint?.path,
             toolName: callHint?.toolName,
           }));
@@ -419,14 +421,14 @@ function buildTurnContext(
       provider: "codex",
       model: typeof payload?.model === "string" ? payload.model : "",
       apiFamily: "openai-responses",
-      prompt: latestUserQuery,
+      prompt: currentUserQuery,
       budget: {
         maxInputTokens: 0,
         reserveOutputTokens: 0,
       },
       segments,
       metadata: {
-        latestUserQuery,
+        latestUserQuery: currentUserQuery,
         ...(options?.disclosedReadPaths ? { disclosedReadPaths: options.disclosedReadPaths } : {}),
       },
     },
@@ -605,6 +607,7 @@ function summarizePassEffects(report: CodexReductionReportEntry[]): CodexReducti
     beforeChars: entry.beforeChars,
     afterChars: entry.afterChars,
     savedChars: Math.max(0, entry.beforeChars - entry.afterChars),
+    durationMs: entry.durationMs,
     touchedSegmentIds: entry.touchedSegmentIds,
   }));
 }
@@ -656,7 +659,10 @@ export async function applyBeforeCallReductionToPayload(params: {
       skippedReason: !Array.isArray(payload?.input) ? "no_input_array" : "disabled",
     };
   }
-  const snapshot = await loadCodexSessionSnapshot(config.stateDir, sessionId);
+  const originalInput = structuredClone(payload.input);
+  const startedAt = Date.now();
+  try {
+    const snapshot = await loadCodexSessionSnapshot(config.stateDir, sessionId);
   const built = buildTurnContext(payload, sessionId, {
     disclosedReadPaths: normalizeDisclosedReadPaths(snapshot?.disclosedReadPaths),
   });
@@ -750,18 +756,49 @@ export async function applyBeforeCallReductionToPayload(params: {
       report: report.filter((entry) => entry.changed && entry.touchedSegmentIds?.includes(binding.segmentId)),
     });
   }
-  return {
-    changedItems: changedItems.size,
-    changedBlocks,
-    savedChars,
-    beforeChars: totalChars,
-    afterChars: Math.max(0, totalChars - savedChars),
-    report,
-    passEffects,
-    diagnostics: built.diagnostics,
-    visualSegments,
-    disclosedReadPaths: normalizeDisclosedReadPaths(reducedCtx.metadata?.disclosedReadPaths),
-  };
+    return {
+      changedItems: changedItems.size,
+      changedBlocks,
+      savedChars,
+      beforeChars: totalChars,
+      afterChars: Math.max(0, totalChars - savedChars),
+      report,
+      passEffects,
+      diagnostics: built.diagnostics,
+      visualSegments,
+      disclosedReadPaths: normalizeDisclosedReadPaths(reducedCtx.metadata?.disclosedReadPaths),
+    };
+  } catch (error) {
+    payload.input = originalInput;
+    const note = error instanceof Error ? error.message : String(error);
+    const report: CodexReductionReportEntry = {
+      id: "codex_reduction_boundary",
+      phase: "before_call",
+      target: "context_segment",
+      changed: false,
+      skippedReason: "reduction_boundary_error",
+      note,
+      beforeChars: 0,
+      afterChars: 0,
+      durationMs: Date.now() - startedAt,
+    };
+    return {
+      changedItems: 0,
+      changedBlocks: 0,
+      savedChars: 0,
+      beforeChars: 0,
+      afterChars: 0,
+      report: [report],
+      passEffects: summarizePassEffects([report]),
+      diagnostics: {
+        inputItems: payload.input.length,
+        toolLikeItems: 0,
+        candidateSegments: 0,
+        candidateChars: 0,
+      },
+      skippedReason: "reduction_boundary_error",
+    };
+  }
 }
 
 export async function reduceCodexRequestEnvelope(params: {
