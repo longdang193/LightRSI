@@ -14,6 +14,7 @@ This command:
 - Reroutes that provider through the local TokenPilot proxy
 - Writes `~/.codex/tokenpilot.json`
 - Registers hooks in `~/.codex/hooks.json`
+- On Windows, registers a per-user watchdog that retries the proxy start every minute
 - Registers the shared `tokenpilot_memory_fault_recover` MCP server
 - Creates the `lightrsi` CLI entrypoint at `~/.local/bin/lightrsi`
 
@@ -56,7 +57,7 @@ Expected output:
 
 1. Start Codex normally
 2. If Codex asks you to review or trust the installed TokenPilot hooks, **approve them**
-3. Open a **new session** so `SessionStart` can start the local proxy
+3. Open a **new session** so `SessionStart` can start the local proxy; on Windows, the watchdog also repairs a stopped proxy within one minute
 4. In another terminal, verify:
 
 ```bash
