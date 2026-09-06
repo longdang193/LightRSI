@@ -561,7 +561,7 @@ test("installCodexTokenPilot stops an existing daemon before resolving the proxy
         "const server = http.createServer((req, res) => {",
         "  if (req.url === '/health') {",
         "    res.writeHead(200, { 'content-type': 'application/json' });",
-        "    res.end(JSON.stringify({ ok: true, adapter: 'tokenpilot-codex' }));",
+        "    res.end(JSON.stringify({ ok: true, adapter: 'tokenpilot-codex', pid: process.pid }));",
         "    return;",
         "  }",
         "  res.writeHead(404);",
