@@ -2,7 +2,7 @@
 artifact_type: plan
 template_id: implementation-plan
 contract_version: "1"
-status: completed
+status: superseded
 layer: change
 name: lightrsi-stable-reduction-replay
 targets:
