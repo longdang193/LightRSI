@@ -173,3 +173,69 @@ test("codec preserves provider implicit GPT-5.6 cache behavior without retention
   assert.equal("prompt_cache_retention" in encoded, false);
   assert.equal(encoded.input[1].content, "Keep user text unchanged.");
 });
+
+test("codec preserves object-valued prompt cache options from raw requests", () => {
+  const codec = createCodexResponsesPayloadCodec();
+  const promptCacheOptions = {
+    mode: "explicit",
+    ttl: "30m",
+    providerExtension: { preserve: true },
+  };
+  const rawPayload: any = {
+    model: "cx/gpt-5.6-sol",
+    stream: false,
+    prompt_cache_options: promptCacheOptions,
+    input: [{ role: "user", content: "Keep policy." }],
+  };
+
+  const encoded = codec.encodeRequest(codec.decodeRequest(rawPayload)) as any;
+
+  assert.deepEqual(encoded.prompt_cache_options, promptCacheOptions);
+});
+
+test("codec omits non-object prompt cache options without throwing", () => {
+  const codec = createCodexResponsesPayloadCodec();
+  for (const value of [null, [], "explicit", 30, true]) {
+    const encoded = codec.encodeRequest(codec.decodeRequest({
+      model: "cx/gpt-5.6-sol",
+      stream: false,
+      prompt_cache_options: value,
+      input: [{ role: "user", content: "Keep request." }],
+    })) as any;
+
+    assert.equal("prompt_cache_options" in encoded, false);
+  }
+});
+
+test("codec preserves existing breakpoint markers without adding one", () => {
+  const codec = createCodexResponsesPayloadCodec();
+  const rawPayload: any = {
+    model: "cx/gpt-5.6-sol",
+    stream: false,
+    input: [
+      {
+        role: "developer",
+        content: [
+          { type: "input_text", text: "Before user." },
+          { type: "input_text", text: "Marker one.", prompt_cache_breakpoint: "one" },
+        ],
+      },
+      { role: "user", content: "User." },
+      {
+        role: "tool",
+        content: [
+          { type: "input_text", text: "Tool result.", prompt_cache_breakpoint: "two" },
+        ],
+      },
+    ],
+  };
+
+  const encoded = codec.encodeRequest(codec.decodeRequest(rawPayload)) as any;
+  const markers = encoded.input.flatMap((item: any) => Array.isArray(item.content) ? item.content : [])
+    .filter((block: any) => block && "prompt_cache_breakpoint" in block);
+
+  assert.deepEqual(markers, [
+    { type: "input_text", text: "Marker one.", prompt_cache_breakpoint: "one" },
+    { type: "input_text", text: "Tool result.", prompt_cache_breakpoint: "two" },
+  ]);
+});

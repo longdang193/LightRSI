@@ -171,6 +171,11 @@ export function createCodexResponsesPayloadCodec(
           previousResponseId: typeof payload.previous_response_id === "string" ? payload.previous_response_id : undefined,
           promptCacheKey: typeof payload.prompt_cache_key === "string" ? payload.prompt_cache_key : undefined,
           promptCacheRetention: typeof payload.prompt_cache_retention === "string" ? payload.prompt_cache_retention : undefined,
+          promptCacheOptions: payload.prompt_cache_options
+            && typeof payload.prompt_cache_options === "object"
+            && !Array.isArray(payload.prompt_cache_options)
+            ? payload.prompt_cache_options
+            : undefined,
           inputText: extractResponsesInputText(payload.input),
         },
       };

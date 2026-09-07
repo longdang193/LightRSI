@@ -114,10 +114,18 @@ test("reduceCodexRequestEnvelope trims large tool output and preserves developer
   const envelope = codec.decodeRequest({
     model: "tokenpilot/gpt-5.4-mini",
     stream: false,
+    prompt_cache_options: { mode: "explicit", ttl: "30m" },
     input: [
-      { role: "developer", content: "root prompt" },
+      {
+        role: "developer",
+        content: [{ type: "input_text", text: "root prompt", prompt_cache_breakpoint: "one" }],
+      },
       { role: "user", content: "check status" },
       { role: "tool", type: "function_call_output", name: "bash", output: longOutput },
+      {
+        role: "assistant",
+        content: [{ type: "output_text", text: "done", prompt_cache_breakpoint: "two" }],
+      },
     ],
   });
 
@@ -143,6 +151,13 @@ test("reduceCodexRequestEnvelope trims large tool output and preserves developer
   const encoded = codec.encodeRequest(reduced.envelope) as any;
   assert.equal(encoded.input[0].role, "developer");
   assert.ok(String(encoded.input[2].output).length < longOutput.length);
+  assert.deepEqual(encoded.prompt_cache_options, { mode: "explicit", ttl: "30m" });
+  assert.deepEqual(
+    encoded.input.flatMap((item: any) => Array.isArray(item.content) ? item.content : [])
+      .filter((block: any) => block && "prompt_cache_breakpoint" in block)
+      .map((block: any) => block.prompt_cache_breakpoint),
+    ["one", "two"],
+  );
   assert.equal(reduced.envelope.session.sessionId, "session-preserve");
   assert.equal(reduced.envelope.metadata?.localMarker, "keep");
   assert.notEqual(reduced.envelope.metadata?.inputText, "stale");
