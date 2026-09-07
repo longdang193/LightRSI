@@ -11,9 +11,27 @@ cat > "$hook_path" <<'HOOK'
 set -eu
 
 if [ -x "./.venv/Scripts/python.exe" ]; then
-  ./.venv/Scripts/python.exe scripts/validate_repo_contracts.py --fast
+  python_cmd="./.venv/Scripts/python.exe"
+elif [ -x "./.venv/bin/python" ]; then
+  python_cmd="./.venv/bin/python"
 else
-  ./.venv/bin/python scripts/validate_repo_contracts.py --fast
+  python_cmd="py -3"
+fi
+
+if [ -f "$repo_root/scripts/validate_repo_contracts.py" ]; then
+  validator="$repo_root/scripts/validate_repo_contracts.py"
+else
+  validator="$HOME/.agents/project-os/scripts/validate_repo_contracts.py"
+fi
+if [ ! -f "$validator" ]; then
+  echo "Missing Project OS validator: $validator" >&2
+  exit 1
+fi
+
+if [ "$python_cmd" = "py -3" ]; then
+  py -3 "$validator" --repo-root "$repo_root" --fast
+else
+  "$python_cmd" "$validator" --repo-root "$repo_root" --fast
 fi
 HOOK
 
