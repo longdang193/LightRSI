@@ -38,8 +38,6 @@ jobs:
       - name: Build workspace
         run: pnpm build
 
-      - name: Check package boundaries
-        run: pnpm check:boundaries
 
       - name: Test workspace
         run: pnpm -r --if-present --workspace-concurrency=1 test

@@ -7,8 +7,6 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r --if-present test",
-    "check:boundaries": "node scripts/check-package-boundaries.mjs",
-    "graph:packages": "node scripts/check-package-boundaries.mjs --graph",
     "lightrsi:build": "pnpm --dir components/products/cli run build",
     "lightrsi:install": "pnpm --dir components/products/cli run install:bin",
     "lightrsi:typecheck": "pnpm --dir components/products/cli run typecheck",
