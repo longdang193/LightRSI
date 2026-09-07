@@ -39,6 +39,11 @@ after(async () => {
 
 test("normalizeResponsesInputForUpstream preserves structured output blocks", () => {
   const outputBlocks = [{ type: "input_text", text: "ok" }];
+  const nestedHeaders = {
+    "content-type": "text/plain",
+    "x-tool-result": "fixture",
+    nested: { source: "tool-result" },
+  };
   const input: any[] = [
     {
       type: "function_call",
@@ -47,6 +52,7 @@ test("normalizeResponsesInputForUpstream preserves structured output blocks", ()
     {
       type: "function_call_output",
       output: outputBlocks,
+      tool_result: { headers: nestedHeaders },
     },
     {
       type: "function_call_output",
@@ -58,6 +64,7 @@ test("normalizeResponsesInputForUpstream preserves structured output blocks", ()
 
   assert.equal(input[0].arguments, "{\"command\":\"git status\"}");
   assert.equal(input[1].output, outputBlocks);
+  assert.deepEqual(input[1].tool_result.headers, nestedHeaders);
   assert.equal(input[2].output, "{\"stdout\":\"ok\"}");
 });
 
@@ -214,6 +221,131 @@ test("reduction preserves serialized history items and trims only new tool outpu
   assert.equal(payload.input[2].output, oldOutput);
   assert.equal(payload.input[5].output, oldOutput);
   assert.notEqual(payload.input[6].output, newOutput);
+});
+
+test("reduction freezes id-bearing historical output in append-only input", async () => {
+  const config = normalizeTokenPilotCodexConfig({
+    reduction: {
+      triggerMinChars: 256,
+      maxToolChars: 400,
+      passes: {
+        readStateCompaction: false,
+        toolPayloadTrim: true,
+        htmlSlimming: false,
+        execOutputTruncation: true,
+        agentsStartupOptimization: false,
+      },
+      passOptions: {
+        execOutputTruncation: {
+          toolThresholds: { bash: 400 },
+        },
+      },
+    },
+  });
+  const historicalOutput = `HISTORICAL\n${"line\n".repeat(600)}`;
+  const newOutput = `NEW\n${"line\n".repeat(600)}`;
+  const historicalMetadata = { signed: { digest: "keep" }, encrypted: true };
+  const payload: any = {
+    model: "tokenpilot/gpt-5.4-mini",
+    input: [
+      { type: "function_call", id: "call-1", call_id: "call-1", name: "bash", arguments: "{}" },
+      {
+        type: "function_call_output",
+        id: "output-1",
+        call_id: "call-1",
+        output: historicalOutput,
+        metadata: historicalMetadata,
+      },
+      { type: "function_call", call_id: "call-2", name: "bash", arguments: "{}" },
+      { type: "function_call_output", call_id: "call-2", output: newOutput },
+    ],
+  };
+
+  const summary = await applyBeforeCallReductionToPayload({
+    payload,
+    sessionId: "append-only-history-freeze",
+    config,
+  });
+
+  assert.ok(summary.changedBlocks > 0);
+  assert.equal(payload.input[1].output, historicalOutput);
+  assert.deepEqual(payload.input[1].metadata, historicalMetadata);
+  assert.notEqual(payload.input[3].output, newOutput);
+});
+
+test("independent append crosses reduction threshold after three tool rounds without a new user message", async () => {
+  const config = normalizeTokenPilotCodexConfig({
+    reduction: {
+      triggerMinChars: 3500,
+      maxToolChars: 400,
+      passes: {
+        readStateCompaction: false,
+        toolPayloadTrim: true,
+        htmlSlimming: false,
+        execOutputTruncation: false,
+        agentsStartupOptimization: false,
+      },
+    },
+  });
+  const output = (label: string) => `${label}\n${"plain tool line\n".repeat(100)}`;
+  const firstPayload: any = {
+    model: "tokenpilot/gpt-5.4-mini",
+    input: [
+      { role: "user", content: "inspect tool history" },
+      { type: "function_call", call_id: "round-1", name: "bash", arguments: "{}" },
+      {
+        type: "function_call_output",
+        call_id: "round-1",
+        output: output("ROUND_1"),
+        tool_result: { headers: { "x-round": "round-1", nested: { keep: true } } },
+      },
+      { type: "function_call", call_id: "round-2", name: "bash", arguments: "{}" },
+      {
+        type: "function_call_output",
+        call_id: "round-2",
+        output: output("ROUND_2"),
+        tool_result: { headers: { "x-round": "round-2", nested: { keep: true } } },
+      },
+    ],
+  };
+  const thresholdPayload: any = structuredClone(firstPayload);
+  thresholdPayload.input.push(
+    { type: "function_call", call_id: "round-3", name: "bash", arguments: "{}" },
+    {
+      type: "function_call_output",
+      call_id: "round-3",
+      output: output("ROUND_3"),
+      tool_result: { headers: { "x-round": "round-3", nested: { keep: true } } },
+    },
+  );
+
+  assert.notEqual(firstPayload.input[2], thresholdPayload.input[2]);
+  assert.equal(thresholdPayload.input.filter((item: any) => item.role === "user").length, 1);
+
+  const first = await applyBeforeCallReductionToPayload({
+    payload: firstPayload,
+    sessionId: "threshold-before-crossing",
+    config,
+  });
+  assert.equal(first.changedBlocks, 0);
+  assert.equal(first.skippedReason, "below_trigger_min_chars");
+
+  const crossed = await applyBeforeCallReductionToPayload({
+    payload: thresholdPayload,
+    sessionId: "threshold-after-crossing",
+    config,
+  });
+  assert.equal(crossed.diagnostics.toolLikeItems, 3);
+  assert.ok(crossed.changedBlocks > 0);
+  assert.notEqual(thresholdPayload.input[2].output, output("ROUND_1"));
+  assert.deepEqual(thresholdPayload.input[2].tool_result.headers, {
+    "x-round": "round-1",
+    nested: { keep: true },
+  });
+  assert.deepEqual(thresholdPayload.input[6].tool_result.headers, {
+    "x-round": "round-3",
+    nested: { keep: true },
+  });
 });
 
 test("applyBeforeCallReductionToPayload reuses disclosed read paths from session snapshot", async () => {

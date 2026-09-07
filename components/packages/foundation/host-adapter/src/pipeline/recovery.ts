@@ -5,8 +5,8 @@ export const DEFAULT_RECOVERY_TOOL_NAME = "memory_fault_recover";
 
 const DEFAULT_RECOVERY_PROTOCOL = [
   "[Recovery Protocol]",
-  `If a prior tool result contains \`[Tool payload trimmed]\`, use \`${DEFAULT_RECOVERY_TOOL_NAME}\` with the provided dataKey instead of re-calling the original tool.`,
-  `For code or file reads, you may recover only the needed window with \`startLine\` and \`endLine\` to avoid pulling back the whole archive.`,
+  `If a prior tool result contains \`[Tool payload trimmed]\`, use \`${DEFAULT_RECOVERY_TOOL_NAME}\` with the provided opaque artifactRef; use the legacy dataKey only when no artifactRef is provided.`,
+  `For code or file reads, you may pass optional 1-based inclusive \`startLine\` and \`endLine\` values to recover only the needed window.`,
   `Treat \`${DEFAULT_RECOVERY_TOOL_NAME}\` as an internal archive read, then continue your analysis normally after recovery.`,
 ].join("\n");
 

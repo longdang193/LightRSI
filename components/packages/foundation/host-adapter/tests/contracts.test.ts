@@ -3,6 +3,10 @@ import test from "node:test";
 
 import { startMockCachingJsonUpstream } from "../src/testing/host-e2e.js";
 import {
+  defaultInjectRecoveryProtocol,
+} from "../src/pipeline/recovery.js";
+import { extractRecoveryReference } from "../src/testing/host-e2e.js";
+import {
   MINIMAL_HOST_CAPABILITIES,
   REQUEST_RESPONSE_HOST_CAPABILITIES,
   canSupportLifecycleEvictionEquivalently,
@@ -49,4 +53,32 @@ test("mock cache oracle hashes exact cacheable prefix bytes", async () => {
   } finally {
     await upstream.close();
   }
+});
+
+test("recovery protocol accepts opaque refs and bounded line windows without paths", () => {
+  const envelope = defaultInjectRecoveryProtocol({
+    session: {
+      host: { hostId: "test", displayName: "test" },
+      sessionId: "private-session",
+      sessionMode: "single",
+    },
+    model: "test-model",
+    stream: false,
+    messages: [],
+    rawPayload: {},
+  });
+  const protocol = envelope.instructions ?? "";
+  assert.match(protocol, /opaque artifactRef/);
+  assert.match(protocol, /legacy dataKey/);
+  assert.match(protocol, /1-based inclusive/);
+  assert.doesNotMatch(protocol, /archivePath|stateDir|sessionId/);
+
+  const reference = extractRecoveryReference(
+    'call memory_fault_recover with {"artifactRef":"artifact:v2:' + "a".repeat(64) + '","startLine":2,"endLine":4}',
+  );
+  assert.deepEqual(reference, {
+    artifactRef: `artifact:v2:${"a".repeat(64)}`,
+    startLine: 2,
+    endLine: 4,
+  });
 });

@@ -1,4 +1,143 @@
+import { hashJson } from "./shared.js";
 import type { JsonObject } from "./types.js";
+
+export const CODEX_FORWARDING_METADATA_KEY = "__lightrsiForwarding";
+
+export type CodexForwardingScope = {
+  promptCacheKey?: string;
+  cacheContractDigest?: string;
+  endpointId?: string;
+  conversationBranch?: string;
+  rebaseEpoch?: string;
+};
+
+export type CodexForwardingAttempt = {
+  attemptId: string;
+  payloadFingerprint: string;
+  inputFingerprint: string;
+  outcome: "pending" | "completed" | "failed" | "incomplete";
+  kind?: "normal" | "fallback" | "continuation" | "rebase";
+};
+
+export type CodexForwardingMetadata = {
+  originalFingerprint: string;
+  acceptedFingerprint?: string;
+  stableIdentity: string;
+  occurrence: number;
+  scopeFingerprint: string;
+  ambiguous?: boolean;
+  attempts?: CodexForwardingAttempt[];
+};
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => key !== CODEX_FORWARDING_METADATA_KEY)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, child]) => [key, canonicalize(child)]));
+}
+
+export function codexForwardingFingerprint(value: unknown): string {
+  return hashJson(canonicalize(value));
+}
+
+export function codexStripForwardingMetadata(value: JsonObject): JsonObject {
+  const clone = JSON.parse(JSON.stringify(value)) as JsonObject;
+  delete clone[CODEX_FORWARDING_METADATA_KEY];
+  return clone;
+}
+
+function itemNativeId(item: JsonObject): string | undefined {
+  for (const key of ["id", "item_id", "call_id"]) {
+    const value = item[key];
+    if (typeof value === "string" && value.trim()) return `${key}:${value.trim()}`;
+  }
+  return undefined;
+}
+
+function scopeFingerprint(scope: CodexForwardingScope | undefined): string {
+  return codexForwardingFingerprint({
+    promptCacheKey: scope?.promptCacheKey ?? null,
+    cacheContractDigest: scope?.cacheContractDigest ?? null,
+    endpointId: scope?.endpointId ?? null,
+    conversationBranch: scope?.conversationBranch ?? null,
+    rebaseEpoch: scope?.rebaseEpoch ?? null,
+  });
+}
+
+export function codexAttachForwardingMetadata(params: {
+  sanitizedItems: JsonObject[];
+  originalItems: JsonObject[];
+  acceptedItems?: JsonObject[];
+  scope?: CodexForwardingScope;
+  attempts?: CodexForwardingAttempt[];
+}): JsonObject[] {
+  const counts = new Map<string, number>();
+  const explicitCounts = new Map<string, number>();
+  for (const item of params.originalItems) {
+    const id = itemNativeId(item);
+    if (id) explicitCounts.set(id, (explicitCounts.get(id) ?? 0) + 1);
+  }
+  const scopeHash = scopeFingerprint(params.scope);
+  return params.sanitizedItems.map((item, index) => {
+    const original = params.originalItems[index] ?? item;
+    const originalFingerprint = codexForwardingFingerprint(original);
+    const occurrence = counts.get(originalFingerprint) ?? 0;
+    counts.set(originalFingerprint, occurrence + 1);
+    const nativeId = itemNativeId(original);
+    const stableIdentity = nativeId ?? `fingerprint:${originalFingerprint}:${occurrence}`;
+    const metadata: CodexForwardingMetadata = {
+      originalFingerprint,
+      ...(params.acceptedItems?.[index]
+        ? { acceptedFingerprint: codexForwardingFingerprint(params.acceptedItems[index]) }
+        : {}),
+      stableIdentity,
+      occurrence,
+      scopeFingerprint: scopeHash,
+      ...(nativeId && explicitCounts.get(nativeId)! > 1 ? { ambiguous: true } : {}),
+      ...(index === 0 && params.attempts?.length ? { attempts: params.attempts } : {}),
+    };
+    return { ...item, [CODEX_FORWARDING_METADATA_KEY]: metadata };
+  });
+}
+
+export function codexForwardingMetadata(item: JsonObject): CodexForwardingMetadata | undefined {
+  const value = item[CODEX_FORWARDING_METADATA_KEY];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const metadata = value as CodexForwardingMetadata;
+  return typeof metadata.originalFingerprint === "string"
+    && typeof metadata.stableIdentity === "string"
+    && typeof metadata.scopeFingerprint === "string"
+    ? metadata
+    : undefined;
+}
+
+export function codexMatchForwardedPrefix(params: {
+  currentItems: JsonObject[];
+  historicalItems: JsonObject[];
+  scope?: CodexForwardingScope;
+}): { prefixLength: number; reason?: "missing_evidence" | "ambiguous" | "scope_mismatch" | "divergence" } {
+  const expectedScope = scopeFingerprint(params.scope);
+  const seen = new Set<string>();
+  const limit = Math.min(params.currentItems.length, params.historicalItems.length);
+  for (let index = 0; index < limit; index += 1) {
+    const historical = codexForwardingMetadata(params.historicalItems[index]);
+    if (!historical) return { prefixLength: index, reason: "missing_evidence" };
+    if (historical.ambiguous || seen.has(historical.stableIdentity)) {
+      return { prefixLength: index, reason: "ambiguous" };
+    }
+    seen.add(historical.stableIdentity);
+    if (historical.scopeFingerprint !== expectedScope) {
+      return { prefixLength: index, reason: "scope_mismatch" };
+    }
+    const currentFingerprint = codexForwardingFingerprint(params.currentItems[index]);
+    if (currentFingerprint !== historical.originalFingerprint) {
+      return { prefixLength: index, reason: "divergence" };
+    }
+  }
+  return { prefixLength: limit };
+}
 
 export type CodexReplayabilityMode = "replayable" | "observation_only" | "deferred";
 

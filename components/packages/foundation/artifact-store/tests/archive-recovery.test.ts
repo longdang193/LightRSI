@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { mkdtemp, rm } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -100,8 +101,15 @@ test("file system artifact store preserves archive and lookup behavior", async (
       archiveDir,
     });
 
+    assert.match(location.artifactRef ?? "", /^artifact:v2:[a-f0-9]{64}$/);
     assert.equal(await store.resolve({ dataKey: "repo:file.ts", stateDir, sessionId: "session-1" }), location.archivePath);
     assert.equal((await store.read(location.archivePath))?.originalText, "const value = 1;");
+
+    const artifactRef = location.artifactRef;
+    assert.ok(artifactRef);
+    const raw = await readFile(location.archivePath, "utf8");
+    await writeFile(location.archivePath, raw.replace("const value = 1;", "const value = 2;"), "utf8");
+    assert.equal((await store.read(location.archivePath)), null);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

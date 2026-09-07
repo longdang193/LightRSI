@@ -1,4 +1,5 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID, createHash } from "node:crypto";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   archiveDirWriteTargets,
@@ -21,6 +22,8 @@ export type GenericArchiveEntry = {
   originalText: string;
   originalSize: number;
   archivedAt: string;
+  artifactRef?: string;
+  contentSha256?: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -59,7 +62,33 @@ export type ArchiveLocationParams = {
 export type ArchiveLocation = {
   archivePath: string;
   archiveDir: string;
+  artifactRef?: string;
 };
+
+const ARTIFACT_REF_PREFIX = "artifact:v2:";
+const ARTIFACT_REF_PATTERN = /^artifact:v2:[a-f0-9]{64}$/;
+
+function sha256Bytes(value: Uint8Array): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+export function buildArtifactRef(originalText: string): string {
+  return `${ARTIFACT_REF_PREFIX}${sha256Bytes(Buffer.from(originalText, "utf8"))}`;
+}
+
+function artifactDigest(artifactRef: string): string | null {
+  return ARTIFACT_REF_PATTERN.test(artifactRef) ? artifactRef.slice(ARTIFACT_REF_PREFIX.length) : null;
+}
+
+async function atomicWriteFile(path: string, payload: string): Promise<void> {
+  const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, payload, { encoding: "utf8", flag: "wx" });
+    await rename(temporaryPath, path);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+}
 
 const TRUE_ENV_VALUES = new Set(["1", "true", "yes", "on"]);
 
@@ -85,8 +114,7 @@ export function buildRecoveryHint(params: {
     `\n\n[${sourceLabel}] Full content omitted to save context (${originalSize.toLocaleString()} chars).\n` +
     `To recover it, call the tool memory_fault_recover with {\"dataKey\":\"${dataKey}\"}.\n` +
     `For a focused code window, you may instead call memory_fault_recover with {\"dataKey\":\"${dataKey}\",\"startLine\":20,\"endLine\":80}.\n` +
-    `This is an internal recovery read; do not call the original tool again for this content.\n` +
-    `Archive: ${archivePath}`
+    `This is an internal recovery read; do not call the original tool again for this content.`
   );
 }
 
@@ -136,8 +164,9 @@ export function renderRecoveredArchive(params: {
 }
 
 export async function archiveContent(params: ArchiveContentParams): Promise<ArchiveLocation> {
+  const artifactRef = buildArtifactRef(params.originalText);
   const entry: GenericArchiveEntry = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: `${params.sourcePass}_archive`,
     sessionId: params.sessionId,
     segmentId: params.segmentId,
@@ -147,6 +176,8 @@ export async function archiveContent(params: ArchiveContentParams): Promise<Arch
     originalText: params.originalText,
     originalSize: params.originalText.length,
     archivedAt: new Date().toISOString(),
+    artifactRef,
+    contentSha256: artifactRef.slice(ARTIFACT_REF_PREFIX.length),
     metadata: params.metadata,
   };
   const primary = buildArchiveLocation(params);
@@ -157,11 +188,11 @@ export async function archiveContent(params: ArchiveContentParams): Promise<Arch
   for (const archiveDir of writeDirs) {
     const archivePath = join(archiveDir, fileName);
     await mkdir(dirname(archivePath), { recursive: true });
-    await writeFile(archivePath, payload, "utf8");
+    await atomicWriteFile(archivePath, payload);
     await updateArchiveLookup(params.dataKey, archivePath, archiveDir);
   }
 
-  return primary;
+  return { ...primary, artifactRef };
 }
 
 export function buildArchiveLocation(params: ArchiveLocationParams): ArchiveLocation {
@@ -180,10 +211,9 @@ export async function updateArchiveLookup(
   const keyDir = join(archiveDir, "keys");
   const keyPath = join(keyDir, `${hashText(dataKey)}.json`);
   await mkdir(keyDir, { recursive: true });
-  await writeFile(
+  await atomicWriteFile(
     keyPath,
     JSON.stringify({ dataKey, archivePath }, null, 2),
-    "utf8",
   );
 
   const lookupPath = join(archiveDir, "key-lookup.json");
@@ -195,20 +225,65 @@ export async function updateArchiveLookup(
     lookup = {};
   }
   lookup[dataKey] = archivePath;
-  await writeFile(lookupPath, JSON.stringify(lookup, null, 2), "utf8");
+  await atomicWriteFile(lookupPath, JSON.stringify(lookup, null, 2));
 }
 
 export async function readArchive(archivePath: string): Promise<GenericArchiveEntry | null> {
   try {
-    const content = await readFile(archivePath, "utf8");
-    const parsed = JSON.parse(content);
+    const content = await readFile(archivePath);
+    const parsed = JSON.parse(content.toString("utf8"));
     if (typeof parsed?.originalText !== "string") return null;
     if (typeof parsed?.dataKey !== "string") return null;
     if (typeof parsed?.toolName !== "string") return null;
+    if (parsed.schemaVersion >= 2 || parsed.artifactRef !== undefined || parsed.contentSha256 !== undefined) {
+      const artifactRef = typeof parsed.artifactRef === "string" ? parsed.artifactRef : "";
+      const digest = artifactDigest(artifactRef);
+      const contentSha256 = typeof parsed.contentSha256 === "string" ? parsed.contentSha256 : "";
+      if (!digest || contentSha256 !== digest || sha256Bytes(Buffer.from(parsed.originalText, "utf8")) !== digest) {
+        return null;
+      }
+    }
     return parsed as GenericArchiveEntry;
   } catch {
     return null;
   }
+}
+
+async function readArchiveForArtifactRef(
+  archivePath: string,
+  artifactRef: string,
+): Promise<GenericArchiveEntry | null> {
+  const digest = artifactDigest(artifactRef);
+  if (!digest) return null;
+  const archive = await readArchive(archivePath);
+  if (!archive || archive.artifactRef !== artifactRef) return null;
+  return sha256Bytes(Buffer.from(archive.originalText, "utf8")) === digest ? archive : null;
+}
+
+export async function resolveArchivePathAcrossSessionsByArtifactRef(
+  artifactRef: string,
+  stateDir: string,
+): Promise<string | null> {
+  if (!artifactDigest(artifactRef)) return null;
+  const sessionRootCandidates = pluginStateSubdirCandidates(stateDir, "tool-result-archives");
+  for (const sessionRoot of sessionRootCandidates) {
+    try {
+      const sessions = await readdir(sessionRoot, { withFileTypes: true });
+      for (const session of sessions) {
+        if (!session.isDirectory()) continue;
+        const archiveDir = join(sessionRoot, session.name);
+        const entries = await readdir(archiveDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name === "key-lookup.json") continue;
+          const archivePath = join(archiveDir, entry.name);
+          if (await readArchiveForArtifactRef(archivePath, artifactRef)) return archivePath;
+        }
+      }
+    } catch {
+      // Try next candidate.
+    }
+  }
+  return null;
 }
 
 export async function resolveArchivePathFromLookup(

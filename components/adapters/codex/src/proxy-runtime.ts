@@ -83,6 +83,8 @@ import type {
   CodexRequestJournalEntry,
   JsonObject,
 } from "./context-history/types.js";
+import type { CodexForwardingAttempt, CodexForwardingScope } from "./context-history/replayability.js";
+import { codexForwardingFingerprint } from "./context-history/replayability.js";
 import {
   CODEX_REBASE_API_VERSION,
   CODEX_REBASE_ITEM_SCHEMA_VERSION,
@@ -1338,6 +1340,55 @@ export async function startCodexResponsesProxy(params: {
         syncPayloadFromEnvelope(continuationReplayPayload, continuationPrepared.envelope, codec);
         normalizeResponsesInputForUpstream(continuationReplayPayload?.input);
       }
+      const forwardingScope: CodexForwardingScope = {
+        ...(typeof prepared.envelope.metadata?.promptCacheKey === "string"
+          ? { promptCacheKey: prepared.envelope.metadata.promptCacheKey }
+          : typeof originalPayload.prompt_cache_key === "string"
+            ? { promptCacheKey: originalPayload.prompt_cache_key }
+            : {}),
+        ...(typeof prepared.envelope.metadata?.lightrsiCacheContractDigest === "string"
+          ? { cacheContractDigest: prepared.envelope.metadata.lightrsiCacheContractDigest }
+          : {}),
+        endpointId: codexRebaseEndpointIdentity(upstream.baseUrl),
+        ...(typeof originalPayload.previous_response_id === "string"
+          ? { conversationBranch: originalPayload.previous_response_id }
+          : {}),
+        ...(requestJournalEntry && rebaseRequest
+          ? { rebaseEpoch: `epoch-${requestJournalEntry.requestId}` }
+          : {}),
+      };
+      const forwardingAttempts: CodexForwardingAttempt[] = [];
+      const forwardingAttemptInputs = new Map<string, JsonObject[]>();
+      let forwardingAttemptOrdinal = 0;
+      const recordForwardingAttempt = (nextPayload: JsonObject): CodexForwardingAttempt => {
+        const kind = nextPayload === fallbackPayload
+          ? "fallback"
+          : nextPayload === continuationReplayPayload
+            ? "continuation"
+            : rebaseRequest && nextPayload === payload
+              ? "rebase"
+              : "normal";
+        const attempt: CodexForwardingAttempt = {
+          attemptId: `attempt-${++forwardingAttemptOrdinal}`,
+          payloadFingerprint: codexForwardingFingerprint(nextPayload),
+          inputFingerprint: codexForwardingFingerprint(nextPayload.input ?? null),
+          outcome: "pending",
+          kind,
+        };
+        forwardingAttempts.push(attempt);
+        forwardingAttemptInputs.set(attempt.attemptId, Array.isArray(nextPayload.input)
+          ? JSON.parse(JSON.stringify(nextPayload.input)) as JsonObject[]
+          : []);
+        return attempt;
+      };
+      const markLastForwardingAttempt = (status: CodexJournalStatus): void => {
+        const attempt = forwardingAttempts.at(-1);
+        if (attempt) attempt.outcome = status;
+      };
+      const latestForwardedInputItems = (): JsonObject[] | undefined => {
+        const attempt = forwardingAttempts.at(-1);
+        return attempt ? forwardingAttemptInputs.get(attempt.attemptId) : undefined;
+      };
       const requestText = extractResponsesInputText(payload?.input);
       const providerWirePrefixDiagnostics = computeEncodedProviderWirePrefixDiagnostics(payload);
       const cacheAuditSnapshot = buildCodexCacheAuditSnapshot({
@@ -1398,16 +1449,28 @@ export async function startCodexResponsesProxy(params: {
         if (response.status >= 200 && response.status < 300) successfulGenerations += 1;
         return response;
       };
-      const sendUpstream = async (nextPayload: JsonObject) => countUpstreamResponse(await requestUpstreamResponses({
-        upstream,
-        payload: nextPayload,
-        inboundAuthorization: authorization,
-        lightmem2CacheContractDigest:
-          typeof prepared.envelope.metadata?.lightrsiCacheContractDigest === "string"
-            ? prepared.envelope.metadata.lightrsiCacheContractDigest
-            : undefined,
-        stateDir: config.stateDir,
-      }));
+      const sendUpstream = async (nextPayload: JsonObject) => {
+        recordForwardingAttempt(nextPayload);
+        try {
+          const response = countUpstreamResponse(await requestUpstreamResponses({
+            upstream,
+            payload: nextPayload,
+            inboundAuthorization: authorization,
+            lightmem2CacheContractDigest:
+              typeof prepared.envelope.metadata?.lightrsiCacheContractDigest === "string"
+                ? prepared.envelope.metadata.lightrsiCacheContractDigest
+                : undefined,
+            stateDir: config.stateDir,
+          }));
+          const attempt = forwardingAttempts.at(-1);
+          if (attempt) attempt.outcome = response.status >= 200 && response.status < 300 ? "completed" : "failed";
+          return response;
+        } catch (error) {
+          const attempt = forwardingAttempts.at(-1);
+          if (attempt) attempt.outcome = "failed";
+          throw error;
+        }
+      };
       const acceptedEvidence: CodexRebaseCapabilityEvidence[] = params.allowMockFixtureEvidence
         ? ["real_provider", "mock_fixture"]
         : ["real_provider"];
@@ -1566,6 +1629,7 @@ export async function startCodexResponsesProxy(params: {
           httpStatus: paramsForJournal.status,
           collected,
         });
+        markLastForwardingAttempt(status);
         const error = status === "failed" && paramsForJournal.rawStreamText
           ? truncateJournalError(paramsForJournal.rawStreamText)
           : undefined;
@@ -1588,12 +1652,15 @@ export async function startCodexResponsesProxy(params: {
           sessionId,
           requestId: requestJournalEntry.requestId,
           payload: originalPayload,
-          acceptedInputItems: Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined,
+          acceptedInputItems: latestForwardedInputItems()
+            ?? (Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined),
           committedInputItems: paramsForJournal.committed
             ? committedContextInputItems()
             : undefined,
           status,
           error,
+          forwardingScope,
+          forwardingAttempts,
         });
         contextHistoryJournalPersisted = true;
       };
@@ -1610,6 +1677,7 @@ export async function startCodexResponsesProxy(params: {
           response: paramsForJournal.response,
         });
         const error = status === "failed" ? truncateJournalError(paramsForJournal.responseText) : undefined;
+        markLastForwardingAttempt(status);
         await appendCodexResponseJournalEntry({
           stateDir: config.stateDir,
           sessionId,
@@ -1628,12 +1696,15 @@ export async function startCodexResponsesProxy(params: {
           sessionId,
           requestId: requestJournalEntry.requestId,
           payload: originalPayload,
-          acceptedInputItems: Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined,
+          acceptedInputItems: latestForwardedInputItems()
+            ?? (Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined),
           committedInputItems: paramsForJournal.committed
             ? committedContextInputItems()
             : undefined,
           status,
           error,
+          forwardingScope,
+          forwardingAttempts,
         });
         contextHistoryJournalPersisted = true;
       };
@@ -1992,17 +2063,25 @@ export async function startCodexResponsesProxy(params: {
           return;
         }
         const abortController = new AbortController();
-        const upstreamResp = countUpstreamResponse(await requestUpstreamResponsesStream({
-          upstream,
-          payload,
-          inboundAuthorization: authorization,
-          lightmem2CacheContractDigest:
-            typeof prepared.envelope.metadata?.lightrsiCacheContractDigest === "string"
-              ? prepared.envelope.metadata.lightrsiCacheContractDigest
-              : undefined,
-          stateDir: config.stateDir,
-          signal: abortController.signal,
-        }));
+        recordForwardingAttempt(payload);
+        let upstreamResp;
+        try {
+          upstreamResp = countUpstreamResponse(await requestUpstreamResponsesStream({
+            upstream,
+            payload,
+            inboundAuthorization: authorization,
+            lightmem2CacheContractDigest:
+              typeof prepared.envelope.metadata?.lightrsiCacheContractDigest === "string"
+                ? prepared.envelope.metadata.lightrsiCacheContractDigest
+                : undefined,
+            stateDir: config.stateDir,
+            signal: abortController.signal,
+          }));
+        } catch (error) {
+          const attempt = forwardingAttempts.at(-1);
+          if (attempt) attempt.outcome = "failed";
+          throw error;
+        }
         res.statusCode = upstreamResp.status;
         setForwardResponseHeaders(res, upstreamResp.headers, "text/event-stream; charset=utf-8");
         let responseChars = 0;

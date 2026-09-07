@@ -225,10 +225,49 @@ export async function startMockCachingJsonUpstream(params?: {
   };
 }
 
+export type RecoveryReference = {
+  artifactRef?: string;
+  dataKey?: string;
+  startLine?: number;
+  endLine?: number;
+};
+
+export function extractRecoveryReference(text: string): RecoveryReference {
+  const match = text.match(/memory_fault_recover with (\{[^\r\n]*\})/);
+  assert.ok(match, "expected recovery reference marker");
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(match[1]) as Record<string, unknown>;
+  } catch {
+    assert.fail("invalid recovery reference marker");
+  }
+
+  const artifactRef = typeof parsed.artifactRef === "string" ? parsed.artifactRef.trim() : "";
+  const dataKey = typeof parsed.dataKey === "string" ? parsed.dataKey.trim() : "";
+  assert.equal((artifactRef.length > 0 ? 1 : 0) + (dataKey.length > 0 ? 1 : 0), 1);
+  if (artifactRef) assert.match(artifactRef, /^artifact:v2:[a-f0-9]{64}$/);
+
+  const startLine = parsed.startLine;
+  const endLine = parsed.endLine;
+  for (const line of [startLine, endLine]) {
+    if (line !== undefined) assert.equal(Number.isInteger(line) && Number(line) >= 1, true);
+  }
+  if (startLine !== undefined && endLine !== undefined) {
+    assert.equal(Number(endLine) >= Number(startLine), true);
+  }
+
+  return {
+    ...(artifactRef ? { artifactRef } : { dataKey }),
+    ...(startLine !== undefined ? { startLine: Number(startLine) } : {}),
+    ...(endLine !== undefined ? { endLine: Number(endLine) } : {}),
+  };
+}
+
 export function extractRecoveryDataKey(text: string): string {
-  const match = text.match(/memory_fault_recover with \{"dataKey":"([^"]+)"\}/);
-  assert.ok(match, `expected recovery dataKey marker in:\n${text}`);
-  return match[1];
+  const reference = extractRecoveryReference(text);
+  assert.ok(reference.dataKey, "expected legacy recovery dataKey marker");
+  return reference.dataKey;
 }
 
 export async function readArchiveSessionNames(stateDir: string): Promise<string[]> {
@@ -240,21 +279,25 @@ export async function readArchiveSessionNames(stateDir: string): Promise<string[
 export async function assertRecoveryRoundTrip(params: {
   reducedText: string;
   stateDir: string;
-  recover(dataKey: string): Promise<{ isError: boolean; text: string }>;
+  recover(dataKey: string, startLine?: number, endLine?: number): Promise<{ isError: boolean; text: string }>;
+  recoverReference?(reference: RecoveryReference): Promise<{ isError: boolean; text: string }>;
   expectedPatterns?: RegExp[];
 }): Promise<string> {
-  const dataKey = extractRecoveryDataKey(params.reducedText);
-  const sessionNames = await readArchiveSessionNames(params.stateDir);
-  const result = await params.recover(dataKey);
+  const reference = extractRecoveryReference(params.reducedText);
+  const result = reference.artifactRef
+    ? await (params.recoverReference
+      ? params.recoverReference(reference)
+      : Promise.reject(new Error("artifactRef recovery handler not provided")))
+    : await params.recover(reference.dataKey!, reference.startLine, reference.endLine);
   assert.equal(
     result.isError,
     false,
-    `recovery failed for dataKey=${dataKey}; archiveSessions=${sessionNames.join(",")}; message=${result.text}`,
+    "recovery failed",
   );
   for (const pattern of params.expectedPatterns ?? [/Recovered content for:/, /payload/, /line/]) {
     assert.match(result.text, pattern);
   }
-  return dataKey;
+  return reference.dataKey ?? reference.artifactRef!;
 }
 
 export async function assertProductSurfaceSmoke(params: {

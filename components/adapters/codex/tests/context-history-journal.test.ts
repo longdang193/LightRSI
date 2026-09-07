@@ -17,6 +17,72 @@ import {
   readCodexContextHistoryJournal,
   recoverCodexContextHistoryJournalTail,
 } from "../src/context-history/index.js";
+import {
+  codexAttachForwardingMetadata,
+  codexMatchForwardedPrefix,
+} from "../src/context-history/replayability.js";
+
+test("CDH-02 forwarded provenance survives reload and stops at missing or divergent evidence", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-forwarding-provenance";
+    const scope = { promptCacheKey: "cache-1", endpointId: "endpoint-1", conversationBranch: "branch-1" };
+    const originalItems = [
+      { type: "function_call_output", call_id: "read-1", output: "original bytes" },
+      { type: "function_call_output", call_id: "read-2", output: "second bytes" },
+    ];
+    const acceptedItems = [
+      { type: "function_call_output", call_id: "read-1", output: "reduced bytes" },
+      { type: "function_call_output", call_id: "read-2", output: "reduced second bytes" },
+    ];
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "forwarding-request",
+      payload: { input: originalItems },
+      acceptedInputItems: acceptedItems,
+      forwardingScope: scope,
+      forwardingAttempts: [{
+        attemptId: "attempt-1",
+        payloadFingerprint: "payload-fingerprint",
+        inputFingerprint: "input-fingerprint",
+        outcome: "completed",
+      }],
+      status: "completed",
+    });
+
+    const reloaded = await loadCodexContextHistoryJournal(stateDir, sessionId);
+    const historicalItems = reloaded[0]?.kind === "request" ? reloaded[0].inputItems : [];
+    assert.equal((historicalItems[0]?.__lightrsiForwarding as any)?.acceptedFingerprint !== undefined, true);
+    assert.equal((historicalItems[0]?.__lightrsiForwarding as any)?.attempts?.[0]?.outcome, "completed");
+
+    assert.deepEqual(codexMatchForwardedPrefix({
+      currentItems: originalItems,
+      historicalItems,
+      scope,
+    }), { prefixLength: 2 });
+    assert.deepEqual(codexMatchForwardedPrefix({
+      currentItems: [{ ...originalItems[0], output: "changed" }, originalItems[1]],
+      historicalItems,
+      scope,
+    }), { prefixLength: 0, reason: "divergence" });
+    assert.deepEqual(codexMatchForwardedPrefix({
+      currentItems: originalItems,
+      historicalItems: [{ ...originalItems[0] }, historicalItems[1]],
+      scope,
+    }), { prefixLength: 0, reason: "missing_evidence" });
+
+    const ambiguousItems = codexAttachForwardingMetadata({
+      sanitizedItems: originalItems,
+      originalItems: [originalItems[0], { ...originalItems[0] }],
+      scope,
+    });
+    assert.deepEqual(codexMatchForwardedPrefix({
+      currentItems: originalItems,
+      historicalItems: ambiguousItems,
+      scope,
+    }), { prefixLength: 0, reason: "ambiguous" });
+  });
+});
 
 test("CDH-01 quarantines an oversized journal before appending new history", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-context-history-oversized-"));

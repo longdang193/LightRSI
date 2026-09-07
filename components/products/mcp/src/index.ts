@@ -8,6 +8,7 @@ import {
   MEMORY_FAULT_RECOVER_TOOL_NAME,
   readArchive,
   renderRecoveredArchive,
+  resolveArchivePathAcrossSessionsByArtifactRef,
   resolveArchivePathAcrossSessions,
   resolveRecoveryStateDir,
 } from "@lightrsi/artifact-store";
@@ -435,26 +436,33 @@ export async function inspectClaudeMcpServerConfig(configPath: string, serverNam
 }
 
 export async function resolveMemoryFaultRecover(params: {
-  dataKey: string;
+  artifactRef?: string;
+  dataKey?: string;
   stateDir?: string;
   startLine?: number;
   endLine?: number;
 }): Promise<MemoryFaultRecoverResult> {
-  const dataKey = params.dataKey.trim();
-  if (!dataKey) {
+  const artifactRef = typeof params.artifactRef === "string" ? params.artifactRef.trim() : "";
+  const dataKey = typeof params.dataKey === "string" ? params.dataKey.trim() : "";
+  if ((artifactRef.length > 0) === (dataKey.length > 0)) {
     return {
-      text: "Missing required parameter: dataKey",
-      details: { error: "missing_data_key" },
+      text: "Provide exactly one of artifactRef or dataKey",
+      details: { error: "invalid_recovery_reference" },
     };
   }
 
   const stateDir = resolveRecoveryStateDir(params.stateDir);
-  const archivePath = await resolveArchivePathAcrossSessions(dataKey, stateDir);
+  const archivePath = artifactRef
+    ? await resolveArchivePathAcrossSessionsByArtifactRef(artifactRef, stateDir)
+    : await resolveArchivePathAcrossSessions(dataKey, stateDir);
   const archive = archivePath ? await readArchive(archivePath) : null;
   if (!archive) {
     return {
-      text: `No archived content found for dataKey: ${dataKey}`,
-      details: { error: "archive_not_found", dataKey, stateDir },
+      text: "No archived content found",
+      details: {
+        error: "archive_not_found",
+        ...(artifactRef ? { artifactRef } : { dataKey }),
+      },
     };
   }
 
@@ -468,8 +476,7 @@ export async function resolveMemoryFaultRecover(params: {
   return {
     text: rendered.text,
     details: {
-      dataKey,
-      archivePath,
+      ...(artifactRef ? { artifactRef } : { dataKey }),
       ...rendered.details,
       contextSafe: {
         ...buildRecoveryContextSafePatch(MEMORY_FAULT_RECOVER_TOOL_NAME),
@@ -553,6 +560,10 @@ export async function handleMcpRequest(message: McpRequest, params?: {
               type: "object",
               additionalProperties: false,
               properties: {
+                artifactRef: {
+                  type: "string",
+                  description: "Opaque archive artifact reference from a prior recovery notice.",
+                },
                 dataKey: {
                   type: "string",
                   description: "Archive dataKey from a prior [Tool payload trimmed] notice.",
@@ -568,7 +579,10 @@ export async function handleMcpRequest(message: McpRequest, params?: {
                   description: "Optional 1-based end line for partial recovery.",
                 },
               },
-              required: ["dataKey"],
+              oneOf: [
+                { required: ["artifactRef"] },
+                { required: ["dataKey"] },
+              ],
             },
           },
         ],
@@ -590,7 +604,8 @@ export async function handleMcpRequest(message: McpRequest, params?: {
         ? message.params.arguments as Record<string, unknown>
         : {};
     const result = await resolveMemoryFaultRecover({
-      dataKey: typeof argumentsObject.dataKey === "string" ? argumentsObject.dataKey : "",
+      artifactRef: typeof argumentsObject.artifactRef === "string" ? argumentsObject.artifactRef : undefined,
+      dataKey: typeof argumentsObject.dataKey === "string" ? argumentsObject.dataKey : undefined,
       stateDir: params?.stateDir,
       startLine: typeof argumentsObject.startLine === "number" ? argumentsObject.startLine : undefined,
       endLine: typeof argumentsObject.endLine === "number" ? argumentsObject.endLine : undefined,

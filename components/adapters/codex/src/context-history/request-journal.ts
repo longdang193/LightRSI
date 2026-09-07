@@ -1,5 +1,11 @@
 import { readCodexContextHistoryJournal } from "./journal-store.js";
 import {
+  codexAttachForwardingMetadata,
+  codexStripForwardingMetadata,
+  type CodexForwardingAttempt,
+  type CodexForwardingScope,
+} from "./replayability.js";
+import {
   appendCodexContextHistoryJournalEntryLockedValidated,
   quarantineOversizedCodexContextHistoryJournalLocked,
   recoverCodexContextHistoryJournalTailLocked,
@@ -21,7 +27,7 @@ import {
 
 function sanitizedInputItems(payload: JsonObject): JsonObject[] {
   return Array.isArray(payload.input)
-    ? cloneJson(sanitizeValue(payload.input)) as JsonObject[]
+    ? (cloneJson(sanitizeValue(payload.input)) as JsonObject[]).map(codexStripForwardingMetadata)
     : [];
 }
 
@@ -29,6 +35,7 @@ function requestIdFromPayload(params: {
   sessionId: string;
   turnOrdinal?: number;
   payload: JsonObject;
+  forwardingScope?: CodexForwardingScope;
 }): string {
   return `req-${hashJson({
     sessionId: params.sessionId,
@@ -36,6 +43,7 @@ function requestIdFromPayload(params: {
     model: params.payload.model,
     previousResponseId: params.payload.previous_response_id,
     input: sanitizedInputItems(params.payload),
+    forwardingScope: params.forwardingScope ?? null,
   })}`;
 }
 
@@ -62,6 +70,7 @@ function requestIdentityMatches(
     sessionId: string;
     payload: JsonObject;
     turnOrdinal?: number;
+    forwardingScope?: CodexForwardingScope;
   },
 ): boolean {
   const model = typeof params.payload.model === "string" ? params.payload.model : undefined;
@@ -73,7 +82,8 @@ function requestIdentityMatches(
     && existing.model === model
     && existing.stream === (params.payload.stream === true)
     && existing.previousResponseId === previousResponseId
-    && hashJson(existing.inputItems) === hashJson(sanitizedInputItems(params.payload));
+    && hashJson(existing.inputItems.map(codexStripForwardingMetadata))
+      === hashJson(sanitizedInputItems(params.payload));
 }
 
 async function appendCodexRequestJournalEntryLocked(params: {
@@ -87,6 +97,8 @@ async function appendCodexRequestJournalEntryLocked(params: {
   status?: CodexJournalStatus;
   error?: string;
   observedAt?: string;
+  forwardingScope?: CodexForwardingScope;
+  forwardingAttempts?: CodexForwardingAttempt[];
 }): Promise<CodexRequestJournalEntry> {
   const requestId = params.requestId ?? requestIdFromPayload(params);
   if (!params.sessionId.trim() || !requestId.trim()) {
@@ -116,6 +128,16 @@ async function appendCodexRequestJournalEntryLocked(params: {
   const requestEntries = new Set(
     current.filter((entry) => entry.kind === "request").map((entry) => entry.requestId),
   );
+  const sanitizedItems = sanitizedInputItems(params.payload);
+  const inputItems = params.forwardingScope || params.forwardingAttempts
+    ? codexAttachForwardingMetadata({
+      sanitizedItems,
+      originalItems: Array.isArray(params.payload.input) ? params.payload.input as JsonObject[] : [],
+      acceptedItems: params.acceptedInputItems,
+      scope: params.forwardingScope,
+      attempts: params.forwardingAttempts,
+    })
+    : existing?.inputItems ?? sanitizedItems;
   const entry: CodexRequestJournalEntry = {
     schema: CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA,
     kind: "request",
@@ -130,7 +152,7 @@ async function appendCodexRequestJournalEntryLocked(params: {
     promptCacheKey: existing?.promptCacheKey ?? (
       typeof params.payload.prompt_cache_key === "string" ? params.payload.prompt_cache_key : undefined
     ),
-    inputItems: existing?.inputItems ?? sanitizedInputItems(params.payload),
+    inputItems,
     acceptedInputItems: existing?.acceptedInputItems ?? (
       params.acceptedInputItems
         ? cloneJson(sanitizeValue(params.acceptedInputItems)) as JsonObject[]
@@ -160,6 +182,8 @@ export async function appendCodexRequestJournalEntry(params: {
   status?: CodexJournalStatus;
   error?: string;
   observedAt?: string;
+  forwardingScope?: CodexForwardingScope;
+  forwardingAttempts?: CodexForwardingAttempt[];
 }): Promise<CodexRequestJournalEntry> {
   return withCodexContextHistoryJournalLock(
     { stateDir: params.stateDir, sessionId: params.sessionId },

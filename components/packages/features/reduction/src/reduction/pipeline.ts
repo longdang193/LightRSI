@@ -14,6 +14,7 @@ export type RunReductionBeforeCallParams = {
   turnCtx: RuntimeTurnContext;
   passes: ReductionPassSpec[];
   registry?: ReductionPassRegistry;
+  frozenSegmentIds?: ReadonlySet<string>;
 };
 
 export type RunReductionAfterCallParams = {
@@ -156,10 +157,12 @@ export function readReductionMetadata(metadata?: Record<string, unknown>): Reduc
 export async function runReductionBeforeCall(
   params: RunReductionBeforeCallParams,
 ): Promise<{ turnCtx: RuntimeTurnContext; report: ReductionReportEntry[] }> {
-  const { turnCtx, passes, registry } = params;
+  const { turnCtx, passes, registry, frozenSegmentIds } = params;
   let currentCtx: RuntimeTurnContext = {
     ...turnCtx,
-    segments: turnCtx.segments.map((segment) => ({ ...segment })),
+    segments: turnCtx.segments
+      .filter((segment) => !frozenSegmentIds?.has(segment.id))
+      .map((segment) => ({ ...segment })),
   };
   const report: ReductionReportEntry[] = [];
 

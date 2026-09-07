@@ -301,10 +301,12 @@ function buildTurnContext(
 ): {
   turnCtx: RuntimeTurnContext;
   bindings: SegmentBinding[];
+  frozenSegmentIds: Set<string>;
   diagnostics: CodexReductionDiagnostics;
 } {
   const segments: ContextSegment[] = [];
   const bindings: SegmentBinding[] = [];
+  const frozenSegmentIds = new Set<string>();
   let currentUserQuery = "";
   const toolCallHints = new Map<string, { toolName?: string; path?: string }>();
   let inputItems = 0;
@@ -330,14 +332,13 @@ function buildTurnContext(
         }
       }
       if (itemIndex < latestUserIndex) return;
-      if (
-        String(item.type ?? "").toLowerCase() === "function_call_output"
-        && typeof item.id === "string"
-        && item.id.trim()
-      ) return;
       if (!isToolLikeInputItem(item)) return;
       toolLikeItems += 1;
       const callHint = typeof item.call_id === "string" ? toolCallHints.get(item.call_id) : undefined;
+      const addBinding = (binding: SegmentBinding): void => {
+        bindings.push(binding);
+        if (typeof item.id === "string" && item.id.trim()) frozenSegmentIds.add(binding.segmentId);
+      };
       if (typeof item.output === "string") {
         const id = `input-${itemIndex}-output`;
         segments.push(segmentForText({
@@ -350,7 +351,7 @@ function buildTurnContext(
           path: callHint?.path,
           toolName: callHint?.toolName,
         }));
-        bindings.push({
+        addBinding({
           segmentId: id,
           itemIndex,
           field: "output",
@@ -369,7 +370,7 @@ function buildTurnContext(
           path: callHint?.path,
           toolName: callHint?.toolName,
         }));
-        bindings.push({
+        addBinding({
           segmentId: id,
           itemIndex,
           field: "arguments",
@@ -388,7 +389,7 @@ function buildTurnContext(
           path: callHint?.path,
           toolName: callHint?.toolName,
         }));
-        bindings.push({
+        addBinding({
           segmentId: id,
           itemIndex,
           field: "content",
@@ -411,7 +412,7 @@ function buildTurnContext(
             path: callHint?.path,
             toolName: callHint?.toolName,
           }));
-          bindings.push({
+          addBinding({
             segmentId: id,
             itemIndex,
             field: "content",
@@ -442,6 +443,7 @@ function buildTurnContext(
       },
     },
     bindings,
+    frozenSegmentIds,
     diagnostics: {
       inputItems,
       toolLikeItems,
@@ -672,13 +674,14 @@ export async function applyBeforeCallReductionToPayload(params: {
   const startedAt = Date.now();
   try {
     const snapshot = await loadCodexSessionSnapshot(config.stateDir, sessionId);
-  const built = buildTurnContext(payload, sessionId, {
+    const built = buildTurnContext(payload, sessionId, {
     disclosedReadPaths: normalizeDisclosedReadPaths(snapshot?.disclosedReadPaths),
   });
-  const analyzerInstructions = buildAnalyzerReductionInstructions(built.turnCtx.segments, config);
-  const fallbackInstructions = buildCodexFallbackReductionInstructions(built.turnCtx.segments, config);
+  const ordinarySegments = built.turnCtx.segments.filter((segment) => !built.frozenSegmentIds.has(segment.id));
+  const analyzerInstructions = buildAnalyzerReductionInstructions(ordinarySegments, config);
+  const fallbackInstructions = buildCodexFallbackReductionInstructions(ordinarySegments, config);
   const localInstructions = dedupeReductionInstructions([...analyzerInstructions, ...fallbackInstructions]);
-  const turnCtx = withReductionPolicy(built.turnCtx, localInstructions);
+  const turnCtx = withReductionPolicy({ ...built.turnCtx, segments: ordinarySegments }, localInstructions);
   const { bindings } = built;
   const totalChars = turnCtx.segments.reduce((sum, segment) => sum + segment.text.length, 0);
   if (turnCtx.segments.length === 0 || totalChars < config.reduction.triggerMinChars) {
@@ -700,7 +703,11 @@ export async function applyBeforeCallReductionToPayload(params: {
     maxToolChars: config.reduction.maxToolChars,
     passOptions,
   }).filter((pass) => pass.phase === "before_call" && enabled.has(pass.id));
-  const { turnCtx: reducedCtx, report } = await runReductionBeforeCall({ turnCtx, passes });
+  const { turnCtx: reducedCtx, report } = await runReductionBeforeCall({
+    turnCtx,
+    passes,
+    frozenSegmentIds: built.frozenSegmentIds,
+  });
   const passEffects = summarizePassEffects(report);
   const changedSegmentIds = new Set<string>();
   for (const entry of report) {

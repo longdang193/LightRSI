@@ -32,12 +32,21 @@ test("resolveMemoryFaultRecover restores archived content across sessions", asyn
     });
 
     const result = await resolveMemoryFaultRecover({
-      dataKey: "segment:web-1-output",
+      artifactRef: (await archiveContent({
+        sessionId: "session-a",
+        segmentId: "segment-2",
+        sourcePass: "tool_payload_trim",
+        toolName: "web_fetch",
+        dataKey: "segment:web-1-output-2",
+        originalText: "recovered payload by ref",
+        archiveDir: join(dir, "tokenpilot", "tool-result-archives", "session-a"),
+      })).artifactRef,
       stateDir: dir,
     });
 
-    assert.match(result.text, /recovered payload/);
+    assert.match(result.text, /recovered payload by ref/);
     assert.equal(result.details.recovered, true);
+    assert.equal("archivePath" in result.details, false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -135,6 +144,15 @@ test("handleMcpRequest marks archive miss as tool error", async () => {
   assert.equal(response?.result?.isError, true);
   const content = response?.result?.content as Array<{ type: string; text: string }>;
   assert.match(content[0]?.text ?? "", /No archived content found/);
+  assert.doesNotMatch(content[0]?.text ?? "", /lightmem2-no-such-state/);
+});
+
+test("resolveMemoryFaultRecover requires exactly one opaque or legacy reference", async () => {
+  const neither = await resolveMemoryFaultRecover({});
+  assert.equal(neither.details.error, "invalid_recovery_reference");
+
+  const both = await resolveMemoryFaultRecover({ artifactRef: `artifact:v2:${"a".repeat(64)}`, dataKey: "legacy" });
+  assert.equal(both.details.error, "invalid_recovery_reference");
 });
 
 test("probeTokenPilotMcpServer completes initialize handshake", async () => {
