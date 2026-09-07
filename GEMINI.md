@@ -54,7 +54,10 @@ When spawning a subagent:
 - Use a fresh-context fork when selecting a different agent type.
 - Never override the template's model or reasoning effort.
 - Do not select unnamed or other agent types.
-- Subagents must not spawn other agents unless explicitly requested.
+- Agent delegation follows the current task Runtime Grant. Agents without
+  delegated child-agent authority must not spawn workers. MAIN AGENTS granted
+  delegation authority may autonomously spawn subordinate workers within their
+  assigned lane.
 
 These generic subagent rules do not govern MAIN AGENT lane ownership. CoS
 assigns top-level MAIN AGENTS through the repository-owned Herdr launcher.

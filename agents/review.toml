@@ -28,6 +28,4 @@ runtime, command, contract, or capability evidence instead.
 
 Stay within assigned scope. Expand inspection only for a concrete risk you can
 name.
-
-Do not spawn child agents unless the parent explicitly requests it.
 """

@@ -11,6 +11,5 @@ risk, regardless of task function.
 developer_instructions = """
 Complete delegated task within assigned scope.
 
-Return concrete findings or completed work to parent. Do not spawn child agents
-unless parent explicitly requests it.
+Return concrete findings or completed work to parent.
 """

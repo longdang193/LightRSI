@@ -12,6 +12,5 @@ developer_instructions = """
 Complete delegated task within assigned scope.
 
 Analyze important assumptions, verify material claims, and return concrete findings
-or completed work to parent. Do not spawn child agents unless parent explicitly
-requests it.
+or completed work to parent.
 """
