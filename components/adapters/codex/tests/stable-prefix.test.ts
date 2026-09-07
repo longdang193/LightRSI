@@ -288,8 +288,9 @@ test("Tura-shaped command_run schema stays in one cache family across turns", ()
 
   assert.equal(startup.metadata?.lightrsiCacheContractDigest, active.metadata?.lightrsiCacheContractDigest);
   assert.equal(active.metadata?.lightrsiCacheContractDigest, final.metadata?.lightrsiCacheContractDigest);
-  assert.equal(startup.metadata?.promptCacheKey, active.metadata?.promptCacheKey);
-  assert.equal(active.metadata?.promptCacheKey, final.metadata?.promptCacheKey);
+  assert.equal(startup.metadata?.promptCacheKey, "tura-startup-session-key");
+  assert.equal(active.metadata?.promptCacheKey, "tura-active-session-key");
+  assert.equal(final.metadata?.promptCacheKey, "tura-final-session-key");
 });
 
 test("cache contract ignores volatile Codex client metadata but preserves semantic options", () => {
@@ -738,7 +739,7 @@ test("prepareCodexStablePrefix preserves structured user bytes and deterministic
   assert.equal(preparedFirst.metadata?.promptCacheKey, preparedSecond.metadata?.promptCacheKey);
 });
 
-test("prepareCodexStablePrefix does not expose inbound prompt_cache_key", () => {
+test("prepareCodexStablePrefix preserves inbound prompt_cache_key", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {
       dynamicContextTarget: "developer",
@@ -778,13 +779,13 @@ test("prepareCodexStablePrefix does not expose inbound prompt_cache_key", () => 
     },
   }, config);
 
-  assert.match(String(prepared.metadata?.promptCacheKey ?? ""), /^lightrsi-family-[a-f0-9]{24}$/);
+  assert.equal(prepared.metadata?.promptCacheKey, "upstream-existing-key");
   assert.match(String(prepared.metadata?.frameworkStablePromptCacheKey ?? ""), /^lightrsi-codex-/);
   assert.equal(prepared.metadata?.originalPromptCacheKey, undefined);
   assert.equal(prepared.metadata?.promptCacheRetention, undefined);
 });
 
-test("prepareCodexStablePrefix converges inbound runtime keys to one family key", () => {
+test("prepareCodexStablePrefix preserves inbound keys while sharing framework family", () => {
   const config = normalizeTokenPilotCodexConfig({
     hooks: {
       dynamicContextTarget: "developer",
@@ -827,8 +828,8 @@ test("prepareCodexStablePrefix converges inbound runtime keys to one family key"
   const preparedA = prepareCodexStablePrefix(makeEnvelope("legacy-key-a"), config);
   const preparedB = prepareCodexStablePrefix(makeEnvelope("legacy-key-b"), config);
 
-  assert.match(String(preparedA.metadata?.promptCacheKey ?? ""), /^lightrsi-family-[a-f0-9]{24}$/);
-  assert.equal(preparedA.metadata?.promptCacheKey, preparedB.metadata?.promptCacheKey);
+  assert.equal(preparedA.metadata?.promptCacheKey, "legacy-key-a");
+  assert.equal(preparedB.metadata?.promptCacheKey, "legacy-key-b");
   assert.equal(preparedA.metadata?.originalPromptCacheKey, undefined);
   assert.equal(preparedB.metadata?.originalPromptCacheKey, undefined);
   assert.equal(

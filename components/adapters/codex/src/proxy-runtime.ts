@@ -163,7 +163,7 @@ function normalizeResponsesInputForUpstream(input: any): void {
     if (type === "function_call" && typeof item.arguments !== "string" && item.arguments != null) {
       item.arguments = JSON.stringify(item.arguments);
     }
-    if (type === "function_call_output" && typeof item.output !== "string" && item.output != null) {
+    if (type === "function_call_output" && typeof item.output !== "string" && item.output != null && !Array.isArray(item.output)) {
       item.output = JSON.stringify(item.output);
     }
   }

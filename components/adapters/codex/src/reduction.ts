@@ -154,7 +154,7 @@ export function normalizeResponsesInputForUpstream(input: any): void {
     if (type === "function_call" && typeof item.arguments !== "string") {
       item.arguments = stringifyStructuredValue(item.arguments);
     }
-    if (type === "function_call_output" && typeof item.output !== "string") {
+    if (type === "function_call_output" && item.output != null && !Array.isArray(item.output) && typeof item.output !== "string") {
       item.output = stringifyStructuredValue(item.output);
     }
   }
@@ -309,6 +309,9 @@ function buildTurnContext(
   const toolCallHints = new Map<string, { toolName?: string; path?: string }>();
   let inputItems = 0;
   let toolLikeItems = 0;
+  const latestUserIndex = Array.isArray(payload?.input)
+    ? payload.input.findLastIndex((item: any) => String(item?.role ?? "").toLowerCase() === "user")
+    : -1;
   if (Array.isArray(payload?.input)) {
     payload.input.forEach((item: any, itemIndex: number) => {
       if (!item || typeof item !== "object") return;
@@ -326,6 +329,12 @@ function buildTurnContext(
           });
         }
       }
+      if (itemIndex < latestUserIndex) return;
+      if (
+        String(item.type ?? "").toLowerCase() === "function_call_output"
+        && typeof item.id === "string"
+        && item.id.trim()
+      ) return;
       if (!isToolLikeInputItem(item)) return;
       toolLikeItems += 1;
       const callHint = typeof item.call_id === "string" ? toolCallHints.get(item.call_id) : undefined;

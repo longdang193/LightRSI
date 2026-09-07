@@ -37,11 +37,16 @@ after(async () => {
   }
 });
 
-test("normalizeResponsesInputForUpstream stringifies structured function payloads", () => {
+test("normalizeResponsesInputForUpstream preserves structured output blocks", () => {
+  const outputBlocks = [{ type: "input_text", text: "ok" }];
   const input: any[] = [
     {
       type: "function_call",
       arguments: { command: "git status" },
+    },
+    {
+      type: "function_call_output",
+      output: outputBlocks,
     },
     {
       type: "function_call_output",
@@ -52,7 +57,8 @@ test("normalizeResponsesInputForUpstream stringifies structured function payload
   normalizeResponsesInputForUpstream(input);
 
   assert.equal(input[0].arguments, "{\"command\":\"git status\"}");
-  assert.equal(input[1].output, "{\"stdout\":\"ok\"}");
+  assert.equal(input[1].output, outputBlocks);
+  assert.equal(input[2].output, "{\"stdout\":\"ok\"}");
 });
 
 test("applyBeforeCallReductionToPayload skips below-threshold payloads", async () => {
@@ -162,6 +168,52 @@ test("reduceCodexRequestEnvelope trims large tool output and preserves developer
   assert.equal(reduced.envelope.metadata?.localMarker, "keep");
   assert.notEqual(reduced.envelope.metadata?.inputText, "stale");
   assert.deepEqual((reduced.envelope.rawPayload as any).input, encoded.input);
+});
+
+test("reduction preserves serialized history items and trims only new tool output", async () => {
+  const config = normalizeTokenPilotCodexConfig({
+    reduction: {
+      triggerMinChars: 256,
+      maxToolChars: 400,
+      passes: {
+        readStateCompaction: false,
+        toolPayloadTrim: true,
+        htmlSlimming: false,
+        execOutputTruncation: true,
+        agentsStartupOptimization: false,
+      },
+      passOptions: {
+        execOutputTruncation: {
+          toolThresholds: { bash: 400 },
+        },
+      },
+    },
+  });
+  const oldOutput = `OLD\n${"line\n".repeat(600)}`;
+  const newOutput = `NEW\n${"line\n".repeat(600)}`;
+  const payload: any = {
+    model: "tokenpilot/gpt-5.4-mini",
+    input: [
+      { role: "user", content: "previous turn" },
+      { type: "function_call", call_id: "old-call", name: "bash", arguments: "{}" },
+      { type: "function_call_output", call_id: "old-call", output: oldOutput },
+      { role: "user", content: "current turn" },
+      { type: "function_call", call_id: "new-call", name: "bash", arguments: "{}" },
+      { type: "function_call_output", id: "accepted-output", call_id: "old-call-2", output: oldOutput },
+      { type: "function_call_output", call_id: "new-call", output: newOutput },
+    ],
+  };
+
+  const summary = await applyBeforeCallReductionToPayload({
+    payload,
+    sessionId: "history-prefix-stability",
+    config,
+  });
+
+  assert.ok(summary.changedBlocks > 0);
+  assert.equal(payload.input[2].output, oldOutput);
+  assert.equal(payload.input[5].output, oldOutput);
+  assert.notEqual(payload.input[6].output, newOutput);
 });
 
 test("applyBeforeCallReductionToPayload reuses disclosed read paths from session snapshot", async () => {

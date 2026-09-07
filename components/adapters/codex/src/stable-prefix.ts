@@ -219,7 +219,11 @@ export function prepareCodexStablePrefix(
     rawPayload: envelope.rawPayload,
   });
   const cacheFamilyId = `lightrsi-family-${nextPromptCacheKey.slice("lightrsi-codex-".length)}`;
-  const outboundPromptCacheKey = cacheFamilyId;
+  const inboundPromptCacheKey = typeof envelope.metadata?.promptCacheKey === "string"
+    && envelope.metadata.promptCacheKey.trim()
+    ? envelope.metadata.promptCacheKey
+    : undefined;
+  const outboundPromptCacheKey = inboundPromptCacheKey ?? cacheFamilyId;
 
   const nextMetadata: Record<string, unknown> = {
     ...(rewrittenEnvelope.metadata ?? {}),
