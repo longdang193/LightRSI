@@ -314,7 +314,7 @@ pnpm --dir components/adapters/codex run build
 pnpm --dir components/adapters/codex run install:codex
 ```
 
-The expected handler path is `components/adapters/codex/dist/hooks-handler.js`. On Windows, the installer generates `dist/tokenpilot-codex-hook.cmd`; it is ignored build output and resolves the handler relative to its own location. Rebuild after pulling adapter changes; do not edit that file by hand. The handler uses bounded iterative traversal for large or deeply nested tool results, and observation write failures are best-effort so they do not fail a successful Codex tool call.
+The installed handler path is `~/.local/share/lightrsi/codex-adapter/dist/hooks-handler.js`. On Windows, the installer generates `~/.local/share/lightrsi/codex-adapter/dist/tokenpilot-codex-hook.cmd`; these are runtime artifacts and resolve independently of the source checkout. Rebuild after pulling adapter changes; do not edit generated files by hand. The handler uses bounded iterative traversal for large or deeply nested tool results, and observation write failures are best-effort so they do not fail a successful Codex tool call.
 
 ## Package Scripts
 

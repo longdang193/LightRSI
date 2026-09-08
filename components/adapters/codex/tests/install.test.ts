@@ -141,7 +141,9 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
     assert.match(codexToml, /startup_timeout_sec\s*=\s*90/);
     assert.equal(codexToml.includes(`command = ${JSON.stringify(result.expectedMcpCommand)}`), true);
     assert.equal(result.expectedMcpArgs.length, 1);
-    assert.match(result.expectedMcpArgs[0] ?? "", /dist[\/\\]server\.js$/);
+    assert.match(result.expectedMcpArgs[0] ?? "", /dist[\/\\]mcp-server\.js$/);
+    const runtimeDistDir = join(dir, ".local", "share", "lightrsi", "codex-adapter", "dist");
+    assert.equal(result.expectedMcpArgs[0], join(runtimeDistDir, "mcp-server.js"));
     for (const arg of result.expectedMcpArgs) {
       assert.equal(codexToml.includes(JSON.stringify(arg)), true);
     }
@@ -162,8 +164,8 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
     assert.equal(result.cliBinDirOnPath, false);
     assert.equal(result.hostCliBinPath, join(cliBinDir, "tokenpilot-codex"));
     const allowRegularFile = process.platform === "win32";
-    await assertInstalledCliLink(result.cliBinPath, /products[\/\\]cli[\/\\]dist[\/\\]cli\.js$/, allowRegularFile);
-    await assertInstalledCliLink(result.hostCliBinPath!, /adapters[\/\\]codex[\/\\]dist[\/\\]cli\.js$/, allowRegularFile);
+    await assertInstalledCliLink(result.cliBinPath, /codex-adapter[\/\\]dist[\/\\]lightrsi\.js$/, allowRegularFile);
+    await assertInstalledCliLink(result.hostCliBinPath!, /codex-adapter[\/\\]dist[\/\\]cli\.js$/, allowRegularFile);
     const tokenPilotConfig = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
     assert.equal(tokenPilotConfig.enabled, true);
     assert.equal(tokenPilotConfig.upstreamProvider, "OPENAI");
@@ -186,6 +188,7 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
     const skillRaw = await readFile(join(result.commandSkillsDir, "lightrsi-report", "SKILL.md"), "utf8");
     assert.match(skillRaw, /lightrsi codex report/);
     assert.match(skillRaw, /node/);
+    assert.match(skillRaw, /codex-adapter(?:\\\\|\/)dist(?:\\\\|\/)lightrsi\.js/);
     const policyRaw = await readFile(join(result.commandSkillsDir, "lightrsi-report", "agents", "openai.yaml"), "utf8");
     assert.match(policyRaw, /allow_implicit_invocation:\s*false/);
   } finally {
@@ -613,18 +616,20 @@ test("resolveCodexHookCommandForInstall finds the adapter root from the bundled 
   const repoRoot = resolve(__dirname, "..", "..", "..", "..");
   const bundledCliModuleDir = join(repoRoot, "components", "products", "cli", "dist");
   const adapterDistDir = join(repoRoot, "components", "adapters", "codex", "dist");
+  const hookRuntimeDir = join(installSuiteHome, ".local", "share", "lightrsi", "codex-adapter");
   const originalCwd = process.cwd();
   try {
     process.chdir(dirname(repoRoot));
     const windowsCommand = await resolveCodexHookCommandForInstall("win32", bundledCliModuleDir);
     assert.deepEqual(parseGeneratedShellCommand(windowsCommand), [
-      join(adapterDistDir, "tokenpilot-codex-hook.cmd"),
+      join(hookRuntimeDir, "dist", "tokenpilot-codex-hook.cmd"),
     ]);
+    assert.equal(await readFile(join(hookRuntimeDir, "dist", "hooks-handler.js"), "utf8"), await readFile(join(adapterDistDir, "hooks-handler.js"), "utf8"));
 
     const posixCommand = await resolveCodexHookCommandForInstall("linux", bundledCliModuleDir);
     assert.deepEqual(parseGeneratedShellCommand(posixCommand), [
       process.execPath,
-      join(adapterDistDir, "hooks-handler.js"),
+      join(hookRuntimeDir, "dist", "hooks-handler.js"),
     ]);
   } finally {
     process.chdir(originalCwd);

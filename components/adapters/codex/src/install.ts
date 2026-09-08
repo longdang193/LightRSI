@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createServer } from "node:net";
+import { userHomeDirectory } from "@lightrsi/host-adapter";
 import { LIGHTRSI_VERSION } from "@lightrsi/kernel";
 import {
   DEFAULT_TOKENPILOT_MCP_INSTALL_PROBE_TIMEOUT_MS,
@@ -251,6 +252,40 @@ function hookScriptPath(adapterRoot: string): string {
   return join(adapterRoot, "dist", "hooks-handler.js");
 }
 
+function codexRuntimeRoot(): string {
+  return join(userHomeDirectory(), ".local", "share", "lightrsi", "codex-adapter");
+}
+
+function runtimeDistPath(fileName: string): string {
+  return join(codexRuntimeRoot(), "dist", fileName);
+}
+
+async function installCodexRuntime(adapterRoot: string): Promise<string> {
+  const runtimeRoot = codexRuntimeRoot();
+  const runtimeDist = join(runtimeRoot, "dist");
+  const productCliPath = resolve(adapterRoot, "..", "..", "products", "cli", "dist", "cli.js");
+  const productMcpPath = resolve(adapterRoot, "..", "..", "products", "mcp", "dist", "server.js");
+  const sourceFiles = [
+    ["index.js", join(adapterRoot, "dist", "index.js")],
+    ["cli.js", join(adapterRoot, "dist", "cli.js")],
+    ["install-codex.js", join(adapterRoot, "dist", "install-codex.js")],
+    ["hooks-handler.js", join(adapterRoot, "dist", "hooks-handler.js")],
+    ["mcp-server.js", join(adapterRoot, "dist", "mcp-server.js")],
+    ["mcp-server.js", productMcpPath],
+    ["lightrsi.js", join(adapterRoot, "dist", "lightrsi.js")],
+    ["lightrsi.js", productCliPath],
+    ["lightmem2.js", join(adapterRoot, "dist", "lightmem2.js")],
+    ["lightmem2.js", productCliPath],
+  ] as const;
+  await mkdir(runtimeDist, { recursive: true });
+  for (const [fileName, sourcePath] of sourceFiles) {
+    const destinationPath = join(runtimeDist, fileName);
+    if (!existsSync(destinationPath) && !existsSync(sourcePath)) continue;
+    if (existsSync(sourcePath)) await copyFile(sourcePath, destinationPath);
+  }
+  return runtimeRoot;
+}
+
 async function ensureWindowsHookWrapper(adapterRoot: string): Promise<string> {
   const wrapperPath = hookWrapperPath(adapterRoot);
   await mkdir(dirname(wrapperPath), { recursive: true });
@@ -263,10 +298,11 @@ async function ensureWindowsHookWrapper(adapterRoot: string): Promise<string> {
 }
 
 async function tokenPilotHookCommand(adapterRoot: string, platform = process.platform): Promise<string> {
+  const runtimeRoot = await installCodexRuntime(adapterRoot);
   if (platform === "win32") {
-    return shellQuote(await ensureWindowsHookWrapper(adapterRoot), "win32");
+    return shellQuote(await ensureWindowsHookWrapper(runtimeRoot), "win32");
   }
-  return `${shellQuote(process.execPath, platform)} ${shellQuote(hookScriptPath(adapterRoot), platform)}`;
+  return `${shellQuote(process.execPath, platform)} ${shellQuote(hookScriptPath(runtimeRoot), platform)}`;
 }
 
 export async function resolveCodexHookCommandForInstall(
@@ -281,7 +317,9 @@ export function resolveCodexMcpServerSpecForInstall(stateDir: string): TokenPilo
     stateDir,
     requireBuild: false,
   });
-  const bundledEntryPath = join(adapterRootFromHere(), "dist", "mcp-server.js");
+  const bundledEntryPath = existsSync(runtimeDistPath("mcp-server.js"))
+    ? runtimeDistPath("mcp-server.js")
+    : join(adapterRootFromHere(), "dist", "mcp-server.js");
   return existsSync(bundledEntryPath)
     ? { ...fallback, args: [bundledEntryPath], entryPath: bundledEntryPath }
     : fallback;
@@ -292,7 +330,9 @@ export function resolveCodexMcpServerSpecForProbe(stateDir: string): TokenPilotM
     stateDir,
     requireBuild: false,
   });
-  const bundledEntryPath = join(adapterRootFromHere(), "dist", "mcp-server.js");
+  const bundledEntryPath = existsSync(runtimeDistPath("mcp-server.js"))
+    ? runtimeDistPath("mcp-server.js")
+    : join(adapterRootFromHere(), "dist", "mcp-server.js");
   return existsSync(bundledEntryPath)
     ? { ...fallback, command: process.execPath, args: [bundledEntryPath], entryPath: bundledEntryPath }
     : fallback;
@@ -409,6 +449,8 @@ export async function installCodexTokenPilot(params?: {
   const tokenPilotConfig = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
   const previousProxyPort = tokenPilotConfig.proxyPort;
   const commandSkillsDir = defaultCodexSkillBridgeDir(dirname(codexConfigPath));
+  const adapterRoot = adapterRootFromHere();
+  const runtimeRoot = await installCodexRuntime(adapterRoot);
   const stoppedDaemon = await stopDaemon(tokenPilotConfig).catch(() => undefined);
   tokenPilotConfig.proxyPort = await resolveAvailableCodexProxyPort(tokenPilotConfig.proxyPort, {
     waitForPreferredMs: stoppedDaemon?.stopped ? 1_000 : 0,
@@ -473,23 +515,23 @@ export async function installCodexTokenPilot(params?: {
   if (hooksInstalled) {
     await installHooksJson({
       hooksConfigPath,
-      adapterRoot: adapterRootFromHere(),
+      adapterRoot: runtimeRoot,
       platform: params?.platform,
     });
   }
   const commandSkillBridge = await installCommandSkillBridge({
-    adapterRoot: adapterRootFromHere(),
+    adapterRoot: runtimeRoot,
     skillsDir: commandSkillsDir,
     host: "codex",
     style: "codex",
   });
   const cliBin = await installLightRsiCliBin({
-    adapterRoot: adapterRootFromHere(),
+    adapterRoot: runtimeRoot,
     binDir: params?.cliBinDir,
   });
   const hostCliBin = cliBin.installed
     ? await installHostCliBin({
-      adapterRoot: adapterRootFromHere(),
+      adapterRoot: runtimeRoot,
       host: "codex",
       binDir: cliBin.binDir,
     })
