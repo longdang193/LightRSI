@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { userHomeDirectory } from "@lightrsi/host-adapter";
@@ -278,6 +278,7 @@ async function installCodexRuntime(adapterRoot: string): Promise<string> {
     ["lightmem2.js", productCliPath],
   ] as const;
   await mkdir(runtimeDist, { recursive: true });
+  await chmod(productCliPath, 0o755).catch(() => undefined);
   for (const [fileName, sourcePath] of sourceFiles) {
     const destinationPath = join(runtimeDist, fileName);
     if (!existsSync(destinationPath) && !existsSync(sourcePath)) continue;

@@ -50,7 +50,7 @@ async function waitForGatewayHealthy(config: TokenPilotClaudeCodeConfig, params?
   intervalMs?: number;
   pid?: number;
 }): Promise<boolean> {
-  const timeoutMs = params?.timeoutMs ?? 5_000;
+  const timeoutMs = params?.timeoutMs ?? 10_000;
   const intervalMs = params?.intervalMs ?? 150;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
