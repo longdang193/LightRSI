@@ -61,7 +61,7 @@ async function readProcessCommandLine(pid: number): Promise<string | undefined> 
     if (process.platform === "win32") {
       const command = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}'; if ($p) { $p.CommandLine }`;
       return (await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], {
-        timeout: 1_000,
+        timeout: 5_000,
         windowsHide: true,
       })).stdout.trim();
     }
