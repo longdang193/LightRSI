@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -427,5 +427,153 @@ test("upstream resolves bare 9Router model names from its live catalog", async (
     assert.equal(forwardedModel, "cx/gpt-5.6-sol");
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("upstream adapts successful Chat Completions JSON into Responses JSON", async () => {
+  const server = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+    }
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({
+      id: "chatcmpl-fixture",
+      object: "chat.completion",
+      created: 1780000000,
+      model: "fixture-model",
+      choices: [{
+        index: 0,
+        message: {
+          role: "assistant",
+          content: "OK",
+          tool_calls: [{
+            id: "call_fixture",
+            type: "function",
+            function: { name: "read_file", arguments: "{\"path\":\"package.json\"}" },
+          }],
+        },
+        finish_reason: "stop",
+      }],
+      usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
+    }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  try {
+    const response = await requestUpstreamResponses({
+      upstream: { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses", requiresOpenAIAuth: false },
+      payload: { model: "fixture-model", input: [{ role: "user", content: "test" }] },
+    });
+    const body = JSON.parse(response.text) as Record<string, any>;
+    assert.equal(response.status, 200);
+    assert.equal(body.object, "response");
+    assert.equal(body.output[0].type, "message");
+    assert.equal(body.output[0].content[0].text, "OK");
+    assert.equal(body.output[1].type, "function_call");
+    assert.equal(body.output[1].call_id, "call_fixture");
+    assert.equal(body.output[1].name, "read_file");
+    assert.equal(body.output[1].arguments, '{"path":"package.json"}');
+    assert.equal(body.usage.input_tokens, 3);
+    assert.equal(body.usage.output_tokens, 2);
+    assert.equal(body.usage.total_tokens, 5);
+    assert.equal("prompt_tokens" in body.usage, false);
+    assert.equal("completion_tokens" in body.usage, false);
+    assert.equal("choices" in body, false);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("upstream traces correlated HTTP responses without provider secrets", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-upstream-trace-response-"));
+  const server = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+    }
+    res.statusCode = 503;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ error: { message: "provider unavailable" } }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  try {
+    const response = await requestUpstreamResponses({
+      requestId: "upstream-response-trace",
+      stateDir,
+      upstream: {
+        baseUrl: `http://127.0.0.1:${address.port}/v1`,
+        apiKey: "provider-secret",
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      payload: { model: "gpt-fixture", input: [{ role: "user", content: "test" }] },
+    });
+    assert.equal(response.status, 503);
+    const rows = (await readFile(join(stateDir, "event-trace.jsonl"), "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const trace = rows.find((entry) => entry.stage === "upstream_response");
+    assert.equal(trace?.requestId, "upstream-response-trace");
+    assert.equal(trace?.status, 503);
+    assert.equal(trace?.model, "gpt-fixture");
+    assert.match(String(trace?.upstreamEndpointId), /^sha256:/);
+    assert.equal(trace?.stream, false);
+    assert.doesNotMatch(JSON.stringify(trace), /secret|api_key|user:/i);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("upstream traces correlated transport errors with sanitized messages", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-upstream-trace-error-"));
+  const port = await new Promise<number>((resolve) => {
+    const server = createServer();
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+      server.close(() => resolve(address.port));
+    });
+  });
+  try {
+    await assert.rejects(
+      requestUpstreamResponses({
+        requestId: "upstream-transport-trace",
+        stateDir,
+        upstream: {
+          baseUrl: `http://127.0.0.1:${port}/v1`,
+          apiKey: "provider-secret",
+          wireApi: "responses",
+          requiresOpenAIAuth: false,
+        },
+        payload: { model: "gpt-fixture", input: [{ role: "user", content: "test" }] },
+      }),
+    );
+    const rows = (await readFile(join(stateDir, "event-trace.jsonl"), "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const trace = rows.find((entry) => entry.stage === "upstream_transport_error");
+    assert.equal(trace?.requestId, "upstream-transport-trace");
+    assert.equal(trace?.status, null);
+    assert.equal(typeof trace?.errorClass, "string");
+    assert.equal(typeof trace?.errorMessage, "string");
+    assert.doesNotMatch(JSON.stringify(trace), /secret|api_key|user:/i);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
   }
 });

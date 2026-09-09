@@ -838,6 +838,7 @@ export async function startCodexResponsesProxy(params: {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+      const requestId = requestJournalEntry?.requestId ?? randomUUID();
 
       let rebaseRequest: CodexRebaseRequestResult | undefined;
       let rebasePlanId: string | undefined;
@@ -1418,6 +1419,7 @@ export async function startCodexResponsesProxy(params: {
       });
       await appendTrace(config.stateDir, {
         stage: "proxy_before_call",
+        requestId,
         sessionId,
         model,
         stream: payload.stream === true,
@@ -1455,6 +1457,7 @@ export async function startCodexResponsesProxy(params: {
           const response = countUpstreamResponse(await requestUpstreamResponses({
             upstream,
             payload: nextPayload,
+            requestId,
             inboundAuthorization: authorization,
             lightmem2CacheContractDigest:
               typeof prepared.envelope.metadata?.lightrsiCacheContractDigest === "string"
@@ -2017,6 +2020,7 @@ export async function startCodexResponsesProxy(params: {
             }),
             appendTrace(config.stateDir, {
               stage: "proxy_after_call",
+              requestId,
               sessionId,
               model,
               status: paramsForRecord.status,
@@ -2069,6 +2073,7 @@ export async function startCodexResponsesProxy(params: {
           upstreamResp = countUpstreamResponse(await requestUpstreamResponsesStream({
             upstream,
             payload,
+            requestId,
             inboundAuthorization: authorization,
             lightmem2CacheContractDigest:
               typeof prepared.envelope.metadata?.lightrsiCacheContractDigest === "string"
@@ -2115,6 +2120,7 @@ export async function startCodexResponsesProxy(params: {
           } catch (recordError) {
             void appendTrace(config.stateDir, {
               stage: "proxy_after_call",
+              requestId,
               sessionId,
               model,
               status: upstreamResp.status,
@@ -2231,6 +2237,7 @@ export async function startCodexResponsesProxy(params: {
       });
       await appendTrace(config.stateDir, {
         stage: "proxy_after_call",
+        requestId,
         sessionId,
         model,
         status: upstreamResp.status,

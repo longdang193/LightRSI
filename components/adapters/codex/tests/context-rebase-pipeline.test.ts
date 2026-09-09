@@ -1300,6 +1300,7 @@ test("CDH-02 proxy journal and trace keep interrupted 2xx streams incomplete", a
       .split(/\r?\n/)
       .map((line) => JSON.parse(line) as JsonObject);
     const afterCall = traceRows.findLast((entry) => entry.stage === "proxy_after_call");
+    assert.equal(typeof afterCall?.requestId, "string");
     assert.equal(afterCall?.completed, false);
     assert.equal(afterCall?.streamStatus, "incomplete");
   } finally {

@@ -1,8 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { readJsonFile, writeJsonFileAtomic } from "@lightrsi/host-adapter";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
 import type { CodexProviderConfig } from "./config.js";
+import { codexRebaseEndpointIdentity } from "./context-rewrite/rebase-capability.js";
+import { appendTrace } from "./trace.js";
 
 export type UpstreamHttpResponse = {
   status: number;
@@ -131,6 +134,172 @@ function endpointFor(upstream: CodexProviderConfig): string {
   if (base.endsWith("/v1")) return `${base}/responses`;
   if (base.endsWith("/v1/responses")) return base;
   return `${base}/v1/responses`;
+}
+
+function responseText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const value = part as Record<string, unknown>;
+      return typeof value.text === "string" ? value.text : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function responsesUsage(usage: unknown): Record<string, unknown> | undefined {
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return undefined;
+  const source = usage as Record<string, unknown>;
+  const result: Record<string, unknown> = {
+    input_tokens: source.input_tokens ?? source.prompt_tokens,
+    output_tokens: source.output_tokens ?? source.completion_tokens,
+    total_tokens: source.total_tokens,
+  };
+  if (source.prompt_tokens_details && typeof source.prompt_tokens_details === "object") {
+    result.input_tokens_details = source.prompt_tokens_details;
+  }
+  if (source.completion_tokens_details && typeof source.completion_tokens_details === "object") {
+    result.output_tokens_details = source.completion_tokens_details;
+  }
+  return result;
+}
+
+function normalizeChatCompletionResponse(text: string): string {
+  let source: Record<string, unknown>;
+  try {
+    source = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return text;
+  }
+  if (!Array.isArray(source.choices) || Array.isArray(source.output)) return text;
+
+  const output: Array<Record<string, unknown>> = [];
+  for (const [choiceIndex, choice] of source.choices.entries()) {
+    if (!choice || typeof choice !== "object") continue;
+    const message = (choice as Record<string, unknown>).message;
+    if (!message || typeof message !== "object") continue;
+    const messageRecord = message as Record<string, unknown>;
+    const messageId = typeof source.id === "string" ? `msg_${source.id}_${choiceIndex}` : `msg_${choiceIndex}`;
+    const textContent = responseText(messageRecord.content);
+    const content = textContent ? [{ type: "output_text", text: textContent, annotations: [] }] : [];
+    if (content.length > 0 || !Array.isArray(messageRecord.tool_calls)) {
+      output.push({
+        id: messageId,
+        type: "message",
+        status: "completed",
+        role: "assistant",
+        content,
+      });
+    }
+    if (Array.isArray(messageRecord.tool_calls)) {
+      for (const [toolIndex, toolCall] of messageRecord.tool_calls.entries()) {
+        if (!toolCall || typeof toolCall !== "object") continue;
+        const toolRecord = toolCall as Record<string, unknown>;
+        const functionRecord = toolRecord.function && typeof toolRecord.function === "object"
+          ? toolRecord.function as Record<string, unknown>
+          : {};
+        const callId = typeof toolRecord.id === "string" ? toolRecord.id : `call_${choiceIndex}_${toolIndex}`;
+        output.push({
+          id: `fc_${callId}`,
+          type: "function_call",
+          status: "completed",
+          call_id: callId,
+          name: typeof functionRecord.name === "string" ? functionRecord.name : "",
+          arguments: typeof functionRecord.arguments === "string" ? functionRecord.arguments : "{}",
+        });
+      }
+    }
+  }
+
+  return JSON.stringify({
+    id: typeof source.id === "string" ? `resp_${source.id}` : `resp_${Date.now()}`,
+    object: "response",
+    created_at: typeof source.created === "number" ? source.created : Math.floor(Date.now() / 1000),
+    status: "completed",
+    model: typeof source.model === "string" ? source.model : undefined,
+    output,
+    usage: responsesUsage(source.usage),
+  });
+}
+
+function sanitizeUpstreamErrorMessage(error: unknown, upstream: CodexProviderConfig): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(endpointFor(upstream), "[upstream]")
+    .replace(/https?:\/\/[^\s]+/gi, "[url]")
+    .slice(0, 240);
+}
+
+async function appendUpstreamTrace(
+  params: {
+    stateDir?: string;
+    requestId?: string;
+    upstream: CodexProviderConfig;
+    payload: any;
+  },
+  details: Record<string, unknown>,
+): Promise<void> {
+  if (!params.stateDir || !params.requestId) return;
+  try {
+    await appendTrace(params.stateDir, {
+      requestId: params.requestId,
+      model: typeof params.payload?.model === "string" ? params.payload.model : null,
+      upstreamEndpointId: codexRebaseEndpointIdentity(endpointFor(params.upstream)),
+      ...details,
+    });
+  } catch {
+  }
+}
+
+async function sendUpstreamRequest(
+  params: {
+    upstream: CodexProviderConfig;
+    inboundAuthorization?: string;
+    lightmem2CacheContractDigest?: string;
+    stateDir?: string;
+    requestId?: string;
+    signal?: AbortSignal;
+  },
+  payload: any,
+  attempt: number,
+  stream: boolean,
+): Promise<Response> {
+  const startedAt = performance.now();
+  try {
+    const response = await fetch(endpointFor(params.upstream), {
+      method: "POST",
+      headers: requestHeaders(params),
+      body: JSON.stringify(payload),
+      signal: params.signal,
+    });
+    await appendUpstreamTrace({ ...params, payload }, {
+      stage: "upstream_response",
+      stream,
+      status: response.status,
+      ok: response.ok,
+      transportAttempt: attempt,
+      elapsedMs: performance.now() - startedAt,
+      responseBodyAvailable: Boolean(response.body),
+      responseContentLength: Number(response.headers.get("content-length")) || null,
+    });
+    return response;
+  } catch (error) {
+    await appendUpstreamTrace({ ...params, payload }, {
+      stage: "upstream_transport_error",
+      stream,
+      status: null,
+      transportAttempt: attempt,
+      elapsedMs: performance.now() - startedAt,
+      errorClass: error instanceof Error ? error.name : "unknown",
+      errorMessage: sanitizeUpstreamErrorMessage(error, params.upstream),
+      errorCode: error && typeof error === "object" && "code" in error
+        ? (typeof error.code === "string" ? error.code : null)
+        : null,
+    });
+    throw error;
+  }
 }
 
 function upstreamApiKey(upstream: CodexProviderConfig, inboundAuthorization?: string): string {
@@ -315,17 +484,13 @@ export async function requestUpstreamResponses(params: {
   inboundAuthorization?: string;
   lightmem2CacheContractDigest?: string;
   stateDir?: string;
+  requestId?: string;
   signal?: AbortSignal;
 }): Promise<UpstreamHttpResponse> {
   let transportFetches = 0;
   const send = (payload: any) => {
     transportFetches += 1;
-    return fetch(endpointFor(params.upstream), {
-    method: "POST",
-    headers: requestHeaders(params),
-    body: JSON.stringify(payload),
-    signal: params.signal,
-    });
+    return sendUpstreamRequest(params, payload, transportFetches, false);
   };
   let payload = await resolveNineRouterPayloadModel(
     clonePayloadWithoutUnsupportedFields(params.payload, new Set()),
@@ -351,6 +516,7 @@ export async function requestUpstreamResponses(params: {
       }
     }
   }
+  if (resp.ok) text = normalizeChatCompletionResponse(text);
   return {
     status: resp.status,
     headers: headersFrom(resp),
@@ -365,17 +531,13 @@ export async function requestUpstreamResponsesStream(params: {
   inboundAuthorization?: string;
   lightmem2CacheContractDigest?: string;
   stateDir?: string;
+  requestId?: string;
   signal?: AbortSignal;
 }): Promise<UpstreamStreamResponse> {
   let transportFetches = 0;
   const send = (payload: any) => {
     transportFetches += 1;
-    return fetch(endpointFor(params.upstream), {
-    method: "POST",
-    headers: requestHeaders(params),
-    body: JSON.stringify(payload),
-    signal: params.signal,
-    });
+    return sendUpstreamRequest(params, payload, transportFetches, true);
   };
   let payload = await resolveNineRouterPayloadModel(
     clonePayloadWithoutUnsupportedFields(params.payload, new Set()),
