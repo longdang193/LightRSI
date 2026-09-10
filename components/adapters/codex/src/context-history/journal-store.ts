@@ -1,5 +1,6 @@
-import { readFile, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { TextDecoder } from "node:util";
 import {
   CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA,
   CODEX_CONTEXT_HISTORY_RESPONSE_SCHEMA,
@@ -21,6 +22,21 @@ export type CodexContextHistoryJournalReadResult = {
 };
 
 export const MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES = 16 * 1024 * 1024;
+
+const MAX_JOURNAL_CACHE_SESSIONS = 128;
+const MAX_JOURNAL_CACHE_BYTES = 8 * 1024 * 1024;
+const JOURNAL_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+
+type JournalCacheEntry = {
+  identity: string;
+  size: number;
+  entries: CodexContextHistoryJournalEntry[];
+  malformedLineCount: number;
+  lastAccess: number;
+};
+
+const journalCache = new Map<string, JournalCacheEntry>();
+const journalReadQueues = new Map<string, Promise<void>>();
 
 export type CodexContextHistoryJournalLineParseResult =
   | { status: "valid"; entry: CodexContextHistoryJournalEntry }
@@ -264,14 +280,62 @@ function errorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-export async function readCodexContextHistoryJournal(
+function fileIdentity(metadata: { dev: number; ino: number; birthtimeMs: number }): string {
+  return `${metadata.dev}:${metadata.ino}:${metadata.birthtimeMs}`;
+}
+
+function cacheBytes(): number {
+  let total = 0;
+  for (const entry of journalCache.values()) total += entry.size;
+  return total;
+}
+
+function cacheJournal(path: string, value: Omit<JournalCacheEntry, "lastAccess">): void {
+  if (value.size > MAX_JOURNAL_CACHE_BYTES) {
+    journalCache.delete(path);
+    return;
+  }
+  journalCache.set(path, { ...value, lastAccess: Date.now() });
+  while (journalCache.size > MAX_JOURNAL_CACHE_SESSIONS || cacheBytes() > MAX_JOURNAL_CACHE_BYTES) {
+    const oldest = [...journalCache.entries()].sort((left, right) => left[1].lastAccess - right[1].lastAccess)[0];
+    if (!oldest) break;
+    journalCache.delete(oldest[0]);
+  }
+}
+
+function cachedRead(entry: JournalCacheEntry): CodexContextHistoryJournalReadResult {
+  entry.lastAccess = Date.now();
+  return {
+    entries: entry.entries,
+    malformedLineCount: entry.malformedLineCount,
+  };
+}
+
+async function readJournalAppend(path: string, offset: number, size: number): Promise<string | undefined> {
+  const handle = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(size - offset);
+    await handle.read(buffer, 0, buffer.length, offset);
+    try {
+      return JOURNAL_UTF8_DECODER.decode(buffer);
+    } catch {
+      return undefined;
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readCodexContextHistoryJournalUnserialized(
   stateDir: string,
   sessionId: string,
 ): Promise<CodexContextHistoryJournalReadResult> {
   const path = codexContextHistoryJournalPath(stateDir, sessionId);
+  let metadata: Awaited<ReturnType<typeof stat>>;
   try {
-    const metadata = await stat(path);
+    metadata = await stat(path);
     if (metadata.size > MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES) {
+      journalCache.delete(path);
       return {
         entries: [],
         malformedLineCount: 0,
@@ -287,23 +351,72 @@ export async function readCodexContextHistoryJournal(
         readError: error instanceof Error ? error.message : String(error),
       };
     }
+    journalCache.delete(path);
+    return { entries: [], malformedLineCount: 0 };
   }
 
-  let raw: string;
-  try {
-    raw = await readFile(path, "utf8");
-  } catch (error) {
-    if (errorCode(error) === "ENOENT") {
-      return { entries: [], malformedLineCount: 0 };
+  const identity = fileIdentity(metadata);
+  const cached = journalCache.get(path);
+  if (cached && cached.identity === identity && cached.malformedLineCount === 0) {
+    if (metadata.size === cached.size) return cachedRead(cached);
+    if (metadata.size > cached.size) {
+      const appended = await readJournalAppend(path, cached.size, metadata.size);
+      if (appended !== undefined && appended.endsWith("\n")) {
+        const parsed = parseCodexContextHistoryJournalText(appended, sessionId);
+        if (parsed.malformedLineCount === 0) {
+          cached.entries.push(...parsed.entries);
+          cached.size = metadata.size;
+          return cachedRead(cached);
+        }
+      }
+      journalCache.delete(path);
+    } else {
+      journalCache.delete(path);
     }
+  }
+
+  try {
+    const raw = await readFile(path, "utf8");
+    const parsed = parseCodexContextHistoryJournalText(raw, sessionId);
+    if (parsed.malformedLineCount === 0) {
+      cacheJournal(path, {
+        identity,
+        size: metadata.size,
+        entries: parsed.entries,
+        malformedLineCount: 0,
+      });
+    } else {
+      journalCache.delete(path);
+    }
+    return parsed;
+  } catch (error) {
     return {
       entries: [],
       malformedLineCount: 0,
-      readError: error instanceof Error ? error.message : String(error),
+      readError: errorCode(error) === "ENOENT"
+        ? undefined
+        : error instanceof Error ? error.message : String(error),
     };
   }
+}
 
-  return parseCodexContextHistoryJournalText(raw, sessionId);
+function serializeJournalRead<T>(path: string, read: () => Promise<T>): Promise<T> {
+  const previous = journalReadQueues.get(path) ?? Promise.resolve();
+  const current = previous.then(read, read);
+  const settled = current.then(() => undefined, () => undefined);
+  journalReadQueues.set(path, settled);
+  void settled.then(() => {
+    if (journalReadQueues.get(path) === settled) journalReadQueues.delete(path);
+  });
+  return current;
+}
+
+export function readCodexContextHistoryJournal(
+  stateDir: string,
+  sessionId: string,
+): Promise<CodexContextHistoryJournalReadResult> {
+  const path = codexContextHistoryJournalPath(stateDir, sessionId);
+  return serializeJournalRead(path, () => readCodexContextHistoryJournalUnserialized(stateDir, sessionId));
 }
 
 export async function readCodexContextHistoryJournalEntries(

@@ -4,6 +4,7 @@ import test from "node:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
+import { Readable } from "node:stream";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -1427,6 +1428,47 @@ test("gateway runtime caches unsupported cache_control for Anthropic-compatible 
   } finally {
     await runtime.close();
     await upstream.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("gateway runtime rejects a truncated successful Claude stream", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-claude-gateway-truncated-stream-"));
+  const proxyPort = await reserveUnusedPort();
+  const forwarder: HostGatewayForwarder = {
+    requestRaw: async () => { throw new Error("requestRaw not used"); },
+    request: async () => { throw new Error("request not used"); },
+    requestStream: async () => ({
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+      stream: Readable.from([
+        `event: message_start\ndata: {"type":"message_start","message":{"id":"msg-truncated"}}\n\n`,
+      ]),
+    }),
+  };
+  const runtime = await startClaudeCodeGatewayRuntime({
+    config: normalizeTokenPilotClaudeCodeConfig({
+      stateDir: join(dir, "state"),
+      proxyPort,
+      modules: { stabilizer: false, reduction: false, eviction: false },
+    }),
+    logger: createConsoleLogger(false),
+    forwarder,
+  });
+
+  try {
+    await assert.rejects(fetch(`${runtime.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "sess-truncated" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        stream: true,
+        messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        max_tokens: 16,
+      }),
+    }));
+  } finally {
+    await runtime.close();
     await rm(dir, { recursive: true, force: true });
   }
 });

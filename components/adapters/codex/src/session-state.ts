@@ -9,6 +9,7 @@ import {
   writeJsonFileAtomic,
   writeLatestSessionRef,
   writeSessionSnapshot,
+  withFileLock,
 } from "@lightrsi/host-adapter";
 import { join } from "node:path";
 
@@ -93,29 +94,31 @@ export async function upsertCodexSessionSnapshot(
   patch: Partial<CodexSessionSnapshot>,
   options?: UpsertCodexSessionSnapshotOptions,
 ): Promise<CodexSessionSnapshot> {
-  const current = await loadCodexSessionSnapshot(stateDir, sessionId);
-  const updatedAt = new Date().toISOString();
-  const next: CodexSessionSnapshot = {
-    sessionId,
-    codexSessionId: patch.codexSessionId ?? current?.codexSessionId,
-    latestResponseId: patch.latestResponseId ?? current?.latestResponseId,
-    previousResponseId: patch.previousResponseId ?? current?.previousResponseId,
-    latestModel: patch.latestModel ?? current?.latestModel,
-    latestUpstreamProvider: patch.latestUpstreamProvider ?? current?.latestUpstreamProvider,
-    workspaceHint: patch.workspaceHint ?? current?.workspaceHint,
-    transcriptPath: patch.transcriptPath ?? current?.transcriptPath,
-    disclosedReadPaths: patch.disclosedReadPaths ?? current?.disclosedReadPaths,
-    lastHookEvent: patch.lastHookEvent ?? current?.lastHookEvent,
-    lastToolName: patch.lastToolName ?? current?.lastToolName,
-    lastToolInputChars: patch.lastToolInputChars ?? current?.lastToolInputChars,
-    lastToolOutputChars: patch.lastToolOutputChars ?? current?.lastToolOutputChars,
-    updatedAt,
-  };
-  await writeSessionSnapshot(stateDir, sessionId, next);
-  if (options?.markLatest !== false) {
-    await markLatestSession(stateDir, sessionId, updatedAt);
-  }
-  return next;
+  return withFileLock(join(sessionStateRoot(stateDir), "snapshot-updates.lock"), async () => {
+    const current = await loadCodexSessionSnapshot(stateDir, sessionId);
+    const updatedAt = new Date().toISOString();
+    const next: CodexSessionSnapshot = {
+      sessionId,
+      codexSessionId: patch.codexSessionId ?? current?.codexSessionId,
+      latestResponseId: patch.latestResponseId ?? current?.latestResponseId,
+      previousResponseId: patch.previousResponseId ?? current?.previousResponseId,
+      latestModel: patch.latestModel ?? current?.latestModel,
+      latestUpstreamProvider: patch.latestUpstreamProvider ?? current?.latestUpstreamProvider,
+      workspaceHint: patch.workspaceHint ?? current?.workspaceHint,
+      transcriptPath: patch.transcriptPath ?? current?.transcriptPath,
+      disclosedReadPaths: patch.disclosedReadPaths ?? current?.disclosedReadPaths,
+      lastHookEvent: patch.lastHookEvent ?? current?.lastHookEvent,
+      lastToolName: patch.lastToolName ?? current?.lastToolName,
+      lastToolInputChars: patch.lastToolInputChars ?? current?.lastToolInputChars,
+      lastToolOutputChars: patch.lastToolOutputChars ?? current?.lastToolOutputChars,
+      updatedAt,
+    };
+    await writeSessionSnapshot(stateDir, sessionId, next);
+    if (options?.markLatest !== false) {
+      await markLatestSession(stateDir, sessionId, updatedAt);
+    }
+    return next;
+  });
 }
 
 export async function mergeCodexSessionSnapshot(

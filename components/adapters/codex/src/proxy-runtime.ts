@@ -39,6 +39,7 @@ import {
 } from "./responses-codec.js";
 import {
   type CodexReductionSummary,
+  normalizeResponsesInputForUpstream,
   reduceCodexRequestEnvelope,
 } from "./reduction.js";
 import {
@@ -122,6 +123,32 @@ import {
   readCodexCleanerSchedule,
 } from "./context-cleaner/scheduler.js";
 
+function waitForResponseDrain(res: import("node:http").ServerResponse): Promise<void> {
+  if (!res.writableNeedDrain) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      res.off("drain", onDrain);
+      res.off("close", onClose);
+      res.off("error", onError);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error("client disconnected while waiting for response drain"));
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    res.once("drain", onDrain);
+    res.once("close", onClose);
+    res.once("error", onError);
+  });
+}
+
 export type CodexProxyRuntime = {
   baseUrl: string;
   close(): Promise<void>;
@@ -155,20 +182,6 @@ async function recordCodexUxReduction(params: {
       requestSavedCount: savedCount,
     },
   });
-}
-
-function normalizeResponsesInputForUpstream(input: any): void {
-  if (!Array.isArray(input)) return;
-  for (const item of input) {
-    if (!item || typeof item !== "object") continue;
-    const type = String(item.type ?? "").toLowerCase();
-    if (type === "function_call" && typeof item.arguments !== "string" && item.arguments != null) {
-      item.arguments = JSON.stringify(item.arguments);
-    }
-    if (type === "function_call_output" && typeof item.output !== "string" && item.output != null && !Array.isArray(item.output)) {
-      item.output = JSON.stringify(item.output);
-    }
-  }
 }
 
 function asJsonObject(value: unknown): JsonObject | undefined {
@@ -645,6 +658,13 @@ export async function startCodexResponsesProxy(params: {
   });
   const lifecyclePlanningConfigured = estimatorResolution.config.enabled;
   const epochRecoveryBySession = new Map<string, Promise<void>>();
+  const pendingOptionalTasks = new Set<Promise<void>>();
+
+  function trackOptionalTask(task: Promise<void>): void {
+    let tracked!: Promise<void>;
+    tracked = task.catch(() => {}).finally(() => pendingOptionalTasks.delete(tracked));
+    pendingOptionalTasks.add(tracked);
+  }
 
   async function recoverSessionEpochsAfterRestart(sessionId: string): Promise<void> {
     let recovery = epochRecoveryBySession.get(sessionId);
@@ -1442,6 +1462,13 @@ export async function startCodexResponsesProxy(params: {
       });
 
       const authorization = typeof req.headers.authorization === "string" ? req.headers.authorization : undefined;
+      const requestAbortController = new AbortController();
+      const onRequestAborted = () => requestAbortController.abort();
+      const onResponseClose = () => {
+        if (!res.writableFinished) requestAbortController.abort();
+      };
+      req.once("aborted", onRequestAborted);
+      res.once("close", onResponseClose);
       let transportFetches = 0;
       let logicalUpstreamSends = 0;
       let successfulGenerations = 0;
@@ -1464,6 +1491,7 @@ export async function startCodexResponsesProxy(params: {
                 ? prepared.envelope.metadata.lightrsiCacheContractDigest
                 : undefined,
             stateDir: config.stateDir,
+            signal: requestAbortController.signal,
           }));
           const attempt = forwardingAttempts.at(-1);
           if (attempt) attempt.outcome = response.status >= 200 && response.status < 300 ? "completed" : "failed";
@@ -2062,11 +2090,10 @@ export async function startCodexResponsesProxy(params: {
             rawStreamText: upstreamResp.text,
             responseChars: upstreamResp.text.length,
           });
-          await runOptional();
           res.end(upstreamResp.text);
+          trackOptionalTask(runOptional());
           return;
         }
-        const abortController = new AbortController();
         recordForwardingAttempt(payload);
         let upstreamResp;
         try {
@@ -2080,7 +2107,7 @@ export async function startCodexResponsesProxy(params: {
                 ? prepared.envelope.metadata.lightrsiCacheContractDigest
                 : undefined,
             stateDir: config.stateDir,
-            signal: abortController.signal,
+            signal: requestAbortController.signal,
           }));
         } catch (error) {
           const attempt = forwardingAttempts.at(-1);
@@ -2101,9 +2128,9 @@ export async function startCodexResponsesProxy(params: {
         const finalize = async (kind: "complete" | "error" | "client_abort", error?: unknown) => {
           if (terminal) return;
           terminal = true;
+          req.off("aborted", onRequestAborted);
           res.off("close", onClose);
           if (kind !== "complete") {
-            abortController.abort();
             destroyUpstream();
             if (!res.destroyed) res.destroy(error instanceof Error ? error : undefined);
             return;
@@ -2116,7 +2143,7 @@ export async function startCodexResponsesProxy(params: {
               collected: collector.finish(),
             });
             if (!res.writableEnded && !res.destroyed) res.end();
-            await runOptional();
+            trackOptionalTask(runOptional());
           } catch (recordError) {
             void appendTrace(config.stateDir, {
               stage: "proxy_after_call",
@@ -2141,7 +2168,7 @@ export async function startCodexResponsesProxy(params: {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
             responseChars += buffer.byteLength;
             collector.feed(buffer);
-            if (!res.write(buffer)) await once(res, "drain");
+            if (!res.write(buffer)) await waitForResponseDrain(res);
           }
           await finalize("complete");
         } catch (error) {
@@ -2265,6 +2292,8 @@ export async function startCodexResponsesProxy(params: {
       res.statusCode = upstreamResp.status;
       setForwardResponseHeaders(res, upstreamResp.headers, "application/json; charset=utf-8");
       res.end(upstreamResp.text);
+      req.off("aborted", onRequestAborted);
+      res.off("close", onResponseClose);
     },
     async handleError({ error, res }) {
       const err = error;
@@ -2278,6 +2307,9 @@ export async function startCodexResponsesProxy(params: {
   logger.info(`proxy listening at ${baseUrl}; upstream=${upstream.baseUrl}`);
   return {
     baseUrl,
-    close: runtime.close,
+    async close() {
+      await runtime.close();
+      await Promise.all(pendingOptionalTasks);
+    },
   };
 }

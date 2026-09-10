@@ -1,5 +1,5 @@
-import { appendEventTrace } from "@lightrsi/host-adapter";
+import { enqueueEventTrace } from "@lightrsi/host-adapter";
 
 export async function appendTrace(stateDir: string, payload: Record<string, unknown>): Promise<void> {
-  await appendEventTrace(stateDir, payload);
+  enqueueEventTrace(stateDir, payload);
 }

@@ -10,6 +10,7 @@ import {
   forwardGatewayRawRequest,
   readJsonFile,
   resolveGatewayRequestUrl,
+  withFileLock,
   writeJsonFileAtomic,
 } from "@lightrsi/host-adapter";
 import { join } from "node:path";
@@ -23,6 +24,8 @@ type UpstreamAnthropicCapabilityRecord = {
   unsupportedOptionalFields: OptionalAnthropicField[];
   updatedAt: string;
 };
+
+const capabilityDiscovery = new Map<string, Promise<Set<OptionalAnthropicField>>>();
 
 export function resolveClaudeCodeUpstream(
   config: TokenPilotClaudeCodeConfig,
@@ -74,18 +77,29 @@ async function loadUnsupportedOptionalFields(
   stateDir: string,
   upstream: HostGatewayUpstreamConfig,
 ): Promise<Set<OptionalAnthropicField>> {
-  const record = await readJsonFile<UpstreamAnthropicCapabilityRecord>(capabilityPath(stateDir, upstream));
-  const endpoint = resolveGatewayRequestUrl(upstream, "/v1/messages");
-  const updatedAt = Date.parse(String(record?.updatedAt ?? ""));
-  const fresh = record?.endpoint === endpoint
-    && Number.isFinite(updatedAt)
-    && Date.now() - updatedAt < CAPABILITY_TTL_MS;
-  const fields = fresh && Array.isArray(record?.unsupportedOptionalFields)
-    ? record.unsupportedOptionalFields.filter(
-      (value): value is OptionalAnthropicField => value === "cache_control" || value === "prompt_cache_key",
-    )
-    : [];
-  return new Set(fields);
+  const path = capabilityPath(stateDir, upstream);
+  let pending = capabilityDiscovery.get(path);
+  if (!pending) {
+    pending = (async () => {
+      const record = await readJsonFile<UpstreamAnthropicCapabilityRecord>(path);
+      const endpoint = resolveGatewayRequestUrl(upstream, "/v1/messages");
+      const updatedAt = Date.parse(String(record?.updatedAt ?? ""));
+      const fresh = record?.endpoint === endpoint
+        && Number.isFinite(updatedAt)
+        && Date.now() - updatedAt < CAPABILITY_TTL_MS;
+      const fields = fresh && Array.isArray(record?.unsupportedOptionalFields)
+        ? record.unsupportedOptionalFields.filter(
+          (value): value is OptionalAnthropicField => value === "cache_control" || value === "prompt_cache_key",
+        )
+        : [];
+      return new Set(fields);
+    })();
+    capabilityDiscovery.set(path, pending);
+    void pending.then(() => undefined, () => undefined).finally(() => {
+      if (capabilityDiscovery.get(path) === pending) capabilityDiscovery.delete(path);
+    });
+  }
+  return new Set(await pending);
 }
 
 async function persistUnsupportedOptionalField(
@@ -93,13 +107,28 @@ async function persistUnsupportedOptionalField(
   upstream: HostGatewayUpstreamConfig,
   field: OptionalAnthropicField,
 ): Promise<void> {
-  const unsupportedFields = await loadUnsupportedOptionalFields(stateDir, upstream);
-  unsupportedFields.add(field);
-  await writeJsonFileAtomic(capabilityPath(stateDir, upstream), {
-    endpoint: resolveGatewayRequestUrl(upstream, "/v1/messages"),
-    unsupportedOptionalFields: Array.from(unsupportedFields),
-    updatedAt: new Date().toISOString(),
-  } satisfies UpstreamAnthropicCapabilityRecord);
+  const path = capabilityPath(stateDir, upstream);
+  await withFileLock(`${path}.lock`, async () => {
+    const record = await readJsonFile<UpstreamAnthropicCapabilityRecord>(path);
+    const endpoint = resolveGatewayRequestUrl(upstream, "/v1/messages");
+    const updatedAt = Date.parse(String(record?.updatedAt ?? ""));
+    const unsupportedFields = new Set(
+      record?.endpoint === endpoint
+        && Number.isFinite(updatedAt)
+        && Date.now() - updatedAt < CAPABILITY_TTL_MS
+        && Array.isArray(record.unsupportedOptionalFields)
+        ? record.unsupportedOptionalFields.filter(
+          (value): value is OptionalAnthropicField => value === "cache_control" || value === "prompt_cache_key",
+        )
+        : [],
+    );
+    unsupportedFields.add(field);
+    await writeJsonFileAtomic(path, {
+      endpoint: resolveGatewayRequestUrl(upstream, "/v1/messages"),
+      unsupportedOptionalFields: Array.from(unsupportedFields),
+      updatedAt: new Date().toISOString(),
+    } satisfies UpstreamAnthropicCapabilityRecord);
+  }).catch(() => undefined);
 }
 
 async function readResponseText(resp: Response): Promise<string> {
@@ -120,6 +149,7 @@ export function createClaudeCodeGatewayForwarder(config: TokenPilotClaudeCodeCon
     payload: unknown;
     inboundAuthorization?: string;
     inboundHeaders?: Record<string, string | string[] | undefined>;
+    signal?: AbortSignal;
   }): Promise<Response> => {
     return fetch(resolveGatewayRequestUrl(params.upstream, "/v1/messages"), {
       method: "POST",
@@ -130,6 +160,7 @@ export function createClaudeCodeGatewayForwarder(config: TokenPilotClaudeCodeCon
         includeJsonContentType: true,
       }),
       body: JSON.stringify(params.payload),
+      signal: params.signal,
     });
   };
 
@@ -138,14 +169,16 @@ export function createClaudeCodeGatewayForwarder(config: TokenPilotClaudeCodeCon
     payload: unknown;
     inboundAuthorization?: string;
     inboundHeaders?: Record<string, string | string[] | undefined>;
+    signal?: AbortSignal;
   }): Promise<HostGatewayHttpResponse> => {
     const unsupportedFields = await loadUnsupportedOptionalFields(config.stateDir, params.upstream);
     let payload = clonePayloadWithoutUnsupportedFields(params.payload, unsupportedFields);
     let resp = await send({ ...params, payload });
     let text = await readResponseText(resp);
-    if (!resp.ok) {
+    if (!resp.ok && resp.status !== 401 && resp.status !== 403) {
       const unsupportedField = unsupportedOptionalFieldFromText(text);
       if (unsupportedField && !unsupportedFields.has(unsupportedField)) {
+        unsupportedFields.add(unsupportedField);
         await persistUnsupportedOptionalField(config.stateDir, params.upstream, unsupportedField);
         const downgraded = clonePayloadWithoutOptionalField(payload, unsupportedField);
         if (downgraded !== payload) {
@@ -167,14 +200,16 @@ export function createClaudeCodeGatewayForwarder(config: TokenPilotClaudeCodeCon
     payload: unknown;
     inboundAuthorization?: string;
     inboundHeaders?: Record<string, string | string[] | undefined>;
+    signal?: AbortSignal;
   }): Promise<HostGatewayStreamResponse> => {
     const unsupportedFields = await loadUnsupportedOptionalFields(config.stateDir, params.upstream);
     let payload = clonePayloadWithoutUnsupportedFields(params.payload, unsupportedFields);
     let resp = await send({ ...params, payload });
-    if (!resp.ok) {
+    if (!resp.ok && resp.status !== 401 && resp.status !== 403) {
       const text = await readResponseText(resp);
       const unsupportedField = unsupportedOptionalFieldFromText(text);
       if (unsupportedField && !unsupportedFields.has(unsupportedField)) {
+        unsupportedFields.add(unsupportedField);
         await persistUnsupportedOptionalField(config.stateDir, params.upstream, unsupportedField);
         const downgraded = clonePayloadWithoutOptionalField(payload, unsupportedField);
         if (downgraded !== payload) {

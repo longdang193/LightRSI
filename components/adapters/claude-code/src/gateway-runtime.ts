@@ -23,6 +23,7 @@ import {
 import { configureStatePathResolver } from "@lightrsi/artifact-store";
 import type { RuntimeMessage } from "@lightrsi/kernel";
 import type { TokenPilotClaudeCodeConfig } from "./config.js";
+
 import { proxyBaseUrlForPort } from "./config.js";
 import type { TokenPilotClaudeCodeLogger } from "./logger.js";
 import { createClaudeMessagesPayloadCodec } from "./messages-codec.js";
@@ -65,6 +66,37 @@ import { resolveLatestClaudeCodeSessionId } from "./session-state.js";
 import { lookupRealSessionId, recordSessionMapping } from "./context-rewrite/session-map.js";
 import { initializeClaudeCodeTokenPilotPreset } from "./preset.js";
 import { attributeClaudeSnapshotTasks } from "./context-cleaner/snapshot.js";
+
+function waitForResponseDrain(res: import("node:http").ServerResponse): Promise<void> {
+  if (!res.writableNeedDrain) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      res.off("drain", onDrain);
+      res.off("close", onClose);
+      res.off("error", onError);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error("client disconnected while waiting for response drain"));
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    res.once("drain", onDrain);
+    res.once("close", onClose);
+    res.once("error", onError);
+  });
+}
+
+function claudeStreamHasTerminalEvent(rawStreamText: string): boolean {
+  return /(?:^|\n)event:\s*message_stop\s*(?:\r?\n|$)/u.test(rawStreamText)
+    || /data:\s*\{[^\n]*"type"\s*:\s*"message_stop"/u.test(rawStreamText);
+}
 
 export type ClaudeCodeGatewayRuntime = {
   baseUrl: string;
@@ -823,81 +855,118 @@ export async function startClaudeCodeGatewayRuntime(params: {
       });
 
       if (prepared.envelope.stream) {
-        const upstreamResp = await forwarder.requestStream({
-          upstream,
-          payload,
-          inboundAuthorization: authorization,
-          inboundHeaders: normalizeRequestHeaders(req.headers),
-        });
+        const abortController = new AbortController();
+        const onRequestAborted = () => abortController.abort();
+        const onResponseClose = () => {
+          if (!res.writableFinished) {
+            abortController.abort();
+            upstreamResp?.stream.destroy();
+          }
+        };
+        req.once("aborted", onRequestAborted);
+        let upstreamResp: Awaited<ReturnType<HostGatewayForwarder["requestStream"]>> | undefined;
+        try {
+          upstreamResp = await forwarder.requestStream({
+            upstream,
+            payload,
+            inboundAuthorization: authorization,
+            inboundHeaders: normalizeRequestHeaders(req.headers),
+            signal: abortController.signal,
+          });
+        } catch (error) {
+          req.off("aborted", onRequestAborted);
+          if (abortController.signal.aborted || res.destroyed) return;
+          throw error;
+        }
+        res.once("close", onResponseClose);
         res.statusCode = upstreamResp.status;
         setForwardResponseHeaders(res, upstreamResp.headers, "text/event-stream; charset=utf-8");
         const chunks: Buffer[] = [];
+        const observer = streamObserver;
+        let finalized = false;
+        const finalize = async (error?: unknown) => {
+          if (finalized) return;
+          finalized = true;
+          req.off("aborted", onRequestAborted);
+          res.off("close", onResponseClose);
+          if (error) {
+            if (!upstreamResp.stream.destroyed) upstreamResp.stream.destroy(error instanceof Error ? error : undefined);
+            if (!res.destroyed) res.destroy(error instanceof Error ? error : new Error(String(error)));
+            return;
+          }
+          try {
+            const rawStreamText = Buffer.concat(chunks).toString("utf8");
+            if (upstreamResp.status >= 200 && upstreamResp.status < 300 && !claudeStreamHasTerminalEvent(rawStreamText)) {
+              throw new Error("upstream stream ended before terminal event");
+            }
+            const snapshot = observer.finish?.() ?? observer.snapshot(rawStreamText);
+            const responseId = typeof snapshot.metadata?.responseId === "string" ? snapshot.metadata.responseId : undefined;
+            const previousResponseId =
+              typeof snapshot.metadata?.previousResponseId === "string" ? snapshot.metadata.previousResponseId : undefined;
+            await recordClaudeRequestReductionUx({
+              stateDir: config.stateDir,
+              sessionId,
+              model: prepared.envelope.model,
+              originalRequestText,
+              reducedRequestText,
+            });
+            await appendClaudeCodeCacheAuditRecord({
+              stateDir: config.stateDir,
+              snapshot: cacheAuditSnapshot,
+              responsePromptCacheKey: null,
+              usage: snapshot.usage ?? null,
+              status: upstreamResp.status,
+            });
+            await appendClaudeCodeTrace(config.stateDir, {
+              stage: "gateway_after_call",
+              sessionId,
+              model: prepared.envelope.model,
+              stream: true,
+              status: upstreamResp.status,
+              assistantChars: snapshot.assistantText.length,
+              responseChars: rawStreamText.length,
+            });
+            await recordClaudeGatewayTurn({
+              stateDir: config.stateDir,
+              sessionId,
+              model: prepared.envelope.model,
+              responseId,
+              previousResponseId,
+              disclosedReadPaths: reductionSummary?.disclosedReadPaths,
+              requestChars: body.length,
+              responseChars: rawStreamText.length,
+              assistantChars: snapshot.assistantText.length,
+              reductionSavedChars: reductionSummary?.savedChars ?? 0,
+              evictionSavedChars: evictionSummary?.savedChars ?? 0,
+              stablePrefixApplied: prepared.diagnostics.stablePrefixApplied === true,
+              reductionApplied: prepared.diagnostics.reductionApplied === true,
+              stream: true,
+              workspaceHint,
+            });
+            if (!res.writableEnded && !res.destroyed) res.end();
+          } catch (finalizeError) {
+            if (!upstreamResp.stream.destroyed) upstreamResp.stream.destroy(finalizeError instanceof Error ? finalizeError : undefined);
+            if (!res.destroyed) res.destroy(finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError)));
+          }
+        };
         upstreamResp.stream.on("data", (chunk) => {
           const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
           chunks.push(buffer);
-          res.write(buffer);
+          observer.feed?.(buffer);
+          if (!res.write(buffer)) {
+            upstreamResp?.stream.pause();
+            void waitForResponseDrain(res).then(() => upstreamResp?.stream.resume()).catch((error) => {
+              abortController.abort();
+              upstreamResp?.stream.destroy(error instanceof Error ? error : new Error(String(error)));
+            });
+          }
         });
-        upstreamResp.stream.once("end", async () => {
-          const rawStreamText = Buffer.concat(chunks).toString("utf8");
-          const snapshot = streamObserver.snapshot(rawStreamText);
-          const responseId = typeof snapshot.metadata?.responseId === "string" ? snapshot.metadata.responseId : undefined;
-          const previousResponseId =
-            typeof snapshot.metadata?.previousResponseId === "string" ? snapshot.metadata.previousResponseId : undefined;
-          await recordClaudeRequestReductionUx({
-            stateDir: config.stateDir,
-            sessionId,
-            model: prepared.envelope.model,
-            originalRequestText,
-            reducedRequestText,
-          });
-          await appendClaudeCodeCacheAuditRecord({
-            stateDir: config.stateDir,
-            snapshot: cacheAuditSnapshot,
-            responsePromptCacheKey: null,
-            usage: snapshot.usage ?? null,
-            status: upstreamResp.status,
-          });
-          await appendClaudeCodeTrace(config.stateDir, {
-            stage: "gateway_after_call",
-            sessionId,
-            model: prepared.envelope.model,
-            stream: true,
-            status: upstreamResp.status,
-            assistantChars: snapshot.assistantText.length,
-            responseChars: rawStreamText.length,
-          });
-          await recordClaudeGatewayTurn({
-            stateDir: config.stateDir,
-            sessionId,
-            model: prepared.envelope.model,
-            responseId,
-            previousResponseId,
-            disclosedReadPaths: reductionSummary?.disclosedReadPaths,
-            requestChars: body.length,
-            responseChars: rawStreamText.length,
-            assistantChars: snapshot.assistantText.length,
-            reductionSavedChars: reductionSummary?.savedChars ?? 0,
-            evictionSavedChars: evictionSummary?.savedChars ?? 0,
-            stablePrefixApplied: prepared.diagnostics.stablePrefixApplied === true,
-            reductionApplied: prepared.diagnostics.reductionApplied === true,
-            stream: true,
-            workspaceHint,
-          });
-          res.end();
+        upstreamResp.stream.once("end", () => {
+          void finalize().catch((error) => void finalize(error));
         });
         upstreamResp.stream.once("error", (error) => {
           logger.error(error instanceof Error ? error.message : String(error));
-          void appendClaudeCodeTrace(config.stateDir, {
-            stage: "gateway_after_call",
-            sessionId,
-            model: prepared.envelope.model,
-            stream: true,
-            status: upstreamResp.status,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          if (!res.destroyed) {
-            res.destroy(error instanceof Error ? error : new Error(String(error)));
-          }
+          void finalize(error);
         });
         return;
       }

@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import test from "node:test";
 import { buildGatewayForwardHeaders } from "../src/gateway/http-forwarder.js";
 import { readHttpRequestBody } from "../src/gateway/http-server.js";
+import { createSseJsonStreamObserver } from "../src/gateway/stream-observer.js";
 
 test("forward headers omit transport metadata that can split provider cache identity", () => {
   const headers = buildGatewayForwardHeaders({
@@ -56,4 +57,22 @@ test("aborted body reads fail before consuming request data", async () => {
     readHttpRequestBody(Readable.from([]) as unknown as import("node:http").IncomingMessage, controller.signal),
     (error: unknown) => error instanceof Error && error.name === "AbortError",
   );
+});
+
+test("incremental SSE observer preserves fragmented UTF-8 and frame boundaries", () => {
+  const observer = createSseJsonStreamObserver();
+  const source = [
+    "data: {\"response\":{\"id\":\"resp-1\"}}\n\n",
+    "data: {\"delta\":\"hello 😀\"}\n\n",
+    "data: [DONE]\n\n",
+  ].join("");
+  const encoded = Buffer.from(source, "utf8");
+  const split = encoded.indexOf(0xf0);
+  observer.feed?.(encoded.subarray(0, split + 1));
+  observer.feed?.(encoded.subarray(split + 1));
+
+  const snapshot = observer.finish?.();
+  assert.equal(snapshot?.metadata?.responseId, "resp-1");
+  assert.equal(snapshot?.assistantText, "hello 😀");
+  assert.equal(snapshot?.rawStreamText, source);
 });

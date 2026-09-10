@@ -1,9 +1,102 @@
 import { randomBytes } from "node:crypto";
-import { appendFile, mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const writeQueues = new Map<string, Promise<void>>();
 export const JSONL_TAIL_READ_CHUNK_BYTES = 64 * 1024;
+
+export type FileLockOptions = {
+  timeoutMs?: number;
+  retryMs?: number;
+  staleMs?: number;
+};
+
+type FileLock = {
+  release(): Promise<void>;
+};
+
+const DEFAULT_FILE_LOCK_TIMEOUT_MS = 5_000;
+const DEFAULT_FILE_LOCK_RETRY_MS = 10;
+const DEFAULT_FILE_LOCK_STALE_MS = 30 * 60 * 1_000;
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function lockIsStale(lockPath: string, staleMs: number): Promise<boolean> {
+  try {
+    const owner = JSON.parse(await readFile(`${lockPath}/owner.json`, "utf8")) as {
+      pid?: unknown;
+      createdAt?: unknown;
+    };
+    if (typeof owner.pid === "number") return !isProcessAlive(owner.pid);
+    if (typeof owner.createdAt === "string") {
+      const createdAt = Date.parse(owner.createdAt);
+      if (Number.isFinite(createdAt)) return Date.now() - createdAt > staleMs;
+    }
+  } catch {
+    // Fall through to lock directory mtime.
+  }
+  try {
+    const lockStat = await stat(lockPath);
+    return Date.now() - lockStat.mtimeMs > staleMs;
+  } catch {
+    return true;
+  }
+}
+
+async function acquireFileLock(lockPath: string, options?: FileLockOptions): Promise<FileLock> {
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_FILE_LOCK_TIMEOUT_MS;
+  const retryMs = options?.retryMs ?? DEFAULT_FILE_LOCK_RETRY_MS;
+  const staleMs = options?.staleMs ?? DEFAULT_FILE_LOCK_STALE_MS;
+  const deadline = Date.now() + timeoutMs;
+  const token = `${process.pid}-${Math.random().toString(16).slice(2)}`;
+  await mkdir(dirname(lockPath), { recursive: true });
+  while (true) {
+    try {
+      await mkdir(lockPath);
+      await writeFile(`${lockPath}/owner.json`, JSON.stringify({
+        token,
+        pid: process.pid,
+        createdAt: new Date().toISOString(),
+      }), "utf8");
+      return {
+        async release() {
+          try {
+            const owner = JSON.parse(await readFile(`${lockPath}/owner.json`, "utf8")) as { token?: unknown };
+            if (owner.token === token) await rm(lockPath, { recursive: true, force: true });
+          } catch {}
+        },
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (await lockIsStale(lockPath, staleMs)) {
+        await rm(lockPath, { recursive: true, force: true }).catch(() => undefined);
+        continue;
+      }
+      if (Date.now() >= deadline) throw new Error(`file lock timeout: ${lockPath}`);
+      await new Promise((resolve) => setTimeout(resolve, retryMs));
+    }
+  }
+}
+
+export async function withFileLock<T>(
+  lockPath: string,
+  operation: () => Promise<T>,
+  options?: FileLockOptions,
+): Promise<T> {
+  const lock = await acquireFileLock(lockPath, options);
+  try {
+    return await operation();
+  } finally {
+    await lock.release();
+  }
+}
 
 export async function readJsonFile<T>(path: string): Promise<T | null> {
   try {

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { readJsonFile, writeJsonFileAtomic } from "@lightrsi/host-adapter";
+import { readJsonFile, withFileLock, writeJsonFileAtomic } from "@lightrsi/host-adapter";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
@@ -50,6 +50,7 @@ const MODEL_CATALOG_TTL_MS = 60_000;
 const modelCatalogCache = new Map<string, { expiresAt: number; models: string[] }>();
 const modelCatalogInflight = new Map<string, Promise<string[]>>();
 const capabilityCache = new Map<string, { expiresAt: number; fields: Set<OptionalResponsesField> }>();
+const capabilityInflight = new Map<string, Promise<Set<OptionalResponsesField>>>();
 const MAX_CAPABILITY_CACHE_ENTRIES = 64;
 
 export function resolveModelFromCatalog(model: string, availableModels: string[]): string {
@@ -386,6 +387,24 @@ function unsupportedRetryDelayMs(text: string): number {
   return Number.isFinite(seconds) ? Math.min(seconds * 1000 + 250, 60_000) : 0;
 }
 
+async function waitForRetryDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (delayMs <= 0) return;
+  if (signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
+  await new Promise<void>((resolve, reject) => {
+    let timer: NodeJS.Timeout;
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(new DOMException("The operation was aborted", "AbortError"));
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function upstreamCapabilityPath(stateDir: string, upstream: CodexProviderConfig): string {
   return join(
     stateDir,
@@ -408,33 +427,39 @@ async function loadUnsupportedOptionalFields(
   const key = capabilityKey(upstream, model);
   const cached = capabilityCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return new Set(cached.fields);
-  const record = await readJsonFile<UpstreamResponsesCapabilityRecord>(
-    upstreamCapabilityPath(stateDir, upstream),
-  );
-  const entry = record?.schemaVersion === 2
-    ? record.entries?.find((candidate) => candidate.key === key)
-    : undefined;
-  const updatedAt = Date.parse(String(entry?.updatedAt ?? ""));
-  const fields = Number.isFinite(updatedAt)
-    && updatedAt <= Date.now()
-    && Date.now() - updatedAt < CAPABILITY_TTL_MS
-    && Array.isArray(entry?.unsupportedOptionalFields)
-    ? entry.unsupportedOptionalFields.filter(
-      (value): value is OptionalResponsesField =>
-        value === "prompt_cache_options"
-          || value === "prompt_cache_retention"
-          || value === "prompt_cache_key"
-          || value === "prompt_cache_breakpoint",
-    )
-    : [];
-  const result = new Set(fields);
-  capabilityCache.set(key, { expiresAt: Date.now() + CAPABILITY_TTL_MS, fields: result });
-  while (capabilityCache.size > MAX_CAPABILITY_CACHE_ENTRIES) {
-    const oldest = capabilityCache.keys().next().value;
-    if (typeof oldest !== "string") break;
-    capabilityCache.delete(oldest);
-  }
-  return new Set(result);
+  const inflight = capabilityInflight.get(key);
+  if (inflight) return new Set(await inflight);
+  const load = (async () => {
+    const record = await readJsonFile<UpstreamResponsesCapabilityRecord>(
+      upstreamCapabilityPath(stateDir, upstream),
+    );
+    const entry = record?.schemaVersion === 2
+      ? record.entries?.find((candidate) => candidate.key === key)
+      : undefined;
+    const updatedAt = Date.parse(String(entry?.updatedAt ?? ""));
+    const fields = Number.isFinite(updatedAt)
+      && updatedAt <= Date.now()
+      && Date.now() - updatedAt < CAPABILITY_TTL_MS
+      && Array.isArray(entry?.unsupportedOptionalFields)
+      ? entry.unsupportedOptionalFields.filter(
+        (value): value is OptionalResponsesField =>
+          value === "prompt_cache_options"
+            || value === "prompt_cache_retention"
+            || value === "prompt_cache_key"
+            || value === "prompt_cache_breakpoint",
+      )
+      : [];
+    const result = new Set(fields);
+    capabilityCache.set(key, { expiresAt: Date.now() + CAPABILITY_TTL_MS, fields: result });
+    while (capabilityCache.size > MAX_CAPABILITY_CACHE_ENTRIES) {
+      const oldest = capabilityCache.keys().next().value;
+      if (typeof oldest !== "string") break;
+      capabilityCache.delete(oldest);
+    }
+    return result;
+  })().finally(() => capabilityInflight.delete(key));
+  capabilityInflight.set(key, load);
+  return new Set(await load);
 }
 
 async function persistUnsupportedOptionalField(
@@ -445,36 +470,41 @@ async function persistUnsupportedOptionalField(
 ): Promise<void> {
   if (!stateDir) return;
   const key = capabilityKey(upstream, model);
-  const record = await readJsonFile<UpstreamResponsesCapabilityRecord>(
-    upstreamCapabilityPath(stateDir, upstream),
-  );
-  const now = new Date().toISOString();
-  const entries = (record?.schemaVersion === 2 && Array.isArray(record.entries) ? record.entries : [])
-    .filter((entry) => {
-      const updatedAt = Date.parse(entry.updatedAt);
-      return Number.isFinite(updatedAt) && Date.now() - updatedAt < CAPABILITY_TTL_MS;
+  const capabilityPath = upstreamCapabilityPath(stateDir, upstream);
+  let unsupportedFields = new Set<OptionalResponsesField>();
+  const optimisticFields = new Set(capabilityCache.get(key)?.fields ?? []);
+  optimisticFields.add(field);
+  capabilityCache.set(key, { expiresAt: Date.now() + CAPABILITY_TTL_MS, fields: optimisticFields });
+  await withFileLock(`${capabilityPath}.lock`, async () => {
+    const record = await readJsonFile<UpstreamResponsesCapabilityRecord>(capabilityPath);
+    const now = new Date().toISOString();
+    const entries = (record?.schemaVersion === 2 && Array.isArray(record.entries) ? record.entries : [])
+      .filter((entry) => {
+        const updatedAt = Date.parse(entry.updatedAt);
+        return Number.isFinite(updatedAt) && Date.now() - updatedAt < CAPABILITY_TTL_MS;
+      });
+    const current = entries.find((entry) => entry.key === key);
+    unsupportedFields = new Set(current?.unsupportedOptionalFields ?? []);
+    unsupportedFields.add(field);
+    const nextEntries = entries.filter((entry) => entry.key !== key);
+    nextEntries.push({
+      key,
+      endpoint: endpointFor(upstream),
+      wireApi: upstream.wireApi ?? "responses",
+      model,
+      unsupportedOptionalFields: Array.from(unsupportedFields),
+      updatedAt: now,
     });
-  const current = entries.find((entry) => entry.key === key);
-  const unsupportedFields = new Set(current?.unsupportedOptionalFields ?? []);
-  unsupportedFields.add(field);
-  const nextEntries = entries.filter((entry) => entry.key !== key);
-  nextEntries.push({
-    key,
-    endpoint: endpointFor(upstream),
-    wireApi: upstream.wireApi ?? "responses",
-    model,
-    unsupportedOptionalFields: Array.from(unsupportedFields),
-    updatedAt: now,
+    await writeJsonFileAtomic(capabilityPath, {
+      schemaVersion: 2,
+      endpoint: endpointFor(upstream),
+      wireApi: upstream.wireApi ?? "responses",
+      model,
+      unsupportedOptionalFields: Array.from(unsupportedFields),
+      updatedAt: now,
+      entries: nextEntries,
+    } satisfies UpstreamResponsesCapabilityRecord);
   });
-  await writeJsonFileAtomic(upstreamCapabilityPath(stateDir, upstream), {
-    schemaVersion: 2,
-    endpoint: endpointFor(upstream),
-    wireApi: upstream.wireApi ?? "responses",
-    model,
-    unsupportedOptionalFields: Array.from(unsupportedFields),
-    updatedAt: now,
-    entries: nextEntries,
-  } satisfies UpstreamResponsesCapabilityRecord);
   capabilityCache.set(key, { expiresAt: Date.now() + CAPABILITY_TTL_MS, fields: unsupportedFields });
 }
 
@@ -504,12 +534,12 @@ export async function requestUpstreamResponses(params: {
   let text = await resp.text();
   if (!resp.ok) {
     const unsupportedField = unsupportedOptionalFieldFromText(text);
-    if (unsupportedField && !unsupportedFields.has(unsupportedField)) {
-      await persistUnsupportedOptionalField(params.stateDir, params.upstream, resolvedModel, unsupportedField);
+    if (resp.status !== 401 && resp.status !== 403 && unsupportedField && !unsupportedFields.has(unsupportedField)) {
+      await persistUnsupportedOptionalField(params.stateDir, params.upstream, resolvedModel, unsupportedField).catch(() => undefined);
       const downgraded = clonePayloadWithoutOptionalField(payload, unsupportedField);
       if (downgraded !== payload) {
         const retryDelayMs = unsupportedRetryDelayMs(text);
-        if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        await waitForRetryDelay(retryDelayMs, params.signal);
         payload = downgraded;
         resp = await send(payload);
         text = await resp.text();
@@ -551,12 +581,12 @@ export async function requestUpstreamResponsesStream(params: {
   if (!resp.ok) {
     const text = await resp.text();
     const unsupportedField = unsupportedOptionalFieldFromText(text);
-    if (unsupportedField && !unsupportedFields.has(unsupportedField)) {
-      await persistUnsupportedOptionalField(params.stateDir, params.upstream, resolvedModel, unsupportedField);
+    if (resp.status !== 401 && resp.status !== 403 && unsupportedField && !unsupportedFields.has(unsupportedField)) {
+      await persistUnsupportedOptionalField(params.stateDir, params.upstream, resolvedModel, unsupportedField).catch(() => undefined);
       const downgraded = clonePayloadWithoutOptionalField(payload, unsupportedField);
       if (downgraded !== payload) {
         const retryDelayMs = unsupportedRetryDelayMs(text);
-        if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        await waitForRetryDelay(retryDelayMs, params.signal);
         payload = downgraded;
         resp = await send(payload);
       } else {

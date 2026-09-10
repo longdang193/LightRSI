@@ -431,6 +431,36 @@ test("CDH-01 canonical reader rejects cross-session and structurally invalid rec
   });
 });
 
+test("CDH-01 serializes concurrent incremental journal cache reads", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-concurrent-read-cache";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "first" }] },
+      status: "completed",
+    });
+    await readCodexContextHistoryJournal(stateDir, sessionId);
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      payload: { input: [{ role: "user", content: "second" }] },
+      status: "completed",
+    });
+
+    const results = await Promise.all(Array.from({ length: 8 }, () => (
+      readCodexContextHistoryJournal(stateDir, sessionId)
+    )));
+
+    for (const result of results) {
+      assert.equal(result.malformedLineCount, 0);
+      assert.deepEqual(result.entries.map((entry) => entry.requestId), ["request-1", "request-2"]);
+    }
+  });
+});
+
 test("CDH-01 serializes concurrent retries inside one request read-modify-append boundary", async () => {
   await withTempState(async (stateDir) => {
     const writes = Array.from({ length: 24 }, (_, index) => appendCodexRequestJournalEntry({
