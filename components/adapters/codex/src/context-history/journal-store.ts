@@ -36,6 +36,7 @@ type JournalCacheEntry = {
 };
 
 const journalCache = new Map<string, JournalCacheEntry>();
+const journalReadQueues = new Map<string, Promise<void>>();
 
 export type CodexContextHistoryJournalLineParseResult =
   | { status: "valid"; entry: CodexContextHistoryJournalEntry }
@@ -325,7 +326,7 @@ async function readJournalAppend(path: string, offset: number, size: number): Pr
   }
 }
 
-export async function readCodexContextHistoryJournal(
+async function readCodexContextHistoryJournalUnserialized(
   stateDir: string,
   sessionId: string,
 ): Promise<CodexContextHistoryJournalReadResult> {
@@ -397,6 +398,25 @@ export async function readCodexContextHistoryJournal(
         : error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function serializeJournalRead<T>(path: string, read: () => Promise<T>): Promise<T> {
+  const previous = journalReadQueues.get(path) ?? Promise.resolve();
+  const current = previous.then(read, read);
+  const settled = current.then(() => undefined, () => undefined);
+  journalReadQueues.set(path, settled);
+  void settled.then(() => {
+    if (journalReadQueues.get(path) === settled) journalReadQueues.delete(path);
+  });
+  return current;
+}
+
+export function readCodexContextHistoryJournal(
+  stateDir: string,
+  sessionId: string,
+): Promise<CodexContextHistoryJournalReadResult> {
+  const path = codexContextHistoryJournalPath(stateDir, sessionId);
+  return serializeJournalRead(path, () => readCodexContextHistoryJournalUnserialized(stateDir, sessionId));
 }
 
 export async function readCodexContextHistoryJournalEntries(
