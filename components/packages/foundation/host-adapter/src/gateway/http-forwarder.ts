@@ -135,6 +135,7 @@ export async function forwardGatewayRequest(params: {
   payload?: unknown;
   inboundAuthorization?: string;
   inboundHeaders?: Record<string, string | string[] | undefined>;
+  signal?: AbortSignal;
 }): Promise<Response> {
   const method = params.method ?? "POST";
   const hasPayload = params.payload !== undefined;
@@ -145,6 +146,7 @@ export async function forwardGatewayRequest(params: {
     payload: hasPayload ? JSON.stringify(params.payload) : undefined,
     inboundAuthorization: params.inboundAuthorization,
     inboundHeaders: params.inboundHeaders,
+    signal: params.signal,
     includeJsonContentType: hasPayload,
   });
 }
@@ -175,6 +177,7 @@ export async function forwardGatewayJsonRequest(params: {
   payload: unknown;
   inboundAuthorization?: string;
   inboundHeaders?: Record<string, string | string[] | undefined>;
+  signal?: AbortSignal;
 }): Promise<HostGatewayHttpResponse> {
   const resp = await forwardGatewayRequest(params);
   return {
@@ -189,6 +192,7 @@ export async function forwardGatewayJsonStreamRequest(params: {
   payload: unknown;
   inboundAuthorization?: string;
   inboundHeaders?: Record<string, string | string[] | undefined>;
+  signal?: AbortSignal;
 }): Promise<HostGatewayStreamResponse> {
   const resp = await forwardGatewayRequest(params);
   return {

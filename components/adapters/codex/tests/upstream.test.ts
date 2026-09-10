@@ -10,6 +10,7 @@ import {
   requestUpstreamResponsesStream,
   resolveModelFromCatalog,
 } from "../src/upstream.js";
+import { drainEventTraceQueue as drainTraceQueue } from "@lightrsi/host-adapter";
 
 test("model catalog resolver handles qualified, unique, unknown, and ambiguous names uniformly", () => {
   const catalog = [
@@ -522,6 +523,7 @@ test("upstream traces correlated HTTP responses without provider secrets", async
       payload: { model: "gpt-fixture", input: [{ role: "user", content: "test" }] },
     });
     assert.equal(response.status, 503);
+    await drainTraceQueue();
     const rows = (await readFile(join(stateDir, "event-trace.jsonl"), "utf8"))
       .trim()
       .split(/\r?\n/)
@@ -563,6 +565,7 @@ test("upstream traces correlated transport errors with sanitized messages", asyn
         payload: { model: "gpt-fixture", input: [{ role: "user", content: "test" }] },
       }),
     );
+    await drainTraceQueue();
     const rows = (await readFile(join(stateDir, "event-trace.jsonl"), "utf8"))
       .trim()
       .split(/\r?\n/)

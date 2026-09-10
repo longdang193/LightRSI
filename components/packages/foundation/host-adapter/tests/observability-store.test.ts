@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import {
   appendEventTrace,
+  drainEventTraceQueue,
+  enqueueEventTrace,
+  getEventTraceQueueStats,
   readLatestUxEffect,
   readUxSessionAggregate,
   recordUxEffect,
@@ -33,6 +36,26 @@ test("shared trace store appends timestamped event records", async () => {
     assert.equal(parsed.sessionId, "session-trace-a");
     assert.equal(parsed.model, "test-model");
     assert.equal(typeof parsed.at, "string");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("event trace queue bounds optional diagnostics and reports failures", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-trace-queue-"));
+  const blockedPath = join(stateDir, "blocked");
+  try {
+    await writeFile(blockedPath, "not-a-directory", "utf8");
+    const before = getEventTraceQueueStats();
+    for (let index = 0; index < 1_100; index += 1) {
+      enqueueEventTrace(blockedPath, { stage: "queued", index });
+    }
+    await drainEventTraceQueue();
+    const after = getEventTraceQueueStats();
+    assert.ok(after.droppedRecords - before.droppedRecords > 0);
+    assert.ok(after.drainFailures - before.drainFailures > 0);
+    assert.equal(after.queuedRecords, 0);
+    assert.equal(after.queuedBytes, 0);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

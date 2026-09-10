@@ -153,3 +153,21 @@ test("session-state can merge hook snapshot metadata into the synthesized proxy 
     await rm(stateDir, { recursive: true, force: true });
   }
 });
+
+test("session-state retains concurrent patches to different fields", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-session-concurrent-"));
+  try {
+    await Promise.all([
+      upsertCodexSessionSnapshot(stateDir, "session-a", { workspaceHint: "/tmp/workspace-a" }),
+      upsertCodexSessionSnapshot(stateDir, "session-a", { latestModel: "gpt-5.4-mini" }),
+      upsertCodexSessionSnapshot(stateDir, "session-a", { lastToolName: "read" }),
+    ]);
+
+    const snapshot = await loadCodexSessionSnapshot(stateDir, "session-a");
+    assert.equal(snapshot?.workspaceHint, "/tmp/workspace-a");
+    assert.equal(snapshot?.latestModel, "gpt-5.4-mini");
+    assert.equal(snapshot?.lastToolName, "read");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});

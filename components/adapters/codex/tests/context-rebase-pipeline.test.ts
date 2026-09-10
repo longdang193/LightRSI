@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { reserveUnusedPort } from "@lightrsi/host-adapter";
+import { drainEventTraceQueue, reserveUnusedPort } from "@lightrsi/host-adapter";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import {
@@ -1241,6 +1241,7 @@ test("CDR-06 proxy pipeline falls back and cools down rejected stream rebases", 
   } finally {
     await runtime?.close();
     await upstream.close();
+    await drainEventTraceQueue();
     await rm(stateDir, { recursive: true, force: true });
   }
 });

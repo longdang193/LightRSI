@@ -48,6 +48,7 @@ export type HostGatewayForwarder = {
       payload: unknown;
       inboundAuthorization?: string;
       inboundHeaders?: Record<string, string | string[] | undefined>;
+      signal?: AbortSignal;
     },
   ): Promise<HostGatewayHttpResponse>;
   requestStream(
@@ -56,6 +57,7 @@ export type HostGatewayForwarder = {
       payload: unknown;
       inboundAuthorization?: string;
       inboundHeaders?: Record<string, string | string[] | undefined>;
+      signal?: AbortSignal;
     },
   ): Promise<HostGatewayStreamResponse>;
   requestRaw(params: HostGatewayRawRequest): Promise<Response>;
@@ -63,4 +65,6 @@ export type HostGatewayForwarder = {
 
 export type HostGatewayStreamObserver = {
   snapshot(rawStreamText: string): HostGatewayStreamSnapshot;
+  feed?(chunk: string | Uint8Array): void;
+  finish?(): HostGatewayStreamSnapshot;
 };

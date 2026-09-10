@@ -2,6 +2,7 @@ import type {
   HostGatewayStreamObserver,
   HostGatewayStreamSnapshot,
 } from "../contracts/gateway-runtime.js";
+import { TextDecoder } from "node:util";
 
 function safeJsonParse(text: string): unknown {
   try {
@@ -40,17 +41,30 @@ export function snapshotSseJsonStream(
     usagePaths?: string[][];
   },
 ): HostGatewayStreamSnapshot {
-  const assistantParts: string[] = [];
-  let usage: Record<string, unknown> | undefined;
-  let responseId: string | undefined;
-  let previousResponseId: string | undefined;
+  const observer = createSseJsonStreamObserver(options);
+  observer.feed?.(rawStreamText);
+  return observer.finish?.() ?? observer.snapshot(rawStreamText);
+}
 
+export function createSseJsonStreamObserver(options?: {
+  responseIdPaths?: string[][];
+  previousResponseIdPaths?: string[][];
+  usagePaths?: string[][];
+}): HostGatewayStreamObserver {
   const responseIdPaths = options?.responseIdPaths ?? [["response", "id"], ["id"]];
   const previousResponseIdPaths = options?.previousResponseIdPaths ?? [
     ["response", "previous_response_id"],
     ["previous_response_id"],
   ];
   const usagePaths = options?.usagePaths ?? [["usage"]];
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const assistantParts: string[] = [];
+  let usage: Record<string, unknown> | undefined;
+  let responseId: string | undefined;
+  let previousResponseId: string | undefined;
+  let pending = "";
+  let rawStreamText = "";
+  let finished = false;
 
   const resolvePath = (value: unknown, path: string[]): unknown => {
     let current = value;
@@ -61,9 +75,9 @@ export function snapshotSseJsonStream(
     return current;
   };
 
-  for (const chunk of rawStreamText.split("\n\n")) {
-    const dataLines = chunk
-      .split("\n")
+  const processBlock = (block: string): void => {
+    const dataLines = block
+      .split(/\r?\n/u)
       .filter((line) => line.startsWith("data:"))
       .map((line) => line.slice(5).trim())
       .filter(Boolean);
@@ -71,7 +85,6 @@ export function snapshotSseJsonStream(
       if (data === "[DONE]") continue;
       const payload = safeJsonParse(data);
       if (!payload || typeof payload !== "object") continue;
-
       for (const path of responseIdPaths) {
         const value = resolvePath(payload, path);
         if (typeof value === "string" && value.trim()) {
@@ -93,30 +106,48 @@ export function snapshotSseJsonStream(
           break;
         }
       }
-
       extractTextParts(payload, assistantParts);
     }
-  }
+  };
 
-  return {
+  const snapshot = (text: string): HostGatewayStreamSnapshot => ({
     assistantText: assistantParts.join(""),
     usage,
-    rawStreamText,
-    metadata: {
-      responseId,
-      previousResponseId,
-    },
-  };
-}
+    rawStreamText: text,
+    metadata: { responseId, previousResponseId },
+  });
 
-export function createSseJsonStreamObserver(options?: {
-  responseIdPaths?: string[][];
-  previousResponseIdPaths?: string[][];
-  usagePaths?: string[][];
-}): HostGatewayStreamObserver {
   return {
-    snapshot(rawStreamText: string) {
-      return snapshotSseJsonStream(rawStreamText, options);
+    snapshot(text: string) {
+      return snapshotSseJsonStream(text, options);
+    },
+    feed(chunk: string | Uint8Array) {
+      if (finished) return;
+      const bytes = typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
+      let decoded: string;
+      try {
+        decoded = decoder.decode(bytes, { stream: true });
+      } catch {
+        decoded = typeof chunk === "string" ? chunk : new TextDecoder().decode(bytes);
+      }
+      rawStreamText += decoded;
+      pending += decoded;
+      let boundary = pending.indexOf("\n\n");
+      while (boundary >= 0) {
+        processBlock(pending.slice(0, boundary));
+        pending = pending.slice(boundary + 2);
+        boundary = pending.indexOf("\n\n");
+      }
+    },
+    finish() {
+      if (!finished) {
+        finished = true;
+        const tail = decoder.decode();
+        rawStreamText += tail;
+        pending += tail;
+        if (pending.trim()) processBlock(pending);
+      }
+      return snapshot(rawStreamText);
     },
   };
 }

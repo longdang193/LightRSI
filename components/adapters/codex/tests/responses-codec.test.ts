@@ -174,6 +174,19 @@ test("codec preserves provider implicit GPT-5.6 cache behavior without retention
   assert.equal(encoded.input[1].content, "Keep user text unchanged.");
 });
 
+test("codec preserves string Responses input through encode after reduction preparation", () => {
+  const codec = createCodexResponsesPayloadCodec();
+  const rawPayload: any = {
+    model: "tokenpilot/gpt-5.4-mini",
+    stream: false,
+    input: "Please preserve this request",
+  };
+
+  const encoded = codec.encodeRequest(codec.decodeRequest(rawPayload)) as any;
+
+  assert.equal(encoded.input, rawPayload.input);
+});
+
 test("codec preserves object-valued prompt cache options from raw requests", () => {
   const codec = createCodexResponsesPayloadCodec();
   const promptCacheOptions = {

@@ -168,6 +168,7 @@ export function createCodexResponsesPayloadCodec(
         tools: Array.isArray(payload.tools) ? payload.tools : undefined,
         rawPayload: payload,
         metadata: {
+          inputKind: typeof payload.input === "string" ? "string" : Array.isArray(payload.input) ? "array" : "other",
           previousResponseId: typeof payload.previous_response_id === "string" ? payload.previous_response_id : undefined,
           promptCacheKey: typeof payload.prompt_cache_key === "string" ? payload.prompt_cache_key : undefined,
           promptCacheRetention: typeof payload.prompt_cache_retention === "string" ? payload.prompt_cache_retention : undefined,
@@ -216,7 +217,9 @@ export function createCodexResponsesPayloadCodec(
             return nextItem;
           })
         : envelope.messages;
-      payload.input = attachPromptCacheBreakpoint(encodedInput, envelope.metadata?.promptCacheBreakpoint);
+      payload.input = envelope.metadata?.inputKind === "string"
+        ? payload.input
+        : attachPromptCacheBreakpoint(encodedInput, envelope.metadata?.promptCacheBreakpoint);
       if (envelope.metadata?.promptCacheOptions && typeof envelope.metadata.promptCacheOptions === "object") {
         payload.prompt_cache_options = envelope.metadata.promptCacheOptions;
       } else {
