@@ -19,7 +19,7 @@ targets:
 
 # LightRSI Namespace Migration Implementation Plan
 
-## Objective
+## Goal
 
 Migrate local LightMem2 product namespace to LightRSI while preserving existing
 cache identity, persisted state, TokenPilot runtime ownership, 9Router routing,
@@ -30,6 +30,11 @@ Owning specification:
 
 Direct cherry-pick of upstream `c99e54f` is forbidden. Use it as bounded rename
 evidence only; manually reconcile local cache and telemetry changes.
+
+## Implementation Outcomes
+
+- Preserve local cache, stable-prefix, proxy, and telemetry behavior while migrating namespace identities.
+- Keep old persisted keys and compatibility paths readable during the migration window.
 
 ## Execution Approach
 
@@ -51,7 +56,7 @@ checkpoint commit or a verified binary patch plus explicit untracked-file copy
 manifest. `.serena/`, `outputs/`, logs, caches, archives, and runtime state must
 not be copied or committed as source.
 
-## Task Dependency Graph
+## Task Breakdown
 
 ```text
 Task 1 workspace isolation
@@ -492,7 +497,7 @@ inventory, and fresh targeted tests after last edit.
 **Exit Criteria:** No unresolved P1/P2 finding, evidence supports every material
 claim, and user receives explicit disposition choices without automatic Git action.
 
-## Final Verification Matrix
+## Verification
 
 | Contract | Required proof |
 |---|---|
@@ -524,7 +529,7 @@ claim, and user receives explicit disposition choices without automatic Git acti
 - No squash, rebase, merge, push, tag, or worktree cleanup without explicit user
   authorization after final verification.
 
-## Completion Condition
+## Completion Criteria
 
 Plan completes only when all task exit criteria and final matrix pass with fresh
 evidence. Successful rename, build, or LLM response alone is insufficient.

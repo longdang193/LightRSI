@@ -12,6 +12,11 @@ This file is repo-wide instruction layer. More specific directory instructions o
 
 ## Core Rules
 
+- Plan plus Git owns workflow truth. CoS owns assignment, continuation,
+  escalation, and acceptance. The shared attempt contract owns admission,
+  budget, settlement, lifecycle, and eligibility. Worker wrappers own
+  execution facts; transport layers own delivery and diagnostics.
+
 - Keep changes aligned with owning code, documentation, and configuration layers.
 - Read scoped `AGENTS.md` files before modifying files under their directories.
 - Treat source code and tests as authoritative when documentation or analysis tools disagree.
@@ -54,16 +59,17 @@ When spawning a subagent:
 - Use a fresh-context fork when selecting a different agent type.
 - Never override the template's model or reasoning effort.
 - Do not select unnamed or other agent types.
-- Agent delegation follows the current task Runtime Grant. Agents without
-  delegated child-agent authority must not spawn workers. MAIN AGENTS granted
-  delegation authority may autonomously spawn subordinate workers within their
-  assigned lane.
+- Ordinary lead-controller delegation follows task `Authority` and the
+  applicable delegation, review, or parallel-execution skill. Runtime Grant
+  child-agent authority applies to nested delegation by MAIN AGENTS assigned
+  through CoS.
 
 These generic subagent rules do not govern MAIN AGENT lane ownership. CoS
 assigns top-level MAIN AGENTS through the repository-owned Herdr launcher.
 MAIN AGENTS own assigned lanes and may spawn Native Codex, DeepAgents, or Tura
-sub-agents when needed. Sub-agents remain subordinate to their parent lane and
-must not spawn peer MAIN AGENTS or activate CoS.
+sub-agents when needed inside their assigned lane only when their Runtime Grant
+includes `delegation.child_agents: allow`. Sub-agents remain subordinate to
+their parent lane and must not spawn peer MAIN AGENTS or activate CoS.
 
 Select profile from required reasoning depth, ambiguity, scope, risk, and cost.
 Use lowest profile that can reliably complete current task contract. If scope or

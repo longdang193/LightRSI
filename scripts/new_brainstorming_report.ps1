@@ -11,11 +11,12 @@ if ($ReportId -notmatch '^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*
 }
 
 $root = "docs/superpowers/plans/brainstorming/$ReportId"
-$template = "docs/operating_system/templates/brainstorming-detailed-report-template.md"
+$localTemplate = Join-Path (Get-Location) "docs/operating_system/templates/brainstorming-detailed-report-template.md"
+$sharedTemplate = Join-Path $HOME ".agents/project-os/docs/operating_system/templates/brainstorming-detailed-report-template.md"
+$template = if (Test-Path -LiteralPath $localTemplate -PathType Leaf) { $localTemplate } elseif (Test-Path -LiteralPath $sharedTemplate -PathType Leaf) { $sharedTemplate } else { throw "Brainstorming template not found in repository or shared Project OS installation." }
 $report = "$root/report.md"
 
 if (Test-Path -LiteralPath $root) { throw "Brainstorming report already exists: $root" }
-if (-not (Test-Path -LiteralPath $template)) { throw "Brainstorming template not found: $template" }
 
 New-Item -ItemType Directory -Path $root | Out-Null
 Copy-Item -LiteralPath $template -Destination $report

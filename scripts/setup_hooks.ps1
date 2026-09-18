@@ -8,8 +8,14 @@ if (-not $repoRoot) {
     throw "Unable to resolve repo root."
 }
 
-$hookPath = Join-Path $repoRoot ".git/hooks/pre-commit"
-$hookDir = Split-Path -Parent $hookPath
+$hookDir = (git -C $repoRoot rev-parse --path-format=absolute --git-path hooks).Trim()
+$hookPath = Join-Path $hookDir "pre-commit"
+$previousHook = Join-Path $hookDir "pre-commit.project-os.previous"
+if ((Test-Path -LiteralPath $hookPath) -and -not (Select-String -LiteralPath $hookPath -Pattern "project-os-pre-commit-v1" -Quiet)) {
+    if (-not (Test-Path -LiteralPath $previousHook)) {
+        Copy-Item -LiteralPath $hookPath -Destination $previousHook
+    }
+}
 if (-not (Test-Path -LiteralPath $hookDir)) {
     New-Item -ItemType Directory -Force -Path $hookDir | Out-Null
 }
@@ -17,8 +23,11 @@ if (-not (Test-Path -LiteralPath $hookDir)) {
 $hook = @'
 #!/bin/sh
 set -eu
+# project-os-pre-commit-v1
 
 repo_root="$(git rev-parse --show-toplevel)"
+hooks_dir="$(git -C "$repo_root" rev-parse --path-format=absolute --git-path hooks)"
+previous_hook="$hooks_dir/pre-commit.project-os.previous"
 if [ -f "$repo_root/scripts/validate_repo_contracts.py" ]; then
   validator="$repo_root/scripts/validate_repo_contracts.py"
 else
@@ -35,6 +44,9 @@ elif [ -x "$repo_root/.venv/bin/python" ]; then
   "$repo_root/.venv/bin/python" "$validator" --repo-root "$repo_root" --fast
 else
   py -3 "$validator" --repo-root "$repo_root" --fast
+fi
+if [ -x "$previous_hook" ]; then
+  "$previous_hook"
 fi
 '@
 

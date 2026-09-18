@@ -81,7 +81,7 @@ reasoning options, forwarded request semantics, or cache equivalence.
 - new cache algorithms, dependencies, commit, push, or publication
 - rewriting Git history, tags, citations, or TokenPilot paper terminology
 
-## Evidence
+## Design Analysis
 
 | Fact | Evidence | Implication |
 |---|---|---|
@@ -117,7 +117,7 @@ LightRSI/TokenPilot stable-prefix code owns cache equivalence, breakpoint
 construction, family derivation, and telemetry. 9Router resolution is an input,
 not owner of cache equivalence.
 
-## Required Behavior
+## Required Outcomes
 
 ### Naming
 
@@ -245,7 +245,7 @@ role-specific instructions and tasks remain semantic differences after the
 breakpoint. Each agent's later request preserves its earlier cacheable prefix
 unless cache-relevant input changed.
 
-## Decisions
+## Design Decisions
 
 ### One Compatibility Rule per Owning Boundary
 
@@ -313,7 +313,7 @@ have no scheduled removal because their data can outlive executables. Removal
 requires separate explicit approval, migration evidence, and rollback proof;
 elapsed time alone is insufficient.
 
-## Acceptance Criteria
+## Completion Criteria
 
 ### Canonical Naming
 
@@ -391,7 +391,7 @@ elapsed time alone is insufficient.
 - failure: duplicate process, port collision, or divergent runtime state
 - proof: daemon lifecycle and restart regression tests
 
-## Validation Intent
+## Validation Plan
 
 Focused proof covers dual schemas, environment precedence, state fallback, CLI
 alias symmetry, skill cleanup idempotency, cache-key parser, family identity,

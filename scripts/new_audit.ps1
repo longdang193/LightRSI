@@ -11,11 +11,12 @@ if ($AuditId -notmatch '^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$
 }
 
 $root = "docs/superpowers/plans/audit/$AuditId"
-$template = "docs/operating_system/templates/audit-report-with-evidence-template.md"
+$localTemplate = Join-Path (Get-Location) "docs/operating_system/templates/audit-report-with-evidence-template.md"
+$sharedTemplate = Join-Path $HOME ".agents/project-os/docs/operating_system/templates/audit-report-with-evidence-template.md"
+$template = if (Test-Path -LiteralPath $localTemplate -PathType Leaf) { $localTemplate } elseif (Test-Path -LiteralPath $sharedTemplate -PathType Leaf) { $sharedTemplate } else { throw "Audit template not found in repository or shared Project OS installation." }
 $report = "$root/report.md"
 
 if (Test-Path -LiteralPath $root) { throw "Audit report already exists: $root" }
-if (-not (Test-Path -LiteralPath $template)) { throw "Audit template not found: $template" }
 
 New-Item -ItemType Directory -Path $root | Out-Null
 Copy-Item -LiteralPath $template -Destination $report
