@@ -2,8 +2,8 @@ import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
   type ContextCleanPlan,
   type ContextCleanReceipt,
-  type ContextCleanerControlPlane,
   type ContextCleanerHostBridge,
+  type ContextCleanerSchedulingControlPlane,
   type ExecuteApprovedContextCleanParams,
 } from "./contracts.js";
 import { readContextCleanPlan } from "./clean-plan-store.js";
@@ -12,6 +12,7 @@ import {
   analyzeContextCleanSession,
   approveContextCleanSelection,
   cancelContextCleanPlan,
+  finalizeContextCleanSchedule,
 } from "./orchestrator.js";
 import type { ContextCleanRecommendationProvider } from "./recommendation.js";
 
@@ -26,12 +27,18 @@ export interface ContextCleanerControlService {
 export function createContextCleanerControlPlane(params: {
   stateDir: string;
   now?: () => string;
-}): ContextCleanerControlPlane {
-  return {
-    executeApprovedClean: (request) => approveContextCleanSelection({
+}): ContextCleanerSchedulingControlPlane {
+  const approveCleanSelection = (request: ExecuteApprovedContextCleanParams) => approveContextCleanSelection({
       stateDir: params.stateDir,
       request,
       now: params.now?.(),
+    });
+  return {
+    executeApprovedClean: approveCleanSelection,
+    approveCleanSelection,
+    finalizeCleanSchedule: (request) => finalizeContextCleanSchedule({
+      stateDir: params.stateDir,
+      request,
     }),
     async readCleanReceipt(planId) {
       const result = await readContextCleanReceipt({ stateDir: params.stateDir, planId });
@@ -39,7 +46,7 @@ export function createContextCleanerControlPlane(params: {
       return result.value;
     },
     cancelCleanPlan: (planId) => cancelContextCleanPlan({ stateDir: params.stateDir, planId, now: params.now?.() }),
-  };
+  } satisfies ContextCleanerSchedulingControlPlane;
 }
 
 export function createContextCleanerControlService(params: {

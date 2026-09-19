@@ -6,6 +6,10 @@ import test from "node:test";
 
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
+  createContextCleanerControlPlane,
+  createContextCleanerControlService,
+  saveContextCleanPlan,
+  type ContextCleanPlan,
   type ContextCleanerControlPlane,
   type ContextCleanAppliedReceipt,
   type ContextCleanPendingReceipt,
@@ -90,6 +94,58 @@ function fakeControlPlane(): ContextCleanerControlPlane {
     async cancelCleanPlan() { return terminalReceipt("cancelled"); },
   };
 }
+
+function samplePlan(): ContextCleanPlan {
+  return {
+    schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+    planId: "clean-plan-1",
+    hostId: "codex",
+    sessionId: "codex-cleaner-session",
+    baseRevision: "revision-before",
+    usedTokens: 10,
+    usedChars: 10,
+    protectedTokens: 0,
+    protectedChars: 0,
+    unassignedTokens: 0,
+    unassignedChars: 0,
+    tokenCountMode: "chars_only",
+    tokenCountMethod: "fixture",
+    tasks: [{
+      taskId: "task-1",
+      label: "completed task",
+      description: "completed task",
+      summary: "completed task",
+      lifecycleState: "completed",
+      itemIds: ["item-1"],
+      itemDigests: { "item-1": "digest-1" },
+      tokenCount: null,
+      charCount: 10,
+      tokenPercent: 100,
+      recommendation: "clean",
+      reasonCodes: ["completed"],
+      selectable: true,
+    }],
+    createdAt: "2026-08-20T00:00:00.000Z",
+  };
+}
+
+test("real Codex cleaner composition schedules approved plans", async () => {
+  await withTempState(async (stateDir) => {
+    const plan = samplePlan();
+    assert.equal((await saveContextCleanPlan({ stateDir, plan })).bypassed, false);
+    const controlPlane = createContextCleanerControlPlane({ stateDir });
+    const bridge = createCodexContextCleanerBridge({ stateDir, controlPlane });
+    const service = createContextCleanerControlService({ stateDir, bridge });
+
+    const receipt = await service.approve(plan.planId, ["task-1"]);
+
+    assert.equal(receipt.status, "scheduled");
+    assert.equal((await readCodexCleanerSchedule({
+      stateDir,
+      sessionId: plan.sessionId,
+    })).outcome, "ready");
+  });
+});
 
 test("Codex cleaner bridge preserves approved targets and control-plane receipts", async () => {
   await withTempState(async (stateDir) => {

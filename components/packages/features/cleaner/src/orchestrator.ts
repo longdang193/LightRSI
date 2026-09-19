@@ -8,6 +8,7 @@ import {
   type ContextCleanReceipt,
   type ContextCleanerHostBridge,
   type ExecuteApprovedContextCleanParams,
+  type FinalizeContextCleanScheduleParams,
 } from "./contracts.js";
 import { readContextCleanPlan, saveContextCleanPlan } from "./clean-plan-store.js";
 import { readContextCleanReceipt } from "./clean-receipt-store.js";
@@ -49,6 +50,40 @@ function analyzedReceipt(plan: ContextCleanPlan, fallbackUsed: boolean, reasons:
     reasons,
     updatedAt: plan.createdAt,
     fallbackUsed,
+  };
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+function pendingReceipt(params: {
+  plan: ContextCleanPlan;
+  status: "approved" | "scheduled";
+  selectedTaskIds: string[];
+  updatedAt: string;
+  fallbackUsed: boolean;
+}): ContextCleanPendingReceipt {
+  const selectedTasks = params.plan.tasks.filter((task) => params.selectedTaskIds.includes(task.taskId));
+  return {
+    schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+    planId: params.plan.planId,
+    hostId: params.plan.hostId,
+    sessionId: params.plan.sessionId,
+    status: params.status,
+    selectedTaskIds: [...params.selectedTaskIds],
+    estimatedSavedTokens: selectedTasks.every((task) => task.tokenCount !== null)
+      ? selectedTasks.reduce((sum, task) => sum + (task.tokenCount ?? 0), 0)
+      : null,
+    estimatedSavedChars: selectedTasks.reduce((sum, task) => sum + task.charCount, 0),
+    tokenCountMode: params.plan.tokenCountMode,
+    deferredTaskIds: [],
+    reasons: [],
+    updatedAt: params.updatedAt,
+    fallbackUsed: params.fallbackUsed,
   };
 }
 
@@ -142,6 +177,50 @@ export async function approveContextCleanSelection(params: {
   const storedReceipt = await readContextCleanReceipt({ stateDir: params.stateDir, planId: plan.planId });
   if (storedReceipt.bypassed || !storedReceipt.value) error("clean_approval_receipt_missing", storedReceipt.reasons);
   return storedReceipt.value;
+}
+
+export async function finalizeContextCleanSchedule(params: {
+  stateDir: string;
+  request: FinalizeContextCleanScheduleParams;
+}): Promise<ContextCleanReceipt> {
+  const stored = await readContextCleanPlan({ stateDir: params.stateDir, planId: params.request.cleanPlanId });
+  if (stored.bypassed || !stored.value) error("clean_schedule_plan_unavailable", stored.reasons);
+  const plan = stored.value.plan;
+  const request = params.request;
+  if (request.hostId !== plan.hostId
+    || request.sessionId !== plan.sessionId
+    || request.baseRevision !== plan.baseRevision
+    || request.selectedTaskIds.length === 0
+    || new Set(request.selectedTaskIds).size !== request.selectedTaskIds.length
+    || Number.isNaN(Date.parse(request.scheduledAt))) {
+    throw new Error("clean_schedule_identity_invalid");
+  }
+  const current = await readContextCleanReceipt({ stateDir: params.stateDir, planId: request.cleanPlanId });
+  if (current.bypassed) error("clean_schedule_receipt_unavailable", current.reasons);
+  if (stored.value.status === "scheduled") {
+    if (!current.value
+      || current.value.status !== "scheduled"
+      || !sameStrings(current.value.selectedTaskIds, request.selectedTaskIds)) {
+      throw new Error("clean_schedule_selection_conflict");
+    }
+    return current.value;
+  }
+  if (stored.value.status !== "approved"
+    || !current.value
+    || current.value.status !== "approved"
+    || !sameStrings(current.value.selectedTaskIds, request.selectedTaskIds)) {
+    throw new Error("clean_schedule_not_approved");
+  }
+  const scheduled = pendingReceipt({
+    plan,
+    status: "scheduled",
+    selectedTaskIds: request.selectedTaskIds,
+    updatedAt: request.scheduledAt,
+    fallbackUsed: current.value.fallbackUsed,
+  });
+  const result = await transitionContextCleanState({ stateDir: params.stateDir, receipt: scheduled });
+  if (result.bypassed) error("clean_schedule_store_failed", result.reasons);
+  return scheduled;
 }
 
 export async function cancelContextCleanPlan(params: { stateDir: string; planId: string; now?: string }): Promise<ContextCleanReceipt> {

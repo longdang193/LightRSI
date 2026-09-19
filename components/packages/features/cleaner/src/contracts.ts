@@ -344,6 +344,24 @@ export type ContextCleanerControlPlane = Pick<
   "executeApprovedClean" | "readCleanReceipt" | "cancelCleanPlan"
 >;
 
+export type FinalizeContextCleanScheduleParams = {
+  cleanPlanId: string;
+  hostId: string;
+  sessionId: string;
+  baseRevision: string;
+  selectedTaskIds: string[];
+  scheduledAt: string;
+};
+
+export interface ContextCleanerSchedulingControlPlane extends ContextCleanerControlPlane {
+  approveCleanSelection(
+    params: ExecuteApprovedContextCleanParams,
+  ): Promise<ContextCleanReceipt>;
+  finalizeCleanSchedule(
+    params: FinalizeContextCleanScheduleParams,
+  ): Promise<ContextCleanReceipt>;
+}
+
 /**
  * Shared scheduled-plan consumer used inside a Host's existing request lock.
  * Host-specific request payloads and actual rewrite commits stay in adapters.
