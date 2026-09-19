@@ -243,8 +243,8 @@ and integration correctness.
 - Branch: `codex/context-cleaner-safety-autonomy-follow-up` (create at activation from `origin/main`)
 - Base commit: `becf974aa3a3575e7a8dd23f2b937f8a5ecf802e`
 - Expected workspace: `existing LightRSI follow-up branch with 081cb4a pushed; plan edits remain uncommitted; Project OS uses a separate checkout`
-- Next action: `rerun Gate B from a fresh quiescent worker session after its pending tool call settles; invoke Cleaner externally from the idle controller process only; do not use the active controller snapshot, synthesize registry entries, or bypass Cleaner refusal; keep policy rollout staged`
-- Blockers: `Gate B bound a fresh agent and TokenPilot session, but Cleaner rejected the active snapshot as incomplete (`codex_clean_snapshot_incomplete:history_replay_incomplete,history_unresolved_tool_calls`); the agent still had an open write_stdin tool call, so no plan/receipt or eligible task existed`
+- Next action: `wait for a supported fresh Herdr/Codex worker pane, run three quiescent read-only turns, then invoke Cleaner externally from the idle controller process only; do not use the active controller snapshot, synthesize registry entries, or bypass Cleaner refusal; keep policy rollout staged`
+- Blockers: `Gate B bound a fresh agent and TokenPilot session, but Cleaner rejected the active snapshot as incomplete (`codex_clean_snapshot_incomplete:history_replay_incomplete,history_unresolved_tool_calls`); the agent still had an open write_stdin tool call, so no plan/receipt or eligible task existed; the follow-up Herdr launch found no eligible candidate panes after stale worker cleanup (`target_resolution=not_found`), so no fresh worker could be started`
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -258,7 +258,7 @@ and integration correctness.
 | Task 8 | `completed` | current workspace | `codex` | Task 7 | estimator observation plus approved Cleaner eligibility with automatic eviction disabled | lifecycle planner/runtime suites, eviction suite, adapter/eviction typechecks pass; real Codex lifecycle integration proves registry attribution → selectable task → approval → scheduling → safe execution revalidation; no automatic mutation plan is exposed |
 | Task 9 | `pending` | current workspace | `codex` | Task 8 | separate measured performance follow-up | Deferred; not required for Cleaner correctness or first pilot; no supported Codex eviction control exists |
 
-Task 6 remains blocked only on pilot data, not startup binding or CLI session
+Task 6 remains blocked only on pilot data and available worker runtime, not startup binding or CLI session
 alias resolution. The runtime defect was root-caused: Codex CLI default
 resolution ignored `CODEX_SESSION_ID` and selected the shared latest-session
 pointer, so a fresh worker could report or clean the controller's TokenPilot
