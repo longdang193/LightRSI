@@ -335,6 +335,68 @@ test("dispatch uses the default host and latest resolved codex session for hostl
   }
 });
 
+test("dispatch prefers current Codex host alias over unrelated latest session", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-codex-current-session-"));
+  const originalHome = process.env.HOME;
+  const originalCodexSessionId = process.env.CODEX_SESSION_ID;
+  process.env.HOME = dir;
+  process.env.CODEX_SESSION_ID = "codex-host-session-worker";
+  try {
+    const stateDir = join(dir, ".codex", "tokenpilot-state", "tokenpilot");
+    await mkdir(join(stateDir, "ux-effects", "sessions"), { recursive: true });
+    await mkdir(join(stateDir, "session-state"), { recursive: true });
+    await writeFile(
+      join(dir, ".codex", "tokenpilot.json"),
+      JSON.stringify({ enabled: true, stateDir }),
+      "utf8",
+    );
+    await indexCodexHostSessionAlias(stateDir, "codex-host-session-worker", "codex-worker-session");
+    await writeFile(
+      join(stateDir, "session-state", "latest.json"),
+      JSON.stringify({ sessionId: "codex-controller-session", updatedAt: "2026-09-19T19:00:00.000Z" }),
+      "utf8",
+    );
+    await writeFile(
+      join(stateDir, "ux-effects", "latest.json"),
+      JSON.stringify({
+        at: "2026-09-19T19:00:00.000Z",
+        sessionId: "codex-controller-session",
+        model: "gpt-5.4",
+        countMode: "chars",
+        beforeCount: 1200,
+        afterCount: 400,
+        savedCount: 800,
+      }),
+      "utf8",
+    );
+    await writeFile(
+      join(stateDir, "ux-effects", "sessions", "codex-worker-session.json"),
+      JSON.stringify({
+        sessionId: "codex-worker-session",
+        turns: 2,
+        latestCountMode: "chars",
+        tokenOptimizedTurns: 0,
+        tokenSavedCount: 0,
+        avgSavedTokensPerOptimizedTurn: 0,
+        charOptimizedTurns: 1,
+        charSavedCount: 300,
+        avgSavedCharsPerOptimizedTurn: 300,
+        latestAt: "2026-09-19T18:59:00.000Z",
+      }),
+      "utf8",
+    );
+
+    const report = await dispatchCli(["codex", "report"]);
+    assert.match(report.text, /session: codex-worker-session/);
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalCodexSessionId === undefined) delete process.env.CODEX_SESSION_ID;
+    else process.env.CODEX_SESSION_ID = originalCodexSessionId;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("dispatch hostless report prefers the host with the latest stats over lastActiveHost", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-report-latest-host-"));
   const originalHome = process.env.HOME;

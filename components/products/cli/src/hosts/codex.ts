@@ -26,6 +26,7 @@ import {
 } from "../../../../adapters/codex/src/host-config-adapter.js";
 import {
   resolveCanonicalCodexSessionId,
+  resolveCodexSessionAlias,
   resolveLatestCodexSessionId,
 } from "../../../../adapters/codex/src/session-state.js";
 import {
@@ -99,6 +100,11 @@ async function resolveCodexCliSessionId(params: {
   const explicit = typeof params.explicitSessionId === "string" ? params.explicitSessionId.trim() : "";
   if (explicit) {
     return resolveCanonicalCodexSessionId(stateDir, explicit);
+  }
+  const currentCodexSessionId = process.env.CODEX_SESSION_ID?.trim();
+  if (currentCodexSessionId) {
+    const currentSessionId = await resolveCodexSessionAlias(stateDir, currentCodexSessionId);
+    if (currentSessionId) return currentSessionId;
   }
   return resolvePreferredSessionId({
     stateDir,

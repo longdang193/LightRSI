@@ -490,6 +490,60 @@ test("Codex cleaner bridge rejects a session whose committed response chain is i
   }
 });
 
+test("Codex cleaner bridge reports unresolved active tool calls in refusal reason", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cleaner-active-tool-"));
+  try {
+    const sessionId = "codex-cleaner-active-tool";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "run the tool" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{
+          type: "function_call",
+          call_id: "call-active",
+          name: "run",
+          arguments: "{}",
+        }],
+      },
+      status: "completed",
+    });
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      payload: {
+        previous_response_id: "response-1",
+        input: [{ type: "function_call_output", call_id: "call-active", output: "pending" }],
+      },
+      status: "pending",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, {
+      latestResponseId: "response-1",
+      latestModel: "gpt-5.4",
+    });
+
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane: fakeControlPlane(),
+    });
+    await assert.rejects(
+      bridge.readCleanSnapshot(sessionId),
+      /codex_clean_snapshot_incomplete:.*history_unresolved_tool_calls/,
+    );
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("Codex cleaner session catalog sorts valid sessions and isolates malformed entries", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cleaner-catalog-"));
   try {
