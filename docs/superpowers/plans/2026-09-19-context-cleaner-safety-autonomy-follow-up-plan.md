@@ -53,6 +53,26 @@ Harden Context Cleaner for autonomous use without creating a second governance o
   net benefit and acceptable interactive latency.
 - Project OS grants narrow standing permission for exclusively owned internal context without expanding authority.
 
+## Current Active Scope
+
+- Task 7: committed recovery, claim-fencing, and retry-identity evidence.
+- Task 8: completed proof shows estimator attribution produces approved Cleaner
+  eligibility; automatic eviction remains disabled.
+- Task 6: prove session binding, distinct internal milestone attribution, and a
+  narrow agent-initiated autonomy pilot.
+- Task 5: policy publication and activation remain staged; policy preparation and
+  generated-surface validation do not activate broad permission.
+- Task 9: deferred and non-blocking.
+
+## Status Semantics
+
+- `implementation verified`: declared code and focused checks pass.
+- `delivery committed`: verified implementation is recorded in Git.
+- `policy prepared`: canonical policy and generated surfaces are ready; activation
+  has not occurred.
+- `policy activated`: standing permission is enabled for its declared scope.
+- `pilot validated`: live binding and agent-initiated behavior meet Gate C.
+
 
 ## Verdict Review
 
@@ -162,6 +182,14 @@ and generated surfaces. Do not infer publication from the LightRSI task ledger.
 - Keep the first integration CLI-driven with explicit session identity. Add a
   programmatic adapter only after a pilot proves the CLI cannot bind the active
   session or enforce eligible task IDs reliably.
+- Keep two execution modes without creating a third context-management system:
+  normal mode lets one agent plan, implement, verify, and decide when to use
+  Cleaner; coordinated mode lets CoS and Herdr assign and reconcile bounded
+  worker execution. Cleaner remains session-local in both modes.
+- A single session may combine controller and worker activity only when their
+  logical task attribution and protected control-plane context are distinct.
+  Without that separation, Cleaner fails closed. The active controller session
+  is not a Task 6 pilot target.
 
 ## Cross-Repository Governance Pair
 
@@ -221,9 +249,9 @@ and integration correctness.
 | Task 3 | `completed` | current workspace | `codex` | Task 1 | locked approval, claim, and cancellation tests | approval replay and cancel/claim arbitration pass |
 | Task 4 | `completed` | current workspace | `codex` | Tasks 2–3 | uncertain-dispatch and receipt recovery tests | Codex targeted suite and typecheck pass |
 | Task 5 | `completed` | separate Project OS checkout | `codex` | none | canonical policy and generated-surface verification | canonical standing-permission paragraph added; all adapters synchronized; fast contract validation passed; unrelated dirty README and files preserved |
-| Task 6 | `blocked` | current runtime environment | `codex` | Tasks 2–5, 7–8 | pilot measurements and stop-condition review | no reliably bound agent-initiated session available; CLI help verified only |
+| Task 6 | `blocked` | current runtime environment | `codex` | Tasks 2–5, 7–8 | binding probe, pilot measurements, and stop-condition review | no disposable agent task produced a usable thread/session binding; no pilot mutation attempted |
 | Task 7 | `completed` | current workspace | `codex` | Tasks 2–4 | duplicate-generation, claim-fencing, and retry regression proof | focused Codex suites, Cleaner suite, and adapter/Cleaner typechecks pass; no resend after accepted response; owner-token and cancellation fencing regressions pass |
-| Task 8 | `completed` | current workspace | `codex` | Task 7 | estimator observation with automatic eviction disabled | lifecycle planner/runtime suites, eviction suite, adapter/eviction typechecks pass; registry attribution remains enabled and no automatic mutation plan is exposed |
+| Task 8 | `completed` | current workspace | `codex` | Task 7 | estimator observation plus approved Cleaner eligibility with automatic eviction disabled | lifecycle planner/runtime suites, eviction suite, adapter/eviction typechecks pass; real Codex lifecycle integration proves registry attribution → selectable task → approval → scheduling → safe execution revalidation; no automatic mutation plan is exposed |
 | Task 9 | `pending` | current workspace | `codex` | Task 8 | separate measured performance follow-up | Deferred; not required for Cleaner correctness or first pilot; no supported Codex eviction control exists |
 
 Task 6 remains blocked by missing reliable agent-initiated session binding and
@@ -552,7 +580,7 @@ schema, Cleaner ledger, CoS approval loop, or generated-file hand edit exists.
 - Stop for: overwriting unrelated user changes, editing generated surfaces by
   hand, or changing Runtime Grant semantics.
 
-### Task 6: Run narrow single-agent pilot and measure usefulness
+### Task 6: Prove session binding and run narrow single-agent autonomy pilot
 
 **Template Profile:**
 
@@ -572,10 +600,13 @@ or task evidence, not a new runtime registry.
 
 **Steps:**
 
-- Activate only after Tasks 7–9 exit criteria pass. A blocked Task 7, 8, or 9
-  blocks the pilot; do not compensate with manual registry edits or default
+- Activate only after Tasks 7–8 exit criteria pass. Task 9 is deferred and does
+  not block this pilot. Do not compensate with manual registry edits or default
   automatic eviction.
-- Use existing explicit CLI flow with a verified Codex session ID:
+- Gate A — binding probe: use a fresh normal-agent or disposable test session,
+  not the active controller session. Prove Host-provided session identity,
+  supported LightRSI traffic, eligible registry entries, and readable status
+  without mutating context. Use the existing explicit CLI flow:
 
 ```text
  lightrsi codex clean --session SESSION_ID
@@ -587,17 +618,21 @@ or task evidence, not a new runtime registry.
   guessing, traffic traverses the supported LightRSI Host adapter, the existing
   registry identifies genuinely completed eligible work, no manual registry
   modification is required, and status/recovery outcomes are readable.
-- Pilot one long-running single-agent implementation task containing multiple
-  completed investigations or debugging cycles.
+- Gate A must also show one continuing top-level objective producing at least one
+  distinct completed internal milestone task while the objective remains active.
+  If the estimator collapses all work into one active task, record that concrete
+  capability gap; do not add a milestone signal before the pilot proves it is
+  needed.
+- Gate B — autonomous pilot: run one long-running normal-agent implementation
+  task containing multiple completed investigations or debugging cycles. The
+  agent must decide cleaning is useful, invoke the CLI, select eligible tasks,
+  observe status, and continue the original task.
 - Clean only exclusively owned completed internal work after findings and proof
   are durable; preserve active work, shared context, unresolved failures, and
   evidence needed for review.
 - Measure uncached input cost, end-to-end latency, repeated investigation,
   task correctness, acceptance success, stale/recovery incidents, and applied
   savings. Do not judge success by removed-token count alone.
-- Require agent-initiated operation: the agent decides cleaning is useful,
-  invokes the existing CLI, selects eligible tasks, observes the outcome, and
-  continues the original task without repeated human confirmation.
 - If a human chooses the session, selects every task, and executes every command,
   record the result as supervised operation, not autonomous maintenance.
 - Do not run an automatic-eviction comparison in this Codex pilot. The current
@@ -605,14 +640,18 @@ or task evidence, not a new runtime registry.
   hardcoded lifecycle path or adding a second adapter policy field would create
   an unreviewed policy boundary. Record automatic-eviction comparison as
   blocked until a separate canonical control design is approved.
-- Stop the pilot if any shared item is selected, cancellation/claim ownership is
-  ambiguous, uncertain dispatch is resent, or evidence needed for acceptance is
-  lost.
+- Gate C — decision: accept autonomy only when session identity is reliable,
+  eligible items are exclusively owned, claim and cancellation ownership is
+  unambiguous, uncertain dispatch is never resent, evidence and continuing
+  instructions are preserved, and the agent continues without unnecessary human
+  intervention. Otherwise record one concrete missing capability and keep policy
+  rollout staged.
 
-**Exit criteria:** Pilot demonstrates safe agent-initiated maintenance with no
-  manual registry edits, or produces one concrete missing capability before any
-  adapter, automatic trigger, or MCP surface is proposed. Policy rollout remains
-  staged until pilot safety and usefulness are reviewed.
+**Exit criteria:** Gate A proves reliable binding without mutation; Gate B
+demonstrates safe agent-initiated maintenance with no manual registry edits; and
+Gate C records either accepted autonomy evidence or one concrete missing
+capability. Policy preparation does not activate broad permission, automatic
+eviction, an adapter, an automatic trigger, or an MCP surface.
 
 **Authority:**
 
@@ -658,8 +697,9 @@ or task evidence, not a new runtime registry.
   epoch persistence failure. Assert upstream call count stays one and state is
   `recovery_required` or an equivalent reserved state.
 - Trace every caller of `sendOriginalWithFallbackOutcome`; permit original
-  fallback only before dispatch, on confirmed provider rejection, or when no
-  provider response was observed. Preserve uncertain dispatch without resend.
+  fallback only before dispatch, on confirmed provider rejection, or when
+  evidence establishes that provider execution did not occur. Preserve uncertain
+  dispatch without resend.
 - Reproduce pending cancellation intent followed by claim admission. Recover the
   intent under the existing plan lock before reading claim state; assert no
   cancelled-and-claimed state is possible.
@@ -718,10 +758,11 @@ canonical transaction identity.
   `components/presets/tokenpilot/src/policy.ts` to document the current boundary:
   `eviction.enabled` is canonical for TokenPilot policy, but is not currently
   exposed as a public Codex adapter control.
-- Preserve `lifecycleMode: "decoupled"` in
-  `components/adapters/codex/src/context-rewrite/estimator-config.ts` and
-  `components/packages/features/eviction/src/task-state-estimator.ts` for
-  registry observation without automatic removal.
+- Prefer the existing coupled lifecycle classification for completed-versus-
+  evictable attribution while automatic mutation remains disabled; do not add a
+  second registry or policy system. Change `lifecycleMode: "decoupled"` only if
+  focused evidence proves the existing classification cannot support safe
+  observation without mutation.
 - Extend `components/adapters/codex/tests/config.test.ts`,
   `components/adapters/codex/tests/context-rewrite-lifecycle-runtime.test.ts`,
   and `components/adapters/codex/tests/context-rewrite-lifecycle-runner.test.ts`.
@@ -735,14 +776,18 @@ canonical transaction identity.
 - Establish observation-only behavior for Codex: estimator updates task
   registry while lifecycle eviction is disabled, and no mutation plan is
   exposed from this path.
-- Keep approved Cleaner scheduling independent from estimator-selected eviction.
+- Keep approved Cleaner scheduling independent from automatic eviction, while
+  proving its selection input includes genuinely completed, evictable tasks.
 - Verify estimator observation does not require provider replay compatibility when
   no mutation plan will execute.
 - Verify automatic eviction remains disabled by default and existing presets do
   not silently change behavior.
-- Add runtime tests proving registry updates occur with eviction off and no
-  mutation plan is applied. Defer enabled-mode wiring and its guard tests until
-  a separate policy-boundary design identifies an existing supported handoff.
+- Add an end-to-end regression proving: attribution → completed task →
+  evictable/selectable task → approved → scheduled → safely applied, with
+  automatic mutation disabled. Do not equate `completed` with `evictable`.
+  Also prove registry updates occur with eviction off and no automatic mutation
+  plan is applied. Defer enabled-mode wiring and its guard tests until a separate
+  policy-boundary design identifies an existing supported handoff.
 
 **Verification:**
 
@@ -754,8 +799,10 @@ pnpm --dir components/packages/features/eviction run typecheck
 ```
 
 **Exit criteria:** Task registry attribution updates with automatic eviction
-disabled; approved Cleaner remains usable; no automatic removal occurs; no new
-Codex-only policy field or unsupported enablement path exists.
+disabled; completed attribution produces an honestly evictable/selectable task
+for approved Cleaner use; the approved selection can be scheduled and safely
+applied; no automatic removal occurs; no new Codex-only policy field or
+unsupported enablement path exists.
 
 **Authority:**
 
@@ -860,7 +907,7 @@ Completion requires:
 5. Uncertain provider outcomes remain recovery-required and are never resent.
 6. Existing transaction, revision, protocol-closure, journal, rewrite, and cache behavior remains unchanged outside Cleaner-selected mutation.
 7. Project OS standing permission is canonical and generated surfaces are synced.
-8. `skill-verification-before-completion` returns `verified` before changing plan status from `proposed`.
+8. `skill-verification-before-completion` returns `verified` before changing plan status from `active` to `completed`.
 9. A successful or uncertain provider dispatch cannot cause a duplicate upstream generation.
 10. Estimator observation works with automatic eviction disabled, and approved Cleaner remains usable.
 11. Any future automatic-eviction gate has measured latency, cost, recovery, and task-correctness evidence.

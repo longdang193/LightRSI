@@ -6,10 +6,16 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { loadSessionTaskRegistry } from "@lightrsi/history";
+import {
+  createContextCleanerControlPlane,
+  createContextCleanerControlService,
+  createContextCleanerHostExecutionBridge,
+} from "@lightrsi/cleaner";
 import { reserveUnusedPort } from "@lightrsi/host-adapter";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { buildCodexEffectiveHistory } from "../src/context-history/index.js";
+import { createCodexContextCleanerBridge } from "../src/context-cleaner/index.js";
 import { readCodexRebaseEpochJournal } from "../src/context-rewrite/index.js";
 import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
@@ -289,6 +295,50 @@ test("Codex proxy observes lifecycle attribution without automatic eviction", as
     assert.equal(registry.version, 1);
     assert.deepEqual(registry.evictableTaskIds, ["task-lifecycle-evict"]);
     assert.deepEqual(registry.activeTaskIds, ["task-lifecycle-current"]);
+    const cleanerControlPlane = createContextCleanerControlPlane({
+      stateDir,
+      now: () => "2026-08-20T00:00:00.000Z",
+    });
+    const cleanerBridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane: cleanerControlPlane,
+    });
+    const cleaner = createContextCleanerControlService({
+      stateDir,
+      bridge: cleanerBridge,
+      now: () => "2026-08-20T00:00:00.000Z",
+    });
+    const cleanPlan = await cleaner.analyze(sessionId);
+    const completedTask = cleanPlan.tasks.find((task) => task.taskId === "task-lifecycle-evict");
+    assert.ok(completedTask);
+    assert.equal(completedTask.lifecycleState, "completed");
+    assert.equal(completedTask.selectable, true);
+    const scheduled = await cleaner.approve(cleanPlan.planId, [completedTask.taskId]);
+    assert.equal(scheduled.status, "scheduled");
+    const executionBridge = createContextCleanerHostExecutionBridge({
+      stateDir,
+      hostId: "codex",
+      async readExecutionSnapshot() {
+        return {
+          snapshot: await cleanerBridge.readCleanSnapshot(sessionId),
+          activeTaskIds: registry.activeTaskIds,
+          evictableTaskIds: registry.evictableTaskIds,
+        };
+      },
+    });
+    const prepared = await executionBridge.prepareScheduledClean({
+      cleanPlanId: cleanPlan.planId,
+      sessionId,
+      baseRevision: cleanPlan.baseRevision,
+      selectedTaskIds: [completedTask.taskId],
+    });
+    assert.equal(prepared.outcome, "ready");
+    if (prepared.outcome === "ready") {
+      assert.deepEqual(
+        prepared.execution.mutationPlan.operations[0]?.targetItemIds,
+        completedTask.itemIds,
+      );
+    }
     const plannerTrace = lifecycleEvents.find((event) => (
       event.stage === "context_rewrite_lifecycle_planner_completed"
       && event.attemptedEstimator === true
