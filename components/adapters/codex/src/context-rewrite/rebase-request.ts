@@ -2,6 +2,7 @@ import {
   codexProgramCallerId,
   codexReplayPairRef,
 } from "../context-history/replayability.js";
+import { sameCanonicalValue } from "@lightrsi/cleaner";
 import type { TaskStateEstimatorOutput } from "@lightrsi/eviction";
 import { cloneJson, stableInputKey } from "./shared.js";
 import type {
@@ -27,7 +28,7 @@ type IndexedToolCallRef = ReturnType<typeof codexReplayPairRef> & {
 };
 
 function sameCaller(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return sameCanonicalValue(left, right);
 }
 
 function closureReasons(items: JsonObject[]): string[] {

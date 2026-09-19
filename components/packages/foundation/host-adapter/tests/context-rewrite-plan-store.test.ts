@@ -98,6 +98,29 @@ test("active plans persist idempotently and recover after restart", async () => 
   }
 });
 
+test("active plan idempotency ignores persisted object key order", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-key-order-"));
+  try {
+    const plan = createPlan("plan-key-order");
+    const reordered = {
+      ...plan,
+      operations: plan.operations.map((operation) => ({
+        estimatedSavedChars: operation.estimatedSavedChars,
+        rationale: operation.rationale,
+        targetItemFingerprints: operation.targetItemFingerprints,
+        targetItemIds: operation.targetItemIds,
+        type: operation.type,
+        id: operation.id,
+      })),
+    };
+    await saveActiveContextMutationPlan({ stateDir, plan });
+    const duplicate = await saveActiveContextMutationPlan({ stateDir, plan: reordered });
+    assert.equal(duplicate.outcome, "unchanged");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("same plan id rejects different content instead of treating it as idempotent", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-id-conflict-"));
   try {

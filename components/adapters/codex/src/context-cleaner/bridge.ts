@@ -1,6 +1,7 @@
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
   type ContextCleanerControlPlane,
+  type ContextCleanerSchedulingControlPlane,
   type ContextCleanerHostBridge,
   type ContextCleanReceipt,
   type ExecuteApprovedContextCleanParams,
@@ -86,29 +87,19 @@ function validateApprovedRequest(request: ExecuteApprovedContextCleanParams): st
     || !request.sessionId.trim()
     || !request.baseRevision.trim()
     || !canonicalTimestamp(request.approvedAt)
-    || request.selectedTasks.length === 0) {
+    || request.selectedTaskIds.length === 0) {
     throw new Error("codex_clean_approval_invalid");
   }
-  const taskIds = normalizedUniqueStrings(request.selectedTasks.map((task) => task.taskId));
+  const taskIds = normalizedUniqueStrings(request.selectedTaskIds);
   if (!taskIds) throw new Error("codex_clean_approval_invalid");
-  const claimedItemIds = new Set<string>();
-  for (const task of request.selectedTasks) {
-    const itemIds = normalizedUniqueStrings(task.itemIds);
-    if (!itemIds
-      || itemIds.length === 0
-      || Object.keys(task.itemDigests).length !== itemIds.length) {
-      throw new Error("codex_clean_approval_targets_invalid");
-    }
-    for (const itemId of itemIds) {
-      if (claimedItemIds.has(itemId)
-        || typeof task.itemDigests[itemId] !== "string"
-        || !task.itemDigests[itemId]!.trim()) {
-        throw new Error("codex_clean_approval_targets_invalid");
-      }
-      claimedItemIds.add(itemId);
-    }
-  }
   return taskIds;
+}
+
+function isSchedulingControlPlane(
+  controlPlane: ContextCleanerControlPlane,
+): controlPlane is ContextCleanerSchedulingControlPlane {
+  return typeof (controlPlane as Partial<ContextCleanerSchedulingControlPlane>).approveCleanSelection === "function"
+    && typeof (controlPlane as Partial<ContextCleanerSchedulingControlPlane>).finalizeCleanSchedule === "function";
 }
 
 function validateReceipt(params: {
@@ -257,6 +248,39 @@ export function createCodexContextCleanerBridge(params: {
     },
     async executeApprovedClean(request) {
       const selectedTaskIds = validateApprovedRequest(request);
+      if (isSchedulingControlPlane(params.controlPlane)) {
+        const approved = validateReceipt({
+          receipt: await params.controlPlane.approveCleanSelection(request),
+          planId: request.cleanPlanId,
+          sessionId: request.sessionId,
+          selectedTaskIds,
+        });
+        if (approved.status !== "approved") return approved;
+        const scheduled = await scheduleCodexCleanerPlan({
+          stateDir: params.stateDir,
+          sessionId: request.sessionId,
+          cleanPlanId: request.cleanPlanId,
+          baseRevision: request.baseRevision,
+          selectedTaskIds,
+          scheduledAt: approved.updatedAt,
+        });
+        if (scheduled.outcome !== "stored" && scheduled.outcome !== "unchanged") {
+          throw new Error(`codex_clean_schedule_failed:${scheduled.reasons.join(",")}`);
+        }
+        return validateReceipt({
+          receipt: await params.controlPlane.finalizeCleanSchedule({
+            cleanPlanId: request.cleanPlanId,
+            hostId: request.hostId,
+            sessionId: request.sessionId,
+            baseRevision: request.baseRevision,
+            selectedTaskIds,
+            scheduledAt: approved.updatedAt,
+          }),
+          planId: request.cleanPlanId,
+          sessionId: request.sessionId,
+          selectedTaskIds,
+        });
+      }
       const receipt = validateReceipt({
         receipt: await params.controlPlane.executeApprovedClean(request),
         planId: request.cleanPlanId,

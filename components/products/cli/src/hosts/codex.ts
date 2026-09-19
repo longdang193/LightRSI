@@ -38,6 +38,8 @@ import {
   resolveConfiguredPreferredSessionId,
   resolvePreferredSessionId,
 } from "./shared.js";
+import { handleCleanCommand } from "../clean.js";
+import { createCodexCleanCommandBackend } from "./cleaner.js";
 import { handleStandaloneVisualCommandWithSelection } from "./visual.js";
 import type { CliHostPathOverrides } from "../context-store.js";
 
@@ -184,7 +186,7 @@ export function createCodexCliBridge(target: {
     },
   };
 
-  const handleCommand = createRestrictedHostCommandHandler({
+  const baseHandleCommand = createRestrictedHostCommandHandler({
     displayName: "Codex",
     cliHostName: "codex",
     reductionPassNames: CODEX_REDUCTION_PASS_NAMES,
@@ -199,6 +201,18 @@ export function createCodexCliBridge(target: {
       await writeConfig(applyStandardRuntimeModeConfig(current, mode), target.pathOverrides);
     },
   });
+
+  async function handleCommand(ctx: { args: string; sessionId?: string }): Promise<{ text: string }> {
+    const args = ctx.args.trim().split(/\s+/).filter(Boolean);
+    if (args[0] !== "clean") return baseHandleCommand(ctx);
+    const stateDir = resolveCodexStateDir(await loadConfig(target.pathOverrides));
+    if (!stateDir) return { text: "Context Cleaner stateDir is not configured." };
+    return await handleCleanCommand({
+      args: args.slice(1),
+      sessionId: ctx.sessionId ?? target.sessionId,
+      backend: createCodexCleanCommandBackend({ stateDir }),
+    });
+  }
 
   return {
     bridge,

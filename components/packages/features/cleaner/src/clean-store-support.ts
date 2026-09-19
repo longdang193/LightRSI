@@ -4,8 +4,11 @@ import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
+  CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION,
   CONTEXT_CLEAN_SCHEMA_VERSION,
   CONTEXT_CLEAN_STORE_SCHEMA_VERSION,
+  type ContextCleanDispatchState,
+  type ContextCleanExecutionClaim,
   type ContextCleanPlan,
   type ContextCleanPlanRecord,
   type ContextCleanReceipt,
@@ -15,6 +18,11 @@ import {
 export type ContextCleanStoredReceipt = {
   storeSchemaVersion: typeof CONTEXT_CLEAN_STORE_SCHEMA_VERSION;
   receipt: ContextCleanReceipt;
+};
+
+export type ContextCleanStoredExecutionClaim = {
+  storeSchemaVersion: typeof CONTEXT_CLEAN_STORE_SCHEMA_VERSION;
+  claim: import("./contracts.js").ContextCleanExecutionClaim;
 };
 
 export type ContextCleanTransactionIntent = {
@@ -121,6 +129,13 @@ function optionalUniqueStrings(value: unknown): value is string[] | undefined {
 const STATUSES = new Set<ContextCleanStatus>([
   "analyzed", "approved", "scheduled", "applied", "stale", "cancelled", "failed",
 ]);
+
+const DISPATCH_STATES = new Set<ContextCleanDispatchState>([
+  "dispatch_not_started",
+  "dispatch_started",
+  "host_committed",
+  "recovery_required",
+]);
 const COUNT_MODES = new Set(["exact", "estimated", "chars_only"]);
 
 function parseTask(value: unknown): ContextCleanPlan["tasks"][number] | undefined {
@@ -159,6 +174,7 @@ export function parseContextCleanPlan(value: unknown): ContextCleanPlan | undefi
     || !nullableCount(value.unassignedTokens) || !finiteNonNegative(value.unassignedChars)
     || !COUNT_MODES.has(String(value.tokenCountMode)) || !isNonBlankString(value.tokenCountMethod)
     || !Array.isArray(value.tasks) || !isIsoTimestamp(value.createdAt)) return undefined;
+  if (value.analysisRevision !== undefined && !isNonBlankString(value.analysisRevision)) return undefined;
   if (value.model !== undefined && !isNonBlankString(value.model)) return undefined;
   if (value.contextWindowTokens !== undefined && !finiteNonNegative(value.contextWindowTokens)) return undefined;
   const tasks = value.tasks.map(parseTask);
@@ -167,6 +183,7 @@ export function parseContextCleanPlan(value: unknown): ContextCleanPlan | undefi
   return {
     schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION, planId: value.planId, hostId: value.hostId,
     sessionId: value.sessionId, baseRevision: value.baseRevision,
+    ...(value.analysisRevision !== undefined ? { analysisRevision: value.analysisRevision } : {}),
     ...(value.model !== undefined ? { model: value.model } : {}),
     ...(value.contextWindowTokens !== undefined ? { contextWindowTokens: value.contextWindowTokens } : {}),
     usedTokens: value.usedTokens, usedChars: value.usedChars,
@@ -178,18 +195,49 @@ export function parseContextCleanPlan(value: unknown): ContextCleanPlan | undefi
   };
 }
 
+export function contextCleanExecutionClaimFilePath(stateDir: string, planId: string): string {
+  return join(stateDir, "context-cleaner", "claims", `${fileKey(planId)}.json`);
+}
+
+export function parseContextCleanExecutionClaim(
+  value: unknown,
+): ContextCleanExecutionClaim | undefined {
+  if (!isRecord(value) || value.schemaVersion !== CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION
+    || !isNonBlankString(value.claimId) || !isNonBlankString(value.planId)
+    || !isNonBlankString(value.hostId) || !isNonBlankString(value.sessionId)
+    || !uniqueStrings(value.selectedTaskIds) || !isNonBlankString(value.mutationPlanId)
+    || !isNonBlankString(value.analysisRevision) || !isNonBlankString(value.executionRevision)
+    || !isNonBlankString(value.ownerToken) || !isIsoTimestamp(value.claimedAt)
+    || !DISPATCH_STATES.has(value.dispatchState as ContextCleanDispatchState)) return undefined;
+  return {
+    schemaVersion: CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION,
+    claimId: value.claimId,
+    planId: value.planId,
+    hostId: value.hostId,
+    sessionId: value.sessionId,
+    selectedTaskIds: [...value.selectedTaskIds],
+    mutationPlanId: value.mutationPlanId,
+    analysisRevision: value.analysisRevision,
+    executionRevision: value.executionRevision,
+    ownerToken: value.ownerToken,
+    claimedAt: value.claimedAt,
+    dispatchState: value.dispatchState as ContextCleanDispatchState,
+  };
+}
+
 function parseEvidence(value: unknown, applied: boolean): ContextCleanReceipt["evidence"] | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) return undefined;
   for (const field of ["operationIds", "itemIds", "eventIds", "archiveRefs"] as const) {
     if (!optionalUniqueStrings(value[field])) return undefined;
   }
-  for (const field of ["previousRevision", "nextRevision", "providerResponseId"] as const) {
+  for (const field of ["claimId", "previousRevision", "nextRevision", "providerResponseId"] as const) {
     if (value[field] !== undefined && !isNonBlankString(value[field])) return undefined;
   }
   if (applied && (!isNonBlankString(value.previousRevision) || !isNonBlankString(value.nextRevision)
     || !uniqueStrings(value.operationIds) || !uniqueStrings(value.itemIds))) return undefined;
   return {
+    ...(value.claimId ? { claimId: value.claimId as string } : {}),
     ...(value.previousRevision ? { previousRevision: value.previousRevision as string } : {}),
     ...(value.nextRevision ? { nextRevision: value.nextRevision as string } : {}),
     ...(value.operationIds ? { operationIds: [...value.operationIds as string[]] } : {}),
@@ -216,7 +264,6 @@ export function parseContextCleanReceipt(value: unknown): ContextCleanReceipt | 
     if (!hasAppliedTokens || !hasAppliedChars || !nullableCount(value.appliedSavedTokens)
       || !finiteNonNegative(value.appliedSavedChars) || value.fallbackUsed) return undefined;
   } else if (hasAppliedTokens || hasAppliedChars) return undefined;
-  if (["analyzed", "approved", "scheduled"].includes(status) && value.fallbackUsed) return undefined;
   const evidence = parseEvidence(value.evidence, applied);
   if (value.evidence !== undefined && evidence === undefined) return undefined;
   if (applied && evidence === undefined) return undefined;
@@ -248,6 +295,14 @@ export function parseContextCleanStoredReceipt(value: unknown): ContextCleanStor
   return receipt ? { storeSchemaVersion: CONTEXT_CLEAN_STORE_SCHEMA_VERSION, receipt } : undefined;
 }
 
+export function parseContextCleanStoredExecutionClaim(
+  value: unknown,
+): ContextCleanStoredExecutionClaim | undefined {
+  if (!isRecord(value) || value.storeSchemaVersion !== CONTEXT_CLEAN_STORE_SCHEMA_VERSION) return undefined;
+  const claim = parseContextCleanExecutionClaim(value.claim);
+  return claim ? { storeSchemaVersion: CONTEXT_CLEAN_STORE_SCHEMA_VERSION, claim } : undefined;
+}
+
 export async function readStoredJson(path: string): Promise<
   { kind: "ok"; value: unknown } | { kind: "missing" } | { kind: "unreadable" }
 > {
@@ -257,5 +312,12 @@ export async function readStoredJson(path: string): Promise<
 }
 
 export function sameCanonicalValue(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  const canonicalize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (!isRecord(value)) return value;
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]),
+    );
+  };
+  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
 }

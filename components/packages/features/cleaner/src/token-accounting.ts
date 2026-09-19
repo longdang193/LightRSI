@@ -6,6 +6,7 @@ import type {
   ContextCleanTaskBreakdown,
   ContextCleanTokenCountMode,
 } from "./contracts.js";
+import { evaluateContextCleanRemoval } from "./removal-safety.js";
 import {
   attributeItems,
   mapTaskLifecycle,
@@ -229,9 +230,13 @@ export function buildContextCleanBreakdown(input: TaskAttributionInput & {
     const lifecycleState = state
       ? mapTaskLifecycle(state.lifecycle, state.unresolvedQuestions)
       : "unknown";
-    const selectable = (input.registry?.evictableTaskIds.includes(taskId) ?? false)
-      && lifecycleState !== "active"
-      && lifecycleState !== "unresolved";
+    const selectable = evaluateContextCleanRemoval({
+      taskId,
+      lifecycleState,
+      activeTaskIds: lifecycleState === "active" ? [taskId] : [],
+      evictableTaskIds: input.registry?.evictableTaskIds ?? [],
+      items: itemIds.map((stableId) => ({ item: input.snapshot.items.find((item) => item.stableId === stableId) })),
+    }).safe;
     tasks.push({
       taskId,
       label: state?.title ?? taskId,

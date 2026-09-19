@@ -11,7 +11,12 @@ import {
   isTerminalContextCleanStatus,
   readContextCleanPlan,
   saveContextCleanPlan,
+  sameCanonicalValue,
 } from "../src/index.js";
+import {
+  readContextCleanExecutionClaim,
+  saveContextCleanExecutionClaim,
+} from "../src/clean-claim-store.js";
 import { transitionContextCleanPlan } from "../src/clean-plan-store.js";
 import { samplePlan } from "./fixtures.js";
 
@@ -26,6 +31,16 @@ test("status transition contract is frozen and terminal states cannot advance", 
   assert.equal(canTransitionContextCleanStatus("applied", "applied"), true);
   assert.equal(isTerminalContextCleanStatus("applied"), true);
   assert.equal(isTerminalContextCleanStatus("scheduled"), false);
+});
+
+test("canonical value comparison ignores object key insertion order", () => {
+  assert.equal(
+    sameCanonicalValue(
+      { outer: { second: 2, first: 1 }, list: [{ beta: true, alpha: false }] },
+      { list: [{ alpha: false, beta: true }], outer: { first: 1, second: 2 } },
+    ),
+    true,
+  );
 });
 
 test("plan store is idempotent and rejects plan id content conflicts", async () => {
@@ -106,5 +121,32 @@ test("plan reader ignores unknown fields but fails closed for corrupt data and s
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, JSON.stringify({ ...stored, storeSchemaVersion: 999 }), "utf8");
     assert.equal((await readContextCleanPlan({ stateDir: root, planId: plan.planId })).bypassed, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("execution claim is durable, revision-fenced, and single-owner", async () => {
+  const root = await stateDir();
+  try {
+    const plan = samplePlan();
+    await saveContextCleanPlan({ stateDir: root, plan });
+    const claim = {
+      schemaVersion: 1 as const,
+      claimId: "claim-1",
+      planId: plan.planId,
+      hostId: plan.hostId,
+      sessionId: plan.sessionId,
+      selectedTaskIds: ["task-a"],
+      mutationPlanId: "mutation-1",
+      analysisRevision: plan.baseRevision,
+      executionRevision: plan.baseRevision,
+      ownerToken: "owner-1",
+      claimedAt: "2026-08-20T00:00:00.000Z",
+      dispatchState: "dispatch_not_started" as const,
+    };
+    assert.equal((await saveContextCleanExecutionClaim({ stateDir: root, claim })).outcome, "stored");
+    assert.equal((await saveContextCleanExecutionClaim({ stateDir: root, claim })).outcome, "unchanged");
+    assert.equal((await readContextCleanExecutionClaim({ stateDir: root, planId: plan.planId })).value?.claimId, "claim-1");
+    const other = { ...claim, claimId: "claim-2", ownerToken: "owner-2" };
+    assert.equal((await saveContextCleanExecutionClaim({ stateDir: root, claim: other })).outcome, "conflict");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

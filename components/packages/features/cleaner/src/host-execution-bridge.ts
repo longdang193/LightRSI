@@ -26,6 +26,7 @@ import {
   transitionContextCleanState,
 } from "./clean-state-coordinator.js";
 import { sameCanonicalValue } from "./clean-store-support.js";
+import { evaluateContextCleanRemoval } from "./removal-safety.js";
 
 const EXECUTION_ID_VERSION = 1 as const;
 const CONTEXT_ITEM_KINDS = new Set([
@@ -333,28 +334,37 @@ async function prepareScheduledClean(params: {
     return bypassed(["clean_execution_revision_stale"], stored.receipt);
   }
 
-  const activeTaskIds = new Set(current.activeTaskIds);
-  const evictableTaskIds = new Set(current.evictableTaskIds);
-  if (selectedTasks.some((task) => activeTaskIds.has(task.taskId)
-    || !evictableTaskIds.has(task.taskId))) {
-    return bypassed(["clean_execution_task_not_evictable"], stored.receipt);
-  }
   const currentItems = new Map(
     current.snapshot.items.map((item) => [item.stableId, item]),
   );
   for (const task of selectedTasks) {
-    for (const itemId of task.itemIds) {
-      const item = currentItems.get(itemId);
-      if (!item || item.fingerprint !== task.itemDigests[itemId]) {
-        return bypassed(["clean_execution_item_stale"], stored.receipt);
-      }
-      if (item.kind === "system" || item.kind === "developer"
-        || item.role === "system" || item.role === "developer") {
-        return bypassed(["clean_execution_protected_item_targeted"], stored.receipt);
-      }
-      if (!item.taskIds?.includes(task.taskId)) {
-        return bypassed(["clean_execution_task_attribution_stale"], stored.receipt);
-      }
+    const planTask = stored.record.plan.tasks.find((candidate) => candidate.taskId === task.taskId)!;
+    const safety = evaluateContextCleanRemoval({
+      taskId: task.taskId,
+      lifecycleState: planTask.lifecycleState,
+      activeTaskIds: current.activeTaskIds,
+      evictableTaskIds: current.evictableTaskIds,
+      currentRevision: current.snapshot.revision,
+      expectedRevision: request.baseRevision,
+      items: task.itemIds.map((itemId) => ({
+        item: currentItems.get(itemId),
+        expectedFingerprint: task.itemDigests[itemId],
+      })),
+    });
+    if (!safety.safe) {
+      const reason = safety.reasons[0];
+      const mapped = {
+        revision_stale: "clean_execution_revision_stale",
+        task_active: "clean_execution_task_not_evictable",
+        task_unresolved: "clean_execution_task_not_evictable",
+        task_not_completed: "clean_execution_task_not_evictable",
+        task_not_evictable: "clean_execution_task_not_evictable",
+        item_missing: "clean_execution_item_stale",
+        protected_item: "clean_execution_protected_item_targeted",
+        task_attribution_stale: "clean_execution_task_attribution_stale",
+        item_stale: "clean_execution_item_stale",
+      }[reason] ?? "clean_execution_revalidation_failed";
+      return bypassed([mapped], stored.receipt);
     }
   }
 

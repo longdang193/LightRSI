@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
+  readContextCleanExecutionClaim,
   readContextCleanReceipt,
   saveContextCleanPlan,
   transitionContextCleanState,
@@ -36,9 +37,11 @@ import {
 import {
   finalizeCodexCleanerAppliedReceipt,
   finalizeCodexCleanerHandoffFailure,
+  markCodexCleanerDispatchStarted,
   prepareCodexCleanerRebase,
   revalidateCodexCleanerPreparedRebase,
 } from "../src/context-cleaner/runtime.js";
+import { buildCodexCleanerAppliedReceipt } from "../src/context-cleaner/applied-receipt.js";
 import {
   appendCodexCleanerCommitted,
   readCodexCleanerSchedule,
@@ -401,6 +404,40 @@ test("Codex cleaner runtime prepares only the scheduled manual plan with the exi
   });
 });
 
+test("Codex cleaner claim blocks replay after dispatch starts", async () => {
+  await withTempState(async (stateDir) => {
+    const seeded = await seedScheduledClean(stateDir);
+    const first = await prepareCodexCleanerRebase({
+      stateDir,
+      sessionId: SESSION_ID,
+      view: seeded.view,
+      backendRequest: seeded.request,
+    });
+    assert.equal(first.outcome, "ready");
+    if (first.outcome !== "ready") return;
+
+    const beforeDispatch = await readContextCleanExecutionClaim({
+      stateDir,
+      planId: CLEAN_PLAN_ID,
+    });
+    assert.equal(beforeDispatch.value?.dispatchState, "dispatch_not_started");
+    const started = await markCodexCleanerDispatchStarted({
+      stateDir,
+      prepared: first.prepared,
+    });
+    assert.equal(started.value?.dispatchState, "dispatch_started");
+
+    const replay = await prepareCodexCleanerRebase({
+      stateDir,
+      sessionId: SESSION_ID,
+      view: seeded.view,
+      backendRequest: seeded.request,
+    });
+    assert.equal(replay.outcome, "reserved");
+    assert.deepEqual(replay.reasonCodes, ["cleaner_runtime_recovery_required"]);
+  });
+});
+
 test("Codex cleaner runtime marks revision drift stale and preserves the original request", async () => {
   await withTempState(async (stateDir) => {
     const seeded = await seedScheduledClean(stateDir);
@@ -555,6 +592,70 @@ test("Codex cleaner runtime repairs the crash window after a committed rebase ep
         first.prepared.execution.mutationPlan.planId,
       );
     }
+  });
+});
+
+test("Codex cleaner runtime accepts applied receipts written before claim evidence", async () => {
+  await withTempState(async (stateDir) => {
+    const seeded = await seedScheduledClean(stateDir);
+    const first = await prepareCodexCleanerRebase({
+      stateDir,
+      sessionId: SESSION_ID,
+      view: seeded.view,
+      backendRequest: seeded.request,
+    });
+    assert.equal(first.outcome, "ready");
+    if (first.outcome !== "ready") return;
+
+    await appendPendingCodexRebaseEpoch({
+      stateDir,
+      sessionId: SESSION_ID,
+      planId: first.prepared.execution.mutationPlan.planId,
+      epochId: "epoch-legacy-applied",
+      oldPreviousResponseId: "response-parent",
+      oldRevision: first.prepared.rebaseRequest.oldRevision,
+      accounting: first.prepared.rebaseRequest.accounting,
+    });
+    const epoch = await commitCodexRebaseEpoch({
+      stateDir,
+      sessionId: SESSION_ID,
+      epochId: "epoch-legacy-applied",
+      newResponseId: "response-legacy-applied",
+      newRevision: first.prepared.rebaseRequest.rebaseRevision,
+      accounting: first.prepared.rebaseRequest.accounting,
+      updatedAt: "2026-08-22T00:00:05.000Z",
+    });
+    const built = buildCodexCleanerAppliedReceipt({
+      execution: first.prepared.execution,
+      epoch,
+    });
+    assert.ok(built.receipt);
+    if (!built.receipt) return;
+    const legacyReceipt = {
+      ...built.receipt,
+      evidence: { ...built.receipt.evidence },
+    };
+    delete legacyReceipt.evidence.claimId;
+    assert.equal((await transitionContextCleanState({
+      stateDir,
+      receipt: legacyReceipt,
+    })).bypassed, false);
+    assert.equal((await appendCodexCleanerCommitted({
+      stateDir,
+      sessionId: SESSION_ID,
+      cleanPlanId: CLEAN_PLAN_ID,
+      mutationPlanId: first.prepared.execution.mutationPlan.planId,
+      epochId: "epoch-legacy-applied",
+      updatedAt: "2026-08-22T00:00:05.000Z",
+    })).outcome, "transitioned");
+    const recovered = await prepareCodexCleanerRebase({
+      stateDir,
+      sessionId: SESSION_ID,
+      view: sourceView("post-legacy-applied-revision"),
+      backendRequest: backendRequest(sourceView("post-legacy-applied-revision")),
+      now: "2026-08-22T00:00:06.000Z",
+    });
+    assert.equal(recovered.outcome, "committed", JSON.stringify(recovered));
   });
 });
 
