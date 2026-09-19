@@ -100,6 +100,10 @@ function normalizeLocalProxyBaseUrl(value: string | undefined): string | undefin
   return `http://127.0.0.1:${match[1]}/v1`;
 }
 
+function isNineRouterProvider(config: CodexProviderConfig | undefined, providerName?: string): boolean {
+  return [config?.name, providerName].some((value) => value?.trim().toLowerCase() === "9router");
+}
+
 function sanitizeDiagnosticUrl(value: string | undefined): string | undefined {
   if (!value) return undefined;
   try {
@@ -304,7 +308,11 @@ export async function inspectCodexDoctor(params: {
     : undefined;
   const upstreamBaseUrl = params.config.upstream?.baseUrl
     ?? (providerIntercepted ? undefined : fallbackUpstreamBaseUrl);
-  const upstreamLoopDetected = Boolean(normalizeLocalProxyBaseUrl(upstreamBaseUrl));
+  const normalizedUpstreamBaseUrl = normalizeLocalProxyBaseUrl(upstreamBaseUrl);
+  const normalizedProxyBaseUrl = normalizeLocalProxyBaseUrl(proxyBaseUrl);
+  const upstreamLoopDetected = Boolean(normalizedUpstreamBaseUrl)
+    && !(isNineRouterProvider(params.config.upstream, params.config.upstreamProvider)
+      && normalizedUpstreamBaseUrl !== normalizedProxyBaseUrl);
   const mcpHealth = inspectTokenPilotMcpHealth({
     observed: mcp,
     expected: expectedMcpSpec,

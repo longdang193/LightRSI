@@ -3,7 +3,10 @@ import test from "node:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { indexCodexHostSessionAlias } from "../../../adapters/codex/src/session-state.js";
+import {
+  indexCodexHostSessionAlias,
+  upsertCodexSessionSnapshot,
+} from "../../../adapters/codex/src/session-state.js";
 import { readCliContextState } from "../src/context-store.js";
 import { dispatchCli } from "../src/dispatch.js";
 
@@ -79,6 +82,34 @@ test("dispatch propagates Codex Cleaner argument errors", async () => {
   }
 });
 
+test("dispatch canonicalizes Codex Cleaner session aliases before snapshot lookup", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-clean-session-alias-"));
+  const originalHome = process.env.HOME;
+  process.env.HOME = dir;
+  try {
+    const stateDir = join(dir, ".codex", "tokenpilot-state", "tokenpilot");
+    await mkdir(join(dir, ".codex"), { recursive: true });
+    await writeFile(
+      join(dir, ".codex", "tokenpilot.json"),
+      JSON.stringify({ enabled: true, stateDir }),
+      "utf8",
+    );
+    await indexCodexHostSessionAlias(stateDir, "codex-host-session-1", "codex-synth-session-1");
+    await upsertCodexSessionSnapshot(stateDir, "codex-synth-session-1", {
+      latestResponseId: "response-1",
+    });
+
+    await assert.rejects(
+      () => dispatchCli(["codex", "clean", "--session", "codex-host-session-1"]),
+      /codex_clean_snapshot_incomplete/,
+    );
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("dispatch remembers custom codex config paths for later host commands without env vars", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-codex-custom-path-memory-"));
   const originalHome = process.env.HOME;
@@ -106,6 +137,7 @@ test("dispatch remembers custom codex config paths for later host commands witho
       "utf8",
     );
     await writeFile(process.env.CODEX_HOOKS_CONFIG_PATH!, JSON.stringify({ hooks: {} }, null, 2), "utf8");
+    await writeFile(process.env.TOKENPILOT_CODEX_CONFIG!, JSON.stringify({ enabled: true }), "utf8");
 
     const first = await dispatchCli(["codex", "doctor"]);
     assert.match(first.text, new RegExp(process.env.CODEX_CONFIG_PATH!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -127,6 +159,54 @@ test("dispatch remembers custom codex config paths for later host commands witho
     else process.env.CODEX_HOOKS_CONFIG_PATH = originalHooksConfigPath;
     if (originalTokenPilotConfigPath === undefined) delete process.env.TOKENPILOT_CODEX_CONFIG;
     else process.env.TOKENPILOT_CODEX_CONFIG = originalTokenPilotConfigPath;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("dispatch ignores missing persisted host config paths", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-codex-stale-path-"));
+  const originalHome = process.env.HOME;
+  process.env.HOME = dir;
+  try {
+    await mkdir(join(dir, ".codex"), { recursive: true });
+    await mkdir(join(dir, ".claude"), { recursive: true });
+    await mkdir(join(dir, ".lightrsi", "state"), { recursive: true });
+    await writeFile(
+      join(dir, ".codex", "tokenpilot.json"),
+      JSON.stringify({ enabled: true }),
+      "utf8",
+    );
+    await writeFile(
+      join(dir, ".claude", "tokenpilot.json"),
+      JSON.stringify({ enabled: true }),
+      "utf8",
+    );
+    await writeFile(
+      join(dir, ".lightrsi", "state", "cli-context.json"),
+      JSON.stringify({
+        lastActiveHost: "codex",
+        configPathsByHost: {
+          codex: {
+            tokenPilotConfigPath: join(dir, "gone", "tokenpilot.json"),
+          },
+          "claude-code": {
+            tokenPilotConfigPath: join(dir, "also-gone", "tokenpilot.json"),
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const doctor = await dispatchCli(["codex", "doctor"]);
+    assert.match(doctor.text, new RegExp(join(dir, ".codex", "tokenpilot.json").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(doctor.text, /gone[\\/]tokenpilot\.json/);
+
+    const claudeDoctor = await dispatchCli(["claude-code", "doctor"]);
+    assert.match(claudeDoctor.text, new RegExp(join(dir, ".claude", "tokenpilot.json").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(claudeDoctor.text, /also-gone[\\/]tokenpilot\.json/);
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -172,6 +252,7 @@ test("dispatch remembers custom claude-code config paths for later host commands
     await mkdir(join(dir, "isolated"), { recursive: true });
     await writeFile(process.env.CLAUDE_CODE_SETTINGS_PATH!, JSON.stringify({ env: {}, hooks: {} }, null, 2), "utf8");
     await writeFile(process.env.CLAUDE_CODE_MCP_CONFIG_PATH!, JSON.stringify({ mcpServers: {} }, null, 2), "utf8");
+    await writeFile(process.env.TOKENPILOT_CLAUDE_CODE_CONFIG!, JSON.stringify({ enabled: true }), "utf8");
 
     const first = await dispatchCli(["claude-code", "doctor"]);
     assert.match(first.text, new RegExp(process.env.CLAUDE_CODE_SETTINGS_PATH!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));

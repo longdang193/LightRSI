@@ -32,6 +32,10 @@ targets:
   - components/packages/features/eviction/src/task-state-estimator.ts
   - components/packages/features/eviction/tests/lifecycle-planner.test.ts
   - components/presets/tokenpilot/src/policy.ts
+  - components/products/cli/src/clean.ts
+  - components/products/cli/src/hosts/codex.ts
+  - components/products/cli/tests/clean.test.ts
+  - components/products/cli/tests/dispatch.test.ts
 ---
 
 # Context Cleaner Safety and Autonomy Follow-up
@@ -239,8 +243,8 @@ and integration correctness.
 - Branch: `codex/context-cleaner-safety-autonomy-follow-up` (create at activation from `origin/main`)
 - Base commit: `becf974aa3a3575e7a8dd23f2b937f8a5ecf802e`
 - Expected workspace: `existing LightRSI follow-up branch with 081cb4a pushed; plan edits remain uncommitted; Project OS uses a separate checkout`
-- Next action: `resolve Task 6 pilot prerequisites or record concrete missing capability`
-- Blockers: `Task 6 requires Tasks 7–8 plus reliable session binding, supported Host traffic, eligible registry state, and agent-initiated CLI invocation`
+- Next action: `rerun Gate B with a fresh normal-agent after CLI session-alias fix; obtain eligible Cleaner registry state through normal LightRSI flow or record provider-unavailable capability gap; do not synthesize registry entries`
+- Blockers: `Gate B still requires an eligible completed internal task; session-alias lookup defect is patched and verified, but pilot evidence remains incomplete`
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -249,16 +253,31 @@ and integration correctness.
 | Task 3 | `completed` | current workspace | `codex` | Task 1 | locked approval, claim, and cancellation tests | approval replay and cancel/claim arbitration pass |
 | Task 4 | `completed` | current workspace | `codex` | Tasks 2–3 | uncertain-dispatch and receipt recovery tests | Codex targeted suite and typecheck pass |
 | Task 5 | `completed` | separate Project OS checkout | `codex` | none | canonical policy and generated-surface verification | canonical standing-permission paragraph added; all adapters synchronized; fast contract validation passed; unrelated dirty README and files preserved |
-| Task 6 | `blocked` | current runtime environment | `codex` | Tasks 2–5, 7–8 | binding probe, pilot measurements, and stop-condition review | no disposable agent task produced a usable thread/session binding; no pilot mutation attempted |
+| Task 6 | `blocked` | current runtime environment | `codex` | Tasks 2–5, 7–8 | binding probe, pilot measurements, and stop-condition review | Gate A proved exact workspace binding and TokenPilot-routed Host traffic; Gate B exposed raw Codex host-session aliases reaching Cleaner (`codex_clean_session_not_found`); CLI now canonicalizes explicit and default Cleaner session IDs, with red/green CLI boundary regressions; fresh pilot still required and no manual registry synthesis allowed |
 | Task 7 | `completed` | current workspace | `codex` | Tasks 2–4 | duplicate-generation, claim-fencing, and retry regression proof | focused Codex suites, Cleaner suite, and adapter/Cleaner typechecks pass; no resend after accepted response; owner-token and cancellation fencing regressions pass |
 | Task 8 | `completed` | current workspace | `codex` | Task 7 | estimator observation plus approved Cleaner eligibility with automatic eviction disabled | lifecycle planner/runtime suites, eviction suite, adapter/eviction typechecks pass; real Codex lifecycle integration proves registry attribution → selectable task → approval → scheduling → safe execution revalidation; no automatic mutation plan is exposed |
 | Task 9 | `pending` | current workspace | `codex` | Task 8 | separate measured performance follow-up | Deferred; not required for Cleaner correctness or first pilot; no supported Codex eviction control exists |
 
-Task 6 remains blocked by missing reliable agent-initiated session binding and
-supported pilot traffic. Tasks 7–8 are complete; Task 5 policy preparation is
-validated but remains unpublished until its separate checkout is reviewed and
-committed through its own Git workflow.
-Task 9 is deferred and does not block Tasks 7–8 or Task 6.
+Task 6 remains blocked only on pilot data, not startup binding or CLI session
+alias resolution. The CLI defect was root-caused: `handleCleanCommand` received
+the raw Codex host session reference, while canonical alias resolution happened
+only after command execution. The shared Cleaner command now resolves both
+`--session` and default-session paths before backend analysis; pre-fix tests
+failed with the raw alias and `codex_clean_session_not_found`, and focused
+post-fix CLI tests pass. The canonical
+Project OS launcher now passes Codex `--dangerously-bypass-hook-trust` and
+`check_for_update_on_startup=false`; focused launcher tests pass, shared runtime
+deployment drift is clean, and a fresh `ctxclean-runtime-probe` accepted the
+Gate A task prompt on Codex `0.154.0` while preserving TokenPilot hooks and
+assignment evidence. Gate A observed healthy Host traffic through the supported
+Codex adapter, but no eligible Cleaner task existed: local plans reported
+`taskCount: 0`, receipts had empty `selectedTaskIds`, and the recommendation
+provider reported `recommendation_provider_unavailable`. Keep Gate B blocked
+until normal LightRSI operation produces an eligible completed internal task;
+do not manufacture registry state or invoke Cleaner mutation manually. Tasks
+7–8 are complete; Task 5 policy preparation is validated but remains
+unpublished until its separate checkout is reviewed and committed through its
+own Git workflow. Task 9 is deferred and does not block Tasks 7–8 or Task 6.
 
 ## Task Breakdown
 
@@ -595,8 +614,9 @@ schema, Cleaner ledger, CoS approval loop, or generated-file hand edit exists.
 - `skill-backend-verification`
 - `skill-verification-before-completion`
 
-**Files:** No production source change. Record results in the implementation PR
-or task evidence, not a new runtime registry.
+**Files:** `components/products/cli/src/clean.ts`,
+`components/products/cli/src/hosts/codex.ts`, and focused CLI tests. Record pilot
+results in the implementation PR or task evidence, not a new runtime registry.
 
 **Steps:**
 

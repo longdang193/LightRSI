@@ -8,6 +8,7 @@ import { CLI_HOSTS, parseCliHostId, resolveLatestCliReportHost, type CliHostId }
 import { createCliHostRuntime, registerBuiltInCliHostProducts } from "./hosts/factory.js";
 import { handleStandaloneVisualCommandWithSelection } from "./hosts/visual.js";
 import { formatCliUsage } from "./usage.js";
+import { filterExistingCliHostPathOverrides } from "../../../adapters/shared/cli-context.js";
 
 registerBuiltInCliHostProducts();
 
@@ -42,7 +43,9 @@ function parseBooleanContextCommand(args: string[]): boolean {
 }
 
 async function resolvePathOverrides(host: CliHostId): Promise<CliHostPathOverrides | undefined> {
-  return currentEnvPathOverrides(host) ?? (await readCliContextState()).configPathsByHost?.[host];
+  const envOverrides = currentEnvPathOverrides(host);
+  if (envOverrides) return envOverrides;
+  return filterExistingCliHostPathOverrides((await readCliContextState()).configPathsByHost?.[host]);
 }
 
 async function resolveDefaultTarget(): Promise<HostTarget | undefined> {
@@ -50,7 +53,7 @@ async function resolveDefaultTarget(): Promise<HostTarget | undefined> {
   const host = state.lastActiveHost;
   if (!host) return undefined;
   const sessionId = state.lastSessionByHost?.[host];
-  const pathOverrides = state.configPathsByHost?.[host];
+  const pathOverrides = await resolvePathOverrides(host);
   return { host, sessionId, pathOverrides };
 }
 

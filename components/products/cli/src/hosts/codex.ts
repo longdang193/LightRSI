@@ -39,7 +39,10 @@ import {
   resolvePreferredSessionId,
 } from "./shared.js";
 import { handleCleanCommand } from "../clean.js";
-import { createCodexCleanCommandBackend } from "./cleaner.js";
+import {
+  createCodexCleanCommandBackend,
+  createCodexCleanRecommendationProvider,
+} from "./cleaner.js";
 import { handleStandaloneVisualCommandWithSelection } from "./visual.js";
 import type { CliHostPathOverrides } from "../context-store.js";
 
@@ -205,12 +208,20 @@ export function createCodexCliBridge(target: {
   async function handleCommand(ctx: { args: string; sessionId?: string }): Promise<{ text: string }> {
     const args = ctx.args.trim().split(/\s+/).filter(Boolean);
     if (args[0] !== "clean") return baseHandleCommand(ctx);
-    const stateDir = resolveCodexStateDir(await loadConfig(target.pathOverrides));
+    const config = await loadTokenPilotCodexConfig(resolveCodexPaths(target.pathOverrides).tokenPilotConfigPath);
+    const stateDir = resolveCodexStateDir(config);
     if (!stateDir) return { text: "Context Cleaner stateDir is not configured." };
     return await handleCleanCommand({
       args: args.slice(1),
       sessionId: ctx.sessionId ?? target.sessionId,
-      backend: createCodexCleanCommandBackend({ stateDir }),
+      resolveSessionId: (sessionId) => resolveCodexCliSessionId({
+        currentConfig: config,
+        explicitSessionId: sessionId,
+      }),
+      backend: createCodexCleanCommandBackend({
+        stateDir,
+        recommendationProvider: createCodexCleanRecommendationProvider(config.taskStateEstimator),
+      }),
     });
   }
 
