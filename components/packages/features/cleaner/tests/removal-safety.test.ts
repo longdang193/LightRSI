@@ -40,3 +40,13 @@ test("removal safety accepts only completed evictable attributed items", () => {
     items: [{ item, expectedFingerprint: "digest-1" }],
   }), { safe: true, reasons: [] });
 });
+
+test("removal safety rejects items shared with another task", () => {
+  assert.deepEqual(evaluateContextCleanRemoval({
+    taskId: "task-1",
+    lifecycleState: "completed",
+    activeTaskIds: [],
+    evictableTaskIds: ["task-1"],
+    items: [{ item: { ...item, taskIds: ["task-1", "task-2"] } }],
+  }), { safe: false, reasons: ["task_attribution_shared"] });
+});

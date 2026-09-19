@@ -37,6 +37,7 @@ import {
 import {
   finalizeCodexCleanerAppliedReceipt,
   finalizeCodexCleanerHandoffFailure,
+  ensureCodexCleanerExecutionClaim,
   markCodexCleanerDispatchStarted,
   prepareCodexCleanerRebase,
   revalidateCodexCleanerPreparedRebase,
@@ -435,6 +436,28 @@ test("Codex cleaner claim blocks replay after dispatch starts", async () => {
     });
     assert.equal(replay.outcome, "reserved");
     assert.deepEqual(replay.reasonCodes, ["cleaner_runtime_recovery_required"]);
+  });
+});
+
+test("Codex cleaner rejects an owner-token conflict instead of reusing stored claim", async () => {
+  await withTempState(async (stateDir) => {
+    const seeded = await seedScheduledClean(stateDir);
+    const first = await prepareCodexCleanerRebase({
+      stateDir,
+      sessionId: SESSION_ID,
+      view: seeded.view,
+      backendRequest: seeded.request,
+    });
+    assert.equal(first.outcome, "ready");
+    if (first.outcome !== "ready") return;
+    const conflict = await ensureCodexCleanerExecutionClaim({
+      stateDir,
+      schedule: first.prepared.schedule,
+      mutationPlanId: first.prepared.execution.mutationPlan.planId,
+      ownerToken: "other-owner",
+    });
+    assert.equal(conflict.claim, undefined);
+    assert.deepEqual(conflict.reasons, ["cleaner_runtime_claim_conflict"]);
   });
 });
 

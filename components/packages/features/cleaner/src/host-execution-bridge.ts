@@ -361,6 +361,7 @@ async function prepareScheduledClean(params: {
         task_not_evictable: "clean_execution_task_not_evictable",
         item_missing: "clean_execution_item_stale",
         protected_item: "clean_execution_protected_item_targeted",
+        task_attribution_shared: "clean_execution_task_attribution_shared",
         task_attribution_stale: "clean_execution_task_attribution_stale",
         item_stale: "clean_execution_item_stale",
       }[reason] ?? "clean_execution_revalidation_failed";

@@ -56,6 +56,7 @@ const STALE_REASONS = new Set([
   "clean_execution_revision_stale",
   "clean_execution_item_stale",
   "clean_execution_protected_item_targeted",
+  "clean_execution_task_attribution_shared",
   "clean_execution_task_attribution_stale",
   "clean_execution_task_not_evictable",
   "clean_execution_revalidation_failed",
@@ -102,15 +103,19 @@ export async function ensureCodexCleanerExecutionClaim(params: {
   now?: string;
   ownerToken?: string;
 }): Promise<{ claim?: ContextCleanExecutionClaim; reasons: string[] }> {
+  const expectedClaimId = executionClaimId(params.schedule, params.mutationPlanId);
   const existing = await readContextCleanExecutionClaim({
     stateDir: params.stateDir,
     planId: params.schedule.cleanPlanId,
   });
   if (existing.bypassed) return { reasons: existing.reasons };
   if (existing.value) {
-    return existing.value.mutationPlanId === params.mutationPlanId
-      ? { claim: existing.value, reasons: [] }
-      : { reasons: ["cleaner_runtime_claim_conflict"] };
+    if (existing.value.claimId !== expectedClaimId
+      || existing.value.mutationPlanId !== params.mutationPlanId
+      || (params.ownerToken !== undefined && existing.value.ownerToken !== params.ownerToken)) {
+      return { reasons: ["cleaner_runtime_claim_conflict"] };
+    }
+    return { claim: existing.value, reasons: [] };
   }
   const plan = await readContextCleanPlan({ stateDir: params.stateDir, planId: params.schedule.cleanPlanId });
   if (plan.bypassed || !plan.value) return { reasons: ["cleaner_runtime_plan_unavailable"] };
@@ -130,7 +135,9 @@ export async function ensureCodexCleanerExecutionClaim(params: {
     dispatchState: "dispatch_not_started",
   };
   const stored = await saveContextCleanExecutionClaim({ stateDir: params.stateDir, claim });
-  return stored.value ? { claim: stored.value, reasons: stored.reasons } : { reasons: stored.reasons };
+  return !stored.bypassed && stored.value
+    ? { claim: stored.value, reasons: stored.reasons }
+    : { reasons: stored.reasons };
 }
 
 export async function markCodexCleanerDispatchStarted(params: {
@@ -147,7 +154,9 @@ export async function markCodexCleanerDispatchStarted(params: {
     stateDir: params.stateDir,
     claim: { ...claim.claim, dispatchState: "dispatch_started" },
   });
-  return { value: stored.value, reasons: stored.reasons };
+  return !stored.bypassed && stored.value
+    ? { value: stored.value, reasons: stored.reasons }
+    : { reasons: stored.reasons };
 }
 
 export type CodexCleanerAppliedReceiptFinalization =
