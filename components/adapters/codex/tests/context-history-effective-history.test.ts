@@ -1196,6 +1196,44 @@ test("CDH-04 Effective History Builder defers summary-only reasoning and blocks 
   });
 });
 
+test("CDH-04 Effective History Builder keeps completed Codex app tool output observation-only", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-host-tool";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: {
+        input: [
+          { role: "user", content: "continue" },
+          {
+            type: "function_call_output",
+            id: "fco-1",
+            name: "send_message_to_thread",
+            namespace: "codex_app",
+            output: "<codex_delegation>completed</codex_delegation>",
+          },
+        ],
+      },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: { id: "resp-1", output: [] },
+      status: "completed",
+    });
+
+    const history = await buildCodexEffectiveHistory({ stateDir, sessionId });
+
+    assert.equal(history.incomplete, false);
+    assert.equal(history.deferredItems.length, 0);
+    assert.equal(history.observationOnlyItems.length, 1);
+    assert.equal(history.observationOnlyItems[0]?.item.namespace, "codex_app");
+  });
+});
+
 test("CDH-04 Effective History Builder marks unresolved tool calls incomplete", async () => {
   await withTempState(async (stateDir) => {
     await appendCodexRequestJournalEntry({

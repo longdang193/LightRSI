@@ -172,6 +172,115 @@ function requestInputText(payload: JsonObject | undefined): string {
   return JSON.stringify(Array.isArray(payload?.input) ? payload.input : []);
 }
 
+test("Codex proxy records lifecycle attribution when context rewrite is disabled", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-lifecycle-decoupled-"));
+  const sessionId = "codex-lifecycle-decoupled-session";
+  const upstream = await startLifecycleUpstream({ firstResponseToolCall: false });
+  const estimator = await startEstimator(sessionId);
+  let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  try {
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir,
+      proxyPort: await reserveUnusedPort(),
+      upstreamProvider: "OpenAI",
+      upstream: {
+        baseUrl: upstream.baseUrl,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      modules: { stabilizer: false, reduction: false },
+      taskStateEstimator: {
+        enabled: true,
+        baseUrl: estimator.baseUrl,
+        apiKey: "synthetic-estimator-key",
+        model: "synthetic-estimator",
+        batchTurns: 3,
+      },
+      contextRewrite: {
+        enabled: false,
+        providerCompatibilityProbe: "disabled",
+      },
+    } as any);
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+    });
+
+    const first = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "establish one committed turn" }],
+      }),
+    });
+    assert.equal(first.status, 200);
+
+    const second = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        previous_response_id: "resp-lifecycle-1",
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "continue without rewriting context" }],
+      }),
+    });
+    assert.equal(second.status, 200);
+
+    const third = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        previous_response_id: "resp-lifecycle-2",
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "continue the retained task" }],
+      }),
+    });
+    assert.equal(third.status, 200);
+
+    const fourth = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        previous_response_id: "resp-lifecycle-3",
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "finish without rewriting context" }],
+      }),
+    });
+    assert.equal(fourth.status, 200);
+    assert.equal(estimator.calls(), 1);
+    assert.equal(upstream.requests[3]?.previous_response_id, "resp-lifecycle-3");
+
+    const registry = await loadSessionTaskRegistry(stateDir, sessionId);
+    assert.equal(registry.version, 1);
+    assert.deepEqual(registry.evictableTaskIds, ["task-lifecycle-evict"]);
+    assert.deepEqual(registry.activeTaskIds, ["task-lifecycle-current"]);
+    const trace = (await readFile(join(stateDir, "event-trace.jsonl"), "utf8"))
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as JsonObject);
+    const planner = trace.find((row) => (
+      row.stage === "context_rewrite_lifecycle_planner_completed"
+      && row.status === "completed"
+    ));
+    assert.equal(planner?.registryPersisted, true);
+    assert.equal(planner?.status, "completed");
+  } finally {
+    await runtime?.close();
+    await estimator.close();
+    await upstream.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("Codex proxy observes lifecycle attribution without automatic eviction", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-lifecycle-runtime-"));
   const sessionId = "codex-lifecycle-runtime-session";

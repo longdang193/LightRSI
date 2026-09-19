@@ -159,13 +159,19 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
       "lightrsi-visual",
     ]);
     assert.equal(result.cliBinInstalled, true);
-    assert.equal(result.cliBinPath, join(cliBinDir, "lightrsi"));
+    assert.equal(result.cliBinPath, join(cliBinDir, process.platform === "win32" ? "lightrsi.cmd" : "lightrsi"));
     assert.equal(result.cliBinDir, cliBinDir);
     assert.equal(result.cliBinDirOnPath, false);
-    assert.equal(result.hostCliBinPath, join(cliBinDir, "tokenpilot-codex"));
-    const allowRegularFile = process.platform === "win32";
-    await assertInstalledCliLink(result.cliBinPath, /codex-adapter[\/\\]dist[\/\\]lightrsi\.js$/, allowRegularFile);
-    await assertInstalledCliLink(result.hostCliBinPath!, /codex-adapter[\/\\]dist[\/\\]cli\.js$/, allowRegularFile);
+    assert.equal(result.hostCliBinPath, join(cliBinDir, process.platform === "win32" ? "tokenpilot-codex.cmd" : "tokenpilot-codex"));
+    if (process.platform === "win32") {
+      assert.match(await readFile(result.cliBinPath, "utf8"), /@echo off\r\n/);
+      assert.match(await readFile(result.hostCliBinPath!, "utf8"), /@echo off\r\n/);
+      await assert.rejects(() => lstat(join(cliBinDir, "lightrsi")));
+      await assert.rejects(() => lstat(join(cliBinDir, "tokenpilot-codex")));
+    } else {
+      await assertInstalledCliLink(result.cliBinPath, /codex-adapter[\/\\]dist[\/\\]lightrsi\.js$/, false);
+      await assertInstalledCliLink(result.hostCliBinPath!, /codex-adapter[\/\\]dist[\/\\]cli\.js$/, false);
+    }
     const tokenPilotConfig = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
     assert.equal(tokenPilotConfig.enabled, true);
     assert.equal(tokenPilotConfig.upstreamProvider, "OPENAI");

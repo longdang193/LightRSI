@@ -61,6 +61,16 @@ test("CDH-05 Replayability defers tool items without a usable call id", () => {
   }
 });
 
+test("CDH-05 Replayability treats completed Codex app tool output as observation-only", () => {
+  assertReplayability({
+    type: "function_call_output",
+    id: "fco-1",
+    name: "send_message_to_thread",
+    namespace: "codex_app",
+    output: "<codex_delegation>completed</codex_delegation>",
+  }, "observation_only", "host_tool_observation");
+});
+
 test("CDH-05 Replayability keeps exact encrypted reasoning payloads replayable", () => {
   const reasoning = {
     id: "rs-1",

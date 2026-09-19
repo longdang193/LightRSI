@@ -244,8 +244,8 @@ and integration correctness.
 - Branch: `codex/context-cleaner-safety-autonomy-follow-up` (create at activation from `origin/main`)
 - Base commit: `becf974aa3a3575e7a8dd23f2b937f8a5ecf802e`
 - Expected workspace: `existing LightRSI follow-up branch with 081cb4a pushed; plan edits remain uncommitted; Project OS uses a separate checkout`
-- Next action: `wait for a supported fresh Herdr/Codex worker pane, run three quiescent read-only turns, then invoke Cleaner externally from the idle controller process only; do not use the active controller snapshot, synthesize registry entries, or bypass Cleaner refusal; keep policy rollout staged`
-- Blockers: `Gate B bound a fresh agent and TokenPilot session, but Cleaner rejected the active snapshot as incomplete (`codex_clean_snapshot_incomplete:history_replay_incomplete,history_unresolved_tool_calls`); the agent still had an open write_stdin tool call, so no plan/receipt or eligible task existed; the follow-up Herdr launch found no eligible candidate panes after stale worker cleanup (`target_resolution=not_found`), so no fresh worker could be started`
+- Next action: `produce one supported session with persisted eligible task attribution, then rerun the read-only Cleaner analysis and pilot; do not edit the registry, add estimator credentials, invoke Cleaner mutation manually, or bypass refusal; keep policy rollout staged`
+- Blockers: `Gate B now reaches a bound TokenPilot session and produces a complete snapshot, but `--status ctxclean-f6e80010f719e5e273f7c941` falls back with `task_registry_unavailable`; no task is selected, and no plan, receipt, or mutation is authorized until normal LightRSI operation persists eligible task attribution`
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -254,13 +254,14 @@ and integration correctness.
 | Task 3 | `completed` | current workspace | `codex` | Task 1 | locked approval, claim, and cancellation tests | approval replay and cancel/claim arbitration pass |
 | Task 4 | `completed` | current workspace | `codex` | Tasks 2–3 | uncertain-dispatch and receipt recovery tests | Codex targeted suite and typecheck pass |
 | Task 5 | `completed` | separate Project OS checkout | `codex` | none | canonical policy and generated-surface verification | canonical standing-permission paragraph added; all adapters synchronized; fast contract validation passed; unrelated dirty README and files preserved |
-| Task 6 | `blocked` | current runtime environment | `codex` | Tasks 2–5, 7–8 | binding probe, pilot measurements, and stop-condition review | Gate A proved exact workspace binding and TokenPilot-routed Host traffic; CLI session resolver now prefers current `CODEX_SESSION_ID` alias over unrelated global latest state, with red/green dispatch proof and live worker-alias report probe; fresh Gate B bound Codex `01a0baee-ff66-76e1-ad67-382675f5e4e4` to TokenPilot `codex-synth-284b522b-a594-49d5-a794-5fead4576681`, recorded 19 proxy calls, 3 upstream sends, 3 successful generations, and average latency 11,156 ms; Cleaner safely returned `codex_clean_snapshot_incomplete:history_replay_incomplete,history_unresolved_tool_calls` while a `write_stdin` call remained active, created no plan/receipt, selected no task, and performed no mutation; external worker clean probe now reaches bound TokenPilot session and refuses `codex_clean_session_not_found` because no complete snapshot exists |
+| Task 6 | `blocked` | current runtime environment | `codex` | Tasks 2–5, 7–8 | binding probe, pilot measurements, and stop-condition review | Gate A proved exact workspace binding and TokenPilot-routed Host traffic; CLI session resolver now prefers current `CODEX_SESSION_ID` alias over unrelated global latest state, with red/green dispatch proof and live worker-alias report probe; fresh Gate B bound Codex `01a0baee-ff66-76e1-ad67-382675f5e4e4` to TokenPilot `codex-synth-284b522b-a594-49d5-a794-5fead4576681`, recorded 19 proxy calls, 3 upstream sends, 3 successful generations, and average latency 11,156 ms; follow-up bound-session analysis produced a complete 371,318-character snapshot with 37,144 protected and 334,174 unassigned characters; Cleaner then fell back with `task_registry_unavailable`, selected no task, and performed no mutation |
 | Task 7 | `completed` | current workspace | `codex` | Tasks 2–4 | duplicate-generation, claim-fencing, and retry regression proof | focused Codex suites, Cleaner suite, and adapter/Cleaner typechecks pass; no resend after accepted response; owner-token and cancellation fencing regressions pass |
 | Task 8 | `completed` | current workspace | `codex` | Task 7 | estimator observation plus approved Cleaner eligibility with automatic eviction disabled | lifecycle planner/runtime suites, eviction suite, adapter/eviction typechecks pass; real Codex lifecycle integration proves registry attribution → selectable task → approval → scheduling → safe execution revalidation; no automatic mutation plan is exposed |
 | Task 9 | `pending` | current workspace | `codex` | Task 8 | separate measured performance follow-up | Deferred; not required for Cleaner correctness or first pilot; no supported Codex eviction control exists |
 
-Task 6 remains blocked only on pilot data and available worker runtime, not startup binding or CLI session
-alias resolution. The runtime defect was root-caused: Codex CLI default
+Task 6 remains blocked only on pilot data and task attribution capability, not
+startup binding, CLI session alias resolution, or snapshot replayability. The
+runtime defect was root-caused: Codex CLI default
 resolution ignored `CODEX_SESSION_ID` and selected the shared latest-session
 pointer, so a fresh worker could report or clean the controller's TokenPilot
 session. The shared Codex resolver now checks the current host-session alias
@@ -277,6 +278,29 @@ fresh shell pane, Gate B bound Codex session
 Cleaner refusal, but the active snapshot remained incomplete; no plan or
 receipt existed, no task was selected, and no mutation or eviction occurred.
 Gate B therefore proves binding and safe refusal, not autonomous cleaning.
+The completed bound-session recheck also found and fixed a shared replayability
+defect: completed `codex_app` `function_call_output` items lack `call_id` by
+design, but were classified as deferred tool items. That made complete
+snapshots fail closed as `history_deferred_items`. They are now classified as
+observation-only only when the stable host-tool shape is present; ordinary
+missing-`call_id` tool items remain deferred. Focused replayability tests pass
+(14/14), effective-history tests pass (23/23), Cleaner tests pass (89/89), the
+full Codex adapter suite passes (470/470), and adapter/CLI typechecks pass.
+The fix restores complete-history analysis; it does not invent task attribution
+or authorize mutation.
+The patched CLI was rebuilt and rerun against the bound session. Read-only
+analysis succeeded with `371318` used characters, `37144` protected characters,
+and `334174` unassigned characters. Status remained `analyzed` with no selected
+task and fallback reason `task_registry_unavailable`; no approval, scheduling,
+receipt application, or mutation was attempted.
+The same runtime probe found Windows launcher drift in both shared CLI install
+paths: extensionless POSIX-style files under `%USERPROFILE%\\.local\\bin` were
+discoverable by PowerShell but did not execute. The shared installer now writes
+`lightrsi.cmd` and `lightmem2.cmd`, the host installer uses the same launcher
+helper for `tokenpilot-codex.cmd` and `tokenpilot-claude-code.cmd`, and stale
+extensionless launchers are removed. Installer regression proof and a live
+`lightrsi codex clean --status` probe pass; this fixes command dispatch only and
+does not change Task 6 eligibility or Cleaner mutation authority.
 The follow-up runtime probe found a second defect in the shared Codex streaming
 finalizer: `client_abort` and stream-error exits destroyed the upstream stream
 before `recordStreamResponse`, leaving the latest request journal state
@@ -287,6 +311,16 @@ upstream connection; focused regression proof covers client abort, and the
 complete adapter suite, typecheck, and fast contract validation pass. This
 preserves fail-closed Cleaner behavior for incomplete history; it does not
 create eligibility or authorize mutation.
+The repeated `response_chain_head_missing` events were separately reproduced in
+normal Codex traffic routed through `9Router`. Successful requests arrive at
+the LightRSI proxy without `previous_response_id`; the proxy codec preserves
+that absence, and the existing prompt-cache session binding still succeeds.
+The lifecycle planner therefore defers by design because it cannot prove a
+trusted response-chain head. This is a runtime/provider capability gap, not a
+LightRSI caller bug. Do not synthesize a head from the latest snapshot: that
+would turn an unverified transport relationship into rewrite or task-attribution
+authority. Keep Task 6 blocked until supported traffic supplies a chain head or
+a separately approved stateless attribution design exists.
 Project OS launcher now passes Codex `--dangerously-bypass-hook-trust` and
 `check_for_update_on_startup=false`; focused launcher tests pass, shared runtime
 deployment drift is clean, and a fresh `ctxclean-runtime-probe` accepted the

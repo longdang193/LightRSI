@@ -1010,12 +1010,7 @@ export async function startCodexResponsesProxy(params: {
           }
         }
       } else if (lifecyclePlanningConfigured) {
-        if (!config.contextRewrite.enabled) {
-          await emitContextRewriteStage("context_rewrite_bypassed", {
-            reasonCodes: ["feature_disabled"],
-            fallbackUsed: true,
-          });
-        } else if (!requestJournalEntry) {
+        if (!requestJournalEntry) {
           await emitContextRewriteStage("context_rewrite_failed", {
             reasonCodes: ["request_journal_unavailable"],
             errorCategory: "history_journal_write_failed",

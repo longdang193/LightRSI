@@ -87,14 +87,21 @@ test("installClaudeCodeTokenPilot writes settings, MCP config, and backups exist
       "lightrsi-visual",
     ]);
     assert.equal(result.cliBinInstalled, true);
-    assert.equal(result.cliBinPath, join(cliBinDir, "lightrsi"));
+    assert.equal(result.cliBinPath, join(cliBinDir, process.platform === "win32" ? "lightrsi.cmd" : "lightrsi"));
     assert.equal(result.cliBinDir, cliBinDir);
     assert.equal(result.cliBinDirOnPath, false);
-    assert.equal(result.hostCliBinPath, join(cliBinDir, "tokenpilot-claude-code"));
-    assert.equal((await lstat(result.cliBinPath)).isSymbolicLink(), true);
-    assert.match(await readlink(result.cliBinPath), /products[\/\\]cli[\/\\]dist[\/\\]cli\.js$/);
-    assert.equal((await lstat(result.hostCliBinPath!)).isSymbolicLink(), true);
-    assert.match(await readlink(result.hostCliBinPath!), /adapters[\/\\]claude-code[\/\\]dist[\/\\]cli\.js$/);
+    assert.equal(result.hostCliBinPath, join(cliBinDir, process.platform === "win32" ? "tokenpilot-claude-code.cmd" : "tokenpilot-claude-code"));
+    if (process.platform === "win32") {
+      assert.match(await readFile(result.cliBinPath, "utf8"), /@echo off\r\n/);
+      assert.match(await readFile(result.hostCliBinPath!, "utf8"), /@echo off\r\n/);
+      await assert.rejects(() => lstat(join(cliBinDir, "lightrsi")));
+      await assert.rejects(() => lstat(join(cliBinDir, "tokenpilot-claude-code")));
+    } else {
+      assert.equal((await lstat(result.cliBinPath)).isSymbolicLink(), true);
+      assert.match(await readlink(result.cliBinPath), /products[\/\\]cli[\/\\]dist[\/\\]cli\.js$/);
+      assert.equal((await lstat(result.hostCliBinPath!)).isSymbolicLink(), true);
+      assert.match(await readlink(result.hostCliBinPath!), /adapters[\/\\]claude-code[\/\\]dist[\/\\]cli\.js$/);
+    }
     assert.match(result.expectedHookCommand, /hooks-handler\.(js|ts)/);
     assert.ok(result.expectedMcpArgs.length > 0);
     assert.equal(result.expectedMcpStartupTimeoutSec, 90);
@@ -318,7 +325,11 @@ test("resolveClaudeCodeHookCommandForInstall finds the adapter root from the bun
     process.chdir(dirname(repoRoot));
     const command = resolveClaudeCodeHookCommandForInstall(bundledCliModuleDir);
     assert.equal(command.includes("\\\\"), false);
-    assert.match(command.replaceAll("\\\\", "\\"), /adapters[\/\\]claude-code[\/\\]dist[\/\\]hooks-handler\.js/);
+    const normalizedCommand = command.replaceAll("\\\\", "\\");
+    assert.match(normalizedCommand, /adapters[\/\\]claude-code[\/\\](?:dist[\/\\]hooks-handler\.js|src[\/\\]hooks-handler\.ts)/);
+    if (normalizedCommand.includes(`${join("adapters", "claude-code", "src", "hooks-handler.ts")}`)) {
+      assert.match(command, /--import tsx/);
+    }
   } finally {
     process.chdir(originalCwd);
   }
