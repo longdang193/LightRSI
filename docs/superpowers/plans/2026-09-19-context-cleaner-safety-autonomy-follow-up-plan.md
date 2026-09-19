@@ -18,8 +18,20 @@ targets:
   - components/packages/features/cleaner/tests/clean-state-coordinator.test.ts
   - components/packages/features/cleaner/tests/recovery.test.ts
   - components/adapters/codex/src/context-cleaner/runtime.ts
+  - components/adapters/codex/src/context-cleaner/bridge.ts
+  - components/adapters/codex/src/context-rewrite/fallback.ts
+  - components/adapters/codex/src/context-rewrite/lifecycle-runner.ts
+  - components/adapters/codex/src/context-rewrite/estimator-config.ts
+  - components/adapters/codex/src/proxy-runtime.ts
+  - components/adapters/codex/tests/config.test.ts
   - components/adapters/codex/tests/context-cleaner-runtime.test.ts
   - components/adapters/codex/tests/context-cleaner-scheduler.test.ts
+  - components/adapters/codex/tests/context-rewrite-lifecycle-runtime.test.ts
+  - components/adapters/codex/tests/context-rewrite-lifecycle-runner.test.ts
+  - components/packages/features/eviction/src/lifecycle-planner.ts
+  - components/packages/features/eviction/src/task-state-estimator.ts
+  - components/packages/features/eviction/tests/lifecycle-planner.test.ts
+  - components/presets/tokenpilot/src/policy.ts
 ---
 
 # Context Cleaner Safety and Autonomy Follow-up
@@ -34,6 +46,11 @@ Harden Context Cleaner for autonomous use without creating a second governance o
 - Claim acquisition, approval replay, and cancellation are atomic per plan.
 - Same-selection retries replay existing outcomes; conflicting selections fail closed.
 - Uncertain provider dispatch remains recovery-required and is never resent automatically.
+- Successful or uncertain provider dispatch never triggers a second generation only
+  because local persistence failed.
+- Task attribution can update independently from estimator-selected automatic eviction.
+- Automatic eviction remains disabled by default until measured pilot evidence proves
+  net benefit and acceptable interactive latency.
 - Project OS grants narrow standing permission for exclusively owned internal context without expanding authority.
 
 
@@ -86,6 +103,36 @@ Task 6 remains blocked until a supported session produces eligible task
 registry entries; no registry edits or estimator credentials are authorized by
 this plan.
 
+## Post-081cb4a Follow-up Verdict
+
+The latest consolidated review is accepted as a bounded follow-up, not a second
+architecture. The review was source-checked against commit `081cb4a`, but its
+live probes were not independently rerun. Each reported defect therefore gets a
+failing regression proof before production edits.
+
+Required corrections:
+
+1. `components/adapters/codex/src/context-rewrite/fallback.ts` must distinguish
+   pre-dispatch, confirmed rejection, successful dispatch, and uncertain dispatch.
+   A completed rebased response followed by local journal or epoch persistence
+   failure must not send the original request again.
+2. Claim admission must recover pending transaction intent under the existing
+   plan lock before admitting a new claim. Reconciled `scheduled` state,
+   identity, selection, and ownership remain required.
+3. Existing claims require explicit owner-token proof for reuse. Matching
+   mutation identity alone never authorizes another process to adopt a claim.
+4. Cancellation and selection retries return stored canonical receipts,
+   selections, and timestamps. Reordered same-selection retries must not create
+   new transaction identity.
+5. Estimator observation must be separable from automatic eviction. Reuse the
+   existing canonical eviction configuration path if it can express the split;
+   do not add a duplicate policy field without proving the existing path cannot.
+6. Automatic eviction stays off by default. Preflight, net-benefit, timeout,
+   backoff, and batch tuning require measurements before defaults change.
+
+The Project OS policy status must also be verified from its canonical template
+and generated surfaces. Do not infer publication from the LightRSI task ledger.
+
 ## Decisions
 
 - Keep the public statuses unchanged: `analyzed`, `approved`, `scheduled`,
@@ -108,9 +155,10 @@ this plan.
     replacement.
 - Preserve `recovery_required`; never resend a provider operation after dispatch
   may have started without explicit reconciliation evidence.
-- Do not add automatic cleaning, a Cleaner MCP server, a durable Project OS task
-  ledger, a Cleaner task mapping registry, cross-Host support, or a second
-  context-management engine.
+- Do not enable automatic cleaning by default or add periodic/threshold triggers.
+  Do not add a Cleaner MCP server, a durable Project OS task ledger, a Cleaner
+  task mapping registry, cross-Host support, or a second context-management
+  engine. An evidence-gated automatic-eviction pilot remains allowed.
 - Keep the first integration CLI-driven with explicit session identity. Add a
   programmatic adapter only after a pilot proves the CLI cannot bind the active
   session or enforce eligible task IDs reliably.
@@ -162,9 +210,9 @@ and integration correctness.
 - Coordination schema: `2`
 - Branch: `codex/context-cleaner-safety-autonomy-follow-up` (create at activation from `origin/main`)
 - Base commit: `becf974aa3a3575e7a8dd23f2b937f8a5ecf802e`
-- Expected workspace: `new LightRSI follow-up branch at activation; Project OS uses a separate checkout`
-- Next action: `obtain a reliably bound supported Codex session, then run Task 6 pilot`
-- Blockers: `Task 6 requires reliable session binding, supported Host traffic, eligible registry state, and agent-initiated CLI invocation`
+- Expected workspace: `existing LightRSI follow-up branch with 081cb4a pushed; plan edits remain uncommitted; Project OS uses a separate checkout`
+- Next action: `resolve Task 6 pilot prerequisites or record concrete missing capability`
+- Blockers: `Task 6 requires Tasks 7–8 plus reliable session binding, supported Host traffic, eligible registry state, and agent-initiated CLI invocation`
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -172,8 +220,17 @@ and integration correctness.
 | Task 2 | `completed` | current workspace | `codex` | Task 1 | removal-safety and Codex bridge tests | Cleaner and bridge focused tests pass |
 | Task 3 | `completed` | current workspace | `codex` | Task 1 | locked approval, claim, and cancellation tests | approval replay and cancel/claim arbitration pass |
 | Task 4 | `completed` | current workspace | `codex` | Tasks 2–3 | uncertain-dispatch and receipt recovery tests | Codex targeted suite and typecheck pass |
-| Task 5 | `completed` | separate Project OS checkout | `codex` | none | sync drift and contract validation | policy sync, drift check, and contract validation pass |
-| Task 6 | `blocked` | current runtime environment | `codex` | Tasks 2–5 | pilot measurements and stop-condition review | no reliably bound agent-initiated session available; CLI help verified only |
+| Task 5 | `completed` | separate Project OS checkout | `codex` | none | canonical policy and generated-surface verification | canonical standing-permission paragraph added; all adapters synchronized; fast contract validation passed; unrelated dirty README and files preserved |
+| Task 6 | `blocked` | current runtime environment | `codex` | Tasks 2–5, 7–8 | pilot measurements and stop-condition review | no reliably bound agent-initiated session available; CLI help verified only |
+| Task 7 | `completed` | current workspace | `codex` | Tasks 2–4 | duplicate-generation, claim-fencing, and retry regression proof | focused Codex suites, Cleaner suite, and adapter/Cleaner typechecks pass; no resend after accepted response; owner-token and cancellation fencing regressions pass |
+| Task 8 | `completed` | current workspace | `codex` | Task 7 | estimator observation with automatic eviction disabled | lifecycle planner/runtime suites, eviction suite, adapter/eviction typechecks pass; registry attribution remains enabled and no automatic mutation plan is exposed |
+| Task 9 | `pending` | current workspace | `codex` | Task 8 | separate measured performance follow-up | Deferred; not required for Cleaner correctness or first pilot; no supported Codex eviction control exists |
+
+Task 6 remains blocked by missing reliable agent-initiated session binding and
+supported pilot traffic. Tasks 7–8 are complete; Task 5 policy preparation is
+validated but remains unpublished until its separate checkout is reviewed and
+committed through its own Git workflow.
+Task 9 is deferred and does not block Tasks 7–8 or Task 6.
 
 ## Task Breakdown
 
@@ -515,6 +572,9 @@ or task evidence, not a new runtime registry.
 
 **Steps:**
 
+- Activate only after Tasks 7–9 exit criteria pass. A blocked Task 7, 8, or 9
+  blocks the pilot; do not compensate with manual registry edits or default
+  automatic eviction.
 - Use existing explicit CLI flow with a verified Codex session ID:
 
 ```text
@@ -540,6 +600,11 @@ or task evidence, not a new runtime registry.
   continues the original task without repeated human confirmation.
 - If a human chooses the session, selects every task, and executes every command,
   record the result as supervised operation, not autonomous maintenance.
+- Do not run an automatic-eviction comparison in this Codex pilot. The current
+  public Codex adapter has no supported `eviction.enabled` control; enabling the
+  hardcoded lifecycle path or adding a second adapter policy field would create
+  an unreviewed policy boundary. Record automatic-eviction comparison as
+  blocked until a separate canonical control design is approved.
 - Stop the pilot if any shared item is selected, cancellation/claim ownership is
   ambiguous, uncertain dispatch is resent, or evidence needed for acceptance is
   lost.
@@ -556,6 +621,213 @@ or task evidence, not a new runtime registry.
 - Stop for: production automatic cleaning, deletion of shared context, loss of
   acceptance evidence, or any uncertain provider resend.
 
+### Task 7: Fix post-dispatch recovery, claim fencing, and retry identity
+
+**Template Profile:**
+
+- Controller-selected: `normal`
+
+**Validator Profile:**
+
+- Controller-selected: `review`
+
+**Required Skills:**
+
+- `skill-systematic-debugging`
+- `skill-test-driven-development`
+- `skill-backend-verification`
+- `skill-code-standards`
+
+**Files and symbols:**
+
+- Add regression proof in `components/adapters/codex/tests/context-rewrite-lifecycle-runtime.test.ts`.
+- Add regression proof in `components/adapters/codex/tests/context-rewrite-lifecycle-runner.test.ts`.
+- Modify `components/adapters/codex/src/context-rewrite/fallback.ts` only after
+  the duplicate-generation reproduction is red.
+- Modify `components/adapters/codex/src/context-cleaner/runtime.ts` and
+  `components/packages/features/cleaner/src/clean-claim-store.ts` for explicit
+  owner-token admission and recovery fencing.
+- Modify `components/packages/features/cleaner/src/clean-state-coordinator.ts`,
+  `components/packages/features/cleaner/src/clean-receipt-store.ts`, and
+  `components/adapters/codex/src/context-cleaner/bridge.ts` for canonical retry
+  identity and stored receipt replay.
+
+**Steps:**
+
+- Reproduce a successful rebased provider response followed by `beforeCommit` or
+  epoch persistence failure. Assert upstream call count stays one and state is
+  `recovery_required` or an equivalent reserved state.
+- Trace every caller of `sendOriginalWithFallbackOutcome`; permit original
+  fallback only before dispatch, on confirmed provider rejection, or when no
+  provider response was observed. Preserve uncertain dispatch without resend.
+- Reproduce pending cancellation intent followed by claim admission. Recover the
+  intent under the existing plan lock before reading claim state; assert no
+  cancelled-and-claimed state is possible.
+- Require explicit owner-token proof when reusing an existing claim. A matching
+  claim ID or mutation plan ID without owner proof returns a reserved/recovery
+  outcome and cannot dispatch.
+- Canonicalize accepted task selection once. Reordered retries return stored
+  selection and timestamp; repeated cancellation returns its stored receipt.
+- Keep public Cleaner statuses and existing store schemas unchanged unless a
+  failing regression proves a schema field is required.
+
+**Verification:**
+
+```text
+pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/context-rewrite-lifecycle-runtime.test.ts tests/context-rewrite-lifecycle-runner.test.ts
+pnpm --dir components/packages/features/cleaner test
+pnpm --dir components/adapters/codex run typecheck
+pnpm --dir components/packages/features/cleaner run typecheck
+```
+
+**Exit criteria:** No duplicate generation after successful or uncertain
+dispatch; pending cancellation cannot be followed by a new claim; owner-token
+adoption is rejected; cancellation and reordered selection retries replay one
+canonical transaction identity.
+
+**Authority:**
+
+- Preauthorized local actions: add failing regressions, patch declared recovery
+  and claim paths, and run listed checks.
+- Stop for: new persistence engines, provider protocol changes, automatic resend,
+  public status changes, or unresolved evidence about provider dispatch outcome.
+
+### Task 8: Separate estimator observation from automatic eviction
+
+**Template Profile:**
+
+- Controller-selected: `normal`
+
+**Validator Profile:**
+
+- Controller-selected: `review`
+
+**Required Skills:**
+
+- `skill-central-config-layer`
+- `skill-test-driven-development`
+- `skill-backend-verification`
+- `skill-code-standards`
+
+**Files and symbols:**
+
+- Modify `components/adapters/codex/src/proxy-runtime.ts` to stop hardcoding
+  `evictionEnabled: true`; default the Codex lifecycle path to observation-only
+  until a supported canonical policy handoff exists.
+- Inspect `components/adapters/codex/src/config.ts` and
+  `components/presets/tokenpilot/src/policy.ts` to document the current boundary:
+  `eviction.enabled` is canonical for TokenPilot policy, but is not currently
+  exposed as a public Codex adapter control.
+- Preserve `lifecycleMode: "decoupled"` in
+  `components/adapters/codex/src/context-rewrite/estimator-config.ts` and
+  `components/packages/features/eviction/src/task-state-estimator.ts` for
+  registry observation without automatic removal.
+- Extend `components/adapters/codex/tests/config.test.ts`,
+  `components/adapters/codex/tests/context-rewrite-lifecycle-runtime.test.ts`,
+  and `components/adapters/codex/tests/context-rewrite-lifecycle-runner.test.ts`.
+- Reuse existing policy definitions in
+  `components/presets/tokenpilot/src/policy.ts`; do not add
+  `contextRewrite.automaticEvictionEnabled`, a Codex-only `eviction.enabled`, or
+  another duplicate policy field.
+
+**Steps:**
+
+- Establish observation-only behavior for Codex: estimator updates task
+  registry while lifecycle eviction is disabled, and no mutation plan is
+  exposed from this path.
+- Keep approved Cleaner scheduling independent from estimator-selected eviction.
+- Verify estimator observation does not require provider replay compatibility when
+  no mutation plan will execute.
+- Verify automatic eviction remains disabled by default and existing presets do
+  not silently change behavior.
+- Add runtime tests proving registry updates occur with eviction off and no
+  mutation plan is applied. Defer enabled-mode wiring and its guard tests until
+  a separate policy-boundary design identifies an existing supported handoff.
+
+**Verification:**
+
+```text
+pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/config.test.ts tests/context-rewrite-lifecycle-runtime.test.ts tests/context-rewrite-lifecycle-runner.test.ts
+pnpm --dir components/packages/features/eviction test
+pnpm --dir components/adapters/codex run typecheck
+pnpm --dir components/packages/features/eviction run typecheck
+```
+
+**Exit criteria:** Task registry attribution updates with automatic eviction
+disabled; approved Cleaner remains usable; no automatic removal occurs; no new
+Codex-only policy field or unsupported enablement path exists.
+
+**Authority:**
+
+- Preauthorized local actions: remove the unsafe hardcoded enablement, preserve
+  observation-only lifecycle behavior, add focused tests, and update owned
+  adapter documentation.
+- Stop for: duplicate policy fields, a new policy handoff, automatic-eviction
+  activation, new governance state, or changes to Cleaner public statuses.
+
+### Task 9: Deferred follow-up — add measured preflight and net-benefit gates
+
+**Template Profile:**
+
+- Controller-selected: `normal`
+
+**Validator Profile:**
+
+- Controller-selected: `review`
+
+**Required Skills:**
+
+- `skill-performance-optimization`
+- `skill-test-driven-development`
+- `skill-backend-verification`
+
+**Files and symbols:**
+
+- Modify the existing lifecycle admission path in
+  `components/adapters/codex/src/proxy-runtime.ts` and
+  `components/packages/features/eviction/src/lifecycle-planner.ts` only after
+  baseline measurements identify a gate.
+- Extend `components/adapters/codex/tests/context-rewrite-lifecycle-runtime.test.ts`
+  and `components/packages/features/eviction/tests/lifecycle-planner.test.ts`.
+- Record bounded benchmark evidence in existing test output or task evidence;
+  do not create a new runtime metrics store.
+
+**Steps:**
+
+- Establish baseline estimator latency, session-lock occupancy, rebase replay
+  cost, saved chars/tokens, fallback rate, and request completion latency using
+  the existing mock/probe harness.
+- Add cheap preflight checks before estimator or mutation work when rewriting is
+  disabled, provider capability is known incompatible, or cooldown is active.
+- Add net-benefit admission: skip automatic rebase when expected savings cannot
+  repay estimator plus replay overhead. Keep registry observation available.
+- Bound estimator time and add failure backoff using existing configuration and
+  trace fields. Do not move estimation outside the session lock without measured
+  contention evidence and a separate approved design.
+- Compare batch sizes only after correctness and latency baselines exist.
+
+**Verification:**
+
+```text
+pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/context-rewrite-lifecycle-runtime.test.ts
+pnpm --dir components/packages/features/eviction exec node --import tsx --test --test-concurrency=1 tests/lifecycle-planner.test.ts
+pnpm --dir components/adapters/codex run typecheck
+pnpm --dir components/packages/features/eviction run typecheck
+```
+
+**Exit criteria:** Deferred until a supported Codex eviction policy boundary
+exists and a measured regression justifies new gates. Any future gate needs
+before/after evidence, preserves task attribution, does not resend uncertain
+work, and meets an explicitly recorded latency and net-benefit threshold.
+
+**Authority:**
+
+- Preauthorized local actions: collect baseline evidence only if a later task
+  explicitly activates this follow-up.
+- Stop for: unsupported performance claims, speculative optimization, lock
+  redesign, transport changes, cache changes, or default activation without
+  pilot evidence.
+
 ## Verification
 
 Run from LightRSI root after Tasks 1–4; run targeted Codex tests before the full adapter suite:
@@ -566,6 +838,8 @@ pnpm --dir components/packages/features/cleaner run typecheck
 pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/context-cleaner-bridge.test.ts tests/context-cleaner-runtime.test.ts tests/context-cleaner-scheduler.test.ts
 pnpm --dir components/adapters/codex test
 pnpm --dir components/adapters/codex run typecheck
+pnpm --dir components/packages/features/eviction test
+pnpm --dir components/packages/features/eviction run typecheck
 pnpm --dir components/products/cli test
 pnpm --dir components/products/cli run typecheck
 pnpm --dir components/products/cli run build
@@ -587,10 +861,15 @@ Completion requires:
 6. Existing transaction, revision, protocol-closure, journal, rewrite, and cache behavior remains unchanged outside Cleaner-selected mutation.
 7. Project OS standing permission is canonical and generated surfaces are synced.
 8. `skill-verification-before-completion` returns `verified` before changing plan status from `proposed`.
+9. A successful or uncertain provider dispatch cannot cause a duplicate upstream generation.
+10. Estimator observation works with automatic eviction disabled, and approved Cleaner remains usable.
+11. Any future automatic-eviction gate has measured latency, cost, recovery, and task-correctness evidence.
+12. Automatic eviction remains disabled by default until the pilot owner accepts net-benefit evidence.
 
 ## Non-Goals
 
 - Automatic periodic or threshold-triggered cleaning.
+- Automatic eviction as a default behavior before pilot evidence.
 - Cleaner MCP exposure.
 - Cleaner task IDs becoming Project OS task IDs.
 - Persistent cross-repository mapping or coordination ledger.

@@ -320,7 +320,7 @@ export async function recoverContextCleanState(params: {
   }
 }
 
-async function recoverContextCleanStateUnlocked(params: {
+export async function recoverContextCleanStateUnlocked(params: {
   stateDir: string;
   planId: string;
 }): Promise<ContextCleanStoreWriteResult<ContextCleanPlanRecord>> {

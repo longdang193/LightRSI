@@ -459,6 +459,7 @@ export async function failCodexRebaseEpoch(params: {
   sessionId: string;
   epochId: string;
   failureReason: string;
+  newResponseId?: string;
   accounting?: CodexRebaseAccounting;
   updatedAt?: string;
 }): Promise<CodexRebaseEpoch> {

@@ -166,7 +166,7 @@ function requestInputText(payload: JsonObject | undefined): string {
   return JSON.stringify(Array.isArray(payload?.input) ? payload.input : []);
 }
 
-test("Codex proxy uses lifecycle planning instead of a conflicting manual plan", async () => {
+test("Codex proxy observes lifecycle attribution without automatic eviction", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-lifecycle-runtime-"));
   const sessionId = "codex-lifecycle-runtime-session";
   const upstream = await startLifecycleUpstream();
@@ -278,12 +278,12 @@ test("Codex proxy uses lifecycle planning instead of a conflicting manual plan",
       .map((line) => JSON.parse(line) as JsonObject)
       .filter((row) => String(row.stage).startsWith("context_rewrite_"));
     assert.equal(
-      "previous_response_id" in (lifecyclePayload ?? {}),
-      false,
+      lifecyclePayload?.previous_response_id,
+      "resp-lifecycle-3",
       JSON.stringify(lifecycleEvents),
     );
     assert.doesNotMatch(requestInputText(lifecyclePayload), /EVICT_ME_lifecycle_runtime/);
-    assert.match(requestInputText(lifecyclePayload), /KEEP_ME_lifecycle_runtime/);
+    assert.match(requestInputText(lifecyclePayload), /continue with the current task/);
 
     const registry = await loadSessionTaskRegistry(stateDir, sessionId);
     assert.equal(registry.version, 1);
@@ -299,9 +299,7 @@ test("Codex proxy uses lifecycle planning instead of a conflicting manual plan",
       totalTokens: 144,
     });
     const epochJournal = await readCodexRebaseEpochJournal(stateDir, sessionId);
-    const committedEpoch = epochJournal.epochs.find((epoch) => epoch.status === "committed");
-    assert.equal(committedEpoch?.accounting?.estimatorCostTokens, 144);
-    assert.equal(committedEpoch?.accounting?.estimatorCostChars, 576);
+    assert.equal(epochJournal.epochs.some((epoch) => epoch.status === "committed"), false);
   } finally {
     await runtime?.close();
     await estimator.close();

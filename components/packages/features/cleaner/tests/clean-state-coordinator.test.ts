@@ -256,3 +256,42 @@ test("cancel wins queued claim admission under the plan lock", async () => {
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("claim admission recovers pending cancellation intent before creating a claim", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-claim-recovery-"));
+  try {
+    const plan = samplePlan();
+    await saveContextCleanPlan({ stateDir: root, plan });
+    await transitionContextCleanState({ stateDir: root, receipt: sampleReceipt("approved") });
+    const cancelled = {
+      ...sampleReceipt("cancelled"),
+      updatedAt: "2026-08-20T00:03:00.000Z",
+    };
+    await writeJsonFileAtomic(contextCleanTransactionFilePath(root, plan.planId), {
+      storeSchemaVersion: CONTEXT_CLEAN_STORE_SCHEMA_VERSION,
+      planId: plan.planId,
+      fromStatus: "approved",
+      receipt: cancelled,
+      createdAt: cancelled.updatedAt,
+    });
+    const claim = {
+      schemaVersion: 1 as const,
+      claimId: "claim-after-cancel",
+      planId: plan.planId,
+      hostId: plan.hostId,
+      sessionId: plan.sessionId,
+      selectedTaskIds: ["task-a"],
+      mutationPlanId: "mutation-after-cancel",
+      analysisRevision: plan.baseRevision,
+      executionRevision: plan.baseRevision,
+      ownerToken: "owner-after-cancel",
+      claimedAt: "2026-08-20T00:04:00.000Z",
+      dispatchState: "dispatch_not_started" as const,
+    };
+
+    const result = await saveContextCleanExecutionClaim({ stateDir: root, claim });
+    assert.equal(result.outcome, "bypassed");
+    assert.deepEqual(result.reasons, ["clean_claim_plan_terminal"]);
+    assert.equal((await readContextCleanPlan({ stateDir: root, planId: plan.planId })).value?.status, "cancelled");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

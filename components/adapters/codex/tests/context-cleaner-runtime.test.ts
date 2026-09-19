@@ -458,6 +458,13 @@ test("Codex cleaner rejects an owner-token conflict instead of reusing stored cl
     });
     assert.equal(conflict.claim, undefined);
     assert.deepEqual(conflict.reasons, ["cleaner_runtime_claim_conflict"]);
+    const missingOwnerProof = await ensureCodexCleanerExecutionClaim({
+      stateDir,
+      schedule: first.prepared.schedule,
+      mutationPlanId: first.prepared.execution.mutationPlan.planId,
+    });
+    assert.equal(missingOwnerProof.claim, undefined);
+    assert.deepEqual(missingOwnerProof.reasons, ["cleaner_runtime_claim_conflict"]);
   });
 });
 

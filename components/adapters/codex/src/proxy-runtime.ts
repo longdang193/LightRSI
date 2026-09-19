@@ -1059,7 +1059,7 @@ export async function startCodexResponsesProxy(params: {
               config: {
                 enabled: true,
                 batchTurns: estimatorResolution.config.batchTurns,
-                evictionEnabled: true,
+                evictionEnabled: false,
                 evictionPolicy: "model_scored",
                 evictionMinBlockChars: 256,
               },

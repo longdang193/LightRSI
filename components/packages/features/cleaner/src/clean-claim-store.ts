@@ -16,6 +16,7 @@ import {
   sameCanonicalValue,
   withContextCleanStoreLock,
 } from "./clean-store-support.js";
+import { recoverContextCleanStateUnlocked } from "./clean-state-coordinator.js";
 
 const transitions: Record<ContextCleanExecutionClaim["dispatchState"], readonly ContextCleanExecutionClaim["dispatchState"][]> = {
   dispatch_not_started: ["dispatch_started", "recovery_required"],
@@ -88,6 +89,11 @@ async function saveContextCleanExecutionClaimUnlocked(params: {
   stateDir: string;
   claim: ContextCleanExecutionClaim;
 }): Promise<ContextCleanStoreWriteResult<ContextCleanExecutionClaim>> {
+  const recovery = await recoverContextCleanStateUnlocked({
+    stateDir: params.stateDir,
+    planId: params.claim.planId,
+  });
+  if (recovery.bypassed) return { outcome: "bypassed", bypassed: true, reasons: recovery.reasons };
   const planRead = await readContextCleanPlan({ stateDir: params.stateDir, planId: params.claim.planId });
   if (planRead.bypassed || !planRead.value) return { outcome: "bypassed", bypassed: true, reasons: ["clean_claim_plan_unavailable"] };
   const plan = planRead.value.plan;

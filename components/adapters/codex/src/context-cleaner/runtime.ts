@@ -68,6 +68,7 @@ const STALE_REASONS = new Set([
 export type CodexCleanerPreparedRebase = {
   schedule: CodexCleanerScheduledRecord;
   execution: ContextCleanPreparedExecution;
+  ownerToken: string;
   backendRequest: CodexSharedBackendRequest;
   snapshot: ModelContextSnapshot<CodexSharedBackendMetadata>;
   rewriteResult: ContextRewriteResult<CodexSharedBackendDetails>;
@@ -112,7 +113,8 @@ export async function ensureCodexCleanerExecutionClaim(params: {
   if (existing.value) {
     if (existing.value.claimId !== expectedClaimId
       || existing.value.mutationPlanId !== params.mutationPlanId
-      || (params.ownerToken !== undefined && existing.value.ownerToken !== params.ownerToken)) {
+      || params.ownerToken === undefined
+      || existing.value.ownerToken !== params.ownerToken) {
       return { reasons: ["cleaner_runtime_claim_conflict"] };
     }
     return { claim: existing.value, reasons: [] };
@@ -148,6 +150,7 @@ export async function markCodexCleanerDispatchStarted(params: {
     stateDir: params.stateDir,
     schedule: params.prepared.schedule,
     mutationPlanId: params.prepared.execution.mutationPlan.planId,
+    ownerToken: params.prepared.ownerToken,
   });
   if (!claim.claim) return { reasons: claim.reasons };
   const stored = await saveContextCleanExecutionClaim({
@@ -380,6 +383,7 @@ export async function finalizeCodexCleanerAppliedReceipt(params: {
     stateDir: params.stateDir,
     schedule: params.prepared.schedule,
     mutationPlanId: params.prepared.execution.mutationPlan.planId,
+    ownerToken: params.prepared.ownerToken,
   });
   if (!claim.claim) return { outcome: "reserved", reasonCodes: claim.reasons };
   const committedClaim = await saveContextCleanExecutionClaim({
@@ -420,6 +424,7 @@ export async function finalizeCodexCleanerAppliedReceipt(params: {
     stateDir: params.stateDir,
     planId: params.prepared.execution.cleanPlanId,
     claimId: executionClaimId(params.prepared.schedule, params.prepared.execution.mutationPlan.planId),
+    ownerToken: params.prepared.ownerToken,
   });
   if (cleared.bypassed) {
     return {
@@ -798,6 +803,7 @@ export async function prepareCodexCleanerRebase(params: {
               prepared: {
                 schedule: currentSchedule.record,
                 execution: prepared.execution,
+                ownerToken: claimed.claim.ownerToken,
                 backendRequest: context.backendRequest,
                 snapshot: context.snapshot,
                 rewriteResult: applied.result,
