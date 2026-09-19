@@ -244,7 +244,7 @@ and integration correctness.
 - Base commit: `becf974aa3a3575e7a8dd23f2b937f8a5ecf802e`
 - Expected workspace: `existing LightRSI follow-up branch with 081cb4a pushed; plan edits remain uncommitted; Project OS uses a separate checkout`
 - Next action: `rerun Gate B with a fresh normal-agent after CLI session-alias fix; obtain eligible Cleaner registry state through normal LightRSI flow or record provider-unavailable capability gap; do not synthesize registry entries`
-- Blockers: `Gate B still requires an eligible completed internal task; session-alias lookup defect is patched and verified, but pilot evidence remains incomplete`
+- Blockers: `fresh Gate B launch reached Herdr target resolution but found zero eligible matching Codex panes (`target_resolution:not_found`); no worker started; session-alias lookup defect is patched and verified, but pilot evidence remains incomplete`
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -265,6 +265,11 @@ only after command execution. The shared Cleaner command now resolves both
 `--session` and default-session paths before backend analysis; pre-fix tests
 failed with the raw alias and `codex_clean_session_not_found`, and focused
 post-fix CLI tests pass. The canonical
+The first fresh post-fix Gate B launch was fail-closed by Herdr with
+`target_resolution:not_found` and zero eligible candidates, so no agent prompt
+was delivered and no runtime state changed. Open a fresh matching Codex pane in
+the isolated worktree before retrying; do not reuse the controller session or
+manufacture a pane/session identity.
 Project OS launcher now passes Codex `--dangerously-bypass-hook-trust` and
 `check_for_update_on_startup=false`; focused launcher tests pass, shared runtime
 deployment drift is clean, and a fresh `ctxclean-runtime-probe` accepted the
