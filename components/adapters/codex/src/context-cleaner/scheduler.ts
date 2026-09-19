@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { appendJsonl } from "@lightrsi/host-adapter";
+import { sameCanonicalValue } from "@lightrsi/cleaner";
 
 import {
   acquireCodexRebaseSessionLock,
@@ -168,7 +169,7 @@ function validTransition(
   if (!previous) return next.status === "scheduled";
   if (!sameIdentity(previous, next)) return false;
   if (previous.status === "scheduled") return true;
-  return JSON.stringify(previous) === JSON.stringify(next);
+  return sameCanonicalValue(previous, next);
 }
 
 function collapseLatest(

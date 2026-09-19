@@ -87,34 +87,12 @@ function validateApprovedRequest(request: ExecuteApprovedContextCleanParams): st
     || typeof request.baseRevision !== "string"
     || !request.baseRevision.trim()
     || !canonicalTimestamp(request.approvedAt)
-    || !Array.isArray(request.selectedTasks)
-    || request.selectedTasks.length === 0) {
+    || !Array.isArray(request.selectedTaskIds)
+    || request.selectedTaskIds.length === 0) {
     throw new Error("claude_clean_approval_invalid");
   }
-  const taskIds = normalizedUniqueStrings(request.selectedTasks.map((task) => (
-    isRecord(task) ? task.taskId : undefined
-  )));
+  const taskIds = normalizedUniqueStrings(request.selectedTaskIds);
   if (!taskIds) throw new Error("claude_clean_approval_invalid");
-  const claimedItemIds = new Set<string>();
-  for (const task of request.selectedTasks) {
-    if (!isRecord(task)) throw new Error("claude_clean_approval_targets_invalid");
-    const itemIds = normalizedUniqueStrings(task.itemIds);
-    const itemDigests = isRecord(task.itemDigests) ? task.itemDigests : undefined;
-    if (!itemIds
-      || itemIds.length === 0
-      || !itemDigests
-      || Object.keys(itemDigests).length !== itemIds.length) {
-      throw new Error("claude_clean_approval_targets_invalid");
-    }
-    for (const itemId of itemIds) {
-      if (claimedItemIds.has(itemId)
-        || typeof itemDigests[itemId] !== "string"
-        || !itemDigests[itemId]!.trim()) {
-        throw new Error("claude_clean_approval_targets_invalid");
-      }
-      claimedItemIds.add(itemId);
-    }
-  }
   return taskIds;
 }
 

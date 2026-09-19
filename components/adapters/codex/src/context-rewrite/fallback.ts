@@ -132,6 +132,7 @@ export async function executeCodexRebaseWithFallback(params: {
   epochStore?: CodexRebaseEpochStoreParams;
   cooldownStore?: CodexRebaseCooldownStoreParams;
   capabilityStore?: CodexRebaseCapabilityStoreParams;
+  beforeProviderDispatch?: () => Promise<void>;
   /** Runs after the session lock is acquired and before an epoch is created. */
   executionGuard?: CodexRebaseExecutionGuard;
 }): Promise<CodexRebaseFallbackResult> {
@@ -424,6 +425,7 @@ export async function executeCodexRebaseWithFallback(params: {
     }
 
     try {
+      if (params.beforeProviderDispatch) await params.beforeProviderDispatch();
       rebaseResponse = await params.sendUpstream(cloneJson(params.rebasedPayload));
       const observation = rebaseResponseObservation(rebaseResponse);
       const newResponseId = observation.completed ? observation.responseId : undefined;

@@ -128,7 +128,7 @@ async function transitionContextCleanStateUnlocked(params: {
   if (pending.kind === "ok") {
     const intent = parseIntent(pending.value);
     if (!intent) return bypassed("clean_transaction_invalid");
-    if (JSON.stringify(intent.receipt) !== JSON.stringify(receipt)) {
+    if (!sameCanonicalValue(intent.receipt, receipt)) {
       return bypassed("clean_transaction_conflict");
     }
     return completeIntent({ stateDir: params.stateDir, intent });

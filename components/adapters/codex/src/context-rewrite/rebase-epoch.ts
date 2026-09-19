@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { appendJsonl } from "@lightrsi/host-adapter";
+import { sameCanonicalValue } from "@lightrsi/cleaner";
 import {
   CODEX_REBASE_EPOCH_SCHEMA,
   isCodexRebaseEpochSchema,
@@ -356,7 +357,7 @@ export async function appendPendingCodexRebaseEpoch(params: {
     ) {
       throw new Error(`Codex rebase epoch mismatch: ${epochId}`);
     }
-    if (params.accounting && JSON.stringify(existing.accounting) !== JSON.stringify(params.accounting)) {
+    if (params.accounting && !sameCanonicalValue(existing.accounting, params.accounting)) {
       throw new Error(`Codex rebase epoch accounting mismatch: ${epochId}`);
     }
     return existing;
@@ -414,7 +415,7 @@ async function transitionCodexRebaseEpoch(params: {
     if (params.failureReason !== undefined && params.failureReason !== existing.failureReason) {
       throw new Error(`Codex rebase epoch failure conflict: ${params.epochId}`);
     }
-    if (params.accounting && JSON.stringify(params.accounting) !== JSON.stringify(existing.accounting)) {
+    if (params.accounting && !sameCanonicalValue(params.accounting, existing.accounting)) {
       throw new Error(`Codex rebase epoch accounting conflict: ${params.epochId}`);
     }
     return existing;

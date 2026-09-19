@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
+  CONTEXT_CLEAN_LOCK_ORDER,
+  type ContextCleanExecutionClaim,
   type ContextCleanExecutionRequest,
   type ContextCleanerHostExecutionBridge,
   type ContextCleanerHostBridge,
@@ -11,6 +13,7 @@ import {
   type ContextCleanSnapshot,
   type ContextCleanTerminalReceipt,
   isAppliedContextCleanReceipt,
+  parseContextCleanExecutionClaim,
 } from "../src/index.js";
 import { samplePlan, sampleSnapshot } from "./fixtures.js";
 
@@ -87,11 +90,7 @@ test("fake Host backend satisfies the shared contract without production behavio
       sessionId: "session-1",
       baseRevision: "rev-1",
       approvedAt: "2026-08-20T00:00:00.000Z",
-      selectedTasks: [{
-        taskId: "task-a",
-        itemIds: ["item-a", "item-b"],
-        itemDigests: { "item-a": "digest-a", "item-b": "digest-b" },
-      }],
+      selectedTaskIds: ["task-a"],
     })).status, "scheduled");
   assert.equal((await bridge.readCleanReceipt("clean-plan-1"))?.status, "scheduled");
   assert.equal((await bridge.cancelCleanPlan("clean-plan-1")).status, "cancelled");
@@ -110,7 +109,7 @@ test("approved execution freezes the exact task targets shown to the user", asyn
       return snapshot();
     },
     async executeApprovedClean(params) {
-      capturedTaskIds = params.selectedTasks.flatMap((task) => task.itemIds);
+      capturedTaskIds = params.selectedTaskIds;
       return pendingReceipt("scheduled");
     },
     async readCleanReceipt() {
@@ -128,10 +127,10 @@ test("approved execution freezes the exact task targets shown to the user", asyn
     sessionId: "session-1",
     baseRevision: "rev-1",
     approvedAt: "2026-08-20T00:00:00.000Z",
-    selectedTasks: [samplePlan().tasks[0]!],
+    selectedTaskIds: [samplePlan().tasks[0]!.taskId],
   });
 
-  assert.deepEqual(capturedTaskIds, ["item-a", "item-b"]);
+  assert.deepEqual(capturedTaskIds, ["task-a"]);
 });
 
 test("only applied receipts expose actual savings", () => {
@@ -141,6 +140,7 @@ test("only applied receipts expose actual savings", () => {
   const applied: ContextCleanReceipt = {
     ...pendingReceipt("scheduled"),
     status: "applied",
+    fallbackUsed: false,
     appliedSavedTokens: 40,
     appliedSavedChars: 160,
     evidence: {
@@ -154,6 +154,27 @@ test("only applied receipts expose actual savings", () => {
   if (isAppliedContextCleanReceipt(applied)) {
     assert.equal(applied.appliedSavedChars, 160);
   }
+});
+
+test("execution claim keeps ownership outside public Cleaner status", () => {
+  const claim: ContextCleanExecutionClaim = {
+    schemaVersion: 1,
+    claimId: "claim-1",
+    planId: "clean-plan-1",
+    hostId: "fake-host",
+    sessionId: "session-1",
+    selectedTaskIds: ["task-a"],
+    mutationPlanId: "mutation-1",
+    analysisRevision: "rev-1",
+    executionRevision: "rev-1",
+    ownerToken: "owner-1",
+    claimedAt: "2026-08-20T00:00:00.000Z",
+    dispatchState: "dispatch_not_started",
+  };
+
+  assert.deepEqual(parseContextCleanExecutionClaim(claim), claim);
+  assert.equal(CONTEXT_CLEAN_LOCK_ORDER[0], "session_mutation_reservation");
+  assert.equal(CONTEXT_CLEAN_LOCK_ORDER.at(-1), "receipt_finalization");
 });
 
 const receiptBase = {

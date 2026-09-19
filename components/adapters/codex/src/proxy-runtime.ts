@@ -114,6 +114,7 @@ import type {
 import {
   finalizeCodexCleanerAppliedReceipt,
   finalizeCodexCleanerHandoffFailure,
+  markCodexCleanerDispatchStarted,
   isCodexCleanerStaleReasonCode,
   prepareCodexCleanerRebase,
   revalidateCodexCleanerPreparedRebase,
@@ -1785,6 +1786,17 @@ export async function startCodexResponsesProxy(params: {
                 cooldownMs: config.contextRewrite.cooldownMs,
               },
               capabilityStore,
+              beforeProviderDispatch: cleanerPreparedRebase
+                ? async () => {
+                    const marked = await markCodexCleanerDispatchStarted({
+                      stateDir: config.stateDir,
+                      prepared: cleanerPreparedRebase,
+                    });
+                    if (!marked.value) {
+                      throw new Error(`cleaner_runtime_dispatch_claim_failed:${marked.reasons.join(",")}`);
+                    }
+                  }
+                : undefined,
               executionGuard: cleanerPreparedRebase
                 ? async () => {
                     let currentView;

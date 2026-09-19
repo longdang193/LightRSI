@@ -63,6 +63,22 @@ test("dispatch routes codex host commands through the shared CLI bridge", async 
   }
 });
 
+test("dispatch propagates Codex Cleaner argument errors", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-clean-errors-"));
+  const originalHome = process.env.HOME;
+  process.env.HOME = dir;
+  try {
+    await assert.rejects(
+      () => dispatchCli(["codex", "clean", "--plan", "plan-1", "--select"]),
+      /clean_argument_syntax/,
+    );
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("dispatch remembers custom codex config paths for later host commands without env vars", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-codex-custom-path-memory-"));
   const originalHome = process.env.HOME;

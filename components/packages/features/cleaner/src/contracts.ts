@@ -6,6 +6,17 @@ import type {
 
 export const CONTEXT_CLEAN_SCHEMA_VERSION = 1 as const;
 export const CONTEXT_CLEAN_STORE_SCHEMA_VERSION = 1 as const;
+export const CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION = 1 as const;
+
+export const CONTEXT_CLEAN_LOCK_ORDER = [
+  "session_mutation_reservation",
+  "plan_lock",
+  "claim_persistence",
+  "final_validation",
+  "provider_dispatch",
+  "host_commit_evidence",
+  "receipt_finalization",
+] as const;
 
 export type ContextCleanTokenCountMode = "exact" | "estimated" | "chars_only";
 
@@ -26,6 +37,27 @@ export type ContextCleanStatus =
   | "stale"
   | "cancelled"
   | "failed";
+
+export type ContextCleanDispatchState =
+  | "dispatch_not_started"
+  | "dispatch_started"
+  | "host_committed"
+  | "recovery_required";
+
+export type ContextCleanExecutionClaim = {
+  schemaVersion: typeof CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION;
+  claimId: string;
+  planId: string;
+  hostId: string;
+  sessionId: string;
+  selectedTaskIds: string[];
+  mutationPlanId: string;
+  analysisRevision: string;
+  executionRevision: string;
+  ownerToken: string;
+  claimedAt: string;
+  dispatchState: ContextCleanDispatchState;
+};
 
 export const TERMINAL_CONTEXT_CLEAN_STATUSES = [
   "applied",
@@ -87,6 +119,8 @@ export type ContextCleanPlan = {
   hostId: string;
   sessionId: string;
   baseRevision: string;
+  /** New plans pin this explicitly; schema-v1 reads fall back to baseRevision. */
+  analysisRevision?: string;
   model?: string;
   contextWindowTokens?: number;
   usedTokens: number | null;
@@ -104,6 +138,7 @@ export type ContextCleanPlan = {
 };
 
 export type ContextCleanEvidence = {
+  claimId?: string;
   previousRevision?: string;
   nextRevision?: string;
   operationIds?: string[];
@@ -133,7 +168,7 @@ export type ContextCleanPendingReceipt = ContextCleanReceiptBase & {
   appliedSavedTokens?: never;
   appliedSavedChars?: never;
   evidence?: ContextCleanEvidence;
-  fallbackUsed: false;
+  fallbackUsed: boolean;
 };
 
 export type ContextCleanScheduledReceipt = Omit<
@@ -222,8 +257,8 @@ export type ExecuteApprovedContextCleanParams = {
   sessionId: string;
   baseRevision: string;
   approvedAt: string;
-  /** Exact task targets shown to and approved by the user. */
-  selectedTasks: ApprovedContextCleanTask[];
+  /** Task IDs only; item targets and digests come from the immutable plan. */
+  selectedTaskIds: string[];
 };
 
 /**

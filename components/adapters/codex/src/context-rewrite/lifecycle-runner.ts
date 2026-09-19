@@ -10,6 +10,7 @@ import {
   type TaskStateEstimator,
   type TaskStateEstimatorOutput,
 } from "@lightrsi/eviction";
+import { sameCanonicalValue } from "@lightrsi/cleaner";
 import type {
   ContextMutationPlan,
   ContextRewriteValidation,
@@ -159,7 +160,7 @@ function sameLifecycleSnapshot(
   left: ModelContextSnapshot<CodexSharedBackendMetadata>,
   right: ModelContextSnapshot<CodexSharedBackendMetadata>,
 ): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return sameCanonicalValue(left, right);
 }
 
 /**

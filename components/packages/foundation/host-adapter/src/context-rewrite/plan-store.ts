@@ -199,7 +199,15 @@ function canonicalPersistablePlan(value: unknown): ContextMutationPlan | undefin
 }
 
 function plansEqual(left: ContextMutationPlan, right: ContextMutationPlan): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  const canonicalize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (value === null || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, nested]) => [key, canonicalize(nested)]),
+    );
+  };
+  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
 }
 
 function errorCode(error: unknown): string | undefined {

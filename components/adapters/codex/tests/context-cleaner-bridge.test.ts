@@ -118,14 +118,7 @@ test("Codex cleaner bridge preserves approved targets and control-plane receipts
     sessionId: "codex-cleaner-session",
     baseRevision: "revision-before",
     approvedAt: "2026-08-21T00:00:00.000Z",
-    selectedTasks: [{
-      taskId: "task-1",
-      itemIds: ["item-1", "item-2"],
-      itemDigests: {
-        "item-1": "digest-1",
-        "item-2": "digest-2",
-      },
-    }],
+    selectedTaskIds: ["task-1"],
   };
 
   const scheduled = await bridge.executeApprovedClean(request);
@@ -171,18 +164,14 @@ test("Codex cleaner bridge rejects cross-host approvals before control-plane exe
       sessionId: "codex-cleaner-session",
       baseRevision: "revision-before",
       approvedAt: "2026-08-21T00:00:00.000Z",
-      selectedTasks: [{
-        taskId: "task-1",
-        itemIds: ["item-1"],
-        itemDigests: { "item-1": "digest-1" },
-      }],
+      selectedTaskIds: ["task-1"],
     }),
     /codex_clean_approval_host_mismatch/,
   );
   assert.equal(executions, 0);
 });
 
-test("Codex cleaner bridge rejects mutated approval targets", async () => {
+test("Codex cleaner bridge rejects malformed approval task ids", async () => {
   const bridge = createCodexContextCleanerBridge({
     stateDir: "unused-state-dir",
     controlPlane: fakeControlPlane(),
@@ -196,13 +185,9 @@ test("Codex cleaner bridge rejects mutated approval targets", async () => {
       sessionId: "codex-cleaner-session",
       baseRevision: "revision-before",
       approvedAt: "2026-08-21T00:00:00.000Z",
-      selectedTasks: [{
-        taskId: "task-1",
-        itemIds: ["item-1"],
-        itemDigests: { "other-item": "digest-1" },
-      }],
+      selectedTaskIds: [""],
     }),
-    /codex_clean_approval_targets_invalid/,
+    /codex_clean_approval_invalid/,
   );
 });
 
@@ -228,11 +213,7 @@ test("Codex cleaner bridge rejects mismatched control-plane receipts", async () 
     sessionId: "codex-cleaner-session",
     baseRevision: "revision-before",
     approvedAt: "2026-08-21T00:00:00.000Z",
-    selectedTasks: [{
-      taskId: "task-1",
-      itemIds: ["item-1"],
-      itemDigests: { "item-1": "digest-1" },
-    }],
+    selectedTaskIds: ["task-1"],
   };
 
   await assert.rejects(bridge.executeApprovedClean(request), /codex_clean_receipt_mismatch/);
@@ -282,11 +263,7 @@ test("Codex cleaner bridge does not schedule a non-scheduled control-plane recei
       sessionId: "codex-cleaner-session",
       baseRevision: "revision-before",
       approvedAt: "2026-08-21T00:00:00.000Z",
-      selectedTasks: [{
-        taskId: "task-1",
-        itemIds: ["item-1"],
-        itemDigests: { "item-1": "digest-1" },
-      }],
+      selectedTaskIds: ["task-1"],
     });
     assert.equal(receipt.status, "approved");
     assert.equal((await readCodexCleanerSchedule({

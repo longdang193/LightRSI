@@ -9,10 +9,12 @@ import type {
   CodexRebaseEpoch,
   CodexRebaseRequestResult,
 } from "../context-rewrite/types.js";
+import { sameCanonicalValue } from "@lightrsi/cleaner";
 
 export type CodexCleanerAppliedReceiptInput = {
   execution: ContextCleanPreparedExecution;
   epoch: CodexRebaseEpoch;
+  claimId?: string;
 };
 
 export type CodexCleanerAppliedReceiptBuildResult =
@@ -103,6 +105,7 @@ export function buildCodexCleanerAppliedReceipt(
       appliedSavedTokens,
       appliedSavedChars: epoch.accounting.actuallyRemovedChars,
       evidence: {
+        ...(params.claimId ? { claimId: params.claimId } : {}),
         previousRevision: epoch.oldRevision,
         nextRevision: epoch.newRevision,
         operationIds,
@@ -121,6 +124,7 @@ export function buildCodexCleanerAppliedReceiptFromRewrite(params: {
   rewriteResult: ContextRewriteResult<CodexSharedBackendDetails>;
   rebaseRequest: CodexRebaseRequestResult;
   epoch: CodexRebaseEpoch;
+  claimId?: string;
 }): CodexCleanerAppliedReceiptBuildResult {
   const base = buildCodexCleanerAppliedReceipt(params);
   if (!base.receipt) return base;
@@ -145,7 +149,7 @@ export function buildCodexCleanerAppliedReceiptFromRewrite(params: {
     || !sameStringSet(rewriteResult.appliedOperationIds, operationIds)
     || !sameStringSet(rewriteResult.removedItemIds, itemIds)
     || rewriteResult.savedChars !== epoch.accounting?.actuallyRemovedChars
-    || JSON.stringify(rewriteResult.details.accounting) !== JSON.stringify(rebaseRequest.accounting)
+    || !sameCanonicalValue(rewriteResult.details.accounting, rebaseRequest.accounting)
     || !accountingMatches) {
     return { reasons: ["cleaner_receipt_rewrite_evidence_invalid"] };
   }
