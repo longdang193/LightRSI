@@ -666,6 +666,29 @@ test("inspectCodexDoctor detects when tokenpilot upstream loops into another loc
   }
 });
 
+test("inspectCodexDoctor allows a distinct local final gateway", async () => {
+  const report = await inspectCodexDoctor({
+    config: normalizeTokenPilotCodexConfig({
+      stateDir: join(tmpdir(), "lightrsi-codex-doctor-local-gateway-state"),
+      proxyPort: 17667,
+      upstreamProvider: "9router",
+      upstream: {
+        name: "9router",
+        baseUrl: "http://127.0.0.1:20128/v1",
+        wireApi: "responses",
+        requiresOpenAIAuth: true,
+      },
+    }),
+    configPath: join(tmpdir(), "lightrsi-missing-codex-config.toml"),
+    hooksConfigPath: join(tmpdir(), "lightrsi-missing-hooks.json"),
+    tokenPilotConfigPath: join(tmpdir(), "lightrsi-missing-tokenpilot.json"),
+  });
+
+  assert.equal(report.upstreamLoopDetected, false);
+  assert.equal(report.upstreamBaseUrl, "http://127.0.0.1:20128/v1");
+  assert.match(formatCodexDoctorReport(report), /upstream loops into local proxy: no/);
+});
+
 test("formatCodexDoctorReport includes remediation hints for drifted installs", async () => {
   const proxyPort = await reserveUnusedPort();
   const report = await inspectCodexDoctor({

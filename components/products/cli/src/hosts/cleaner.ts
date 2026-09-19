@@ -1,12 +1,34 @@
 import {
+  createApiContextCleanRecommendationProvider,
   createContextCleanerControlService,
   createContextCleanerControlPlane,
+  type ContextCleanRecommendationProvider,
   type ContextCleanPlan,
   type ContextCleanReceipt,
 } from "@lightrsi/cleaner";
+import type { TaskStateEstimatorApiConfig } from "@lightrsi/eviction";
+import type { JsonModelApiConfig, JsonModelClient } from "@lightrsi/runtime-core";
+import { resolveCodexTaskStateEstimator } from "../../../../adapters/codex/src/context-rewrite/estimator-config.js";
 import { createCodexContextCleanerBridge } from "../../../../adapters/codex/src/context-cleaner/bridge.js";
 import type { CleanCommandBackend } from "../clean.js";
 import type { CleanPlanView, CleanReceiptView } from "../clean-renderer.js";
+
+export function createCodexCleanRecommendationProvider(
+  config: TaskStateEstimatorApiConfig | undefined,
+  createClient?: (config: JsonModelApiConfig) => JsonModelClient,
+): ContextCleanRecommendationProvider | undefined {
+  const resolution = resolveCodexTaskStateEstimator({ config });
+  if (resolution.status !== "ready") return undefined;
+  const apiConfig: JsonModelApiConfig = {
+    baseUrl: resolution.config.baseUrl,
+    apiKey: resolution.config.apiKey,
+    model: resolution.config.model,
+    requestTimeoutMs: resolution.config.requestTimeoutMs,
+  };
+  return createClient
+    ? createApiContextCleanRecommendationProvider(apiConfig, createClient)
+    : createApiContextCleanRecommendationProvider(apiConfig);
+}
 
 function planView(plan: ContextCleanPlan): CleanPlanView {
   return {
@@ -28,12 +50,16 @@ function receiptView(receipt: ContextCleanReceipt): CleanReceiptView {
   };
 }
 
-export function createCodexCleanCommandBackend(params: { stateDir: string }): CleanCommandBackend {
+export function createCodexCleanCommandBackend(params: {
+  stateDir: string;
+  recommendationProvider?: ContextCleanRecommendationProvider;
+}): CleanCommandBackend {
   const controlPlane = createContextCleanerControlPlane({ stateDir: params.stateDir });
   const bridge = createCodexContextCleanerBridge({ stateDir: params.stateDir, controlPlane });
   const service = createContextCleanerControlService({
     stateDir: params.stateDir,
     bridge,
+    recommendationProvider: params.recommendationProvider,
   });
   return {
     async analyze(sessionId) { return planView(await service.analyze(sessionId)); },

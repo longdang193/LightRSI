@@ -32,12 +32,15 @@ function valueAt(args: string[], index: number, error: string): string {
 export async function handleCleanCommand(params: {
   args: string[];
   sessionId?: string;
+  resolveSessionId?: (sessionId: string) => Promise<string | undefined>;
   backend: CleanCommandBackend;
 }): Promise<{ text: string }> {
   const args = params.args;
   if (args[0] === "--help" || args[0] === "-h") return { text: formatCleanUsage() };
   if (args.length === 2 && args[0] === "--session") {
-    return { text: renderCleanPlan(await params.backend.analyze(valueAt(args, 1, "clean_session_id_missing"))) };
+    const requestedSessionId = valueAt(args, 1, "clean_session_id_missing");
+    const sessionId = await params.resolveSessionId?.(requestedSessionId) ?? requestedSessionId;
+    return { text: renderCleanPlan(await params.backend.analyze(sessionId)) };
   }
   if (args.length === 2 && args[0] === "--status") {
     const receipt = await params.backend.readReceipt(valueAt(args, 1, "clean_plan_id_missing"));
@@ -60,6 +63,9 @@ export async function handleCleanCommand(params: {
     }
     return { text: renderCleanReceipt(await params.backend.approve(planId, selected)) };
   }
-  if (args.length === 0 && params.sessionId) return { text: renderCleanPlan(await params.backend.analyze(params.sessionId)) };
+  if (args.length === 0 && params.sessionId) {
+    const sessionId = await params.resolveSessionId?.(params.sessionId) ?? params.sessionId;
+    return { text: renderCleanPlan(await params.backend.analyze(sessionId)) };
+  }
   throw new Error("clean_argument_syntax");
 }

@@ -1,13 +1,29 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 type SharedCliHostId = "codex" | "claude-code";
 
-type SharedCliHostPathOverrides = {
+export type SharedCliHostPathOverrides = {
   tokenPilotConfigPath?: string;
   hostConfigPath?: string;
   hostAuxConfigPath?: string;
 };
+
+export function filterExistingCliHostPathOverrides(
+  pathOverrides?: SharedCliHostPathOverrides,
+): SharedCliHostPathOverrides | undefined {
+  if (!pathOverrides) return undefined;
+  const filtered = Object.fromEntries(
+    Object.entries(pathOverrides)
+      .map(([key, value]) => [
+        key,
+        typeof value === "string" && value.trim() && existsSync(value.trim()) ? value.trim() : undefined,
+      ])
+      .filter((entry): entry is [string, string] => entry[1] !== undefined),
+  ) as SharedCliHostPathOverrides;
+  return Object.keys(filtered).length > 0 ? filtered : undefined;
+}
 
 type SharedCliContextState = {
   lastActiveHost?: string;

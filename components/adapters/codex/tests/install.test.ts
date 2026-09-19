@@ -373,6 +373,39 @@ test("installCodexTokenPilot preserves the last real upstream when the current p
   }
 });
 
+test("installCodexTokenPilot preserves a distinct local final gateway", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-local-gateway-"));
+  try {
+    const codexConfigPath = join(dir, "config.toml");
+    const hooksConfigPath = join(dir, "hooks.json");
+    const tokenPilotConfigPath = join(dir, "tokenpilot.json");
+
+    await writeFile(codexConfigPath, [
+      "model_provider = \"9router\"",
+      "",
+      "[model_providers.9router]",
+      "name = \"9router\"",
+      "base_url = \"http://127.0.0.1:20128/v1\"",
+      "wire_api = \"responses\"",
+      "requires_openai_auth = true",
+      "",
+    ].join("\n"), "utf8");
+
+    await installCodexTokenPilot({
+      codexConfigPath,
+      hooksConfigPath,
+      tokenPilotConfigPath,
+      probeMcp: false,
+    });
+
+    const tokenPilotConfig = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
+    assert.equal(tokenPilotConfig.upstreamProvider, "9router");
+    assert.equal(tokenPilotConfig.upstream?.baseUrl, "http://127.0.0.1:20128/v1");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("installCodexTokenPilot does not treat a fresh default install as an upstream loop", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-fresh-upstream-"));
   const originalHome = process.env.HOME;

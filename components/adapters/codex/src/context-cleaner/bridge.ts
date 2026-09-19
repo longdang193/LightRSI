@@ -180,7 +180,7 @@ export function createCodexContextCleanerBridge(params: {
         || view.reasonCodes.length > 0
         || view.history.deferredItems.length > 0
         || view.history.unresolvedCallIds.length > 0) {
-        throw new Error("codex_clean_snapshot_incomplete");
+        throw new Error(`codex_clean_snapshot_incomplete:${view.reasonCodes.join(",") || "unknown"}`);
       }
       const registry = await loadSessionTaskRegistry(params.stateDir, sessionId);
       if (registry.sessionId !== sessionId) {

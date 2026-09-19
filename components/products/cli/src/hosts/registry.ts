@@ -4,6 +4,7 @@ import { CLAUDE_CODE_PRODUCT_HOST_REGISTRATION } from "../../../../adapters/clau
 import { CODEX_PRODUCT_HOST_REGISTRATION } from "../../../../adapters/codex/src/product-registration.js";
 import { OPENCLAW_PRODUCT_HOST_REGISTRATION } from "../../../../adapters/openclaw/src/product-registration.js";
 import { readCliHostPathOverrides, type CliHostPathOverrides } from "../context-store.js";
+import { filterExistingCliHostPathOverrides } from "../../../../adapters/shared/cli-context.js";
 
 export type CliHostRuntime = {
   handleCommand(ctx: { args: string; sessionId?: string }): Promise<{ text: string }>;
@@ -47,7 +48,7 @@ async function productConfigPath(hostId: CliHostId): Promise<string | undefined>
     : hostId === "claude-code"
       ? process.env.TOKENPILOT_CLAUDE_CODE_CONFIG?.trim()
       : undefined;
-  return environmentPath || (await readCliHostPathOverrides(hostId))?.tokenPilotConfigPath?.trim();
+  return environmentPath || filterExistingCliHostPathOverrides(await readCliHostPathOverrides(hostId))?.tokenPilotConfigPath;
 }
 
 export async function resolveCliVisualHosts(): Promise<VisualHostSource[]> {
