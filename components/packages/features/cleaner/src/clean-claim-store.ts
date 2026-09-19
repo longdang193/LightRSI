@@ -4,6 +4,7 @@ import { writeJsonFileAtomic } from "@lightrsi/host-adapter";
 import {
   CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION,
   CONTEXT_CLEAN_STORE_SCHEMA_VERSION,
+  isTerminalContextCleanStatus,
   type ContextCleanExecutionClaim,
   type ContextCleanStoreWriteResult,
 } from "./contracts.js";
@@ -15,6 +16,7 @@ import {
   sameCanonicalValue,
   withContextCleanStoreLock,
 } from "./clean-store-support.js";
+import { recoverContextCleanStateUnlocked } from "./clean-state-coordinator.js";
 
 const transitions: Record<ContextCleanExecutionClaim["dispatchState"], readonly ContextCleanExecutionClaim["dispatchState"][]> = {
   dispatch_not_started: ["dispatch_started", "recovery_required"],
@@ -87,9 +89,17 @@ async function saveContextCleanExecutionClaimUnlocked(params: {
   stateDir: string;
   claim: ContextCleanExecutionClaim;
 }): Promise<ContextCleanStoreWriteResult<ContextCleanExecutionClaim>> {
+  const recovery = await recoverContextCleanStateUnlocked({
+    stateDir: params.stateDir,
+    planId: params.claim.planId,
+  });
+  if (recovery.bypassed) return { outcome: "bypassed", bypassed: true, reasons: recovery.reasons };
   const planRead = await readContextCleanPlan({ stateDir: params.stateDir, planId: params.claim.planId });
   if (planRead.bypassed || !planRead.value) return { outcome: "bypassed", bypassed: true, reasons: ["clean_claim_plan_unavailable"] };
   const plan = planRead.value.plan;
+  if (isTerminalContextCleanStatus(planRead.value.status)) {
+    return { outcome: "bypassed", bypassed: true, reasons: ["clean_claim_plan_terminal"] };
+  }
   const analysisRevision = plan.analysisRevision ?? plan.baseRevision;
   if (plan.hostId !== params.claim.hostId || plan.sessionId !== params.claim.sessionId
     || params.claim.analysisRevision !== analysisRevision

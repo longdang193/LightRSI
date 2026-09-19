@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 
 import { writeJsonFileAtomic } from "@lightrsi/host-adapter";
 import {
+  CONTEXT_CLEAN_SCHEMA_VERSION,
   CONTEXT_CLEAN_STORE_SCHEMA_VERSION,
   canTransitionContextCleanStatus,
   isContextCleanStatus,
@@ -12,6 +13,7 @@ import {
 } from "./contracts.js";
 import { readContextCleanPlan, transitionContextCleanPlanUnlocked } from "./clean-plan-store.js";
 import { readContextCleanReceipt, saveContextCleanReceiptUnlocked } from "./clean-receipt-store.js";
+import { readContextCleanExecutionClaim } from "./clean-claim-store.js";
 import {
   contextCleanTransactionFilePath,
   isIsoTimestamp,
@@ -26,6 +28,13 @@ import {
 
 function bypassed(reason: string): ContextCleanStoreWriteResult<ContextCleanPlanRecord> {
   return { outcome: "bypassed", bypassed: true, reasons: [reason] };
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
 }
 
 async function abortIntent(stateDir: string, planId: string): Promise<void> {
@@ -117,6 +126,146 @@ export async function transitionContextCleanState(params: {
   }
 }
 
+export async function transitionContextCleanApproval(params: {
+  stateDir: string;
+  receipt: ContextCleanReceipt;
+}): Promise<ContextCleanStoreWriteResult<ContextCleanReceipt>> {
+  try {
+    return await withContextCleanStoreLock({
+      stateDir: params.stateDir,
+      planId: params.receipt.planId,
+      action: async () => {
+        const recovery = await recoverContextCleanStateUnlocked({
+          stateDir: params.stateDir,
+          planId: params.receipt.planId,
+        });
+        if (recovery.bypassed) return { outcome: "bypassed", bypassed: true, reasons: recovery.reasons };
+        const current = await readContextCleanReceipt({
+          stateDir: params.stateDir,
+          planId: params.receipt.planId,
+        });
+        if (current.bypassed) return { outcome: "bypassed", bypassed: true, reasons: current.reasons };
+        if (current.value && current.value.status !== "analyzed") {
+          if ((current.value.status === "approved"
+            || current.value.status === "scheduled"
+            || current.value.status === "applied")
+            && sameStrings(current.value.selectedTaskIds, params.receipt.selectedTaskIds)) {
+            return { outcome: "unchanged", value: current.value, bypassed: false, reasons: [] };
+          }
+          return { outcome: "conflict", value: current.value, bypassed: true,
+            reasons: ["clean_approval_selection_conflict"] };
+        }
+        const result = await transitionContextCleanStateUnlocked(params);
+        if (result.bypassed) return { outcome: "bypassed", bypassed: true, reasons: result.reasons };
+        const stored = await readContextCleanReceipt({
+          stateDir: params.stateDir,
+          planId: params.receipt.planId,
+        });
+        if (stored.bypassed || !stored.value) {
+          return { outcome: "bypassed", bypassed: true,
+            reasons: stored.reasons.length > 0 ? stored.reasons : ["clean_approval_receipt_missing"] };
+        }
+        return { outcome: result.outcome, value: stored.value, bypassed: false, reasons: [] };
+      },
+    });
+  } catch {
+    return { outcome: "bypassed", bypassed: true, reasons: ["clean_transaction_lock_failed"] };
+  }
+}
+
+export async function transitionContextCleanSchedule(params: {
+  stateDir: string;
+  receipt: ContextCleanReceipt;
+}): Promise<ContextCleanStoreWriteResult<ContextCleanReceipt>> {
+  try {
+    return await withContextCleanStoreLock({
+      stateDir: params.stateDir,
+      planId: params.receipt.planId,
+      action: async () => {
+        const recovery = await recoverContextCleanStateUnlocked({
+          stateDir: params.stateDir,
+          planId: params.receipt.planId,
+        });
+        if (recovery.bypassed) return { outcome: "bypassed", bypassed: true, reasons: recovery.reasons };
+        const current = await readContextCleanReceipt({
+          stateDir: params.stateDir,
+          planId: params.receipt.planId,
+        });
+        if (current.bypassed) return { outcome: "bypassed", bypassed: true, reasons: current.reasons };
+        if (current.value && current.value.status !== "approved") {
+          if ((current.value.status === "scheduled" || current.value.status === "applied")
+            && sameStrings(current.value.selectedTaskIds, params.receipt.selectedTaskIds)) {
+            return { outcome: "unchanged", value: current.value, bypassed: false, reasons: [] };
+          }
+          return { outcome: "conflict", value: current.value, bypassed: true,
+            reasons: ["clean_schedule_selection_conflict"] };
+        }
+        const result = await transitionContextCleanStateUnlocked(params);
+        if (result.bypassed) return { outcome: "bypassed", bypassed: true, reasons: result.reasons };
+        const stored = await readContextCleanReceipt({
+          stateDir: params.stateDir,
+          planId: params.receipt.planId,
+        });
+        if (stored.bypassed || !stored.value) {
+          return { outcome: "bypassed", bypassed: true,
+            reasons: stored.reasons.length > 0 ? stored.reasons : ["clean_schedule_receipt_missing"] };
+        }
+        return { outcome: result.outcome, value: stored.value, bypassed: false, reasons: [] };
+      },
+    });
+  } catch {
+    return { outcome: "bypassed", bypassed: true, reasons: ["clean_transaction_lock_failed"] };
+  }
+}
+
+export async function cancelContextCleanState(params: {
+  stateDir: string;
+  planId: string;
+  now: string;
+}): Promise<ContextCleanStoreWriteResult<ContextCleanReceipt>> {
+  try {
+    return await withContextCleanStoreLock({
+      stateDir: params.stateDir,
+      planId: params.planId,
+      action: async () => {
+        const recovery = await recoverContextCleanStateUnlocked(params);
+        if (recovery.bypassed) return { outcome: "bypassed", bypassed: true, reasons: recovery.reasons };
+        const plan = await readContextCleanPlan({ stateDir: params.stateDir, planId: params.planId });
+        if (plan.bypassed || !plan.value) return { outcome: "bypassed", bypassed: true,
+          reasons: plan.reasons.length > 0 ? plan.reasons : ["clean_cancel_plan_unavailable"] };
+        const claim = await readContextCleanExecutionClaim({ stateDir: params.stateDir, planId: params.planId });
+        if (claim.bypassed) return { outcome: "bypassed", bypassed: true, reasons: claim.reasons };
+        if (claim.value) return { outcome: "bypassed", bypassed: true, reasons: ["execution_in_progress"] };
+        const current = await readContextCleanReceipt({ stateDir: params.stateDir, planId: params.planId });
+        if (current.bypassed) return { outcome: "bypassed", bypassed: true, reasons: current.reasons };
+        const receipt: ContextCleanReceipt = {
+          schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+          planId: params.planId,
+          hostId: plan.value.plan.hostId,
+          sessionId: plan.value.plan.sessionId,
+          status: "cancelled",
+          selectedTaskIds: current.value?.selectedTaskIds ?? [],
+          estimatedSavedTokens: current.value?.estimatedSavedTokens ?? 0,
+          estimatedSavedChars: current.value?.estimatedSavedChars ?? 0,
+          tokenCountMode: plan.value.plan.tokenCountMode,
+          deferredTaskIds: [],
+          reasons: ["cancelled_by_user"],
+          updatedAt: params.now,
+          fallbackUsed: false,
+        };
+        const result = await transitionContextCleanStateUnlocked({ stateDir: params.stateDir, receipt });
+        if (result.bypassed) return { outcome: "bypassed", bypassed: true, reasons: result.reasons };
+        const stored = await readContextCleanReceipt({ stateDir: params.stateDir, planId: params.planId });
+        if (stored.bypassed || !stored.value) return { outcome: "bypassed", bypassed: true,
+          reasons: stored.reasons.length > 0 ? stored.reasons : ["clean_cancel_receipt_missing"] };
+        return { outcome: result.outcome, value: stored.value, bypassed: false, reasons: [] };
+      },
+    });
+  } catch {
+    return { outcome: "bypassed", bypassed: true, reasons: ["clean_transaction_lock_failed"] };
+  }
+}
+
 async function transitionContextCleanStateUnlocked(params: {
   stateDir: string;
   receipt: ContextCleanReceipt;
@@ -171,7 +320,7 @@ export async function recoverContextCleanState(params: {
   }
 }
 
-async function recoverContextCleanStateUnlocked(params: {
+export async function recoverContextCleanStateUnlocked(params: {
   stateDir: string;
   planId: string;
 }): Promise<ContextCleanStoreWriteResult<ContextCleanPlanRecord>> {

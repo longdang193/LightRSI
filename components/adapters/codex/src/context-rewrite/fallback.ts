@@ -364,6 +364,35 @@ export async function executeCodexRebaseWithFallback(params: {
     };
   }
 
+  async function returnRecoveryRequired(reason: string): Promise<CodexRebaseFallbackResult> {
+    const newResponseId = rebaseResponseObservation(rebaseResponse!).responseId;
+    cooldown = await safeRecordCooldown(reason);
+    if (params.epochStore) {
+      try {
+        epoch = await failCodexRebaseEpoch({
+          stateDir: params.epochStore.stateDir,
+          sessionId: params.sessionId,
+          epochId: params.epochId,
+          failureReason: "recovery_required",
+          newResponseId,
+          accounting: params.accounting,
+        });
+      } catch {
+        epoch = undefined;
+      }
+    }
+    return {
+      response: rebaseResponse!,
+      outcome: "failed",
+      reason: "recovery_required",
+      newResponseId,
+      rebaseResponse,
+      epoch,
+      cooldown,
+      capability,
+    };
+  }
+
   const rebaseSessionKey = params.epochStore
     ? `${params.epochStore.stateDir}\0${params.sessionId}`
     : undefined;
@@ -436,7 +465,7 @@ export async function executeCodexRebaseWithFallback(params: {
             await params.beforeCommit({ response: rebaseResponse, newResponseId });
             journalCommittedAt = new Date().toISOString();
           } catch {
-            return await sendOriginalWithFallbackOutcome("rebase_journal_error");
+            return await returnRecoveryRequired("rebase_journal_error");
           }
         }
         if (params.epochStore) {
@@ -451,7 +480,7 @@ export async function executeCodexRebaseWithFallback(params: {
               accounting: params.accounting,
             });
           } catch {
-            return await sendOriginalWithFallbackOutcome("epoch_store_error");
+            return await returnRecoveryRequired("epoch_store_error");
           }
         }
         if (params.capabilityStore && rebaseItemTypes.length > 0) {

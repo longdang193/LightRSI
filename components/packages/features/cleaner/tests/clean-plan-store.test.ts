@@ -147,6 +147,9 @@ test("execution claim is durable, revision-fenced, and single-owner", async () =
     assert.equal((await saveContextCleanExecutionClaim({ stateDir: root, claim })).outcome, "unchanged");
     assert.equal((await readContextCleanExecutionClaim({ stateDir: root, planId: plan.planId })).value?.claimId, "claim-1");
     const other = { ...claim, claimId: "claim-2", ownerToken: "owner-2" };
-    assert.equal((await saveContextCleanExecutionClaim({ stateDir: root, claim: other })).outcome, "conflict");
+    const rejected = await saveContextCleanExecutionClaim({ stateDir: root, claim: other });
+    assert.equal(rejected.outcome, "conflict");
+    assert.equal(rejected.bypassed, true);
+    assert.equal(rejected.value?.claimId, "claim-1");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

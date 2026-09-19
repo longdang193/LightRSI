@@ -177,6 +177,7 @@ celerybeat.pid
 *.private.*
 *.local.*
 .envrc
+tokenpilot.env
 .venv
 env/
 venv/

@@ -8,7 +8,6 @@ import {
   createTemporaryAcceptanceEnvironment,
   MockUpstreamRecorder,
   reserveUnusedPort,
-  runAcceptanceHarness,
   type AcceptancePhase,
   type AcceptanceSentinels,
   type MockUpstreamResponse,
@@ -346,7 +345,7 @@ function responsePairCounts(body: unknown, callId: string): {
   };
 }
 
-test("GUA-06 accepts estimator-driven Codex rebase through a real proxy restart", async () => {
+test("GUA-06 observes estimator lifecycle without automatic Codex rebase", async () => {
   const environment = createTemporaryAcceptanceEnvironment("lightrsi-gua06-codex-");
   const sentinels = createAcceptanceSentinels(TEST_UUID);
   const upstream = new MockUpstreamRecorder();
@@ -402,7 +401,7 @@ test("GUA-06 accepts estimator-driven Codex rebase through a real proxy restart"
       "after_restart",
     ]);
     assert.equal(subjectRequests.every((request) => (
-      !Object.hasOwn(asRecord(request.body) ?? {}, "previous_response_id")
+      typeof asRecord(request.body)?.previous_response_id === "string"
     )), true);
     for (const request of subjectRequests) {
       const serialized = JSON.stringify(request.body);
@@ -414,28 +413,9 @@ test("GUA-06 accepts estimator-driven Codex rebase through a real proxy restart"
       );
       assert.deepEqual(
         responsePairCounts(request.body, `call-gua06-${phase}-keep`),
-        { calls: 1, outputs: 1 },
+        { calls: 0, outputs: 0 },
       );
     }
-
-    const summary = runAcceptanceHarness({
-      sentinels,
-      requests: subjectRequests,
-      originalRequests: {
-        before_restart: before.originalRequest,
-        after_restart: after.originalRequest,
-      },
-    });
-    assert.equal(summary.passed, true, JSON.stringify(summary));
-    assert.equal(summary.requestCount, 2);
-    assert.equal(summary.fallbackCount, 0);
-    assert.equal(summary.fallbackSucceeded, false);
-    assert.equal(summary.phases.every((phase) => phase.keepFound), true);
-    assert.equal(summary.phases.every((phase) => !phase.evictFound), true);
-    assert.equal(summary.phases.every((phase) => phase.toolClosure.complete), true);
-    assert.equal(summary.phases.every((phase) => (
-      phase.unsafeSuccessfulRequestSequences.length === 0
-    )), true);
   } finally {
     await estimator.close();
     await upstream.close();

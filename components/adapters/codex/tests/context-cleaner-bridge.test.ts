@@ -428,6 +428,47 @@ test("Codex cleaner bridge rejects unknown sessions instead of returning an empt
   }
 });
 
+test("Context Cleaner reports missing task attribution instead of hiding it", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-cleaner-no-task-registry";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "completed task" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{ type: "message", role: "assistant", content: "done" }],
+      },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, {
+      latestResponseId: "response-1",
+      latestModel: "gpt-5.4",
+    });
+
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane: fakeControlPlane(),
+    });
+    const service = createContextCleanerControlService({ stateDir, bridge });
+    const plan = await service.analyze(sessionId);
+    assert.deepEqual(plan.tasks, []);
+    const receipt = await service.readReceipt(plan.planId);
+    assert.deepEqual(receipt?.reasons, [
+      "recommendation_provider_unavailable",
+      "task_registry_unavailable",
+    ]);
+    assert.equal(receipt?.fallbackUsed, true);
+  });
+});
+
 test("Codex cleaner bridge rejects a session whose committed response chain is incomplete", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cleaner-incomplete-"));
   try {

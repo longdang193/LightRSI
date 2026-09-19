@@ -290,6 +290,14 @@ test("revision, digest, lifecycle, and task attribution drift preserve the Host 
     const attribution = await prepareWith({ snapshot: attributionSnapshot });
     assert.deepEqual(attribution.reasons, ["clean_execution_task_attribution_stale"]);
 
+    const sharedSnapshot = sampleSnapshot();
+    sharedSnapshot.items[0] = {
+      ...sharedSnapshot.items[0]!,
+      taskIds: ["task-a", "task-other"],
+    };
+    const shared = await prepareWith({ snapshot: sharedSnapshot });
+    assert.deepEqual(shared.reasons, ["clean_execution_task_attribution_shared"]);
+
     const lifecycle = await prepareWith({
       activeTaskIds: ["task-a"],
       evictableTaskIds: ["task-a"],

@@ -28,7 +28,10 @@ export function evaluateContextCleanRemoval(input: {
       || item.role === "system" || item.role === "developer") {
       return { safe: false, reasons: ["protected_item"] };
     }
-    if (!item.taskIds?.includes(input.taskId)) return { safe: false, reasons: ["task_attribution_stale"] };
+    if (!item.taskIds || item.taskIds.length !== 1) {
+      return { safe: false, reasons: ["task_attribution_shared"] };
+    }
+    if (item.taskIds[0] !== input.taskId) return { safe: false, reasons: ["task_attribution_stale"] };
     if (target.expectedFingerprint !== undefined && item.fingerprint !== target.expectedFingerprint) {
       return { safe: false, reasons: ["item_stale"] };
     }

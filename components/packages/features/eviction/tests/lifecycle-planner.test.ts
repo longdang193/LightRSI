@@ -244,6 +244,55 @@ test("successful no-op advances the watermark without reporting task changes", a
   ]);
 });
 
+test("observation-only eviction still updates registry without creating a mutation plan", async () => {
+  const completed = registry();
+  completed.version = 2;
+  completed.tasks["task-1"] = {
+    taskId: "task-1",
+    title: "Task 1",
+    objective: "finish work",
+    lifecycle: "completed",
+    completionEvidence: ["delivered result"],
+    unresolvedQuestions: [],
+    span: {
+      firstTurnAbsId: `${SESSION}:t1`,
+      lastTurnAbsId: `${SESSION}:t1`,
+      supportingTurnAbsIds: [`${SESSION}:t1`],
+      lastEstimatorTurnAbsId: `${SESSION}:t1`,
+    },
+  };
+  completed.completedTaskIds = ["task-1"];
+  completed.blockToTaskIds = { "block-1": ["task-1"] };
+
+  const result = await planLifecycleEviction(input({
+    registry: completed,
+    historyBlocks: [block(["task-1"])],
+    estimator: estimator({
+      baseVersion: 2,
+      taskUpdates: [{
+        taskId: "task-1",
+        objective: "finish work",
+        lifecycle: "evictable",
+        completionEvidence: ["delivered result"],
+        evictableReason: "session moved on",
+      }],
+    }),
+    config: {
+      enabled: true,
+      batchTurns: 1,
+      evictionEnabled: false,
+      evictionPolicy: "model_scored",
+      evictionMinBlockChars: 256,
+    },
+  }));
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.registry.evictableTaskIds.includes("task-1"), true);
+  assert.equal(result.registryUpdateRequired, true);
+  assert.equal(result.plan, undefined);
+  assert.deepEqual(result.reasonCodes, ["registry_updated", "no_eviction_candidates"]);
+});
+
 test("completed task update produces a deterministic mutation plan", async () => {
   const completed = registry();
   completed.version = 2;

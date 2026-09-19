@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { userHomeDirectory } from "@lightrsi/host-adapter";
 import { dirname, join, resolve } from "node:path";
+import { loadEnvFile } from "node:process";
 import type { TaskStateEstimatorApiConfig } from "@lightrsi/eviction";
 import type { CodexContextRewriteConfig, CodexMutationPlan } from "./context-rewrite/types.js";
 
@@ -254,6 +255,8 @@ export function normalizeTokenPilotCodexConfig(
 }
 
 export async function loadTokenPilotCodexConfig(configPath = defaultTokenPilotConfigPath()): Promise<TokenPilotCodexConfig> {
+  const envPath = join(dirname(configPath), "tokenpilot.env");
+  if (existsSync(envPath)) loadEnvFile(envPath);
   if (!existsSync(configPath)) {
     return normalizeTokenPilotCodexConfig({}, { configPath });
   }

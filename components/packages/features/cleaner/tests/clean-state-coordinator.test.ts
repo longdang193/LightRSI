@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -10,12 +11,15 @@ import {
   contextCleanTransactionFilePath,
   readContextCleanPlan,
   readContextCleanReceipt,
+  saveContextCleanExecutionClaim,
   recoverContextCleanState,
   saveContextCleanPlan,
   transitionContextCleanState,
 } from "../src/index.js";
+import { approveContextCleanSelection, finalizeContextCleanSchedule } from "../src/orchestrator.js";
 import { saveContextCleanReceipt } from "../src/clean-receipt-store.js";
 import { transitionContextCleanPlan } from "../src/clean-plan-store.js";
+import { cancelContextCleanPlan } from "../src/orchestrator.js";
 import { samplePlan, sampleReceipt } from "./fixtures.js";
 
 test("coordinator advances plan and receipt through the normal lifecycle", async () => {
@@ -147,4 +151,147 @@ test("coordinator supports stale from approved and scheduled", async () => {
       assert.equal(stale.value?.status, "stale");
     } finally { await rm(root, { recursive: true, force: true }); }
   }
+});
+
+test("approval retry replays same selection without changing receipt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-approval-retry-"));
+  try {
+    const plan = samplePlan();
+    await saveContextCleanPlan({ stateDir: root, plan });
+    const request = {
+      schemaVersion: 1 as const,
+      cleanPlanId: plan.planId,
+      hostId: plan.hostId,
+      sessionId: plan.sessionId,
+      baseRevision: plan.baseRevision,
+      approvedAt: "2026-08-20T00:01:00.000Z",
+      selectedTaskIds: ["task-a"],
+    };
+    const first = await approveContextCleanSelection({ stateDir: root, request });
+    const retry = await approveContextCleanSelection({
+      stateDir: root,
+      request: { ...request, approvedAt: "2026-08-20T00:02:00.000Z" },
+    });
+    assert.deepEqual(retry, first);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("schedule retry replays later outcome without changing receipt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-schedule-retry-"));
+  try {
+    const plan = samplePlan();
+    await saveContextCleanPlan({ stateDir: root, plan });
+    const approved = await approveContextCleanSelection({
+      stateDir: root,
+      request: {
+        schemaVersion: 1,
+        cleanPlanId: plan.planId,
+        hostId: plan.hostId,
+        sessionId: plan.sessionId,
+        baseRevision: plan.baseRevision,
+        approvedAt: "2026-08-20T00:01:00.000Z",
+        selectedTaskIds: ["task-a"],
+      },
+    });
+    const request = {
+      cleanPlanId: plan.planId,
+      hostId: plan.hostId,
+      sessionId: plan.sessionId,
+      baseRevision: plan.baseRevision,
+      selectedTaskIds: ["task-a"],
+    };
+    const first = await finalizeContextCleanSchedule({
+      stateDir: root,
+      request: { ...request, scheduledAt: "2026-08-20T00:02:00.000Z" },
+    });
+    const retry = await finalizeContextCleanSchedule({
+      stateDir: root,
+      request: { ...request, scheduledAt: "2026-08-20T00:03:00.000Z" },
+    });
+    assert.equal(approved.status, "approved");
+    assert.deepEqual(retry, first);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("cancel wins queued claim admission under the plan lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-cancel-claim-race-"));
+  try {
+    const plan = samplePlan();
+    await saveContextCleanPlan({ stateDir: root, plan });
+    await transitionContextCleanState({ stateDir: root, receipt: sampleReceipt("approved") });
+    const claim = {
+      schemaVersion: 1 as const,
+      claimId: "claim-race",
+      planId: plan.planId,
+      hostId: plan.hostId,
+      sessionId: plan.sessionId,
+      selectedTaskIds: ["task-a"],
+      mutationPlanId: "mutation-race",
+      analysisRevision: plan.baseRevision,
+      executionRevision: plan.baseRevision,
+      ownerToken: "owner-race",
+      claimedAt: "2026-08-20T00:01:00.000Z",
+      dispatchState: "dispatch_not_started" as const,
+    };
+    const cancellation = cancelContextCleanPlan({
+      stateDir: root,
+      planId: plan.planId,
+      now: "2026-08-20T00:02:00.000Z",
+    });
+    await delay(0);
+    const admission = saveContextCleanExecutionClaim({ stateDir: root, claim });
+    const [cancelResult, claimResult] = await Promise.allSettled([cancellation, admission]);
+    const finalPlan = await readContextCleanPlan({ stateDir: root, planId: plan.planId });
+    assert.equal(finalPlan.value?.status === "cancelled" || finalPlan.value?.status === "approved", true);
+    if (finalPlan.value?.status === "cancelled") {
+      assert.equal(cancelResult.status, "fulfilled");
+      assert.equal(claimResult.status, "fulfilled");
+      if (claimResult.status === "fulfilled") {
+        assert.deepEqual(claimResult.value.reasons, ["clean_claim_plan_terminal"]);
+      }
+    } else {
+      assert.equal(cancelResult.status, "rejected");
+      assert.equal(claimResult.status, "fulfilled");
+      if (cancelResult.status === "rejected") assert.match(String(cancelResult.reason), /execution_in_progress/);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("claim admission recovers pending cancellation intent before creating a claim", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-claim-recovery-"));
+  try {
+    const plan = samplePlan();
+    await saveContextCleanPlan({ stateDir: root, plan });
+    await transitionContextCleanState({ stateDir: root, receipt: sampleReceipt("approved") });
+    const cancelled = {
+      ...sampleReceipt("cancelled"),
+      updatedAt: "2026-08-20T00:03:00.000Z",
+    };
+    await writeJsonFileAtomic(contextCleanTransactionFilePath(root, plan.planId), {
+      storeSchemaVersion: CONTEXT_CLEAN_STORE_SCHEMA_VERSION,
+      planId: plan.planId,
+      fromStatus: "approved",
+      receipt: cancelled,
+      createdAt: cancelled.updatedAt,
+    });
+    const claim = {
+      schemaVersion: 1 as const,
+      claimId: "claim-after-cancel",
+      planId: plan.planId,
+      hostId: plan.hostId,
+      sessionId: plan.sessionId,
+      selectedTaskIds: ["task-a"],
+      mutationPlanId: "mutation-after-cancel",
+      analysisRevision: plan.baseRevision,
+      executionRevision: plan.baseRevision,
+      ownerToken: "owner-after-cancel",
+      claimedAt: "2026-08-20T00:04:00.000Z",
+      dispatchState: "dispatch_not_started" as const,
+    };
+
+    const result = await saveContextCleanExecutionClaim({ stateDir: root, claim });
+    assert.equal(result.outcome, "bypassed");
+    assert.deepEqual(result.reasons, ["clean_claim_plan_terminal"]);
+    assert.equal((await readContextCleanPlan({ stateDir: root, planId: plan.planId })).value?.status, "cancelled");
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
