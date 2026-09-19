@@ -2142,11 +2142,6 @@ export async function startCodexResponsesProxy(params: {
           terminal = true;
           req.off("aborted", onRequestAborted);
           res.off("close", onClose);
-          if (kind !== "complete") {
-            destroyUpstream();
-            if (!res.destroyed) res.destroy(error instanceof Error ? error : undefined);
-            return;
-          }
           try {
             const runOptional = await recordStreamResponse({
               status: upstreamResp.status,
@@ -2154,7 +2149,7 @@ export async function startCodexResponsesProxy(params: {
               headers: upstreamResp.headers,
               collected: collector.finish(),
             });
-            if (!res.writableEnded && !res.destroyed) res.end();
+            if (kind === "complete" && !res.writableEnded && !res.destroyed) res.end();
             trackOptionalTask(runOptional());
           } catch (recordError) {
             void appendTrace(config.stateDir, {
@@ -2167,7 +2162,13 @@ export async function startCodexResponsesProxy(params: {
               completed: false,
               error: recordError instanceof Error ? recordError.message : String(recordError),
             });
-            if (!res.destroyed) res.destroy(recordError instanceof Error ? recordError : new Error(String(recordError)));
+            if (kind === "complete" && !res.destroyed) {
+              res.destroy(recordError instanceof Error ? recordError : new Error(String(recordError)));
+            }
+          }
+          if (kind !== "complete") {
+            destroyUpstream();
+            if (!res.destroyed) res.destroy(error instanceof Error ? error : undefined);
           }
         };
         const onClose = () => {

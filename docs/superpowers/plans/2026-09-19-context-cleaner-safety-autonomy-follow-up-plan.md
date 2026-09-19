@@ -23,6 +23,7 @@ targets:
   - components/adapters/codex/src/context-rewrite/lifecycle-runner.ts
   - components/adapters/codex/src/context-rewrite/estimator-config.ts
   - components/adapters/codex/src/proxy-runtime.ts
+  - components/adapters/codex/tests/e2e.test.ts
   - components/adapters/codex/tests/config.test.ts
   - components/adapters/codex/tests/context-cleaner-runtime.test.ts
   - components/adapters/codex/tests/context-cleaner-scheduler.test.ts
@@ -276,6 +277,16 @@ fresh shell pane, Gate B bound Codex session
 Cleaner refusal, but the active snapshot remained incomplete; no plan or
 receipt existed, no task was selected, and no mutation or eviction occurred.
 Gate B therefore proves binding and safe refusal, not autonomous cleaning.
+The follow-up runtime probe found a second defect in the shared Codex streaming
+finalizer: `client_abort` and stream-error exits destroyed the upstream stream
+before `recordStreamResponse`, leaving the latest request journal state
+`pending` even though the provider response had started. That stale state made
+Cleaner history diagnostics depend on an un-settled transport lifecycle. The
+finalizer now records partial streams as `incomplete` before destroying the
+upstream connection; focused regression proof covers client abort, and the
+complete adapter suite, typecheck, and fast contract validation pass. This
+preserves fail-closed Cleaner behavior for incomplete history; it does not
+create eligibility or authorize mutation.
 Project OS launcher now passes Codex `--dangerously-bypass-hook-trust` and
 `check_for_update_on_startup=false`; focused launcher tests pass, shared runtime
 deployment drift is clean, and a fresh `ctxclean-runtime-probe` accepted the
