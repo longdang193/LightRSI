@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile, open } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile, open } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
 import { execFile, spawn } from "node:child_process";
@@ -65,7 +65,16 @@ export async function acquireDaemonRuntimeLock(
       if (ownerPid === process.pid || await isLikelyDaemonProcess(ownerPid)) {
         throw new Error(`TokenPilot Codex proxy runtime already running; see ${lockPath}`);
       }
-      await rm(lockPath, { force: true }).catch(() => undefined);
+      const staleLockPath = `${lockPath}.stale-${randomUUID()}`;
+      try {
+        await rename(lockPath, staleLockPath);
+        await rm(staleLockPath, { force: true });
+      } catch (claimError) {
+        if ((claimError as NodeJS.ErrnoException).code !== "ENOENT"
+          && (claimError as NodeJS.ErrnoException).code !== "EEXIST") {
+          throw claimError;
+        }
+      }
     }
   }
 

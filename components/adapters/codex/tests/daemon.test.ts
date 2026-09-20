@@ -134,6 +134,33 @@ test("foreground runtime lock rejects a second live owner", async () => {
   }
 });
 
+test("foreground runtime lock keeps one owner when reclaiming a stale lock", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-runtime-stale-lock-"));
+  try {
+    const config = normalizeTokenPilotCodexConfig({
+      proxyPort: await reserveUnusedPort(),
+      stateDir: join(dir, "state"),
+    });
+    const lockPath = join(config.stateDir, "tokenpilot-codex.runtime.lock");
+    await mkdir(config.stateDir, { recursive: true });
+    await writeFile(lockPath, "2147483647:stale\n", "utf8");
+
+    const results = await Promise.allSettled([
+      acquireDaemonRuntimeLock(config),
+      acquireDaemonRuntimeLock(config),
+    ]);
+
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+    const owner = results.find((result): result is PromiseFulfilledResult<() => Promise<void>> => (
+      result.status === "fulfilled"
+    ));
+    await owner?.value();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 
 test("startDaemon reuses a healthy listener when its pid file is stale", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-daemon-reuse-"));
