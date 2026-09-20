@@ -1,14 +1,28 @@
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
+  CONTEXT_CLEAN_ATTRIBUTION_SUBMISSION_SCHEMA_VERSION,
+  type ContextCleanAttributionSubmission,
+  type ContextCleanAttributionSubmissionResult,
   type ContextCleanerControlPlane,
   type ContextCleanerSchedulingControlPlane,
   type ContextCleanerHostBridge,
   type ContextCleanAttributionStatus,
+  type ContextCleanHistoryEvidence,
   type ContextCleanReceipt,
   type ExecuteApprovedContextCleanParams,
 } from "@lightrsi/cleaner";
-import type { TaskStateEstimatorApiConfig } from "@lightrsi/eviction";
-import { loadSessionTaskRegistry, sessionTaskRegistryPath } from "@lightrsi/history";
+import { createHash } from "node:crypto";
+import {
+  mapTaskUpdatesToRegistryPatch,
+  type SemanticTaskUpdate,
+  type TaskStateEstimatorApiConfig,
+} from "@lightrsi/eviction";
+import {
+  applySessionTaskRegistryPatch,
+  loadSessionTaskRegistry,
+  persistSessionTaskRegistry,
+  sessionTaskRegistryPath,
+} from "@lightrsi/history";
 import { stat } from "node:fs/promises";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
@@ -17,6 +31,7 @@ import {
 } from "@lightrsi/host-adapter";
 
 import { buildCodexEffectiveHistoryView, parseCodexRollout } from "../context-history/index.js";
+import { buildCodexRawSemanticTurns } from "../context-rewrite/semantic-mapping.js";
 import { codexSharedContextRewriteBackend } from "../context-rewrite/backend.js";
 import { resolveCodexTaskStateEstimator } from "../context-rewrite/estimator-config.js";
 import { buildCodexLifecycleBackendRequest } from "../context-rewrite/lifecycle-input.js";
@@ -46,6 +61,33 @@ function nonNegativeInteger(value: unknown): boolean {
 
 function nullableNonNegativeInteger(value: unknown): boolean {
   return value === null || nonNegativeInteger(value);
+}
+
+function submissionFingerprint(request: ContextCleanAttributionSubmission): string {
+  return createHash("sha256")
+    .update(JSON.stringify(request))
+    .digest("hex");
+}
+
+function validAttributionSubmission(request: ContextCleanAttributionSubmission): boolean {
+  return request.schemaVersion === CONTEXT_CLEAN_ATTRIBUTION_SUBMISSION_SCHEMA_VERSION
+    && request.hostId === CODEX_HOST_ID
+    && Boolean(request.submissionId.trim())
+    && Boolean(request.sessionId.trim())
+    && Boolean(request.callerId.trim())
+    && Boolean(request.authorityRef.trim())
+    && Boolean(request.evidenceRevision.trim())
+    && canonicalTimestamp(request.submittedAt)
+    && normalizedUniqueStrings(request.evidenceRefs) !== undefined
+    && normalizedUniqueStrings(request.invalidationConditions) !== undefined
+    && request.updates.length > 0
+    && request.updates.every((update) => (
+      Boolean(update.taskId.trim())
+      && Boolean(update.objective.trim())
+      && update.coveredOccurrenceRefs !== undefined
+      && normalizedUniqueStrings(update.coveredOccurrenceRefs) !== undefined
+      && update.coveredOccurrenceRefs.length > 0
+    ));
 }
 
 function validReceiptState(receipt: ContextCleanReceipt): boolean {
@@ -157,6 +199,38 @@ function validPersistableSnapshot(
   return true;
 }
 
+function scopedHistoryEvidence(params: {
+  view: Awaited<ReturnType<typeof buildCodexEffectiveHistoryView>>;
+  semanticReasonCodes: readonly string[];
+  blockedTurnSeqs: readonly number[];
+}): ContextCleanHistoryEvidence | undefined {
+  const { view, semanticReasonCodes, blockedTurnSeqs } = params;
+  if (blockedTurnSeqs.length === 0) return undefined;
+  const unscoped = semanticReasonCodes.some((reason) => (
+    reason !== "semantic_source_incomplete"
+    && !reason.startsWith("semantic_tool_")
+    && !reason.startsWith("semantic_message_")
+  ));
+  if (unscoped) return undefined;
+
+  const itemIdsByTurnSeq = new Map<number, string[]>();
+  for (const turn of view.turns) {
+    itemIdsByTurnSeq.set(turn.turnSeq, [
+      ...turn.inputItemIds,
+      ...turn.outputItemIds,
+    ]);
+  }
+  const protectedItemIds = [...new Set(
+    blockedTurnSeqs.flatMap((turnSeq) => itemIdsByTurnSeq.get(turnSeq) ?? []),
+  )].sort();
+  if (protectedItemIds.length === 0) return undefined;
+  return {
+    completeness: "partial",
+    protectedItemIds,
+    reasonCodes: [...new Set(semanticReasonCodes)].sort(),
+  };
+}
+
 export function createCodexContextCleanerBridge(params: {
   stateDir: string;
   controlPlane: ContextCleanerControlPlane;
@@ -199,11 +273,23 @@ export function createCodexContextCleanerBridge(params: {
           return (await parseCodexRollout(session.transcriptPath))?.view ?? null;
         },
       });
-      if (view.history.incomplete
-        || !view.semanticComplete
-        || view.reasonCodes.length > 0
-        || view.history.deferredItems.length > 0
-        || view.history.unresolvedCallIds.length > 0) {
+      const semantic = buildCodexRawSemanticTurns(view);
+      const historyEvidence = semantic.complete
+        && !view.history.incomplete
+        && view.reasonCodes.length === 0
+        && view.history.deferredItems.length === 0
+        && view.history.unresolvedCallIds.length === 0
+        ? {
+            completeness: "complete" as const,
+            protectedItemIds: [],
+            reasonCodes: [],
+          }
+        : scopedHistoryEvidence({
+            view,
+            semanticReasonCodes: semantic.reasonCodes,
+            blockedTurnSeqs: semantic.blockedTurnSeqs,
+          });
+      if (!historyEvidence) {
         throw new Error(`codex_clean_snapshot_incomplete:${view.reasonCodes.join(",") || "unknown"}`);
       }
       const registry = await loadSessionTaskRegistry(params.stateDir, sessionId);
@@ -268,6 +354,131 @@ export function createCodexContextCleanerBridge(params: {
         ...(exact
           ? { itemTokenCounts: Object.fromEntries(counts.map(([itemId, count]) => [itemId, count.count])) }
           : {}),
+        historyEvidence,
+      };
+    },
+    async submitAttribution(
+      request: ContextCleanAttributionSubmission,
+    ): Promise<ContextCleanAttributionSubmissionResult> {
+      if (!validAttributionSubmission(request)) {
+        throw new Error("codex_clean_attribution_submission_invalid");
+      }
+      const fingerprint = submissionFingerprint(request);
+      const registry = await loadSessionTaskRegistry(params.stateDir, request.sessionId);
+      const existing = registry.attributionSubmissions?.[request.submissionId];
+      if (existing) {
+        if (existing.fingerprint !== fingerprint) {
+          throw new Error("codex_clean_attribution_submission_conflict");
+        }
+        return {
+          submissionId: request.submissionId,
+          status: "replayed",
+          registryVersion: existing.registryVersion,
+          taskIds: [...existing.taskIds],
+        };
+      }
+
+      const session = await loadCodexSessionSnapshot(params.stateDir, request.sessionId);
+      if (!session) throw new Error("codex_clean_session_not_found");
+      const view = await buildCodexEffectiveHistoryView({
+        stateDir: params.stateDir,
+        sessionId: request.sessionId,
+        headResponseId: session.latestResponseId,
+        async rolloutViewBootstrap() {
+          if (!session.transcriptPath) return null;
+          return (await parseCodexRollout(session.transcriptPath))?.view ?? null;
+        },
+      });
+      if (view.history.incomplete || view.reasonCodes.length > 0) {
+        throw new Error("codex_clean_attribution_evidence_stale");
+      }
+      if (view.history.revision !== request.evidenceRevision) {
+        throw new Error("codex_clean_attribution_evidence_stale");
+      }
+
+      const turnByItemId = new Map<string, { absId: string; seq: number }>();
+      for (const turn of view.turns) {
+        for (const itemId of [...turn.inputItemIds, ...turn.outputItemIds]) {
+          if (turnByItemId.has(itemId)) throw new Error("codex_clean_attribution_occurrence_shared");
+          turnByItemId.set(itemId, { absId: turn.turnAbsId, seq: turn.turnSeq });
+        }
+      }
+      const evidenceRefs = new Set(request.evidenceRefs);
+      const allUpdateRefs = request.updates.flatMap((update) => update.coveredOccurrenceRefs ?? []);
+      for (const ref of allUpdateRefs) evidenceRefs.add(ref);
+      const resolved = [...evidenceRefs].map((ref) => {
+        const turn = turnByItemId.get(ref);
+        if (!turn) throw new Error(`codex_clean_attribution_occurrence_invalid:${ref}`);
+        return [ref, turn] as const;
+      });
+      const resolvedByRef = new Map(resolved);
+      const provenance = {
+        submissionId: request.submissionId,
+        callerId: request.callerId.trim(),
+        authorityRef: request.authorityRef.trim(),
+        evidenceRevision: request.evidenceRevision.trim(),
+        evidenceRefs: [...evidenceRefs].sort(),
+        invalidationConditions: [...request.invalidationConditions].sort(),
+      };
+      const updates: SemanticTaskUpdate[] = request.updates.map((update) => ({
+        taskId: update.taskId.trim(),
+        ...(update.title?.trim() ? { title: update.title.trim() } : {}),
+        objective: update.objective.trim(),
+        lifecycle: update.lifecycle,
+        coveredTurnAbsIds: [...new Set((update.coveredOccurrenceRefs ?? []).map((ref) => {
+          const turn = resolvedByRef.get(ref);
+          if (!turn) throw new Error(`codex_clean_attribution_occurrence_invalid:${ref}`);
+          return turn.absId;
+        }))],
+        ...(update.completionEvidence ? { completionEvidence: update.completionEvidence } : {}),
+        ...(update.unresolvedQuestions ? { unresolvedQuestions: update.unresolvedQuestions } : {}),
+        ...(update.currentSubgoal ? { currentSubgoal: update.currentSubgoal } : {}),
+        ...(update.evictableReason ? { evictableReason: update.evictableReason } : {}),
+        ...(update.retentionDecision ? { retentionDecision: update.retentionDecision } : {}),
+        ...(update.dependencyDirection ? { dependencyDirection: update.dependencyDirection } : {}),
+        decisionProvenance: provenance,
+      }));
+      const coveredTurnAbsIds = [...new Set(updates.flatMap((update) => update.coveredTurnAbsIds ?? []))];
+      const coveredTurnSeqs = [...new Set(coveredTurnAbsIds.map((absId) => {
+        const turn = [...resolvedByRef.values()].find((candidate) => candidate.absId === absId);
+        return turn?.seq;
+      }).filter((value): value is number => value !== undefined))].sort((left, right) => left - right);
+      const toTurnSeqInclusive = coveredTurnSeqs.at(-1);
+      if (toTurnSeqInclusive === undefined) throw new Error("codex_clean_attribution_occurrence_invalid");
+      const mapped = mapTaskUpdatesToRegistryPatch({
+        registry,
+        updates,
+        coveredTurnAbsIds,
+        coveredTurnSeqs,
+        toTurnSeqInclusive,
+      });
+      if (mapped.rejectedUpdates.length > 0) {
+        throw new Error(`codex_clean_attribution_rejected:${mapped.rejectedUpdates.map((item) => item.reason).join(",")}`);
+      }
+      const taskIds = Object.keys(mapped.patch.upsertTasks ?? {});
+      if (taskIds.length === 0) throw new Error("codex_clean_attribution_empty");
+      const nextVersion = registry.version + 1;
+      const next = applySessionTaskRegistryPatch(registry, {
+        ...mapped.patch,
+        attributionSubmissions: {
+          [request.submissionId]: {
+            fingerprint,
+            taskIds,
+            registryVersion: nextVersion,
+            acceptedAt: request.submittedAt,
+          },
+        },
+      });
+      try {
+        await persistSessionTaskRegistry(params.stateDir, next, { expectedVersion: registry.version });
+      } catch {
+        throw new Error("codex_clean_attribution_submission_conflict");
+      }
+      return {
+        submissionId: request.submissionId,
+        status: "accepted",
+        registryVersion: next.version,
+        taskIds,
       };
     },
     async executeApprovedClean(request) {

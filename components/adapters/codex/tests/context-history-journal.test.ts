@@ -109,6 +109,52 @@ test("CDH-01 quarantines an oversized journal before appending new history", asy
   }
 });
 
+test("CDH-01 retries an oversized journal quarantine after a transient Windows lock", { skip: process.platform !== "win32" }, async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-context-history-oversized-lock-"));
+  const sessionId = "oversized-lock-session";
+  const path = codexContextHistoryJournalPath(stateDir, sessionId);
+  let locker: ReturnType<typeof spawn> | undefined;
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, Buffer.alloc(MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES + 1, 0x20));
+    const escapedPath = path.replaceAll("'", "''");
+    locker = spawn("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `$handle = [IO.File]::Open('${escapedPath}', [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None); Write-Output opened; Start-Sleep -Milliseconds 250; $handle.Dispose()`,
+    ], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+    await new Promise<void>((resolve, reject) => {
+      let output = "";
+      locker!.stdout!.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+        if (output.includes("opened")) resolve();
+      });
+      locker!.once("error", reject);
+      locker!.once("exit", (code) => {
+        if (code !== 0 && !output.includes("opened")) reject(new Error(`lock helper exited with ${code}`));
+      });
+    });
+    const lockerExit = new Promise<void>((resolve) => locker!.once("exit", () => resolve()));
+
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-after-transient-lock",
+      payload: { model: "combo-high", input: [{ role: "user", content: "fresh" }] },
+      status: "pending",
+    });
+
+    await lockerExit;
+    const entries = await readCodexContextHistoryJournal(stateDir, sessionId);
+    assert.equal(entries.entries.length, 1);
+    assert.equal((await readdir(dirname(path))).filter((name) => name.includes(".oversized-")).length, 1);
+  } finally {
+    if (locker?.exitCode === null) locker.kill("SIGKILL");
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 async function withTempState(
   fn: (stateDir: string) => Promise<void>,
 ): Promise<void> {

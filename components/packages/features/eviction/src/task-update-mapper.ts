@@ -177,6 +177,27 @@ export function mapTaskUpdatesToRegistryPatch(params: {
         : previous?.evictableReason
           ? { evictableReason: previous.evictableReason }
           : {}),
+      ...(update.decisionProvenance
+        ? {
+            decisionProvenance: {
+              ...update.decisionProvenance,
+              evidenceRefs: [...update.decisionProvenance.evidenceRefs],
+              invalidationConditions: [...update.decisionProvenance.invalidationConditions],
+            },
+          }
+        : previous?.decisionProvenance
+          ? { decisionProvenance: previous.decisionProvenance }
+          : {}),
+      ...(update.retentionDecision
+        ? { retentionDecision: update.retentionDecision }
+        : previous?.retentionDecision
+          ? { retentionDecision: previous.retentionDecision }
+          : {}),
+      ...(update.dependencyDirection
+        ? { dependencyDirection: update.dependencyDirection }
+        : previous?.dependencyDirection
+          ? { dependencyDirection: previous.dependencyDirection }
+          : {}),
       completionEvidence: mergedCompletionEvidence,
       unresolvedQuestions: mergedUnresolvedQuestions,
       span: {

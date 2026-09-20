@@ -1,3 +1,8 @@
+import { readFile } from "node:fs/promises";
+import type {
+  ContextCleanAttributionSubmission,
+  ContextCleanAttributionSubmissionResult,
+} from "@lightrsi/cleaner";
 import {
   renderCleanPlan,
   renderCleanReceipt,
@@ -11,6 +16,7 @@ export interface CleanCommandBackend {
   approve(planId: string, selectedTaskIds: string[]): Promise<CleanReceiptView>;
   readReceipt(planId: string): Promise<CleanReceiptView | undefined>;
   cancel(planId: string): Promise<CleanReceiptView>;
+  submitAttribution?(request: ContextCleanAttributionSubmission): Promise<ContextCleanAttributionSubmissionResult>;
 }
 
 export function formatCleanUsage(): string {
@@ -20,6 +26,7 @@ export function formatCleanUsage(): string {
     "  lightrsi <host> clean --plan <plan-id> --select <task-id[,task-id...]>",
     "  lightrsi <host> clean --status <plan-id>",
     "  lightrsi <host> clean --cancel <plan-id>",
+    "  lightrsi <host> clean --submit-attribution <submission-file>",
   ].join("\n");
 }
 
@@ -49,6 +56,12 @@ export async function handleCleanCommand(params: {
   }
   if (args.length === 2 && args[0] === "--cancel") {
     return { text: renderCleanReceipt(await params.backend.cancel(valueAt(args, 1, "clean_plan_id_missing"))) };
+  }
+  if (args.length === 2 && args[0] === "--submit-attribution") {
+    if (!params.backend.submitAttribution) throw new Error("clean_attribution_submission_unsupported");
+    const path = valueAt(args, 1, "clean_submission_file_missing");
+    const request = JSON.parse(await readFile(path, "utf8")) as ContextCleanAttributionSubmission;
+    return { text: JSON.stringify(await params.backend.submitAttribution(request), null, 2) };
   }
   if (args.length === 4 && args[0] === "--plan" && args[2] === "--select") {
     const planId = valueAt(args, 1, "clean_plan_id_missing");

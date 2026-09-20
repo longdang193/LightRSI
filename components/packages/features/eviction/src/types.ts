@@ -2,7 +2,10 @@ import type {
   DeltaInputMode,
   DeltaView,
   SessionTaskRegistry,
+  TaskDecisionProvenance,
+  TaskDependencyDirection,
   TaskLifecycle,
+  TaskRetentionDecision,
 } from "@lightrsi/history";
 
 export type EvictionPolicy = "noop" | "lru" | "lfu" | "gdsf" | "model_scored" | (string & {});
@@ -72,6 +75,9 @@ export type SemanticTaskUpdate = {
   unresolvedQuestions?: string[];
   currentSubgoal?: string;
   evictableReason?: string;
+  decisionProvenance?: TaskDecisionProvenance;
+  retentionDecision?: TaskRetentionDecision;
+  dependencyDirection?: TaskDependencyDirection;
 };
 
 export type TaskStateEstimatorOutput = {

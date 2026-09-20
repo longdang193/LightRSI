@@ -80,6 +80,15 @@ function cloneTask(task: TaskState): TaskState {
       : {}),
     completionEvidence: [...task.completionEvidence],
     unresolvedQuestions: [...task.unresolvedQuestions],
+    ...(task.decisionProvenance
+      ? {
+          decisionProvenance: {
+            ...task.decisionProvenance,
+            evidenceRefs: [...task.decisionProvenance.evidenceRefs],
+            invalidationConditions: [...task.decisionProvenance.invalidationConditions],
+          },
+        }
+      : {}),
     span: {
       ...task.span,
       supportingTurnAbsIds: [...task.span.supportingTurnAbsIds],
@@ -195,6 +204,7 @@ export function createEmptySessionTaskRegistry(sessionId: string): SessionTaskRe
     turnToTaskIds: {},
     processedTurnRanges: [],
     lastProcessedTurnSeq: 0,
+    attributionSubmissions: {},
   };
 }
 
@@ -215,6 +225,12 @@ export function cloneSessionTaskRegistry(registry: SessionTaskRegistry): Session
     turnToTaskIds: cloneRelationMap(registry.turnToTaskIds),
     processedTurnRanges: processedTurnRanges(registry),
     lastProcessedTurnSeq: registry.lastProcessedTurnSeq,
+    attributionSubmissions: Object.fromEntries(
+      Object.entries(registry.attributionSubmissions ?? {}).map(([submissionId, record]) => [
+        submissionId,
+        { ...record, taskIds: [...record.taskIds] },
+      ]),
+    ),
   };
 }
 
@@ -257,6 +273,17 @@ export function applySessionTaskRegistryPatch(
 
   if (typeof patch.lastProcessedTurnSeq === "number") {
     next.lastProcessedTurnSeq = patch.lastProcessedTurnSeq;
+  }
+  if (patch.attributionSubmissions) {
+    next.attributionSubmissions = {
+      ...(next.attributionSubmissions ?? {}),
+      ...Object.fromEntries(
+        Object.entries(patch.attributionSubmissions).map(([submissionId, record]) => [
+          submissionId,
+          { ...record, taskIds: [...record.taskIds] },
+        ]),
+      ),
+    };
   }
 
   next.version += 1;

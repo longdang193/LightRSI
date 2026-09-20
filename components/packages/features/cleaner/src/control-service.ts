@@ -2,6 +2,8 @@ import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
   type ContextCleanPlan,
   type ContextCleanReceipt,
+  type ContextCleanAttributionSubmission,
+  type ContextCleanAttributionSubmissionResult,
   type ContextCleanerHostBridge,
   type ContextCleanerSchedulingControlPlane,
   type ExecuteApprovedContextCleanParams,
@@ -22,6 +24,9 @@ export interface ContextCleanerControlService {
   approve(planId: string, selectedTaskIds: readonly string[]): Promise<ContextCleanReceipt>;
   readReceipt(planId: string): Promise<ContextCleanReceipt | undefined>;
   cancel(planId: string): Promise<ContextCleanReceipt>;
+  submitAttribution(
+    request: ContextCleanAttributionSubmission,
+  ): Promise<ContextCleanAttributionSubmissionResult>;
 }
 
 export function createContextCleanerControlPlane(params: {
@@ -94,5 +99,9 @@ export function createContextCleanerControlService(params: {
       return result.value;
     },
     cancel: (planId) => params.bridge.cancelCleanPlan(planId),
+    async submitAttribution(request) {
+      if (!params.bridge.submitAttribution) throw new Error("clean_attribution_submission_unsupported");
+      return params.bridge.submitAttribution(request);
+    },
   };
 }

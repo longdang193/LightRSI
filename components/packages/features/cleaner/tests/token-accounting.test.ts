@@ -238,6 +238,65 @@ test("chars_only breakdown keeps token fields null and percents null", () => {
   assert.equal(breakdown.tasks[0]?.tokenPercent, null);
 });
 
+test("partial history protects tasks touching scoped uncertain items", () => {
+  const breakdown = buildContextCleanBreakdown({
+    snapshot: Object.assign(snapshot([
+      item("item-a", { taskIds: ["task-a"], chars: 120 }),
+      item("item-current", { taskIds: ["task-current"], chars: 40 }),
+    ]), {
+      historyEvidence: {
+        completeness: "partial",
+        protectedItemIds: ["item-a"],
+        reasonCodes: ["semantic_tool_result_invalid"],
+      },
+    }),
+    registry: sampleRegistry(),
+  });
+  const taskA = breakdown.tasks.find((task) => task.taskId === "task-a");
+  assert.equal(taskA?.selectable, false);
+  assert.deepEqual(taskA?.reasonCodes, ["history_evidence_protected"]);
+});
+
+test("agent task without retention or dependency evidence stays protected", () => {
+  const registry = sampleRegistry();
+  registry.tasks["task-a"]!.decisionProvenance = {
+    submissionId: "submission-1",
+    callerId: "agent-1",
+    authorityRef: "turn-1",
+    evidenceRevision: "rev-1",
+    evidenceRefs: ["item-a1"],
+    invalidationConditions: ["revision_changed"],
+  };
+  const breakdown = buildContextCleanBreakdown({
+    snapshot: snapshot([item("item-a1", { taskIds: ["task-a"] })]),
+    registry,
+  });
+  assert.equal(breakdown.tasks[0]?.selectable, false);
+  assert.deepEqual(breakdown.tasks[0]?.reasonCodes, [
+    "retention_evidence_missing_or_retained",
+    "dependency_evidence_missing_or_incoming",
+  ]);
+});
+
+test("agent task with release and outgoing dependency evidence remains selectable", () => {
+  const registry = sampleRegistry();
+  registry.tasks["task-a"]!.decisionProvenance = {
+    submissionId: "submission-1",
+    callerId: "agent-1",
+    authorityRef: "turn-1",
+    evidenceRevision: "rev-1",
+    evidenceRefs: ["item-a1"],
+    invalidationConditions: ["revision_changed"],
+  };
+  registry.tasks["task-a"]!.retentionDecision = "release";
+  registry.tasks["task-a"]!.dependencyDirection = "outgoing";
+  const breakdown = buildContextCleanBreakdown({
+    snapshot: snapshot([item("item-a1", { taskIds: ["task-a"] })]),
+    registry,
+  });
+  assert.equal(breakdown.tasks[0]?.selectable, true);
+});
+
 test("breakdown output round-trips through the canonical plan parser", () => {
   const breakdown = buildContextCleanBreakdown({
     snapshot: snapshot([

@@ -216,6 +216,10 @@ export function buildContextCleanBreakdown(input: TaskAttributionInput & {
   const fingerprintByStableId = new Map(
     input.snapshot.items.map((item) => [item.stableId, item.fingerprint]),
   );
+  const protectedItemIds = new Set(
+    (input.snapshot as typeof input.snapshot & { historyEvidence?: { protectedItemIds?: string[] } })
+      .historyEvidence?.protectedItemIds ?? [],
+  );
   const taskOrder = [...new Set(
     attributed.filter((item) => item.bucket === "task")
       .map((item) => item.taskIds[0]),
@@ -230,13 +234,29 @@ export function buildContextCleanBreakdown(input: TaskAttributionInput & {
     const lifecycleState = state
       ? mapTaskLifecycle(state.lifecycle, state.unresolvedQuestions)
       : "unknown";
+    const retentionUnknown = Boolean(state?.decisionProvenance)
+      && state?.retentionDecision !== "release";
+    const dependencyUnknown = Boolean(state?.decisionProvenance)
+      && (state?.dependencyDirection === undefined
+        || state.dependencyDirection === "unknown"
+        || state.dependencyDirection === "incoming");
     const selectable = evaluateContextCleanRemoval({
       taskId,
       lifecycleState,
       activeTaskIds: lifecycleState === "active" ? [taskId] : [],
       evictableTaskIds: input.registry?.evictableTaskIds ?? [],
       items: itemIds.map((stableId) => ({ item: input.snapshot.items.find((item) => item.stableId === stableId) })),
-    }).safe;
+    }).safe
+      && !itemIds.some((itemId) => protectedItemIds.has(itemId))
+      && !retentionUnknown
+      && !dependencyUnknown;
+    const reasonCodes = [
+      ...(itemIds.some((itemId) => protectedItemIds.has(itemId))
+        ? ["history_evidence_protected"]
+        : []),
+      ...(retentionUnknown ? ["retention_evidence_missing_or_retained"] : []),
+      ...(dependencyUnknown ? ["dependency_evidence_missing_or_incoming"] : []),
+    ];
     tasks.push({
       taskId,
       label: state?.title ?? taskId,
@@ -256,8 +276,10 @@ export function buildContextCleanBreakdown(input: TaskAttributionInput & {
       ),
       // Deterministic safe default until the 7.3 recommendation analyzer runs.
       recommendation: "keep",
-      reasonCodes: [],
+      reasonCodes,
       selectable,
+      ...(state?.retentionDecision ? { retentionDecision: state.retentionDecision } : {}),
+      ...(state?.dependencyDirection ? { dependencyDirection: state.dependencyDirection } : {}),
     });
   }
 

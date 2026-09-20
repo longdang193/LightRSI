@@ -793,6 +793,72 @@ test("Codex cleaner bridge reports chars-only accounting when the model is unkno
   }
 });
 
+test("Codex cleaner attribution submission is idempotent and rejects conflicts", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cleaner-submit-"));
+  try {
+    const sessionId = "codex-cleaner-submit";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "finish task" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{ type: "message", role: "assistant", content: "done" }],
+      },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, {
+      latestResponseId: "response-1",
+      latestModel: "gpt-5.4",
+    });
+    const bridge = createCodexContextCleanerBridge({ stateDir, controlPlane: fakeControlPlane() });
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
+    const itemId = snapshot.items[0]?.stableId;
+    assert.ok(itemId);
+    const request = {
+      schemaVersion: 1 as const,
+      submissionId: "submission-1",
+      hostId: "codex",
+      sessionId,
+      callerId: "agent-1",
+      authorityRef: "turn-1",
+      evidenceRevision: snapshot.revision,
+      evidenceRefs: [itemId],
+      invalidationConditions: ["revision_changed"],
+      updates: [{
+        taskId: "task-1",
+        objective: "finish task",
+        lifecycle: "evictable" as const,
+        coveredOccurrenceRefs: [itemId],
+        completionEvidence: ["response-1"],
+        retentionDecision: "release" as const,
+        dependencyDirection: "none" as const,
+      }],
+      submittedAt: "2026-09-20T10:00:00.000Z",
+    };
+    const accepted = await bridge.submitAttribution!(request);
+    assert.equal(accepted.status, "accepted");
+    const replayed = await bridge.submitAttribution!(request);
+    assert.equal(replayed.status, "replayed");
+    await assert.rejects(
+      bridge.submitAttribution!({
+        ...request,
+        updates: [{ ...request.updates[0], objective: "changed" }],
+      }),
+      /codex_clean_attribution_submission_conflict/,
+    );
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("Codex cleaner bridge rejects a snapshot with an invalid capture timestamp", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cleaner-time-"));
   try {

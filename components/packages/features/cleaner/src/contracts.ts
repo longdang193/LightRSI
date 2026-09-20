@@ -3,10 +3,12 @@ import type {
   ModelContextRewriteMode,
   ModelContextSnapshot,
 } from "@lightrsi/host-adapter";
+import type { TaskDependencyDirection, TaskRetentionDecision } from "@lightrsi/history";
 
 export const CONTEXT_CLEAN_SCHEMA_VERSION = 1 as const;
 export const CONTEXT_CLEAN_STORE_SCHEMA_VERSION = 1 as const;
 export const CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION = 1 as const;
+export const CONTEXT_CLEAN_ATTRIBUTION_SUBMISSION_SCHEMA_VERSION = 1 as const;
 
 export const CONTEXT_CLEAN_LOCK_ORDER = [
   "session_mutation_reservation",
@@ -118,6 +120,8 @@ export type ContextCleanTaskBreakdown = {
   recommendation: ContextCleanRecommendation;
   reasonCodes: string[];
   selectable: boolean;
+  retentionDecision?: TaskRetentionDecision;
+  dependencyDirection?: TaskDependencyDirection;
 };
 
 export type ContextCleanPlan = {
@@ -154,6 +158,12 @@ export type ContextCleanEvidence = {
   eventIds?: string[];
   archiveRefs?: string[];
   providerResponseId?: string;
+};
+
+export type ContextCleanHistoryEvidence = {
+  completeness: "complete" | "partial";
+  protectedItemIds: string[];
+  reasonCodes: string[];
 };
 
 type ContextCleanReceiptBase = {
@@ -246,6 +256,42 @@ export type ContextCleanSnapshot = ModelContextSnapshot & {
   tokenCountMode: ContextCleanTokenCountMode;
   tokenCountMethod: string;
   itemTokenCounts?: Record<string, number>;
+  historyEvidence?: ContextCleanHistoryEvidence;
+};
+
+export type ContextCleanAttributionTaskUpdate = {
+  taskId: string;
+  title?: string;
+  objective: string;
+  lifecycle: "active" | "blocked" | "completed" | "evictable";
+  coveredOccurrenceRefs?: string[];
+  completionEvidence?: string[];
+  unresolvedQuestions?: string[];
+  currentSubgoal?: string;
+  evictableReason?: string;
+  retentionDecision?: TaskRetentionDecision;
+  dependencyDirection?: TaskDependencyDirection;
+};
+
+export type ContextCleanAttributionSubmission = {
+  schemaVersion: typeof CONTEXT_CLEAN_ATTRIBUTION_SUBMISSION_SCHEMA_VERSION;
+  submissionId: string;
+  hostId: string;
+  sessionId: string;
+  callerId: string;
+  authorityRef: string;
+  evidenceRevision: string;
+  evidenceRefs: string[];
+  invalidationConditions: string[];
+  updates: ContextCleanAttributionTaskUpdate[];
+  submittedAt: string;
+};
+
+export type ContextCleanAttributionSubmissionResult = {
+  submissionId: string;
+  status: "accepted" | "replayed";
+  registryVersion: number;
+  taskIds: string[];
 };
 
 export type ContextCleanerSession = {
@@ -336,6 +382,7 @@ export interface ContextCleanerHostBridge {
   readonly rewriteMode: ModelContextRewriteMode;
   listSessions(): Promise<ContextCleanerSession[]>;
   readCleanSnapshot(sessionId: string): Promise<ContextCleanSnapshot>;
+  submitAttribution?(request: ContextCleanAttributionSubmission): Promise<ContextCleanAttributionSubmissionResult>;
   readAttributionStatus?(sessionId: string): Promise<ContextCleanAttributionStatus>;
   executeApprovedClean(
     params: ExecuteApprovedContextCleanParams,

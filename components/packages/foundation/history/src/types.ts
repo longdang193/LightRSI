@@ -146,6 +146,18 @@ export type TaskStateSpan = {
   lastEstimatorTurnAbsId: string;
 };
 
+export type TaskDecisionProvenance = {
+  submissionId: string;
+  callerId: string;
+  authorityRef: string;
+  evidenceRevision: string;
+  evidenceRefs: string[];
+  invalidationConditions: string[];
+};
+
+export type TaskRetentionDecision = "retain" | "release";
+export type TaskDependencyDirection = "incoming" | "outgoing" | "none" | "unknown";
+
 export type TaskState = {
   taskId: string;
   title: string;
@@ -156,6 +168,16 @@ export type TaskState = {
   completionEvidence: string[];
   unresolvedQuestions: string[];
   span: TaskStateSpan;
+  decisionProvenance?: TaskDecisionProvenance;
+  retentionDecision?: TaskRetentionDecision;
+  dependencyDirection?: TaskDependencyDirection;
+};
+
+export type AttributionSubmissionRecord = {
+  fingerprint: string;
+  taskIds: string[];
+  registryVersion: number;
+  acceptedAt: string;
 };
 
 export type ProcessedTurnRange = {
@@ -174,6 +196,7 @@ export type SessionTaskRegistryPatch = {
   upsertTurnToTaskIds?: Record<string, string[]>;
   processedTurnRanges?: ProcessedTurnRange[];
   lastProcessedTurnSeq?: number;
+  attributionSubmissions?: Record<string, AttributionSubmissionRecord>;
 };
 
 export type SessionTaskRegistry = {
@@ -189,6 +212,7 @@ export type SessionTaskRegistry = {
   /** Verified attribution coverage, including non-contiguous regions. */
   processedTurnRanges?: ProcessedTurnRange[];
   lastProcessedTurnSeq: number;
+  attributionSubmissions?: Record<string, AttributionSubmissionRecord>;
 };
 
 export type HistoryBlock = {

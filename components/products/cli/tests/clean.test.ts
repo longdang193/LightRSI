@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { handleCleanCommand } from "../src/clean.js";
 import { createCodexCleanRecommendationProvider } from "../src/hosts/cleaner.js";
@@ -74,6 +77,31 @@ test("clean CLI canonicalizes session aliases before analysis", async () => {
   });
 
   assert.equal(analyzedSessionId, "codex-synth-session-1");
+});
+
+test("clean CLI submits attribution JSON through backend contract", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-submit-"));
+  try {
+    const path = join(dir, "submission.json");
+    await writeFile(path, JSON.stringify({ submissionId: "submission-1" }), "utf8");
+    let received = "";
+    const backend = {
+      async analyze() { return plan; },
+      async readPlan() { return plan; },
+      async approve() { return receipt; },
+      async readReceipt() { return receipt; },
+      async cancel() { return { ...receipt, status: "cancelled" }; },
+      async submitAttribution(request: { submissionId: string }) {
+        received = request.submissionId;
+        return { submissionId: request.submissionId, status: "accepted" as const, registryVersion: 1, taskIds: [] };
+      },
+    };
+    const result = await handleCleanCommand({ args: ["--submit-attribution", path], backend });
+    assert.match(result.text, /submission-1/);
+    assert.equal(received, "submission-1");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("Codex Cleaner uses ready estimator config for recommendations", async () => {

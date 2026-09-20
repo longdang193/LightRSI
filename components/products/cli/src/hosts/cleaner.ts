@@ -3,6 +3,8 @@ import {
   createContextCleanerControlService,
   createContextCleanerControlPlane,
   type ContextCleanRecommendationProvider,
+  type ContextCleanAttributionSubmission,
+  type ContextCleanAttributionSubmissionResult,
   type ContextCleanPlan,
   type ContextCleanReceipt,
 } from "@lightrsi/cleaner";
@@ -73,5 +75,8 @@ export function createCodexCleanCommandBackend(params: {
     async approve(planId, selectedTaskIds) { return receiptView(await service.approve(planId, selectedTaskIds)); },
     async readReceipt(planId) { const receipt = await service.readReceipt(planId); return receipt ? receiptView(receipt) : undefined; },
     async cancel(planId) { return receiptView(await service.cancel(planId)); },
+    async submitAttribution(request: ContextCleanAttributionSubmission): Promise<ContextCleanAttributionSubmissionResult> {
+      return service.submitAttribution(request);
+    },
   };
 }
