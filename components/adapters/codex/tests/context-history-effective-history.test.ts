@@ -70,6 +70,31 @@ test("CDH-04 Effective History Builder marks an orphan incomplete response after
   });
 });
 
+test("CDH-04 Effective History View does not mark a pending-only session as committed-chain incomplete", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-pending-only";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-current",
+      turnOrdinal: 1,
+      payload: { input: [{ role: "user", content: "current" }] },
+      status: "pending",
+    });
+
+    const view = await buildCodexEffectiveHistoryView({
+      stateDir,
+      sessionId,
+      currentRequestId: "request-current",
+    });
+
+    assert.equal(view.history.incomplete, false);
+    assert.equal(view.semanticComplete, false);
+    assert.deepEqual(view.reasonCodes, ["journal_current_request_uncommitted"]);
+    assert.deepEqual(view.turns, []);
+  });
+});
+
 test("CDH-04 Effective History Builder preserves ordered turns when a provider reuses response ids", async () => {
   await withTempState(async (stateDir) => {
     const sessionId = "codex-session-reused-response-id";

@@ -114,7 +114,11 @@ function buildCommittedChain(params: {
     ? findLastResponse(committed, ({ entry }) => entry.responseId === params.headResponseId)
     : committed.at(-1);
   if (!head) {
-    return { chain: [], complete: params.headResponseId === undefined && params.requests.size === 0 };
+    return {
+      chain: [],
+      complete: params.headResponseId === undefined
+        && !Array.from(params.requests.values()).some(({ entry }) => entry.status === "completed"),
+    };
   }
 
   const chain: CommittedTurn[] = [];
