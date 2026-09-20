@@ -19,16 +19,20 @@ targets:
   - components/packages/features/cleaner/tests/recovery.test.ts
   - components/adapters/codex/src/context-cleaner/runtime.ts
   - components/adapters/codex/src/context-cleaner/bridge.ts
+  - components/adapters/codex/src/context-history/effective-history.ts
+  - components/adapters/codex/src/context-rewrite/lifecycle-input.ts
   - components/adapters/codex/src/context-rewrite/fallback.ts
   - components/adapters/codex/src/context-rewrite/lifecycle-runner.ts
   - components/adapters/codex/src/context-rewrite/estimator-config.ts
   - components/adapters/codex/src/proxy-runtime.ts
+  - components/adapters/codex/src/daemon.ts
   - components/adapters/codex/tests/e2e.test.ts
   - components/adapters/codex/tests/config.test.ts
   - components/adapters/codex/tests/context-cleaner-runtime.test.ts
   - components/adapters/codex/tests/context-cleaner-scheduler.test.ts
   - components/adapters/codex/tests/context-rewrite-lifecycle-runtime.test.ts
   - components/adapters/codex/tests/context-rewrite-lifecycle-runner.test.ts
+  - components/adapters/codex/tests/daemon.test.ts
   - components/packages/features/eviction/src/lifecycle-planner.ts
   - components/packages/features/eviction/src/task-state-estimator.ts
   - components/packages/features/eviction/tests/lifecycle-planner.test.ts
@@ -63,10 +67,10 @@ Harden Context Cleaner for autonomous use without creating a second governance o
 - Task 7: committed recovery, claim-fencing, and retry-identity evidence.
 - Task 8: completed proof shows estimator attribution produces approved Cleaner
   eligibility; automatic eviction remains disabled.
-- Task 6: prove session binding, distinct internal milestone attribution, and a
-  narrow agent-initiated autonomy pilot.
-- Task 5: policy publication and activation remain staged; policy preparation and
-  generated-surface validation do not activate broad permission.
+- Task 6: restore attribution for cumulative full-history traffic, then run a
+  gated agent-initiated autonomy pilot.
+- Task 5: policy is prepared; publication and activation remain separate
+  authorized actions and are not required for adapter unit tests.
 - Task 9: deferred and non-blocking.
 
 ## Status Semantics
@@ -76,7 +80,8 @@ Harden Context Cleaner for autonomous use without creating a second governance o
 - `policy prepared`: canonical policy and generated surfaces are ready; activation
   has not occurred.
 - `policy activated`: standing permission is enabled for its declared scope.
-- `pilot validated`: live binding and agent-initiated behavior meet Gate C.
+- `pilot validated`: attribution, execution, recovery, and agent-initiated
+  behavior meet the three Task 6 evidence gates.
 
 
 ## Verdict Review
@@ -111,7 +116,7 @@ Existing protections must be reused, not replaced:
 - The completed transaction plan already owns durable claims, schedule
   recovery, revision fencing, and public status compatibility.
 
-## Live Probe Finding
+## Historical Probe Finding
 
 The first successful TokenPilot-routed probe produced an analyzed plan with no
 task IDs. `loadSessionTaskRegistry` intentionally returns an empty registry
@@ -124,23 +129,27 @@ the result as fallback-used when attribution is not available. Codex Cleaner
 plans also expose `Attribution: disabled|waiting|failing|empty|available`.
 The current fresh native two-turn probe reports `waiting`; lifecycle trace
 reason `insufficient_pending_turns` shows the estimator was not reached and no
-registry writer ran. This does not establish that five turns alone will produce
-attribution: the planner runs before the current request, so the next request
-must be observed and its lifecycle evidence must prove estimation ran and
-persisted the registry. Focused regression proof covers disabled, waiting,
-empty, and available states. No task boundaries are invented and no unassigned
-context is exposed for deletion.
+registry writer ran. This historical result does not establish attribution
+readiness from a fixed turn count. Focused regression proof covers disabled,
+waiting, empty, and available states. No task boundaries are invented and no
+unassigned context is exposed for deletion.
 
-Task 6 remains blocked until normal LightRSI traffic reaches the attribution
-producer and persists eligible task registry entries; no registry edits or
-Project OS registry writer are authorized by this plan.
+Task 6 remains blocked until normal LightRSI traffic reaches its attribution
+producer and persists eligible task records. `task_registry_unavailable` means
+usable LightRSI attribution is absent; it does not prove missing Project OS
+integration. Project OS supplies policy and retention authority. LightRSI owns
+attribution persistence.
 
-## Post-081cb4a Follow-up Verdict
+Full-history attribution and full-history mutation are separate capabilities.
+Attribution may become available before Cleaner can safely apply removal. No
+registry edits or Project OS registry writer are authorized by this plan.
+
+## Post-Current-Branch Follow-up Verdict
 
 The latest consolidated review is accepted as a bounded follow-up, not a second
-architecture. The review was source-checked against commit `081cb4a`, but its
-live probes were not independently rerun. Each reported defect therefore gets a
-failing regression proof before production edits.
+architecture. It is reconciled against current branch evidence; live probes are
+recorded separately. Each reported defect gets a failing regression proof before
+production edits.
 
 Required corrections:
 
@@ -200,8 +209,10 @@ and generated surfaces. Do not infer publication from the LightRSI task ledger.
   worker execution. Cleaner remains session-local in both modes.
 - A single session may combine controller and worker activity only when their
   logical task attribution and protected control-plane context are distinct.
-  Without that separation, Cleaner fails closed. The active controller session
-  is not a Task 6 pilot target.
+  Without that separation, Cleaner fails closed. Keep the production controller
+  outside the pilot; a disposable agent session may exercise combined
+  controller/worker behavior when the protected control-plane context remains
+  distinct.
 
 ## Cross-Repository Governance Pair
 
@@ -242,17 +253,19 @@ and integration correctness.
   sequential lane; Codex regression proof follows them
 - Stop for: public status changes, automatic provider resend, caller-supplied
   target digests, new coordination state, automatic cleaning triggers, MCP
-  exposure, or transport/cache behavior changes
+  exposure, provider API or routing changes, or unrelated cache-policy changes.
+  The declared full-history adapter transformation and its expected cache
+  effects are in scope.
 
 ## Coordination State
 
 - Coordination owner: `single lead controller`
 - Coordination schema: `2`
 - Branch: `codex/context-cleaner-safety-autonomy-follow-up` (create at activation from `origin/main`)
-- Base commit: `becf974aa3a3575e7a8dd23f2b937f8a5ecf802e`
-- Expected workspace: `existing LightRSI follow-up branch with 081cb4a pushed; plan edits remain uncommitted; Project OS uses a separate checkout`
-- Next action: `run normal LightRSI traffic past the estimator batch threshold, verify Attribution: available and persisted eligible task IDs, then rerun read-only Cleaner analysis; do not edit the registry, add a Project OS registry writer, invoke Cleaner mutation manually, or bypass refusal`
-- Blockers: `fresh native two-turn probe reaches bound LightRSI history but reports Attribution: waiting because lifecycle reason insufficient_pending_turns prevents estimator attribution; no task is selected and no mutation is authorized`
+- Base commit: resolve current branch base from Git when activating plan
+- Expected workspace: `current LightRSI branch with committed runtime fixes; plan edits remain uncommitted; Project OS uses a separate checkout`
+- Next action: `run normal LightRSI traffic until its attribution producer persists eligible task records, then validate the attribution gate before the execution and pilot gates; do not edit the registry, add a Project OS registry writer, synthesize response IDs, invoke Cleaner mutation manually, or bypass refusal`
+- Blockers: `Task 6 remains blocked until normal LightRSI traffic reaches its attribution producer and persists eligible task records; task_registry_unavailable means usable LightRSI attribution is absent, not missing Project OS integration`
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -260,15 +273,19 @@ and integration correctness.
 | Task 2 | `completed` | current workspace | `codex` | Task 1 | removal-safety and Codex bridge tests | Cleaner and bridge focused tests pass |
 | Task 3 | `completed` | current workspace | `codex` | Task 1 | locked approval, claim, and cancellation tests | approval replay and cancel/claim arbitration pass |
 | Task 4 | `completed` | current workspace | `codex` | Tasks 2–3 | uncertain-dispatch and receipt recovery tests | Codex targeted suite and typecheck pass |
-| Task 5 | `completed` | separate Project OS checkout | `codex` | none | canonical policy and generated-surface verification | canonical standing-permission paragraph added; all adapters synchronized; fast contract validation passed; unrelated dirty README and files preserved |
-| Task 6 | `blocked` | current runtime environment | `codex` | Tasks 2–5, 7–8 | binding probe, pilot measurements, and stop-condition review | Gate A proved exact workspace binding and TokenPilot-routed Host traffic; CLI session resolver now prefers current `CODEX_SESSION_ID` alias over unrelated global latest state, with red/green dispatch proof and live worker-alias report probe; fresh Gate B bound Codex `01a0baee-ff66-76e1-ad67-382675f5e4e4` to TokenPilot `codex-synth-284b522b-a594-49d5-a794-5fead4576681`, recorded 19 proxy calls, 3 upstream sends, 3 successful generations, and average latency 11,156 ms; follow-up bound-session analysis produced a complete 371,318-character snapshot with 37,144 protected and 334,174 unassigned characters; Cleaner then fell back with `task_registry_unavailable`, selected no task, and performed no mutation |
+| Task 5 | `policy prepared` | separate Project OS checkout | `codex` | none | canonical policy and generated-surface verification | canonical standing-permission paragraph added; all adapters synchronized; fast contract validation passed; publication and activation remain separate; unrelated dirty README and files preserved |
+| Task 6 | `blocked` | current workspace | `codex` | Tasks 2–5, 7–8 | attribution, execution, recovery, and same-session pilot gates | binding and snapshot probes pass; usable LightRSI attribution records are absent in current normal traffic; no manual registry edit or mutation permitted |
 | Task 7 | `completed` | current workspace | `codex` | Tasks 2–4 | duplicate-generation, claim-fencing, and retry regression proof | focused Codex suites, Cleaner suite, and adapter/Cleaner typechecks pass; no resend after accepted response; owner-token and cancellation fencing regressions pass |
 | Task 8 | `completed` | current workspace | `codex` | Task 7 | estimator observation plus approved Cleaner eligibility with automatic eviction disabled | lifecycle planner/runtime suites, eviction suite, adapter/eviction typechecks pass; real Codex lifecycle integration proves registry attribution → selectable task → approval → scheduling → safe execution revalidation; no automatic mutation plan is exposed |
 | Task 9 | `pending` | current workspace | `codex` | Task 8 | separate measured performance follow-up | Deferred; not required for Cleaner correctness or first pilot; no supported Codex eviction control exists |
 
-Task 6 remains blocked only on pilot data and task attribution capability, not
+Task 6 remains blocked on LightRSI attribution persistence and pilot data, not
 startup binding, CLI session alias resolution, or snapshot replayability. The
-runtime defect was root-caused: Codex CLI default
+historical runtime evidence shows completed cumulative-history requests with no
+trusted `previous_response_id`; LightRSI must prove full-history boundaries from
+journal item correspondence without synthesizing a response-chain head.
+Do not edit registry state manually.
+The earlier runtime defect was root-caused: Codex CLI default
 resolution ignored `CODEX_SESSION_ID` and selected the shared latest-session
 pointer, so a fresh worker could report or clean the controller's TokenPilot
 session. The shared Codex resolver now checks the current host-session alias
@@ -291,8 +308,8 @@ design, but were classified as deferred tool items. That made complete
 snapshots fail closed as `history_deferred_items`. They are now classified as
 observation-only only when the stable host-tool shape is present; ordinary
 missing-`call_id` tool items remain deferred. Focused replayability tests pass
-(14/14), effective-history tests pass (23/23), Cleaner tests pass (89/89), the
-full Codex adapter suite passes (470/470), and adapter/CLI typechecks pass.
+(14/14), effective-history tests pass (23/23), Cleaner tests pass (92/92), the
+full Codex adapter suite passes (477/477), and adapter/CLI typechecks pass.
 The fix restores complete-history analysis; it does not invent task attribution
 or authorize mutation.
 The patched CLI was rebuilt and rerun against the bound session. Read-only
@@ -300,6 +317,9 @@ analysis succeeded with `371318` used characters, `37144` protected characters,
 and `334174` unassigned characters. Status remained `analyzed` with no selected
 task and fallback reason `task_registry_unavailable`; no approval, scheduling,
 receipt application, or mutation was attempted.
+`task_registry_unavailable` means usable LightRSI attribution is absent; it
+does not prove missing Project OS integration. Project OS supplies policy and
+retention authority. LightRSI owns attribution persistence.
 The same runtime probe found Windows launcher drift in both shared CLI install
 paths: extensionless POSIX-style files under `%USERPROFILE%\\.local\\bin` were
 discoverable by PowerShell but did not execute. The shared installer now writes
@@ -318,16 +338,22 @@ upstream connection; focused regression proof covers client abort, and the
 complete adapter suite, typecheck, and fast contract validation pass. This
 preserves fail-closed Cleaner behavior for incomplete history; it does not
 create eligibility or authorize mutation.
-The repeated `response_chain_head_missing` events were separately reproduced in
-normal Codex traffic routed through `9Router`. Successful requests arrive at
+The repeated `response_chain_head_missing` events were historically reproduced
+in normal Codex traffic routed through `9Router`. Successful requests arrive at
 the LightRSI proxy without `previous_response_id`; the proxy codec preserves
-that absence, and the existing prompt-cache session binding still succeeds.
-The lifecycle planner therefore defers by design because it cannot prove a
-trusted response-chain head. This is a runtime/provider capability gap, not a
-LightRSI caller bug. Do not synthesize a head from the latest snapshot: that
-would turn an unverified transport relationship into rewrite or task-attribution
-authority. Keep Task 6 blocked until supported traffic supplies a chain head or
-a separately approved stateless attribution design exists.
+that absence, and prompt-cache session binding still succeeds. This remains a
+transport fact, not a reason to add provider routing or a stateless attribution
+controller. Full-history attribution and full-history mutation remain separate
+capabilities: attribution may become available before Cleaner can safely apply
+removal. Do not synthesize a response-chain head or treat the latest snapshot
+as ancestry.
+The same runtime review found a foreground daemon lock race: lock creation
+exposes an empty file before owner metadata is written, so a concurrent caller
+could misclassify the active lock as stale and rename it. Invalid or incomplete
+owner metadata now fails closed in the shared lock helper, with regression proof
+in the daemon suite. Journal locks already use separate freshness checks and
+showed no matching defect. This fix prevents competing local runtimes; it does
+not create attribution or authorize Cleaner mutation.
 Project OS launcher now passes Codex `--dangerously-bypass-hook-trust` and
 `check_for_update_on_startup=false`; focused launcher tests pass, shared runtime
 deployment drift is clean, and a fresh `ctxclean-runtime-probe` accepted the
@@ -335,12 +361,13 @@ Gate A task prompt on Codex `0.154.0` while preserving TokenPilot hooks and
 assignment evidence. Gate A observed healthy Host traffic through the supported
 Codex adapter, but no eligible Cleaner task existed: local plans reported
 `taskCount: 0`, receipts had empty `selectedTaskIds`, and the recommendation
-provider reported `recommendation_provider_unavailable`. Keep Gate B blocked
-until normal LightRSI operation produces an eligible completed internal task;
-do not manufacture registry state or invoke Cleaner mutation manually. Tasks
-7–8 are complete; Task 5 policy preparation is validated but remains
-unpublished until its separate checkout is reviewed and committed through its
-own Git workflow. Task 9 is deferred and does not block Tasks 7–8 or Task 6.
+provider reported `recommendation_provider_unavailable`. Task 6 remains
+blocked until normal LightRSI traffic reaches its attribution producer and
+persists eligible task records. Do not manufacture registry state or invoke
+Cleaner mutation manually. Tasks 7–8 are complete; Task 5 is policy prepared
+and remains unpublished until its
+separate checkout is reviewed and committed through its own Git workflow. Task
+9 is deferred and does not block Task 6 implementation or unit proof.
 
 ## Task Breakdown
 
@@ -600,8 +627,9 @@ applied receipts require committed host evidence and honest savings metrics.
 
 - Preauthorized local actions: edit declared Codex Cleaner runtime only when the
   regression proves a gap; add runtime and scheduler tests.
-- Stop for: provider replay, transport changes, cache changes, or new runtime
-  persistence outside existing journals and receipts.
+- Stop for: provider replay, provider API or routing changes, unrelated cache
+  policy changes, or new runtime persistence outside existing journals and
+  receipts.
 
 ### Task 5: Land Project OS standing-permission policy separately
 
@@ -662,7 +690,14 @@ schema, Cleaner ledger, CoS approval loop, or generated-file hand edit exists.
 - Stop for: overwriting unrelated user changes, editing generated surfaces by
   hand, or changing Runtime Grant semantics.
 
-### Task 6: Prove session binding and run narrow single-agent autonomy pilot
+### Task 6: Restore full-history attribution and run gated autonomy pilot
+
+**Purpose:** Make existing Cleaner ownership and execution work for Codex
+requests that resend cumulative history without `previous_response_id`, while
+preserving fail-closed behavior for ambiguous history and unresolved tool work.
+
+**Task Function:** adapter debugging, backend implementation, regression proof,
+and bounded live validation.
 
 **Template Profile:**
 
@@ -674,83 +709,177 @@ schema, Cleaner ledger, CoS approval loop, or generated-file hand edit exists.
 
 **Required Skills:**
 
+- `skill-systematic-debugging`
+- `skill-test-driven-development`
 - `skill-backend-verification`
 - `skill-verification-before-completion`
+- `skill-code-standards`
 
-**Files:** `components/products/cli/src/clean.ts`,
-`components/products/cli/src/hosts/codex.ts`, and focused CLI tests. Record pilot
-results in the implementation PR or task evidence, not a new runtime registry.
+**Files And Symbols:**
+
+- `components/adapters/codex/src/context-history/effective-history.ts`:
+  `buildCommittedChain`, semantic turn reconstruction, and history reason codes.
+- `components/adapters/codex/src/context-rewrite/lifecycle-input.ts`:
+  pending-turn calculation and semantic completeness gates.
+- `components/adapters/codex/src/context-cleaner/bridge.ts`:
+  `readAttributionStatus` and registry-read ordering.
+- `components/adapters/codex/src/context-cleaner/runtime.ts` and
+  `components/adapters/codex/src/proxy-runtime.ts`: reuse shared snapshot,
+  selection, execution, and receipt validation; modify only after attribution
+  proof passes.
+- `components/adapters/codex/tests/context-history-effective-history.test.ts`.
+- `components/adapters/codex/tests/context-rewrite-lifecycle-runtime.test.ts`.
+- `components/adapters/codex/tests/context-cleaner-bridge.test.ts`.
+- `components/adapters/codex/tests/context-cleaner-runtime.test.ts`.
+
+**Dependencies:** Tasks 2–5, 7–8. Task 9 remains deferred. No provider,
+Project OS registry, manual registry edit, response-ID synthesis, or new
+middleware is allowed.
+
+**Authority:** LightRSI owns session interpretation, attribution, selection,
+execution and recovery. Project OS supplies policy and retention authority.
+9Router remains responsible only for routing and protocol compatibility.
+
+Cleaner owns selection and validation. Existing Codex rewrite/rebase machinery
+applies authorized selections to provider requests. No second mutation engine is
+introduced. Full-history attribution proof does not imply full-history mutation
+support.
+
+**Safety Result:** Cleaner preserves context when session identity, history,
+LightRSI attribution, authorization, or execution support cannot be established.
+LightRSI owns task attribution and persistence. Project OS supplies policy and
+retention authority; no Project OS registry writer is required. Full-history
+Codex/9Router traffic needs reliable semantic-turn reconstruction for
+attribution and a separate supported full-history mutation path. Cleaner owns
+selection and validation; existing host rewrite/rebase machinery applies
+authorized selections. Successful or uncertain dispatch never triggers
+automatic resend. Perform autonomous cleanup only after attribution, execution,
+and recovery gates pass.
 
 **Steps:**
 
-- Activate only after Tasks 7–8 exit criteria pass. Task 9 is deferred and does
-  not block this pilot. Do not compensate with manual registry edits or default
-  automatic eviction.
-- Gate A — binding probe: use a fresh normal-agent or disposable test session,
-  not the active controller session. Prove Host-provided session identity,
-  supported LightRSI traffic, eligible registry entries, and readable status
-  without mutating context. Use the existing explicit CLI flow:
+1. Analyze existing LightRSI attribution before interpreting replayed history.
+   Reproduce current behavior with six completed cumulative-history requests,
+   default batching, and no `previous_response_id`. Record reconstructed turn
+   count, lifecycle reason codes, estimator calls, registry version and CLI
+   attribution state. History replay alone does not establish task completion.
+   Preserve the existing response-chain path as baseline.
+2. Add a full-history semantic-boundary helper behind the existing adapter
+   boundary. Establish correspondence from the existing host-history source
+   representation, then accept cumulative history only when monotonic completed
+   requests, verified prefix correspondence, unique item mapping, branch
+   consistency and complete tool-call/output closure all hold. Stable host IDs
+   or unique fingerprints may establish correspondence; chronology or similar
+   text alone may not. Ambiguous duplicates, gaps, mixed ancestry or unresolved
+   items must return a new explicit refusal reason. Preserve opaque provider
+   items and protocol identities; unsupported compaction, edits or branch
+   transitions defer cleanup while ordinary forwarding continues.
+3. Feed the proven semantic chain into existing lifecycle mapping and pending
+   turn calculation. Map validated selections into the outbound representation
+   through the existing transformation pipeline. Keep native
+   `previous_response_id` ancestry preferred when present. Do not synthesize a
+   provider response-chain head.
+4. Make attribution reads independent from estimator availability. Load and
+   validate existing session registry first; valid existing attribution remains
+   readable when estimator is down. Readable attribution is not automatically
+   current enough for execution: validate the processed-history watermark and
+   item mapping against the current branch before selecting or executing a
+   removal. Require estimator readiness only for new attribution updates. Keep
+   `available`, `waiting`, `failing`, and `disabled` distinct in CLI output.
+5. Add focused red/green proof for cumulative full-history attribution, default
+   batching, estimator persistence, independent no-link requests, duplicate
+   item ambiguity, incomplete tool pairs, estimator downtime with valid stored
+   attribution, and invalid registry identity.
+6. Select and schedule only after attribution proof passes. The active agent
+   decides cleanup is useful, selects exclusively owned eligible task IDs,
+   obtains the existing approval, and schedules the existing immutable plan.
+   Selection does not mutate immediately. Verify that selection plans and
+   execution receipts retain occurrence and ancestry evidence, not only content
+   fingerprints; add only the minimum field to the existing contract if proof
+   shows it is missing. Reordered retries reuse the stored selection and
+   receipt.
+7. Execute only at the existing authorized dispatch boundary. Immediately
+   before dispatch, revalidate current history correspondence, occurrence,
+   ownership, retention, supported mutation capability, protocol closure and
+   session lock. Reapply only a committed removal whose original item
+   occurrence maps unambiguously into the current session branch. Never extend
+   an approved removal to newly introduced matching content, even when text or
+   fingerprints are identical. Reapplication must not reopen an applied plan
+   or dispatch another provider request. Existing Codex rewrite/rebase
+   machinery applies the approved selection; Cleaner does not mutate provider
+   payloads directly.
+8. Recover from interruption using the immutable plan, receipt, claim and
+   transaction state, journal, and host execution evidence. A receipt alone may
+   be insufficient after interruption. Resolve committed, uncertain, and
+   uncommitted outcomes before any later action; never automatically resend
+   after successful or uncertain dispatch.
+9. Run Gate A with a fresh normal Codex session. Prove exact session binding,
+   complete committed snapshot, `Attribution: available`, registry watermark
+   alignment, at least one selectable completed task, and no mutation during
+   analysis. Verify estimator and registry evidence, not a fixed prompt count.
+10. Run Gate B only after the attribution and execution gates. The agent
+   decides cleanup is useful, selects
+   exclusively owned completed work, and invokes Cleaner from the same
+   disposable agent session being cleaned. Analyze only a trusted committed
+   boundary; keep current instructions and the in-flight cleanup invocation
+   protected. Execute at the next eligible boundary, continue the original
+   objective without manual terminal intervention, and survive a restart or
+   recovery check without automatic resend after successful or uncertain
+   dispatch. Verify that removed occurrences do not return on later requests.
+   Before Gate B,
+   capture a same-workload baseline. Treat functional autonomy and efficiency
+   separately: functional pass requires safe continuation and one authoritative
+   outcome; efficiency pass requires saved provider input/cost to exceed
+   estimator and replay overhead without a material completion-latency
+   regression. Record latency, estimator cost, extra upstream calls, cache
+   disruption, correctness, and applied savings even when efficiency is not
+   accepted.
+
+**Evidence Gates:**
+
+- **Attribution gate:** eligible LightRSI task records persist with automatic
+  eviction disabled; `Attribution: available` is backed by current watermark
+  and occurrence evidence.
+- **Execution gate:** the existing Codex rewrite/rebase path applies one
+  approved full-history selection after immediate safety revalidation; Cleaner
+  does not introduce a second mutation engine.
+- **Pilot gate:** one agent-initiated cleanup in the disposable session being
+  cleaned survives restart or recovery, verifies removed occurrences do not
+  return, and never automatically resends successful or uncertain dispatch.
+
+**Verification:**
 
 ```text
- lightrsi codex clean --session SESSION_ID
- lightrsi codex clean --plan PLAN_ID --select TASK_ID[,TASK_ID...]
- lightrsi codex clean --status PLAN_ID
+pnpm --dir components/adapters/codex test
+pnpm --dir components/adapters/codex typecheck
+pnpm typecheck
 ```
 
-- Before the pilot, prove the agent can identify the intended session without
-  guessing, traffic traverses the supported LightRSI Host adapter, the existing
-  registry identifies genuinely completed eligible work, no manual registry
-  modification is required, and status/recovery outcomes are readable.
-- Treat snapshot completeness, attribution availability, and selectable-task
-  count as separate gates. An incomplete snapshot remains a hard refusal; its
-  exact unresolved call IDs and recorded-output state must be investigated
-  before attribution evidence is interpreted.
-- Do not use a turn count as proof of attribution. After the committed-turn
-  threshold is reached, send and observe the next normal request, then verify
-  lifecycle evidence that the estimator ran, the registry version advanced,
-  and at least one completed task is selectable. `Attribution: available`
-  alone is insufficient.
-- Gate A must also show one continuing top-level objective producing at least one
-  distinct completed internal milestone task while the objective remains active.
-  If the estimator collapses all work into one active task, record that concrete
-  capability gap; do not add a milestone signal before the pilot proves it is
-  needed.
-- Gate B — autonomous pilot: run one long-running normal-agent implementation
-  task containing multiple completed investigations or debugging cycles. The
-  agent must decide cleaning is useful, invoke the CLI, select eligible tasks,
-  observe status, and continue the original task.
-- Clean only exclusively owned completed internal work after findings and proof
-  are durable; preserve active work, shared context, unresolved failures, and
-  evidence needed for review.
-- Measure uncached input cost, end-to-end latency, repeated investigation,
-  task correctness, acceptance success, stale/recovery incidents, and applied
-  savings. Do not judge success by removed-token count alone.
-- If a human chooses the session, selects every task, and executes every command,
-  record the result as supervised operation, not autonomous maintenance.
-- Do not run an automatic-eviction comparison in this Codex pilot. The current
-  public Codex adapter has no supported `eviction.enabled` control; enabling the
-  hardcoded lifecycle path or adding a second adapter policy field would create
-  an unreviewed policy boundary. Record automatic-eviction comparison as
-  blocked until a separate canonical control design is approved.
-- Gate C — decision: accept autonomy only when session identity is reliable,
-  eligible items are exclusively owned, claim and cancellation ownership is
-  unambiguous, uncertain dispatch is never resent, evidence and continuing
-  instructions are preserved, and the agent continues without unnecessary human
-  intervention. Otherwise record one concrete missing capability and keep policy
-  rollout staged.
+Also run the focused history, lifecycle, bridge and Cleaner tests before the
+full adapter suite. For live proof, use only the existing CLI:
 
-**Exit criteria:** Gate A proves reliable binding without mutation; Gate B
-demonstrates safe agent-initiated maintenance with no manual registry edits; and
-Gate C records either accepted autonomy evidence or one concrete missing
-capability. Policy preparation does not activate broad permission, automatic
-eviction, an adapter, an automatic trigger, or an MCP surface.
+```text
+lightrsi codex clean --session SESSION_ID
+lightrsi codex clean --plan PLAN_ID --select TASK_ID[,TASK_ID...]
+lightrsi codex clean --status PLAN_ID
+```
 
-**Authority:**
+**Exit Criteria:** Native-chain and proven full-history sessions both produce
+correct semantic turns. Valid stored attribution remains readable during
+estimator downtime but cannot authorize execution without current watermark and
+occurrence proof. The attribution gate shows eligible persisted LightRSI task
+records without manual state edits. The execution gate proves the existing
+rewrite/rebase path applies one occurrence-bound approved selection at the next
+eligible boundary while preserving protected content and tool closure. The
+pilot gate proves one disposable agent session can request cleanup, prevents
+removed occurrences from returning on later requests, and ensures successful
+or uncertain dispatch never triggers automatic resend. Otherwise keep Cleaner
+fail-closed and record one concrete missing capability.
 
-- Preauthorized local actions: run the existing explicit Cleaner CLI against a
-  user-approved test session and record bounded measurements.
-- Stop for: production automatic cleaning, deletion of shared context, loss of
-  acceptance evidence, or any uncertain provider resend.
+**Explicit Deferrals:** Response rejection classification and production-wide
+rollout remain separate concerns. Automatic eviction remains disabled. Provider
+API changes, routing changes and unrelated cache-policy changes remain out of
+scope.
 
 ### Task 7: Fix post-dispatch recovery, claim fencing, and retry identity
 
@@ -812,10 +941,11 @@ pnpm --dir components/adapters/codex run typecheck
 pnpm --dir components/packages/features/cleaner run typecheck
 ```
 
-**Exit criteria:** No duplicate generation after successful or uncertain
-dispatch; pending cancellation cannot be followed by a new claim; owner-token
-adoption is rejected; cancellation and reordered selection retries replay one
-canonical transaction identity.
+**Exit criteria:** Successful or uncertain dispatch never triggers automatic
+resend; recovery resolves the outcome before any later action. Pending
+cancellation cannot be followed by a new claim; owner-token adoption is
+rejected; cancellation and reordered selection retries replay one canonical
+transaction identity.
 
 **Authority:**
 
@@ -997,10 +1127,13 @@ Completion requires:
 3. Same-selection approval and scheduling retries are idempotent.
 4. Different selections cannot overwrite an existing approval.
 5. Uncertain provider outcomes remain recovery-required and are never resent.
-6. Existing transaction, revision, protocol-closure, journal, rewrite, and cache behavior remains unchanged outside Cleaner-selected mutation.
+6. Existing transaction, revision, protocol-closure, journal, rewrite, and
+   unrelated cache-policy behavior remains unchanged; the declared
+   full-history transformation may produce its expected cache effects without
+   changing provider or routing policy.
 7. Project OS standing permission is canonical and generated surfaces are synced.
 8. `skill-verification-before-completion` returns `verified` before changing plan status from `active` to `completed`.
-9. A successful or uncertain provider dispatch cannot cause a duplicate upstream generation.
+9. Successful or uncertain dispatch never triggers automatic resend; recovery resolves the outcome before any later action.
 10. Estimator observation works with automatic eviction disabled, and approved Cleaner remains usable.
 11. Any future automatic-eviction gate has measured latency, cost, recovery, and task-correctness evidence.
 12. Automatic eviction remains disabled by default until the pilot owner accepts net-benefit evidence.
@@ -1015,4 +1148,4 @@ Completion requires:
 - DeepAgents, Tura, Claude, or other Host runtime convergence without separate
   evidence.
 - Provider replay after uncertain dispatch.
-- Prompt-cache or transport policy changes.
+- Provider API, routing, prompt-cache, or unrelated transport-policy changes.

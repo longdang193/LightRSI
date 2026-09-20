@@ -62,6 +62,9 @@ export async function acquireDaemonRuntimeLock(
         (await readFile(lockPath, "utf8").catch(() => "")).split(/\r?\n/, 1)[0] ?? "",
         10,
       );
+      if (!Number.isInteger(ownerPid) || ownerPid <= 0) {
+        throw new Error(`TokenPilot Codex proxy runtime already running; see ${lockPath}`);
+      }
       if (ownerPid === process.pid || await isLikelyDaemonProcess(ownerPid)) {
         throw new Error(`TokenPilot Codex proxy runtime already running; see ${lockPath}`);
       }

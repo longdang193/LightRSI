@@ -161,6 +161,26 @@ test("foreground runtime lock keeps one owner when reclaiming a stale lock", asy
   }
 });
 
+test("foreground runtime lock fails closed while owner metadata is incomplete", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-runtime-empty-lock-"));
+  try {
+    const config = normalizeTokenPilotCodexConfig({
+      proxyPort: await reserveUnusedPort(),
+      stateDir: join(dir, "state"),
+    });
+    const lockPath = join(config.stateDir, "tokenpilot-codex.runtime.lock");
+    await mkdir(config.stateDir, { recursive: true });
+    await writeFile(lockPath, "", "utf8");
+
+    await assert.rejects(
+      () => acquireDaemonRuntimeLock(config),
+      /TokenPilot Codex proxy runtime already running/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 
 test("startDaemon reuses a healthy listener when its pid file is stale", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-daemon-reuse-"));
