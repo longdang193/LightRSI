@@ -1,5 +1,6 @@
 import {
   applySessionTaskRegistryPatch,
+  processedTurnWatermark,
   type DeltaView,
   type HistoryBlock,
   type SessionTaskRegistry,
@@ -171,14 +172,13 @@ function canonicalTimestamp(value: string): boolean {
 
 function validPlannerEnvelope(input: LifecyclePlannerInput<unknown>): boolean {
   const { delta, registry, snapshot } = input;
+  const processedWatermark = processedTurnWatermark(registry);
   const stableIds = snapshot.items.map((item) => item.stableId);
   return Number.isInteger(registry.version)
     && registry.version >= 0
-    && Number.isInteger(registry.lastProcessedTurnSeq)
-    && registry.lastProcessedTurnSeq >= 0
     && Number.isInteger(delta.fromTurnSeqExclusive)
     && delta.fromTurnSeqExclusive >= 0
-    && delta.fromTurnSeqExclusive === registry.lastProcessedTurnSeq
+    && delta.fromTurnSeqExclusive === processedWatermark
     && Number.isInteger(delta.toTurnSeqInclusive)
     && delta.toTurnSeqInclusive > delta.fromTurnSeqExclusive
     && snapshot.schemaVersion === MODEL_CONTEXT_REWRITE_SCHEMA_VERSION

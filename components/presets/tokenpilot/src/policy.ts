@@ -42,12 +42,19 @@ import {
   buildDeltaViewFromRawSemanticSnapshot,
   deriveCompletedSummaryPlusActiveTurnsWindow,
   buildHistoryView,
+  highestContiguousProcessedTurnSeq,
   type HistoryView,
   loadRawSemanticSnapshotWindow,
   loadSessionTaskRegistry,
   listRawSemanticTurnSeqs,
+  mergeProcessedTurnRanges,
   persistSessionTaskRegistry,
+  processedTurnRanges,
   SessionTaskRegistryVersionMismatchError,
+  sortTurnAbsIds,
+  taskIdsByLifecycle,
+  turnSeqFromAbsId,
+  turnSeqsToRanges,
   type SessionTaskRegistryPatch,
   type SessionTaskRegistry,
   type TaskLifecycle,
@@ -405,12 +412,6 @@ function titleFromTaskId(taskId: string): string {
     .join(" ");
 }
 
-function lifecycleBucketIds(tasks: Record<string, TaskState>, lifecycle: TaskLifecycle): string[] {
-  return Object.values(tasks)
-    .filter((task) => task.lifecycle === lifecycle)
-    .map((task) => task.taskId);
-}
-
 type RejectedTaskUpdate = {
   taskId: string;
   from?: TaskLifecycle;
@@ -426,6 +427,7 @@ function buildPatchFromTaskUpdates(
   registry: SessionTaskRegistry,
   updates: SemanticTaskUpdate[],
   coveredTurnAbsIds: string[],
+  coveredTurnSeqs: number[] | undefined,
   toTurnSeqInclusive: number,
   options?: {
     allowActiveToEvictable?: boolean;
@@ -452,12 +454,12 @@ function buildPatchFromTaskUpdates(
     const covered = uniqueStrings(update.coveredTurnAbsIds ?? []);
     if (!taskId || !objective) continue;
     if (covered.length === 0 && !previous) continue;
-    const supportingTurnAbsIds = uniqueStrings([
+    const supportingTurnAbsIds = sortTurnAbsIds([
       ...(previous?.span.supportingTurnAbsIds ?? []),
       ...covered,
     ]);
     if (supportingTurnAbsIds.length === 0) continue;
-    const firstTurnAbsId = previous?.span.firstTurnAbsId ?? supportingTurnAbsIds[0]!;
+    const firstTurnAbsId = supportingTurnAbsIds[0]!;
     const lastTurnAbsId = supportingTurnAbsIds[supportingTurnAbsIds.length - 1]!;
     const mergedCompletionEvidence = uniqueStrings([
       ...(previous?.completionEvidence ?? []),
@@ -576,10 +578,16 @@ function buildPatchFromTaskUpdates(
     patch: {
       upsertTasks,
       upsertTurnToTaskIds,
-      activeTaskIds: lifecycleBucketIds(nextTasks, "active"),
-      completedTaskIds: lifecycleBucketIds(nextTasks, "completed"),
-      evictableTaskIds: lifecycleBucketIds(nextTasks, "evictable"),
-      lastProcessedTurnSeq: toTurnSeqInclusive,
+      activeTaskIds: taskIdsByLifecycle(nextTasks, "active"),
+      completedTaskIds: taskIdsByLifecycle(nextTasks, "completed"),
+      evictableTaskIds: taskIdsByLifecycle(nextTasks, "evictable"),
+      processedTurnRanges: mergeProcessedTurnRanges(
+        registry,
+        coveredTurnSeqs === undefined
+          ? [{ fromTurnSeqInclusive: 1, toTurnSeqInclusive: toTurnSeqInclusive }]
+          : turnSeqsToRanges(coveredTurnSeqs),
+      ),
+      lastProcessedTurnSeq: 0,
     },
     transitions,
     touchedTaskIds: Object.keys(upsertTasks),
@@ -616,8 +624,7 @@ function sortTaskIdsByLastTurnAscending(registry: SessionTaskRegistry, taskIds: 
   const rank = (taskId: string): number => {
     const lastTurnAbsId = registry.tasks[taskId]?.span.lastTurnAbsId;
     if (typeof lastTurnAbsId !== "string") return Number.MAX_SAFE_INTEGER;
-    const parsed = Number(lastTurnAbsId.split(":t").at(-1) ?? Number.NaN);
-    return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+    return turnSeqFromAbsId(lastTurnAbsId) ?? Number.MAX_SAFE_INTEGER;
   };
   return [...taskIds].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
@@ -1356,8 +1363,12 @@ async function maybeRunTaskStateEstimator(
   }
 
   const registry = await loadSessionTaskRegistry(config.stateDir, ctx.sessionId);
+  const processed = processedTurnRanges(registry);
+  const processedWatermark = highestContiguousProcessedTurnSeq(processed);
   const turnSeqs = await listRawSemanticTurnSeqs(config.stateDir, ctx.sessionId);
-  const pendingTurnSeqs = turnSeqs.filter((turnSeq) => turnSeq > registry.lastProcessedTurnSeq);
+  const pendingTurnSeqs = turnSeqs.filter((turnSeq) => !processed.some((range) => (
+    turnSeq >= range.fromTurnSeqInclusive && turnSeq <= range.toTurnSeqInclusive
+  )));
   await appendTaskStateTrace(config.stateDir, {
     stage: "estimator_window_check",
     sessionId: ctx.sessionId,
@@ -1399,7 +1410,7 @@ async function maybeRunTaskStateEstimator(
   const estimatorWindow =
     evidenceMode === "two_state"
       ? {
-          fromTurnSeqExclusive: registry.lastProcessedTurnSeq,
+          fromTurnSeqExclusive: processedWatermark,
           toTurnSeqInclusive: slidingWindowToTurnSeqInclusive,
           completedTaskSummaries: [],
         }
@@ -1411,7 +1422,7 @@ async function maybeRunTaskStateEstimator(
           config.taskStateEstimator.completedSummaryMaxRawTurns,
         )
       : {
-          fromTurnSeqExclusive: registry.lastProcessedTurnSeq,
+          fromTurnSeqExclusive: processedWatermark,
           toTurnSeqInclusive: slidingWindowToTurnSeqInclusive,
           completedTaskSummaries: [],
         };
@@ -1585,6 +1596,7 @@ async function maybeRunTaskStateEstimator(
       registry,
       lifecycleAwareTaskUpdates,
       delta.coveredTurnAbsIds,
+      delta.coveredTurnSeqs,
       estimatorWindow.toTurnSeqInclusive,
       {
         allowActiveToEvictable: evidenceMode === "two_state",

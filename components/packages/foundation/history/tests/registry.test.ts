@@ -39,3 +39,17 @@ test("registry preserves non-contiguous processed coverage across restart", asyn
     await rm(stateDir, { recursive: true, force: true });
   }
 });
+
+test("processed ranges own the derived contiguous watermark", () => {
+  const next = applySessionTaskRegistryPatch(createEmptySessionTaskRegistry("session-coverage"), {
+    processedTurnRanges: [
+      { fromTurnSeqInclusive: 2, toTurnSeqInclusive: 2 },
+    ],
+    lastProcessedTurnSeq: 99,
+  });
+
+  assert.deepEqual(next.processedTurnRanges, [
+    { fromTurnSeqInclusive: 2, toTurnSeqInclusive: 2 },
+  ]);
+  assert.equal(next.lastProcessedTurnSeq, 0);
+});

@@ -1,7 +1,11 @@
 import {
   highestContiguousProcessedTurnSeq,
   mergeProcessedTurnRanges,
-  type ProcessedTurnRange,
+  processedTurnRanges,
+  sortTurnAbsIds,
+  taskIdsByLifecycle,
+  turnSeqFromAbsId,
+  turnSeqsToRanges,
 } from "@lightrsi/history";
 import type {
   SessionTaskRegistry,
@@ -38,33 +42,6 @@ function uniqueStrings(values: Iterable<string>): string[] {
 
 function titleFromTaskId(taskId: string): string {
   return taskId.replace(/[-_]+/g, " ").trim() || taskId;
-}
-
-function turnSeqFromAbsId(turnAbsId: string): number | undefined {
-  const value = Number.parseInt(turnAbsId.split(":t").at(-1) ?? "", 10);
-  return Number.isInteger(value) && value > 0 ? value : undefined;
-}
-
-function turnSeqsToRanges(turnSeqs: number[]): ProcessedTurnRange[] {
-  const sorted = [...new Set(turnSeqs)]
-    .filter((turnSeq) => Number.isInteger(turnSeq) && turnSeq > 0)
-    .sort((left, right) => left - right);
-  const ranges: ProcessedTurnRange[] = [];
-  for (const turnSeq of sorted) {
-    const previous = ranges.at(-1);
-    if (!previous || turnSeq > previous.toTurnSeqInclusive + 1) {
-      ranges.push({ fromTurnSeqInclusive: turnSeq, toTurnSeqInclusive: turnSeq });
-    } else {
-      previous.toTurnSeqInclusive = turnSeq;
-    }
-  }
-  return ranges;
-}
-
-function lifecycleBucketIds(tasks: Record<string, TaskState>, lifecycle: TaskLifecycle): string[] {
-  return Object.values(tasks)
-    .filter((task) => task.lifecycle === lifecycle)
-    .map((task) => task.taskId);
 }
 
 function hasCompletionEvidence(task: Pick<TaskState, "completionEvidence"> | undefined): boolean {
@@ -108,13 +85,13 @@ export function mapTaskUpdatesToRegistryPatch(params: {
     if (!taskId || !objective) continue;
     if (covered.length === 0 && !previous) continue;
 
-    const supportingTurnAbsIds = uniqueStrings([
+    const supportingTurnAbsIds = sortTurnAbsIds([
       ...(previous?.span.supportingTurnAbsIds ?? []),
       ...covered,
     ]);
     if (supportingTurnAbsIds.length === 0) continue;
 
-    const firstTurnAbsId = previous?.span.firstTurnAbsId ?? supportingTurnAbsIds[0]!;
+    const firstTurnAbsId = supportingTurnAbsIds[0]!;
     const lastTurnAbsId = supportingTurnAbsIds[supportingTurnAbsIds.length - 1]!;
     const mergedCompletionEvidence = uniqueStrings([
       ...(previous?.completionEvidence ?? []),
@@ -231,19 +208,23 @@ export function mapTaskUpdatesToRegistryPatch(params: {
     ?? coveredTurnAbsIds
       .map(turnSeqFromAbsId)
       .filter((turnSeq): turnSeq is number => turnSeq !== undefined);
+  const coveredRanges = params.coveredTurnSeqs === undefined
+    ? [{
+        fromTurnSeqInclusive: highestContiguousProcessedTurnSeq(processedTurnRanges(registry)) + 1,
+        toTurnSeqInclusive,
+      }]
+    : turnSeqsToRanges(coveredTurnSeqs);
   const processedRanges = mergeProcessedTurnRanges(
     registry,
-    params.coveredTurnSeqs
-      ? turnSeqsToRanges(coveredTurnSeqs)
-      : [{ fromTurnSeqInclusive: 1, toTurnSeqInclusive }],
+    coveredRanges,
   );
   return {
     patch: {
       upsertTasks,
       upsertTurnToTaskIds,
-      activeTaskIds: lifecycleBucketIds(nextTasks, "active"),
-      completedTaskIds: lifecycleBucketIds(nextTasks, "completed"),
-      evictableTaskIds: lifecycleBucketIds(nextTasks, "evictable"),
+      activeTaskIds: taskIdsByLifecycle(nextTasks, "active"),
+      completedTaskIds: taskIdsByLifecycle(nextTasks, "completed"),
+      evictableTaskIds: taskIdsByLifecycle(nextTasks, "evictable"),
       processedTurnRanges: processedRanges,
       lastProcessedTurnSeq: highestContiguousProcessedTurnSeq(processedRanges),
     },

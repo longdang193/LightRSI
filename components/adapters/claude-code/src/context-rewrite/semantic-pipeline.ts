@@ -3,9 +3,12 @@ import {
   listRawSemanticTurnSeqs,
   loadRawSemanticTurnRecord,
   loadSessionTaskRegistry,
+  highestContiguousProcessedTurnSeq,
   persistRawSemanticTurnRecord,
   persistSessionTaskRegistry,
+  processedTurnRanges,
   SessionTaskRegistryVersionMismatchError,
+  type ProcessedTurnRange,
   type RawSemanticTurnRecord,
   type DeltaView,
   type SessionTaskRegistry,
@@ -28,19 +31,18 @@ export type SemanticPipelineResult = {
 
 /**
  * V2 semantic-delta pipeline for one Claude request. Advances the per-session
- * turn counter, records this turn, then rebuilds the (lastProcessed, now]
+ * turn counter, records this turn, then rebuilds the unprocessed (watermark, now]
  * interval into a DeltaView, asks the estimator for task-state updates, and
- * persists the updated registry. A successful no-op estimate advances
- * lastProcessedTurnSeq too, so the same observations are not re-estimated.
+ * persists the updated registry. A successful no-op estimate records covered
+ * ranges, so the same observations are not re-estimated.
  *
  * The whole thing is fail-open: any error (I/O, estimator, version conflict)
  * leaves the request path untouched and returns { ran:false/… } instead of
  * throwing. The caller (gateway) must treat this as best-effort side work that
  * can never block or fail the actual request.
  *
- * Watermark: updateRegistryFromDelta's mapper already sets
- * lastProcessedTurnSeq = delta.toTurnSeqInclusive in the patch, so a successful
- * update returns a registry whose watermark is advanced — we persist it as-is.
+ * Watermark: updateRegistryFromDelta records covered ranges; the registry derives
+ * its contiguous watermark from those ranges.
  * Estimator failures and version mismatches leave the watermark unchanged so a
  * later turn can recover the interval safely.
  */
@@ -75,6 +77,12 @@ export function buildUniqueToolCallTurnMap(
     if (turnIds.size === 1) result.set(callId, [...turnIds][0]!);
   }
   return result;
+}
+
+function isTurnProcessed(ranges: readonly ProcessedTurnRange[], turnSeq: number): boolean {
+  return ranges.some((range) => (
+    turnSeq >= range.fromTurnSeqInclusive && turnSeq <= range.toTurnSeqInclusive
+  ));
 }
 
 /**
@@ -113,8 +121,9 @@ export async function prepareSemanticDelta(params: {
   }
 
   const registry = await loadSessionTaskRegistry(stateDir, sessionId);
-  const fromTurnSeqExclusive = registry.lastProcessedTurnSeq;
-  if (!isNewRequest && fromTurnSeqExclusive >= turnSeq) {
+  const ranges = processedTurnRanges(registry);
+  const fromTurnSeqExclusive = highestContiguousProcessedTurnSeq(ranges);
+  if (!isNewRequest && isTurnProcessed(ranges, turnSeq)) {
     return { ok: false, turnSeq, note: "already_processed" };
   }
 
@@ -122,7 +131,7 @@ export async function prepareSemanticDelta(params: {
   // build the estimator delta from the requested (lastProcessed, now] window.
   const allSeqs = await listRawSemanticTurnSeqs(stateDir, sessionId);
   const intervalSeqs = allSeqs.filter(
-    (seq) => seq > fromTurnSeqExclusive && seq <= turnSeq,
+    (seq) => seq > fromTurnSeqExclusive && seq <= turnSeq && !isTurnProcessed(ranges, seq),
   );
   const loaded = await Promise.all(
     allSeqs.map((seq) => loadRawSemanticTurnRecord(stateDir, sessionId, seq)),
@@ -135,6 +144,7 @@ export async function prepareSemanticDelta(params: {
   const delta = buildDeltaViewFromRawSemanticSnapshot(snapshot, {
     fromTurnSeqExclusive,
     toTurnSeqInclusive: turnSeq,
+    turnSeqs: intervalSeqs,
   });
 
   return {

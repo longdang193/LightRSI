@@ -10,6 +10,7 @@ import type {
   TaskLifecycle,
   TurnAnchor,
 } from "./types.js";
+import { processedTurnWatermark } from "./registry.js";
 
 export type BuildDeltaViewOptions = {
   fromTurnSeqExclusive: number;
@@ -181,9 +182,10 @@ export function deriveCompletedSummaryPlusActiveTurnsWindow(
   toTurnSeqInclusive: number;
   completedTaskSummaries: DeltaTaskSummary[];
 } {
-  const toTurnSeqInclusive = pendingTurnSeqs[Math.max(0, batchTurns - 1)] ?? pendingTurnSeqs.at(-1) ?? registry.lastProcessedTurnSeq;
+  const processedWatermark = processedTurnWatermark(registry);
+  const toTurnSeqInclusive = pendingTurnSeqs[Math.max(0, batchTurns - 1)] ?? pendingTurnSeqs.at(-1) ?? processedWatermark;
   const unresolvedTaskIds = new Set(registryTaskIdsByLifecycle(registry, ["active", "blocked"]));
-  let earliestRelevantTurnSeq = Math.max(1, registry.lastProcessedTurnSeq + 1);
+  let earliestRelevantTurnSeq = Math.max(1, processedWatermark + 1);
   for (const taskId of unresolvedTaskIds) {
     const task = registry.tasks[taskId];
     if (!task) continue;

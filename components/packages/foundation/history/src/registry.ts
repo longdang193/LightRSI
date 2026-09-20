@@ -4,6 +4,7 @@ import type {
   ProcessedTurnRange,
   SessionTaskRegistry,
   SessionTaskRegistryPatch,
+  TaskLifecycle,
   TaskState,
 } from "./types.js";
 
@@ -32,10 +33,54 @@ function normalizeProcessedTurnRanges(
   return merged;
 }
 
+export function turnSeqFromAbsId(turnAbsId: string): number | undefined {
+  const parsed = Number.parseInt(turnAbsId.split(":t").at(-1) ?? "", 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+export function sortTurnAbsIds(turnAbsIds: Iterable<string>): string[] {
+  const unique = [...new Set([...turnAbsIds].map((value) => value.trim()).filter(Boolean))];
+  return unique.sort((left, right) => {
+    const leftSeq = turnSeqFromAbsId(left);
+    const rightSeq = turnSeqFromAbsId(right);
+    if (leftSeq === undefined || rightSeq === undefined) return 0;
+    return leftSeq - rightSeq || left.localeCompare(right);
+  });
+}
+
+export function turnSeqsToRanges(turnSeqs: Iterable<number>): ProcessedTurnRange[] {
+  const sorted = [...new Set(turnSeqs)]
+    .filter((turnSeq) => Number.isInteger(turnSeq) && turnSeq > 0)
+    .sort((left, right) => left - right);
+  const ranges: ProcessedTurnRange[] = [];
+  for (const turnSeq of sorted) {
+    const previous = ranges.at(-1);
+    if (!previous || turnSeq > previous.toTurnSeqInclusive + 1) {
+      ranges.push({ fromTurnSeqInclusive: turnSeq, toTurnSeqInclusive: turnSeq });
+    } else {
+      previous.toTurnSeqInclusive = turnSeq;
+    }
+  }
+  return ranges;
+}
+
 export function processedTurnRanges(registry: SessionTaskRegistry): ProcessedTurnRange[] {
   const ranges = normalizeProcessedTurnRanges(registry.processedTurnRanges);
   if (ranges.length > 0 || registry.lastProcessedTurnSeq <= 0) return ranges;
   return [{ fromTurnSeqInclusive: 1, toTurnSeqInclusive: registry.lastProcessedTurnSeq }];
+}
+
+export function processedTurnWatermark(registry: SessionTaskRegistry): number {
+  return highestContiguousProcessedTurnSeq(processedTurnRanges(registry));
+}
+
+export function taskIdsByLifecycle(
+  tasks: Record<string, TaskState>,
+  lifecycle: TaskLifecycle,
+): string[] {
+  return Object.values(tasks)
+    .filter((task) => task.lifecycle === lifecycle)
+    .map((task) => task.taskId);
 }
 
 export function mergeProcessedTurnRanges(
@@ -139,6 +184,15 @@ function parseRegistryJson(raw: string): SessionTaskRegistry {
     throw new Error("registry file missing sessionId");
   }
   const registry = createEmptySessionTaskRegistry(sessionId);
+  const parsedRanges = Array.isArray(parsed.processedTurnRanges)
+    ? parsed.processedTurnRanges as ProcessedTurnRange[]
+    : [];
+  const legacyRange = typeof parsed.lastProcessedTurnSeq === "number" && parsed.lastProcessedTurnSeq > 0
+    ? [{ fromTurnSeqInclusive: 1, toTurnSeqInclusive: parsed.lastProcessedTurnSeq }]
+    : [];
+  const processedRanges = normalizeProcessedTurnRanges(
+    parsedRanges.length > 0 ? parsedRanges : legacyRange,
+  );
   return {
     ...registry,
     ...parsed,
@@ -151,13 +205,8 @@ function parseRegistryJson(raw: string): SessionTaskRegistry {
     taskToBlockIds: isRecord(parsed.taskToBlockIds) ? (parsed.taskToBlockIds as Record<string, string[]>) : {},
     blockToTaskIds: isRecord(parsed.blockToTaskIds) ? (parsed.blockToTaskIds as Record<string, string[]>) : {},
     turnToTaskIds: isRecord(parsed.turnToTaskIds) ? (parsed.turnToTaskIds as Record<string, string[]>) : {},
-    processedTurnRanges: normalizeProcessedTurnRanges(
-      Array.isArray(parsed.processedTurnRanges)
-        ? parsed.processedTurnRanges as ProcessedTurnRange[]
-        : undefined,
-    ),
-    lastProcessedTurnSeq:
-      typeof parsed.lastProcessedTurnSeq === "number" ? parsed.lastProcessedTurnSeq : 0,
+    processedTurnRanges: processedRanges,
+    lastProcessedTurnSeq: highestContiguousProcessedTurnSeq(processedRanges),
   };
 }
 
@@ -224,7 +273,7 @@ export function cloneSessionTaskRegistry(registry: SessionTaskRegistry): Session
     blockToTaskIds: cloneRelationMap(registry.blockToTaskIds),
     turnToTaskIds: cloneRelationMap(registry.turnToTaskIds),
     processedTurnRanges: processedTurnRanges(registry),
-    lastProcessedTurnSeq: registry.lastProcessedTurnSeq,
+    lastProcessedTurnSeq: processedTurnWatermark(registry),
     attributionSubmissions: Object.fromEntries(
       Object.entries(registry.attributionSubmissions ?? {}).map(([submissionId, record]) => [
         submissionId,
@@ -269,11 +318,16 @@ export function applySessionTaskRegistryPatch(
 
   if (patch.processedTurnRanges) {
     next.processedTurnRanges = normalizeProcessedTurnRanges(patch.processedTurnRanges);
+  } else if (typeof patch.lastProcessedTurnSeq === "number" && (next.processedTurnRanges?.length ?? 0) === 0
+    && patch.lastProcessedTurnSeq > 0) {
+    next.processedTurnRanges = [{
+      fromTurnSeqInclusive: 1,
+      toTurnSeqInclusive: patch.lastProcessedTurnSeq,
+    }];
   }
-
-  if (typeof patch.lastProcessedTurnSeq === "number") {
-    next.lastProcessedTurnSeq = patch.lastProcessedTurnSeq;
-  }
+  next.lastProcessedTurnSeq = highestContiguousProcessedTurnSeq(
+    normalizeProcessedTurnRanges(next.processedTurnRanges ?? []),
+  );
   if (patch.attributionSubmissions) {
     next.attributionSubmissions = {
       ...(next.attributionSubmissions ?? {}),

@@ -1,5 +1,6 @@
 import {
   buildDeltaViewFromRawSemanticSnapshot,
+  highestContiguousProcessedTurnSeq,
   processedTurnRanges,
   type DeltaInputMode,
   type DeltaTaskSummary,
@@ -466,13 +467,6 @@ export function buildCodexLifecycleInput(
   if (!Number.isInteger(params.registry.version) || params.registry.version < 0) {
     return deferred(["lifecycle_registry_version_invalid"]);
   }
-  if (
-    !Number.isInteger(params.registry.lastProcessedTurnSeq)
-    || params.registry.lastProcessedTurnSeq < 0
-  ) {
-    return deferred(["lifecycle_registry_watermark_invalid"]);
-  }
-
   const committed = committedHeadView(params);
   if ("status" in committed) return committed;
   const semantic = buildCodexRawSemanticTurns(committed);
@@ -484,10 +478,11 @@ export function buildCodexLifecycleInput(
   }
 
   const snapshot = rawSnapshot(params.registry.sessionId, semantic.turns);
-  if (params.registry.lastProcessedTurnSeq > snapshot.lastTurnSeq) {
+  const processed = processedTurnRanges(params.registry);
+  const processedWatermark = highestContiguousProcessedTurnSeq(processed);
+  if (processedWatermark > snapshot.lastTurnSeq) {
     return deferred(["lifecycle_registry_ahead_of_history"]);
   }
-  const processed = processedTurnRanges(params.registry);
   const blocked = new Set(semantic.blockedTurnSeqs);
   const pendingTurnSeqs = semantic.turns
     .map((turn) => turn.turnSeq)
@@ -504,7 +499,7 @@ export function buildCodexLifecycleInput(
   }
   const toTurnSeqInclusive = pendingTurnSeqs.at(-1)!;
   const delta = buildDeltaViewFromRawSemanticSnapshot(snapshot, {
-    fromTurnSeqExclusive: params.registry.lastProcessedTurnSeq,
+    fromTurnSeqExclusive: processedWatermark,
     toTurnSeqInclusive,
     turnSeqs: pendingTurnSeqs,
     currentActiveTaskHint: params.currentActiveTaskHint,
