@@ -281,6 +281,65 @@ test("Codex proxy records lifecycle attribution when context rewrite is disabled
   }
 });
 
+test("Codex proxy records lifecycle attribution without response-chain traffic", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-lifecycle-no-chain-"));
+  const sessionId = "codex-lifecycle-no-chain-session";
+  const upstream = await startLifecycleUpstream({ firstResponseToolCall: false });
+  const estimator = await startEstimator(sessionId, "noop");
+  let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  try {
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir,
+      proxyPort: await reserveUnusedPort(),
+      upstreamProvider: "OpenAI",
+      upstream: {
+        baseUrl: upstream.baseUrl,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      modules: { stabilizer: false, reduction: false },
+      taskStateEstimator: {
+        enabled: true,
+        baseUrl: estimator.baseUrl,
+        apiKey: "synthetic-estimator-key",
+        model: "synthetic-estimator",
+        batchTurns: 1,
+      },
+      contextRewrite: {
+        enabled: false,
+        providerCompatibilityProbe: "disabled",
+      },
+    } as any);
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+    });
+
+    for (let turn = 1; turn <= 4; turn += 1) {
+      const response = await fetch(`${runtime.baseUrl}/responses`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-5.4-mini",
+          stream: false,
+          metadata: { tokenpilotSessionId: sessionId },
+          input: [{ role: "user", content: `turn ${turn}` }],
+        }),
+      });
+      assert.equal(response.status, 200);
+    }
+
+    assert.ok(estimator.calls() > 0);
+    const registry = await loadSessionTaskRegistry(stateDir, sessionId);
+    assert.ok(registry.version > 0 || registry.lastProcessedTurnSeq > 0);
+  } finally {
+    await runtime?.close();
+    await estimator.close();
+    await upstream.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("Codex proxy observes lifecycle attribution without automatic eviction", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-lifecycle-runtime-"));
   const sessionId = "codex-lifecycle-runtime-session";

@@ -878,13 +878,16 @@ export async function startCodexResponsesProxy(params: {
         : activeMutationPlan(config);
       let effectiveHistoryViewPromise: ReturnType<typeof buildCodexEffectiveHistoryView> | undefined;
       const buildEffectiveHistoryViewForHead = (): ReturnType<typeof buildCodexEffectiveHistoryView> => {
-        if (!requestJournalEntry || typeof originalPayload.previous_response_id !== "string") {
-          throw new Error("Codex effective history requires a journaled response-chain request");
+        if (!requestJournalEntry) {
+          throw new Error("Codex effective history requires a journaled request");
         }
+        const headResponseId = typeof originalPayload.previous_response_id === "string"
+          ? originalPayload.previous_response_id
+          : undefined;
         return buildCodexEffectiveHistoryView({
           stateDir: config.stateDir,
           sessionId,
-          headResponseId: originalPayload.previous_response_id,
+          headResponseId,
           currentRequestId: requestJournalEntry.requestId,
           async rolloutViewBootstrap() {
             const snapshot = await loadCodexSessionSnapshot(config.stateDir, sessionId);
@@ -1020,11 +1023,6 @@ export async function startCodexResponsesProxy(params: {
             reasonCodes: ["fallback_original_request"],
             fallbackUsed: true,
           });
-        } else if (typeof originalPayload.previous_response_id !== "string"
-          || !originalPayload.previous_response_id) {
-          await emitContextRewriteStage("context_rewrite_deferred", {
-            reasonCodes: ["response_chain_head_missing"],
-          });
         } else if (!config.contextRewrite.retryOriginalRequest
           || config.contextRewrite.mode !== "response_chain_rebase"
           || config.contextRewrite.failureMode !== "bypass") {
@@ -1076,7 +1074,13 @@ export async function startCodexResponsesProxy(params: {
               registryVersionAfter: lifecycleResult.registryVersionAfter ?? null,
               estimatorUsage: lifecycleResult.estimatorUsage ?? null,
             });
-            if (lifecycleResult.preparedPlan) {
+            if (lifecycleResult.preparedPlan
+              && typeof originalPayload.previous_response_id !== "string") {
+              activeLifecyclePlan = undefined;
+              await emitContextRewriteStage("context_rewrite_deferred", {
+                reasonCodes: ["response_chain_head_missing"],
+              });
+            } else if (lifecycleResult.preparedPlan) {
               activeLifecyclePlan = codexSharedLifecyclePlan(lifecycleResult.preparedPlan.plan);
               await emitContextRewriteStage("context_rewrite_planned");
               const applied = await codexSharedContextRewriteBackend.apply({

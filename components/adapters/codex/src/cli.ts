@@ -4,6 +4,7 @@ import {
   loadTokenPilotCodexConfig,
 } from "./config.js";
 import {
+  acquireDaemonRuntimeLock,
   readDaemonStatus,
   startDaemon,
   stopDaemon,
@@ -39,12 +40,18 @@ async function main() {
   }
 
   if (command === "serve") {
+    const releaseRuntimeLock = await acquireDaemonRuntimeLock(config);
     const logger = createConsoleLogger(config.logLevel === "debug");
-    await startCodexResponsesProxy({
-      config,
-      logger,
-      codexConfigPath: process.env.CODEX_CONFIG_PATH,
-    });
+    try {
+      await startCodexResponsesProxy({
+        config,
+        logger,
+        codexConfigPath: process.env.CODEX_CONFIG_PATH,
+      });
+    } catch (error) {
+      await releaseRuntimeLock();
+      throw error;
+    }
     await new Promise(() => undefined);
     return;
   }

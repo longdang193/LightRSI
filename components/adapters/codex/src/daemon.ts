@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile, open } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -36,6 +37,39 @@ export function daemonPaths(config: TokenPilotCodexConfig): {
     pidPath: join(config.stateDir, "tokenpilot-codex.pid"),
     logPath: join(config.stateDir, "tokenpilot-codex.log"),
   };
+}
+
+export async function acquireDaemonRuntimeLock(
+  config: TokenPilotCodexConfig,
+): Promise<() => Promise<void>> {
+  const lockPath = join(config.stateDir, "tokenpilot-codex.runtime.lock");
+  await mkdir(dirname(lockPath), { recursive: true });
+  const token = `${process.pid}:${randomUUID()}`;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = await open(lockPath, "wx");
+      await handle.writeFile(`${token}\n`, "utf8");
+      await handle.close();
+      return async () => {
+        if ((await readFile(lockPath, "utf8").catch(() => "")).trim() === token) {
+          await rm(lockPath, { force: true }).catch(() => undefined);
+        }
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const ownerPid = Number.parseInt(
+        (await readFile(lockPath, "utf8").catch(() => "")).split(/\r?\n/, 1)[0] ?? "",
+        10,
+      );
+      if (ownerPid === process.pid || await isLikelyDaemonProcess(ownerPid)) {
+        throw new Error(`TokenPilot Codex proxy runtime already running; see ${lockPath}`);
+      }
+      await rm(lockPath, { force: true }).catch(() => undefined);
+    }
+  }
+
+  throw new Error(`TokenPilot Codex proxy runtime lock unavailable: ${lockPath}`);
 }
 
 function isProcessRunning(pid: number): boolean {
