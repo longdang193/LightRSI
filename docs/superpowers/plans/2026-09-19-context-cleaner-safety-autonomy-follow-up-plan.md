@@ -154,6 +154,17 @@ This is probe-transport contamination, not evidence that LightRSI's registry
 writer is missing. LightRSI correctly fails closed; do not weaken semantic
 closure validation or synthesize registry state.
 
+The user-created native task supplied on September 20, 2026 produced five
+clean ordinary turns in session `codex-synth-8bbf0f2a-27ea-4025-b052-3e0eae03e149`.
+Cleaner replay passed semantic validation, but the lifecycle trace deferred
+with `insufficient_pending_turns`; `attemptedEstimator` and
+`registryPersisted` remained false. This is the configured batching gate
+(`batchTurns: 5`) counting pending delta turns, not a fixed visible-prompt
+count. No source defect or attribution-writer defect is established. Continue
+that native task through its own UI until the estimator is attempted; do not
+send follow-ups through controller tools, which can contaminate replay with
+orphan tool-result items.
+
 ## Post-Current-Branch Follow-up Verdict
 
 The latest consolidated review is accepted as a bounded follow-up, not a second
@@ -274,7 +285,7 @@ and integration correctness.
 - Branch: `codex/context-cleaner-safety-autonomy-follow-up` (create at activation from `origin/main`)
 - Base commit: resolve current branch base from Git when activating plan
 - Expected workspace: `current LightRSI branch with committed runtime fixes; plan edits remain uncommitted; Project OS uses a separate checkout`
-- Next action: `use a fresh user-created native Codex task outside this controller, send normal turns through the supported host, then validate the attribution gate before the execution and pilot gates; do not use controller-created child tasks for proof, edit the registry, add a Project OS registry writer, synthesize response IDs, invoke Cleaner mutation manually, or bypass refusal`
+- Next action: `continue the user-created native Codex task through its own UI until the estimator runs and persists eligible attribution, then validate the attribution gate before the execution and pilot gates; do not send follow-ups through controller tools, edit the registry, add a Project OS registry writer, synthesize response IDs, invoke Cleaner mutation manually, or bypass refusal`
 - Blockers: `Task 6 remains blocked until normal LightRSI traffic reaches its attribution producer and persists eligible task records; task_registry_unavailable means usable LightRSI attribution is absent, not missing Project OS integration`
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
@@ -284,7 +295,7 @@ and integration correctness.
 | Task 3 | `completed` | current workspace | `codex` | Task 1 | locked approval, claim, and cancellation tests | approval replay and cancel/claim arbitration pass |
 | Task 4 | `completed` | current workspace | `codex` | Tasks 2–3 | uncertain-dispatch and receipt recovery tests | Codex targeted suite and typecheck pass |
 | Task 5 | `policy prepared` | separate Project OS checkout | `codex` | none | canonical policy and generated-surface verification | canonical standing-permission paragraph added; all adapters synchronized; fast contract validation passed; publication and activation remain separate; unrelated dirty README and files preserved |
-| Task 6 | `blocked` | current workspace | `codex` | Tasks 2–5, 7–8 | attribution, execution, recovery, and same-session pilot gates | binding and snapshot probes pass; controller-created live probe was rejected for orphan tool-result history; usable LightRSI attribution records remain unproven; no manual registry edit or mutation permitted |
+| Task 6 | `blocked` | current workspace | `codex` | Tasks 2–5, 7–8 | attribution, execution, recovery, and same-session pilot gates | binding and snapshot probes pass; native five-turn probe cleanly deferred at configured batch gate; usable LightRSI attribution records remain unproven; no manual registry edit or mutation permitted |
 | Task 7 | `completed` | current workspace | `codex` | Tasks 2–4 | duplicate-generation, claim-fencing, and retry regression proof | focused Codex suites, Cleaner suite, and adapter/Cleaner typechecks pass; no resend after accepted response; owner-token and cancellation fencing regressions pass |
 | Task 8 | `completed` | current workspace | `codex` | Task 7 | estimator observation plus approved Cleaner eligibility with automatic eviction disabled | lifecycle planner/runtime suites, eviction suite, adapter/eviction typechecks pass; real Codex lifecycle integration proves registry attribution → selectable task → approval → scheduling → safe execution revalidation; no automatic mutation plan is exposed |
 | Task 9 | `pending` | current workspace | `codex` | Task 8 | separate measured performance follow-up | Deferred; not required for Cleaner correctness or first pilot; no supported Codex eviction control exists |
