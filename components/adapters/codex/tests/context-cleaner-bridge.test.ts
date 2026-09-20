@@ -42,6 +42,48 @@ async function withTempState(
   }
 }
 
+test("Codex Cleaner reports attribution readiness without changing registry ownership", async () => {
+  await withTempState(async (stateDir) => {
+    const controlPlane = fakeControlPlane();
+    const disabled = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane,
+      taskStateEstimator: { enabled: false },
+    });
+    assert.equal(await disabled.readAttributionStatus?.("session-1"), "disabled");
+
+    const readyConfig = {
+      enabled: true,
+      baseUrl: "http://127.0.0.1:20128/v1",
+      apiKey: "test-key",
+      model: "combo-high",
+    };
+    const waiting = createCodexContextCleanerBridge({ stateDir, controlPlane, taskStateEstimator: readyConfig });
+    assert.equal(await waiting.readAttributionStatus?.("session-1"), "waiting");
+
+    const registry = createEmptySessionTaskRegistry("session-1");
+    await persistSessionTaskRegistry(stateDir, registry);
+    assert.equal(await waiting.readAttributionStatus?.("session-1"), "empty");
+
+    registry.tasks["task-1"] = {
+      taskId: "task-1",
+      title: "completed task",
+      objective: "completed task",
+      lifecycle: "completed",
+      completionEvidence: ["evidence"],
+      unresolvedQuestions: [],
+      span: {
+        firstTurnAbsId: "turn-1",
+        lastTurnAbsId: "turn-1",
+        supportingTurnAbsIds: ["turn-1"],
+        lastEstimatorTurnAbsId: "turn-1",
+      },
+    };
+    await persistSessionTaskRegistry(stateDir, registry);
+    assert.equal(await waiting.readAttributionStatus?.("session-1"), "available");
+  });
+});
+
 function pendingReceipt(
   status: ContextCleanPendingReceipt["status"],
 ): ContextCleanPendingReceipt {

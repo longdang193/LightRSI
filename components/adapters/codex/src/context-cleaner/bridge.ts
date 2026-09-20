@@ -3,10 +3,13 @@ import {
   type ContextCleanerControlPlane,
   type ContextCleanerSchedulingControlPlane,
   type ContextCleanerHostBridge,
+  type ContextCleanAttributionStatus,
   type ContextCleanReceipt,
   type ExecuteApprovedContextCleanParams,
 } from "@lightrsi/cleaner";
-import { loadSessionTaskRegistry } from "@lightrsi/history";
+import type { TaskStateEstimatorApiConfig } from "@lightrsi/eviction";
+import { loadSessionTaskRegistry, sessionTaskRegistryPath } from "@lightrsi/history";
+import { stat } from "node:fs/promises";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
   countTextWithPreciseTokens,
@@ -15,6 +18,7 @@ import {
 
 import { buildCodexEffectiveHistoryView, parseCodexRollout } from "../context-history/index.js";
 import { codexSharedContextRewriteBackend } from "../context-rewrite/backend.js";
+import { resolveCodexTaskStateEstimator } from "../context-rewrite/estimator-config.js";
 import { buildCodexLifecycleBackendRequest } from "../context-rewrite/lifecycle-input.js";
 import {
   loadCodexSessionSnapshot,
@@ -156,12 +160,30 @@ function validPersistableSnapshot(
 export function createCodexContextCleanerBridge(params: {
   stateDir: string;
   controlPlane: ContextCleanerControlPlane;
+  taskStateEstimator?: TaskStateEstimatorApiConfig;
 }): ContextCleanerHostBridge {
   return {
     hostId: CODEX_HOST_ID,
     rewriteMode: "response_chain_rebase",
     async listSessions() {
       return listCodexCleanerSessions(params.stateDir);
+    },
+    async readAttributionStatus(sessionId): Promise<ContextCleanAttributionStatus> {
+      const estimator = resolveCodexTaskStateEstimator({ config: params.taskStateEstimator });
+      if (estimator.status === "disabled") return "disabled";
+      if (estimator.status !== "ready") return "failing";
+      try {
+        const registry = await loadSessionTaskRegistry(params.stateDir, sessionId);
+        if (Object.keys(registry.tasks).length > 0) return "available";
+      } catch {
+        return "failing";
+      }
+      try {
+        await stat(sessionTaskRegistryPath(params.stateDir, sessionId));
+        return "empty";
+      } catch (error) {
+        return (error as NodeJS.ErrnoException).code === "ENOENT" ? "waiting" : "failing";
+      }
     },
     async readCleanSnapshot(sessionId) {
       const session = await loadCodexSessionSnapshot(params.stateDir, sessionId);

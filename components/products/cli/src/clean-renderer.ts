@@ -9,6 +9,7 @@ export type CleanPlanView = {
   unassignedTokens: number | null;
   unassignedChars: number;
   tokenCountMode: string;
+  attributionStatus?: string;
   tasks: Array<{
     taskId: string;
     label: string;
@@ -47,6 +48,7 @@ export function renderCleanPlan(plan: CleanPlanView): string {
     `Used: ${count(plan.usedTokens, plan.usedChars)} (${plan.tokenCountMode})`,
     `Protected: ${count(plan.protectedTokens, plan.protectedChars)}`,
     `Unassigned: ${count(plan.unassignedTokens, plan.unassignedChars)}`,
+    ...(plan.attributionStatus ? [`Attribution: ${plan.attributionStatus}`] : []),
   ];
   for (const task of plan.tasks) {
     lines.push(`${task.selectable ? "[selectable]" : "[protected]"} ${task.taskId}: ${task.label} — ${count(task.tokenCount, task.charCount)}`);

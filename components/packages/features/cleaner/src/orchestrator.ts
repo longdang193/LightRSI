@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
 
-import { loadSessionTaskRegistry, type SessionTaskRegistry } from "@lightrsi/history";
+import {
+  createEmptySessionTaskRegistry,
+  loadSessionTaskRegistry,
+  type SessionTaskRegistry,
+} from "@lightrsi/history";
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
   type ContextCleanPendingReceipt,
   type ContextCleanPlan,
+  type ContextCleanAttributionStatus,
   type ContextCleanReceipt,
   type ContextCleanerHostBridge,
   type ExecuteApprovedContextCleanParams,
@@ -93,8 +98,19 @@ export async function analyzeContextCleanSession(params: AnalyzeContextCleanSess
   const sessionId = params.sessionId.trim();
   if (!params.stateDir.trim() || !sessionId) throw new Error("clean_analysis_identity_invalid");
   const snapshot = await params.bridge.readCleanSnapshot(sessionId);
-  const registry = await (params.loadRegistry ?? loadSessionTaskRegistry)(params.stateDir, sessionId);
+  let registry: SessionTaskRegistry;
+  let registryLoadFailed = false;
+  try {
+    registry = await (params.loadRegistry ?? loadSessionTaskRegistry)(params.stateDir, sessionId);
+  } catch {
+    registry = createEmptySessionTaskRegistry(sessionId);
+    registryLoadFailed = true;
+  }
   if (registry.sessionId !== sessionId) throw new Error("clean_analysis_registry_identity_mismatch");
+  const attributionStatus: ContextCleanAttributionStatus = registryLoadFailed
+    ? "failing"
+    : await params.bridge.readAttributionStatus?.(sessionId)
+      ?? (Object.keys(registry.tasks).length > 0 ? "available" : "empty");
   const breakdown = buildContextCleanBreakdown({
     snapshot,
     registry,
@@ -102,7 +118,7 @@ export async function analyzeContextCleanSession(params: AnalyzeContextCleanSess
     itemTokenCounts: snapshot.itemTokenCounts,
   });
   const recommendation = await analyzeContextCleanRecommendations({ tasks: breakdown.tasks, provider: params.provider });
-  const attributionReasons = Object.keys(registry.tasks).length === 0
+  const attributionReasons = attributionStatus !== "available"
     ? ["task_registry_unavailable"]
     : [];
   const fallbackUsed = recommendation.fallbackUsed || attributionReasons.length > 0;
@@ -123,6 +139,7 @@ export async function analyzeContextCleanSession(params: AnalyzeContextCleanSess
     unassignedChars: breakdown.unassignedChars,
     tokenCountMode: breakdown.tokenCountMode,
     tokenCountMethod: breakdown.tokenCountMethod,
+    attributionStatus,
     tasks: recommendation.tasks,
     createdAt: snapshot.capturedAt,
   };

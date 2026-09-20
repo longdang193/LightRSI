@@ -226,6 +226,7 @@ export function createCodexCliBridge(target: {
       }),
       backend: createCodexCleanCommandBackend({
         stateDir,
+        taskStateEstimator: config.taskStateEstimator,
         recommendationProvider: createCodexCleanRecommendationProvider(config.taskStateEstimator),
       }),
     });

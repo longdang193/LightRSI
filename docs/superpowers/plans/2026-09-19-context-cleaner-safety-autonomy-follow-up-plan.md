@@ -114,19 +114,23 @@ Existing protections must be reused, not replaced:
 ## Live Probe Finding
 
 The first successful TokenPilot-routed probe produced an analyzed plan with no
-task IDs. Root cause: `loadSessionTaskRegistry` intentionally returns an empty
-registry when task-state estimation is disabled or no registry has been
-persisted; the Cleaner then preserves all items as unassigned but only reports
-`recommendation_provider_unavailable`, hiding the missing attribution source.
+task IDs. `loadSessionTaskRegistry` intentionally returns an empty registry
+when LightRSI has not persisted attribution; the Cleaner preserves all items
+as unassigned and fails closed. This does not prove Project OS lacks a task
+registry. The missing source is inside LightRSI's attribution producer path.
 
 The shared Cleaner orchestrator now adds `task_registry_unavailable` and marks
-the result as fallback-used when registry attribution is absent. It does not
-invent task boundaries or expose unassigned context for deletion. Focused
-regression proof covers the Codex boundary and shared orchestrator path.
+the result as fallback-used when attribution is not available. Codex Cleaner
+plans also expose `Attribution: disabled|waiting|failing|empty|available`.
+The current fresh native two-turn probe reports `waiting`; lifecycle trace
+reason `insufficient_pending_turns` shows the estimator was not reached and no
+registry writer ran. Focused regression proof covers disabled, waiting, empty,
+and available states. No task boundaries are invented and no unassigned
+context is exposed for deletion.
 
-Task 6 remains blocked until a supported session produces eligible task
-registry entries; no registry edits or estimator credentials are authorized by
-this plan.
+Task 6 remains blocked until normal LightRSI traffic reaches the attribution
+producer and persists eligible task registry entries; no registry edits or
+Project OS registry writer are authorized by this plan.
 
 ## Post-081cb4a Follow-up Verdict
 
@@ -244,8 +248,8 @@ and integration correctness.
 - Branch: `codex/context-cleaner-safety-autonomy-follow-up` (create at activation from `origin/main`)
 - Base commit: `becf974aa3a3575e7a8dd23f2b937f8a5ecf802e`
 - Expected workspace: `existing LightRSI follow-up branch with 081cb4a pushed; plan edits remain uncommitted; Project OS uses a separate checkout`
-- Next action: `produce one supported session with persisted eligible task attribution, then rerun the read-only Cleaner analysis and pilot; do not edit the registry, add estimator credentials, invoke Cleaner mutation manually, or bypass refusal; keep policy rollout staged`
-- Blockers: `Gate B now reaches a bound TokenPilot session and produces a complete snapshot, but `--status ctxclean-f6e80010f719e5e273f7c941` falls back with `task_registry_unavailable`; no task is selected, and no plan, receipt, or mutation is authorized until normal LightRSI operation persists eligible task attribution`
+- Next action: `run normal LightRSI traffic past the estimator batch threshold, verify Attribution: available and persisted eligible task IDs, then rerun read-only Cleaner analysis; do not edit the registry, add a Project OS registry writer, invoke Cleaner mutation manually, or bypass refusal`
+- Blockers: `fresh native two-turn probe reaches bound LightRSI history but reports Attribution: waiting because lifecycle reason insufficient_pending_turns prevents estimator attribution; no task is selected and no mutation is authorized`
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |

@@ -29,6 +29,13 @@ export type ContextCleanLifecycleState =
 
 export type ContextCleanRecommendation = "clean" | "keep" | "protected";
 
+export type ContextCleanAttributionStatus =
+  | "disabled"
+  | "waiting"
+  | "failing"
+  | "empty"
+  | "available";
+
 export type ContextCleanStatus =
   | "analyzed"
   | "approved"
@@ -133,6 +140,7 @@ export type ContextCleanPlan = {
   unassignedChars: number;
   tokenCountMode: ContextCleanTokenCountMode;
   tokenCountMethod: string;
+  attributionStatus?: ContextCleanAttributionStatus;
   tasks: ContextCleanTaskBreakdown[];
   createdAt: string;
 };
@@ -328,6 +336,7 @@ export interface ContextCleanerHostBridge {
   readonly rewriteMode: ModelContextRewriteMode;
   listSessions(): Promise<ContextCleanerSession[]>;
   readCleanSnapshot(sessionId: string): Promise<ContextCleanSnapshot>;
+  readAttributionStatus?(sessionId: string): Promise<ContextCleanAttributionStatus>;
   executeApprovedClean(
     params: ExecuteApprovedContextCleanParams,
   ): Promise<ContextCleanReceipt>;

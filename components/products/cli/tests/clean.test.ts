@@ -16,6 +16,7 @@ const plan = {
   unassignedTokens: 0,
   unassignedChars: 0,
   tokenCountMode: "estimated",
+  attributionStatus: "waiting",
   tasks: [{ taskId: "task-1", label: "done", description: "", lifecycleState: "completed", tokenCount: 10, charCount: 40, tokenPercent: 100, recommendation: "clean", reasonCodes: [], selectable: true }],
 };
 
@@ -42,6 +43,18 @@ test("clean CLI analyzes and approves only selected task IDs", async () => {
   assert.match((await handleCleanCommand({ args: ["--session", "session-1"], backend })).text, /plan-1/);
   assert.match((await handleCleanCommand({ args: ["--plan", "plan-1", "--select", "task-1"], backend })).text, /scheduled/);
   assert.deepEqual(calls, ["analyze", "read-plan", "task-1"]);
+});
+
+test("clean CLI renders attribution status", async () => {
+  const backend = {
+    async analyze() { return plan; },
+    async readPlan() { return plan; },
+    async approve() { return receipt; },
+    async readReceipt() { return receipt; },
+    async cancel() { return { ...receipt, status: "cancelled" }; },
+  };
+
+  assert.match((await handleCleanCommand({ args: ["--session", "session-1"], backend })).text, /Attribution: waiting/);
 });
 
 test("clean CLI canonicalizes session aliases before analysis", async () => {

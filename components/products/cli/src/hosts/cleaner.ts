@@ -37,6 +37,7 @@ function planView(plan: ContextCleanPlan): CleanPlanView {
     protectedTokens: plan.protectedTokens, protectedChars: plan.protectedChars,
     unassignedTokens: plan.unassignedTokens, unassignedChars: plan.unassignedChars,
     tokenCountMode: plan.tokenCountMode,
+    attributionStatus: plan.attributionStatus,
     tasks: plan.tasks.map((task) => ({ ...task })),
   };
 }
@@ -52,10 +53,15 @@ function receiptView(receipt: ContextCleanReceipt): CleanReceiptView {
 
 export function createCodexCleanCommandBackend(params: {
   stateDir: string;
+  taskStateEstimator?: TaskStateEstimatorApiConfig;
   recommendationProvider?: ContextCleanRecommendationProvider;
 }): CleanCommandBackend {
   const controlPlane = createContextCleanerControlPlane({ stateDir: params.stateDir });
-  const bridge = createCodexContextCleanerBridge({ stateDir: params.stateDir, controlPlane });
+  const bridge = createCodexContextCleanerBridge({
+    stateDir: params.stateDir,
+    controlPlane,
+    taskStateEstimator: params.taskStateEstimator,
+  });
   const service = createContextCleanerControlService({
     stateDir: params.stateDir,
     bridge,
