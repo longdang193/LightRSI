@@ -14,6 +14,7 @@ import type {
   CodexEffectiveHistoryView,
   JsonObject,
 } from "../context-history/types.js";
+import { codexReplayabilityForItem } from "../context-history/replayability.js";
 
 const ARGUMENT_SUMMARY_MAX_CHARS = 400;
 const RESULT_SUMMARY_MAX_CHARS = 800;
@@ -167,6 +168,7 @@ function toolKindAndSide(item: JsonObject): {
 }
 
 function isIgnorableNonSemanticItem(item: JsonObject): boolean {
+  if (codexReplayabilityForItem(item).mode === "observation_only") return true;
   const type = itemType(item);
   if (type === "reasoning" || type === "compaction") return true;
   if (type === "event_msg" || type === "turn_context") return true;
@@ -309,6 +311,7 @@ export function buildCodexRawSemanticTurns(
 
   for (const attributed of attributedItems) {
     const item = attributed.effective.item;
+    if (isIgnorableNonSemanticItem(item)) continue;
     const type = itemType(item);
     const role = typeof item.role === "string" ? item.role.toLowerCase() : "";
     if (type === "message" || (!type && role.length > 0)) {

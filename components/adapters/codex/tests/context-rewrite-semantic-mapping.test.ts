@@ -29,13 +29,14 @@ function view(params: {
   turns: Array<{ turnSeq: number; inputItemIds?: string[]; outputItemIds?: string[] }>;
   semanticComplete?: boolean;
   reasonCodes?: CodexEffectiveHistoryReasonCode[];
+  observationOnlyItems?: CodexEffectiveHistoryItem[];
   deferredItems?: CodexEffectiveHistoryItem[];
 }): CodexEffectiveHistoryView {
   return {
     history: {
       revision: "semantic-revision",
       replayableItems: params.items,
-      observationOnlyItems: [],
+      observationOnlyItems: params.observationOnlyItems ?? [],
       deferredItems: params.deferredItems ?? [],
       unresolvedCallIds: [],
       source: "proxy_journal",
@@ -380,6 +381,25 @@ test("semantic mapping accepts trusted rollout turns with observation-only bound
     "trusted rollout answer",
   ]);
   assert.doesNotMatch(JSON.stringify(mapped), /turn_context|event_msg|host-turn-7/);
+});
+
+test("semantic mapping excludes verified host tool observations from provider closure", () => {
+  const hostObservation = effective("host-observation", {
+    id: "host-output-1",
+    name: "codex_app",
+    namespace: "codex_app",
+    output: "controller result",
+    type: "function_call_output",
+  });
+  const mapped = buildCodexRawSemanticTurns(view({
+    items: [],
+    observationOnlyItems: [hostObservation],
+    turns: [{ turnSeq: 1, inputItemIds: [hostObservation.stableItemId] }],
+  }));
+  assert.equal(mapped.complete, true);
+  assert.deepEqual(mapped.reasonCodes, []);
+  assert.deepEqual(mapped.turns[0]!.toolCalls, []);
+  assert.deepEqual(mapped.turns[0]!.toolResults, []);
 });
 
 test("semantic mapping fails closed instead of dropping unsupported client tool protocols", () => {

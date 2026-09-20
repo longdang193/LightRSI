@@ -160,9 +160,13 @@ did not provide clean native traffic: its replay contained orphan
 `function_call_output` items for controller operations, and the lifecycle
 trace reported `semantic_tool_result_invalid` and
 `semantic_tool_closure_incomplete`. Cleaner returned `Attribution: waiting`.
-This is probe-transport contamination, not evidence that LightRSI's registry
-writer is missing. LightRSI correctly fails closed; do not weaken semantic
-closure validation or synthesize registry state.
+The probe also exposed one shared adapter defect: replayability classifies a
+verified `codex_app` host observation as `observation_only`, but semantic
+mapping still sends every attributed `function_call_output` through provider
+tool closure. The same item shape now has focused red/green regression in
+Task 6A. This does not prove every controller follow-up is contamination;
+provenance must distinguish host observation from orphan or cross-session
+result. Keep strict closure validation and do not synthesize registry state.
 
 The user-created native task supplied on September 20, 2026 produced five
 clean ordinary turns in session `codex-synth-8bbf0f2a-27ea-4025-b052-3e0eae03e149`.
@@ -303,10 +307,10 @@ and integration correctness.
 - Coordination owner: `single lead controller`
 - Coordination schema: `2`
 - Branch: `main`
-- Base commit: `250648d9486f439df0812be96d621edcb990d16`
-- Expected workspace: `LightRSI main with committed runtime fixes; plan edits remain uncommitted; Project OS uses a separate checkout`
-- Next action: `complete Task 6 Delivery B full-history execution/recovery proof, then run a clean native Gate A pilot; do not use controller follow-ups as probe traffic, edit the registry, add a Project OS registry writer, synthesize response IDs, invoke Cleaner mutation manually, or bypass refusal`
-- Blockers: `Task 6 is implementation-partial; live attribution through a clean native session, real-provider full-history execution/recovery, stale-plan refresh, and live autonomy remain unverified`
+- Base commit: `d62f7dc67f7ffc440d0440f06abb4239893662fb`
+- Expected workspace: `LightRSI main with committed runtime fixes; Task 6A plan, source, and regression edits remain uncommitted; Project OS uses a separate checkout`
+- Next action: `continue Task 6 Delivery B full-history execution/recovery proof; do not broaden host-observation filtering, edit the registry, add a Project OS registry writer, synthesize response IDs, invoke Cleaner mutation manually, or bypass refusal`
+- Blockers: `Task 6 remains implementation-partial with clean native attribution, real-provider full-history execution/recovery, stale-plan refresh, and live autonomy unverified`
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -315,7 +319,8 @@ and integration correctness.
 | Task 3 | `completed` | current workspace | `codex` | Task 1 | locked approval, claim, and cancellation tests | approval replay and cancel/claim arbitration pass |
 | Task 4 | `completed` | current workspace | `codex` | Tasks 2–3 | uncertain-dispatch and receipt recovery tests | Codex targeted suite and typecheck pass |
 | Task 5 | `completed` | separate Project OS checkout | `codex` | none | canonical policy and generated-surface verification | policy prepared; canonical standing-permission paragraph added; all adapters synchronized; publication and activation remain separate; unrelated dirty README and files preserved |
-| Task 6 | `blocked` | current workspace | `codex` | Tasks 2–5, 7–8 | history correctness, operational separation, execution, recovery, and same-session pilot gates | `implementation partial`: cumulative identity, explicit-head handling, attribution progress, watermark diagnostics, focused rebase proof, typechecks, build, adapter/Cleaner/eviction/CLI suites, and contract validation pass; clean native attribution, real-provider full-history execution/recovery, stale-plan refresh, and live autonomy remain unproven; no manual registry edit or mutation permitted |
+| Task 6A | `completed` | current workspace | `codex` | Tasks 2–5, 7–8 | canonical host-observation classification and semantic-mapping regression proof | Shared semantic mapping now reuses replayability classification; focused history/lifecycle/semantic tests 70/70, full adapter suite 485/485, adapter/workspace typechecks, CLI build, and diff check pass |
+| Task 6 | `blocked` | current workspace | `codex` | Task 6A and Tasks 2–5, 7–8 | history correctness, operational separation, execution, recovery, and same-session pilot gates | `implementation partial`: cumulative identity, explicit-head handling, attribution progress, watermark diagnostics, focused rebase proof, typechecks, build, adapter/Cleaner/eviction/CLI suites, and contract validation pass; clean native attribution, real-provider full-history execution/recovery, stale-plan refresh, and live autonomy remain unproven; no manual registry edit or mutation permitted |
 | Task 7 | `completed` | current workspace | `codex` | Tasks 2–4 | duplicate-generation, claim-fencing, and retry regression proof | focused Codex suites, Cleaner suite, and adapter/Cleaner typechecks pass; no resend after accepted response; owner-token and cancellation fencing regressions pass |
 | Task 8 | `completed` | current workspace | `codex` | Task 7 | estimator observation plus approved Cleaner eligibility with automatic eviction disabled | lifecycle planner/runtime suites, eviction suite, adapter/eviction typechecks pass; real Codex lifecycle integration proves registry attribution → selectable task → approval → scheduling → safe execution revalidation; no automatic mutation plan is exposed |
 | Task 9 | `pending` | current workspace | `codex` | Task 8 | separate measured performance follow-up | Deferred; not required for Cleaner correctness or first pilot; no supported Codex eviction control exists |
@@ -732,6 +737,65 @@ schema, Cleaner ledger, CoS approval loop, or generated-file hand edit exists.
 - Stop for: overwriting unrelated user changes, editing generated surfaces by
   hand, or changing Runtime Grant semantics.
 
+### Task 6A: Restore controller-compatible semantic history
+
+**Purpose:** Remove one proven adapter inconsistency: verified host
+observations are classified as `observation_only` during replayability, then
+reclassified as provider tool results during semantic mapping. Preserve strict
+closure checks for ordinary, orphaned, cross-session, and misbound tool results.
+
+**Scope:** One shared adapter correction. Do not add middleware, registries,
+synthetic response IDs, provider changes, or a second mutation path. Controller
+use is not inherently contamination; classify each item from trusted journal
+provenance and shape.
+
+**Files And Symbols:**
+
+- `components/adapters/codex/src/context-history/replayability.ts`:
+  `codexReplayabilityForItem` and the existing host-observation predicate.
+- `components/adapters/codex/src/context-rewrite/semantic-mapping.ts`:
+  `allEffectiveItems`, `isIgnorableNonSemanticItem`, and
+  `buildCodexRawSemanticTurns`.
+- `components/adapters/codex/tests/context-rewrite-semantic-mapping.test.ts`:
+  host-observation, orphan-result, and cross-session regression proof.
+- `components/adapters/codex/tests/context-history-effective-history.test.ts`:
+  journal provenance and item classification evidence when the existing
+  boundary supports it.
+- `components/adapters/codex/tests/context-rewrite-lifecycle-runtime.test.ts`:
+  lifecycle evidence that verified host observations do not block attribution.
+
+**Authority and stop conditions:**
+
+- LightRSI owns classification and semantic mapping. Host journal provenance
+  remains authoritative; host observations stay retained and protected.
+- Reuse canonical replayability classification. Do not skip every
+  `function_call_output`, trust namespace alone, fabricate `call_id`, or
+  weaken ordinary provider/client tool closure.
+- Stop if exact journal provenance cannot distinguish a verified host
+  observation from an orphan or cross-session result. Record evidence and keep
+  Cleaner fail-closed.
+
+**Red/green proof:**
+
+1. Inspect one offending journal item before semantic mapping. Record session
+   binding, request/turn provenance, type, namespace, `id`, `name`, `call_id`,
+   and output shape. Classify it as verified host observation, genuine orphan,
+   or cross-session/misbound event.
+2. Add a failing test proving a verified `codex_app` host observation without
+   `call_id` does not produce `semantic_tool_result_invalid` or
+   `semantic_tool_closure_incomplete` and remains absent from semantic tool
+   records.
+3. Add or retain regressions proving ordinary orphan and cross-session results
+   still fail closed.
+4. Make semantic mapping reuse the canonical classification. Preserve the
+   item in effective history and existing retention/protection evidence.
+5. Run focused semantic, history, lifecycle, and adapter checks.
+
+**Exit Criteria:** Verified host observations no longer create false tool
+closure errors. Ordinary unmatched or misbound tool results still fail closed.
+No changes occur to response-chain mutation, full-history execution, Cleaner
+authority, or recovery behavior.
+
 ### Task 6: Restore full-history attribution and run gated autonomy pilot
 
 **Purpose:** Make existing Cleaner ownership and execution work for Codex
@@ -763,6 +827,9 @@ and bounded live validation.
   `buildCommittedChain`, semantic turn reconstruction, and history reason codes.
 - `components/adapters/codex/src/context-rewrite/lifecycle-input.ts`:
   pending-turn calculation and semantic completeness gates.
+- `components/adapters/codex/src/context-history/replayability.ts` and
+  `components/adapters/codex/src/context-rewrite/semantic-mapping.ts`:
+  canonical host-observation classification from Task 6A; do not duplicate it.
 - `components/adapters/codex/src/context-cleaner/bridge.ts`:
   `readAttributionStatus` and registry-read ordering.
 - `components/adapters/codex/src/context-cleaner/runtime.ts` and
@@ -774,7 +841,7 @@ and bounded live validation.
 - `components/adapters/codex/tests/context-cleaner-bridge.test.ts`.
 - `components/adapters/codex/tests/context-cleaner-runtime.test.ts`.
 
-**Dependencies:** Tasks 2–5, 7–8. Task 9 remains deferred. No provider,
+**Dependencies:** Task 6A and Tasks 2–5, 7–8. Task 9 remains deferred. No provider,
 Project OS registry, manual registry edit, response-ID synthesis, or new
 middleware is allowed.
 
