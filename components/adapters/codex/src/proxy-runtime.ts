@@ -1072,6 +1072,8 @@ export async function startCodexResponsesProxy(params: {
               registryChanged: lifecycleResult.registryChanged,
               registryVersionBefore: lifecycleResult.registryVersionBefore ?? null,
               registryVersionAfter: lifecycleResult.registryVersionAfter ?? null,
+              pendingTurnCount: lifecycleResult.pendingTurnCount ?? null,
+              historyWatermark: lifecycleResult.historyWatermark ?? null,
               estimatorUsage: lifecycleResult.estimatorUsage ?? null,
             });
             if (lifecycleResult.preparedPlan

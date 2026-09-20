@@ -29,6 +29,12 @@ type CommittedTurn = {
   response: IndexedResponse;
 };
 
+type CumulativeChainResult = {
+  used: boolean;
+  chain: CommittedTurn[];
+  complete: boolean;
+};
+
 type EffectiveItemRecord = {
   stableItemId: string;
   item: JsonObject;
@@ -101,6 +107,68 @@ function modelVisibleInputItems(turn: CommittedTurn): JsonObject[] {
   return turn.request.entry.committedInputItems
     ?? turn.request.entry.acceptedInputItems
     ?? turn.request.entry.inputItems;
+}
+
+function cumulativeItemKey(item: JsonObject): string {
+  const type = typeof item.type === "string"
+    ? item.type
+    : typeof item.role === "string"
+      ? `message:${item.role}`
+      : "item";
+  const id = typeof item.id === "string" ? item.id.trim() : "";
+  if (id) return `id:${type}:${id}:${turnAttributionKey(item)}`;
+  const callId = typeof item.call_id === "string" ? item.call_id.trim() : "";
+  if (callId) return `call:${type}:${callId}:${turnAttributionKey(item)}`;
+  return `fingerprint:${turnAttributionKey(item)}`;
+}
+
+function cumulativeItemsMatchPrefix(
+  inputItems: JsonObject[],
+  expectedPrefix: JsonObject[],
+): boolean {
+  if (inputItems.length <= expectedPrefix.length) return false;
+  const inputKeys = inputItems.map(cumulativeItemKey);
+  const prefixKeys = expectedPrefix.map(cumulativeItemKey);
+  if (new Set(inputKeys).size !== inputKeys.length) return false;
+  return prefixKeys.every((key, index) => inputKeys[index] === key);
+}
+
+function buildCumulativeCommittedChain(params: {
+  requests: Map<string, IndexedRequest>;
+  responses: Map<string, IndexedResponse[]>;
+}): CumulativeChainResult {
+  const committed = committedResponses(params.responses, params.requests);
+  if (committed.length < 2) {
+    return { used: false, chain: [], complete: false };
+  }
+  if (committed.some(({ entry }) => {
+    const requestPreviousResponseId = params.requests.get(entry.requestId!)?.entry.previousResponseId;
+    return (typeof entry.previousResponseId === "string" && entry.previousResponseId.trim().length > 0)
+      || (typeof requestPreviousResponseId === "string" && requestPreviousResponseId.trim().length > 0);
+  })) {
+    return { used: false, chain: [], complete: false };
+  }
+
+  const chain = committed
+    .map((response) => ({
+      request: params.requests.get(response.entry.requestId!)!,
+      response,
+    }))
+    .sort((left, right) => left.request.entry.turnOrdinal - right.request.entry.turnOrdinal);
+  for (let index = 1; index < chain.length; index += 1) {
+    const previous = chain[index - 1]!;
+    const current = chain[index]!;
+    if (current.request.entry.turnOrdinal !== previous.request.entry.turnOrdinal + 1) {
+      return { used: true, chain: [], complete: false };
+    }
+    if (!cumulativeItemsMatchPrefix(
+      modelVisibleInputItems(current),
+      [...modelVisibleInputItems(previous), ...previous.response.entry.outputItems],
+    )) {
+      return { used: true, chain: [], complete: false };
+    }
+  }
+  return { used: true, chain, complete: true };
 }
 
 function buildCommittedChain(params: {
@@ -221,15 +289,18 @@ function buildAttributedTurns(params: {
   chain: CommittedTurn[];
   effectiveItemRecords: EffectiveItemRecord[];
   sessionId: string;
+  cumulative?: boolean;
 }): { turns: CodexEffectiveHistoryTurn[]; complete: boolean; ambiguousDuplicate: boolean } {
+  const attributionKey = params.cumulative ? cumulativeItemKey : turnAttributionKey;
   const candidates = params.effectiveItemRecords.map((entry) => ({
     ...entry,
-    key: turnAttributionKey(entry.item),
+    key: attributionKey(entry.item),
     matched: false,
   }));
   const sourceBuckets = new Map<string, Set<string>>();
   const sourceCounts = new Map<string, number>();
   const finalCounts = new Map<string, number>();
+  const seenCumulativeInputKeys = new Set<string>();
   for (const candidate of candidates) {
     finalCounts.set(candidate.key, (finalCounts.get(candidate.key) ?? 0) + 1);
   }
@@ -246,7 +317,7 @@ function buildAttributedTurns(params: {
       phase: "input" | "output",
       trackSource = true,
     ) => {
-      const key = turnAttributionKey(item);
+      const key = attributionKey(item);
       if (trackSource) {
         const bucket = `${turn.request.entry.turnOrdinal}:${phase}`;
         const buckets = sourceBuckets.get(key) ?? new Set<string>();
@@ -262,12 +333,25 @@ function buildAttributedTurns(params: {
         candidate.stableItemId,
       );
     };
-    turn.request.entry.inputItems.forEach((item) => attribute(item, "input"));
-    const sourceKeys = new Set(turn.request.entry.inputItems.map(turnAttributionKey));
+    turn.request.entry.inputItems.forEach((item) => {
+      const key = attributionKey(item);
+      const repeatedCumulativeInput = params.cumulative && seenCumulativeInputKeys.has(key);
+      attribute(item, "input", !repeatedCumulativeInput);
+      seenCumulativeInputKeys.add(key);
+    });
+    const sourceKeys = new Set(turn.request.entry.inputItems.map(attributionKey));
     modelVisibleInputItems(turn)
-      .filter((item) => !sourceKeys.has(turnAttributionKey(item)))
-      .forEach((item) => attribute(item, "input", false));
-    turn.response.entry.outputItems.forEach((item) => attribute(item, "output"));
+      .filter((item) => !sourceKeys.has(attributionKey(item)))
+      .forEach((item) => {
+        const key = attributionKey(item);
+        const repeatedCumulativeInput = params.cumulative && seenCumulativeInputKeys.has(key);
+        attribute(item, "input", false);
+        seenCumulativeInputKeys.add(key);
+      });
+    turn.response.entry.outputItems.forEach((item) => {
+      attribute(item, "output");
+      if (params.cumulative) seenCumulativeInputKeys.add(attributionKey(item));
+    });
     return sidecar;
   });
   const ambiguousDuplicate = Array.from(sourceCounts).some(([key, sourceCount]) => (
@@ -593,17 +677,25 @@ export async function buildCodexEffectiveHistoryView(
   const journalRead = await readCodexContextHistoryJournalRecoveringTail(params.stateDir, params.sessionId);
   const requests = latestRequests(journalRead.entries);
   const responses = responsesById(journalRead.entries);
-  const committedChain = buildCommittedChain({
+  const ancestryChain = buildCommittedChain({
     headResponseId: params.headResponseId,
     requests,
     responses,
   });
-  const semanticChain = buildCommittedChain({
-    headResponseId: params.headResponseId,
-    requests,
-    responses,
-    parentResponseId: semanticPreviousResponseId,
-  });
+  const cumulativeChain = params.headResponseId === undefined
+    ? buildCumulativeCommittedChain({ requests, responses })
+    : { used: false, chain: [], complete: false };
+  const committedChain = cumulativeChain.used
+    ? cumulativeChain
+    : ancestryChain;
+  const semanticChain = cumulativeChain.used
+    ? cumulativeChain
+    : buildCommittedChain({
+        headResponseId: params.headResponseId,
+        requests,
+        responses,
+        parentResponseId: semanticPreviousResponseId,
+      });
   const malformedStreams = hasMalformedStreamEvents(committedChain.chain);
   const turnSequenceConflict = hasTurnSequenceConflict(committedChain.chain);
   const emptyChainWithJournal = Boolean(
@@ -630,6 +722,7 @@ export async function buildCodexEffectiveHistoryView(
     || journalRead.malformedLineCount > 0
     || malformedStreams
     || !committedChain.complete
+    || (cumulativeChain.used && !cumulativeChain.complete)
     || emptyChainWithJournal
     || uncommittedActiveWork
     || uncommittedResponseWork,
@@ -639,6 +732,9 @@ export async function buildCodexEffectiveHistoryView(
     ...(journalRead.malformedLineCount > 0 ? ["journal_malformed_lines" as const] : []),
     ...(malformedStreams ? ["journal_malformed_stream" as const] : []),
     ...(!committedChain.complete ? ["journal_committed_chain_incomplete" as const] : []),
+    ...(cumulativeChain.used && !cumulativeChain.complete
+      ? ["journal_cumulative_correspondence_incomplete" as const]
+      : []),
     ...(emptyChainWithJournal ? ["journal_history_without_committed_chain" as const] : []),
     ...(uncommittedActiveWork ? ["journal_uncommitted_request" as const] : []),
     ...(uncommittedResponseWork ? ["journal_uncommitted_response" as const] : []),
@@ -684,6 +780,7 @@ export async function buildCodexEffectiveHistoryView(
     chain: semanticChain.chain,
     effectiveItemRecords,
     sessionId: params.sessionId,
+    cumulative: cumulativeChain.used,
   });
   const attributionIncomplete = !semanticChain.complete || !attribution.complete;
   if (attributionIncomplete) journalReasonCodes.push("journal_turn_attribution_incomplete");

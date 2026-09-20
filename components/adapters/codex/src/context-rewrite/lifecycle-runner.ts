@@ -66,6 +66,8 @@ export type CodexLifecycleRunnerResult = {
   attemptedEstimator: boolean;
   registryPersisted: boolean;
   registryChanged: boolean;
+  pendingTurnCount?: number;
+  historyWatermark?: number;
   estimatorUsage?: TaskStateEstimatorOutput["usage"];
   registryVersionBefore?: number;
   registryVersionAfter?: number;
@@ -121,6 +123,8 @@ function result(params: {
   attemptedEstimator?: boolean;
   registryPersisted?: boolean;
   registryChanged?: boolean;
+  pendingTurnCount?: number;
+  historyWatermark?: number;
   estimatorUsage?: TaskStateEstimatorOutput["usage"];
   registryVersionBefore?: number;
   registryVersionAfter?: number;
@@ -132,6 +136,12 @@ function result(params: {
     attemptedEstimator: params.attemptedEstimator ?? false,
     registryPersisted: params.registryPersisted ?? false,
     registryChanged: params.registryChanged ?? false,
+    ...(params.pendingTurnCount !== undefined
+      ? { pendingTurnCount: params.pendingTurnCount }
+      : {}),
+    ...(params.historyWatermark !== undefined
+      ? { historyWatermark: params.historyWatermark }
+      : {}),
     ...(params.estimatorUsage ? { estimatorUsage: params.estimatorUsage } : {}),
     ...(params.registryVersionBefore !== undefined
       ? { registryVersionBefore: params.registryVersionBefore }
@@ -334,6 +344,11 @@ export async function runCodexLifecyclePlanner(
       });
     }
 
+    const lifecycleDiagnostics = {
+      pendingTurnCount: lifecycleInput.pendingTurnCount,
+      historyWatermark: lifecycleInput.rawSemanticSnapshot.lastTurnSeq,
+    };
+
     const planned = await planLifecycleEviction({
       registry,
       delta: lifecycleInput.delta,
@@ -401,6 +416,7 @@ export async function runCodexLifecyclePlanner(
             ],
             attemptedEstimator: planned.attemptedEstimator,
             estimatorUsage: planned.estimatorUsage,
+            ...lifecycleDiagnostics,
             registryVersionBefore,
             registryVersionAfter: error.actualVersion,
           });
@@ -413,6 +429,7 @@ export async function runCodexLifecyclePlanner(
           ],
           attemptedEstimator: planned.attemptedEstimator,
           estimatorUsage: planned.estimatorUsage,
+          ...lifecycleDiagnostics,
           registryVersionBefore,
           registryVersionAfter: registryVersionBefore,
         });
@@ -426,6 +443,7 @@ export async function runCodexLifecyclePlanner(
       reasonCodes: runnerReasons,
       attemptedEstimator: planned.attemptedEstimator,
       estimatorUsage: planned.estimatorUsage,
+      ...lifecycleDiagnostics,
       registryPersisted,
       registryChanged: planned.registryChanged,
       registryVersionBefore,

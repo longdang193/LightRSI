@@ -90,6 +90,7 @@ export type CodexEffectiveHistoryReasonCode =
   | "journal_malformed_lines"
   | "journal_malformed_stream"
   | "journal_committed_chain_incomplete"
+  | "journal_cumulative_correspondence_incomplete"
   | "journal_history_without_committed_chain"
   | "journal_uncommitted_request"
   | "journal_uncommitted_response"

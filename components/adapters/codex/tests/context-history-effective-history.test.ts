@@ -193,6 +193,114 @@ test("CDH-04 Effective History View builds deterministic journal turn sidecars",
   });
 });
 
+test("effective history reconstructs verified cumulative requests without response ancestry", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-cumulative-history";
+    const turns = [
+      {
+        input: [{ id: "user-1", type: "message", role: "user", content: "first" }],
+        output: [{ id: "assistant-1", type: "message", role: "assistant", content: "answer 1" }],
+      },
+      {
+        input: [
+          { id: "user-1", type: "message", role: "user", content: "first" },
+          { id: "assistant-1", type: "message", role: "assistant", content: "answer 1" },
+          { id: "user-2", type: "message", role: "user", content: "second" },
+        ],
+        output: [{ id: "assistant-2", type: "message", role: "assistant", content: "answer 2" }],
+      },
+      {
+        input: [
+          { id: "user-1", type: "message", role: "user", content: "first" },
+          { id: "assistant-1", type: "message", role: "assistant", content: "answer 1" },
+          { id: "user-2", type: "message", role: "user", content: "second" },
+          { id: "assistant-2", type: "message", role: "assistant", content: "answer 2" },
+          { id: "user-3", type: "message", role: "user", content: "third" },
+        ],
+        output: [{ id: "assistant-3", type: "message", role: "assistant", content: "answer 3" }],
+      },
+    ];
+
+    for (const [index, turn] of turns.entries()) {
+      const turnOrdinal = index + 1;
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        turnOrdinal,
+        payload: { input: turn.input },
+        status: "completed",
+      });
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        response: { id: `response-${turnOrdinal}`, output: turn.output },
+        status: "completed",
+      });
+    }
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+
+    assert.equal(view.semanticComplete, true);
+    assert.deepEqual(view.reasonCodes, []);
+    assert.deepEqual(view.turns.map(({ turnSeq }) => turnSeq), [1, 2, 3]);
+  });
+});
+
+test("effective history defers ambiguous cumulative correspondence", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-ambiguous-cumulative-history";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      turnOrdinal: 1,
+      payload: { input: [{ type: "message", role: "user", content: "same" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{ type: "message", role: "assistant", content: "answer" }],
+      },
+      status: "completed",
+    });
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      turnOrdinal: 2,
+      payload: {
+        input: [
+          { type: "message", role: "user", content: "same" },
+          { type: "message", role: "assistant", content: "answer" },
+          { type: "message", role: "user", content: "same" },
+        ],
+      },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      response: { id: "response-2", output: [] },
+      status: "completed",
+    });
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+
+    assert.equal(view.semanticComplete, false);
+    assert.equal(
+      view.reasonCodes.includes("journal_cumulative_correspondence_incomplete"),
+      true,
+    );
+  });
+});
+
 test("CDH-04 Effective History View marks the current request semantic-only incomplete", async () => {
   await withTempState(async (stateDir) => {
     const sessionId = "codex-session-current-request";
