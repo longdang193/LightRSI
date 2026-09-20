@@ -248,6 +248,71 @@ test("effective history reconstructs verified cumulative requests without respon
   });
 });
 
+test("effective history accepts normalized provider replay items with stable IDs", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-cumulative-provider-normalization";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      turnOrdinal: 1,
+      payload: { input: [{ id: "user-1", type: "message", role: "user", content: "first" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{
+          id: "assistant-1",
+          type: "message",
+          status: "completed",
+          content: [{ type: "output_text", text: "answer", annotations: [], logprobs: [] }],
+          internal_chat_message_metadata_passthrough: { turn_id: "turn-1" },
+          phase: "final_answer",
+          role: "assistant",
+          metadata: { turn_id: "turn-1" },
+        }],
+      },
+      status: "completed",
+    });
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      turnOrdinal: 2,
+      payload: {
+        input: [
+          { id: "user-1", type: "message", role: "user", content: "first" },
+          {
+            id: "assistant-1",
+            type: "message",
+            content: [{ type: "output_text", text: "answer" }],
+            phase: "final_answer",
+            role: "assistant",
+          },
+          { id: "user-2", type: "message", role: "user", content: "second" },
+        ],
+      },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      response: { id: "response-2", output: [] },
+      status: "completed",
+    });
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+
+    assert.equal(view.semanticComplete, true);
+    assert.deepEqual(view.turns.map(({ turnSeq }) => turnSeq), [1, 2]);
+  });
+});
+
 test("effective history reuses identities for ID-less cumulative resends", async () => {
   await withTempState(async (stateDir) => {
     const sessionId = "codex-session-cumulative-idless";

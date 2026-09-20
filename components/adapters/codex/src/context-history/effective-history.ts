@@ -116,9 +116,9 @@ function cumulativeItemKey(item: JsonObject): string {
       ? `message:${item.role}`
       : "item";
   const id = typeof item.id === "string" ? item.id.trim() : "";
-  if (id) return `id:${type}:${id}:${turnAttributionKey(item)}`;
+  if (id) return `id:${type}:${id}`;
   const callId = typeof item.call_id === "string" ? item.call_id.trim() : "";
-  if (callId) return `call:${type}:${callId}:${turnAttributionKey(item)}`;
+  if (callId) return `call:${type}:${callId}`;
   return `fingerprint:${turnAttributionKey(item)}`;
 }
 

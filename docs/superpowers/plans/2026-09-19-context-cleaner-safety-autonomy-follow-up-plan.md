@@ -401,6 +401,23 @@ owner metadata now fails closed in the shared lock helper, with regression proof
 in the daemon suite. Journal locks already use separate freshness checks and
 showed no matching defect. This fix prevents competing local runtimes; it does
 not create attribution or authorize Cleaner mutation.
+The September 20, 2026 five-turn cumulative native probe exposed and verified
+one remaining history-reconstruction defect. Provider responses retained stable
+item IDs, but later full-history request items omitted provider-only metadata
+such as completion status, internal turn metadata, annotations, and reasoning
+content normalization. `cumulativeItemKey` incorrectly combined stable IDs with
+the full item fingerprint, so valid correspondence failed at the first replayed
+assistant item and all attribution remained incomplete. The shared fix uses
+`type + id` or `type + call_id` for explicitly identified cumulative items,
+retains fingerprint matching for ID-less items, and keeps duplicate-key
+rejection. The new regression reproduces the normalized provider shape. Focused
+history/lifecycle/Cleaner proof passes 47/47, the live journal now reconstructs
+five semantic turns with `semanticComplete: true`, and adapter typecheck passes.
+The rebuilt read-only CLI now reaches `Attribution: waiting` and reports
+`task_registry_unavailable`; it no longer refuses on incomplete history. This
+repairs attribution eligibility only; it does not create registry state, relax
+ambiguous-history refusal, or authorize mutation. The remaining wait is a
+runtime attribution-producer/batching condition, not another history mismatch.
 Project OS launcher now passes Codex `--dangerously-bypass-hook-trust` and
 `check_for_update_on_startup=false`; focused launcher tests pass, shared runtime
 deployment drift is clean, and a fresh `ctxclean-runtime-probe` accepted the
