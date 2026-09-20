@@ -189,6 +189,18 @@ traffic plus a controller `function_call_output` and unresolved tool closure.
 This is runtime probe contamination, not evidence of an attribution-writer
 defect. Cleaner correctly remains fail-closed.
 
+The fresh Gate A rerun on September 20, 2026 confirmed the same boundary. `lightrsi codex doctor` remained healthy across proxy, hooks, recovery MCP,
+daemon, 9Router, and estimator checks. Completed sessions
+`codex-synth-76b4ab59-fb0b-4b40-9166-47ab37979527`,
+`codex-synth-c47484df-6b1e-4164-ac79-32920d2fac8a`, and
+`codex-synth-eebbd5b7-4062-4741-be39-afdb6e778087` analyzed with no selection,
+fallback `yes`, and reason `task_registry_unavailable`. Current session
+`codex-synth-58d5200b-a621-42d6-a3df-dc253a19bf9a` reported
+`Attribution: available`, but only one active protected task remained; no
+selectable completed task existed. Gate B was not attempted. This is safe
+runtime/data-state refusal, not successful cleaning; no registry edit, mutation,
+resend, or new mechanism was justified.
+
 ## Post-Current-Branch Follow-up Verdict
 
 The latest consolidated review is accepted as a bounded follow-up, not a second
