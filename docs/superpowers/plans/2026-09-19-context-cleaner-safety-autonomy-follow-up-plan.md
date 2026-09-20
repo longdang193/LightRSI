@@ -124,8 +124,11 @@ the result as fallback-used when attribution is not available. Codex Cleaner
 plans also expose `Attribution: disabled|waiting|failing|empty|available`.
 The current fresh native two-turn probe reports `waiting`; lifecycle trace
 reason `insufficient_pending_turns` shows the estimator was not reached and no
-registry writer ran. Focused regression proof covers disabled, waiting, empty,
-and available states. No task boundaries are invented and no unassigned
+registry writer ran. This does not establish that five turns alone will produce
+attribution: the planner runs before the current request, so the next request
+must be observed and its lifecycle evidence must prove estimation ran and
+persisted the registry. Focused regression proof covers disabled, waiting,
+empty, and available states. No task boundaries are invented and no unassigned
 context is exposed for deletion.
 
 Task 6 remains blocked until normal LightRSI traffic reaches the attribution
@@ -698,6 +701,15 @@ results in the implementation PR or task evidence, not a new runtime registry.
   guessing, traffic traverses the supported LightRSI Host adapter, the existing
   registry identifies genuinely completed eligible work, no manual registry
   modification is required, and status/recovery outcomes are readable.
+- Treat snapshot completeness, attribution availability, and selectable-task
+  count as separate gates. An incomplete snapshot remains a hard refusal; its
+  exact unresolved call IDs and recorded-output state must be investigated
+  before attribution evidence is interpreted.
+- Do not use a turn count as proof of attribution. After the committed-turn
+  threshold is reached, send and observe the next normal request, then verify
+  lifecycle evidence that the estimator ran, the registry version advanced,
+  and at least one completed task is selectable. `Attribution: available`
+  alone is insufficient.
 - Gate A must also show one continuing top-level objective producing at least one
   distinct completed internal milestone task while the objective remains active.
   If the estimator collapses all work into one active task, record that concrete

@@ -7,6 +7,7 @@ import {
   CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION,
   CONTEXT_CLEAN_SCHEMA_VERSION,
   CONTEXT_CLEAN_STORE_SCHEMA_VERSION,
+  type ContextCleanAttributionStatus,
   type ContextCleanDispatchState,
   type ContextCleanExecutionClaim,
   type ContextCleanPlan,
@@ -137,6 +138,9 @@ const DISPATCH_STATES = new Set<ContextCleanDispatchState>([
   "recovery_required",
 ]);
 const COUNT_MODES = new Set(["exact", "estimated", "chars_only"]);
+const ATTRIBUTION_STATUSES = new Set<ContextCleanAttributionStatus>([
+  "disabled", "waiting", "failing", "empty", "available",
+]);
 
 function parseTask(value: unknown): ContextCleanPlan["tasks"][number] | undefined {
   if (!isRecord(value) || !isNonBlankString(value.taskId)
@@ -177,6 +181,7 @@ export function parseContextCleanPlan(value: unknown): ContextCleanPlan | undefi
   if (value.analysisRevision !== undefined && !isNonBlankString(value.analysisRevision)) return undefined;
   if (value.model !== undefined && !isNonBlankString(value.model)) return undefined;
   if (value.contextWindowTokens !== undefined && !finiteNonNegative(value.contextWindowTokens)) return undefined;
+  if (value.attributionStatus !== undefined && !ATTRIBUTION_STATUSES.has(value.attributionStatus as ContextCleanAttributionStatus)) return undefined;
   const tasks = value.tasks.map(parseTask);
   if (tasks.some((task) => task === undefined)) return undefined;
   if (new Set(tasks.map((task) => task!.taskId)).size !== tasks.length) return undefined;
@@ -186,6 +191,7 @@ export function parseContextCleanPlan(value: unknown): ContextCleanPlan | undefi
     ...(value.analysisRevision !== undefined ? { analysisRevision: value.analysisRevision } : {}),
     ...(value.model !== undefined ? { model: value.model } : {}),
     ...(value.contextWindowTokens !== undefined ? { contextWindowTokens: value.contextWindowTokens } : {}),
+    ...(value.attributionStatus !== undefined ? { attributionStatus: value.attributionStatus as ContextCleanAttributionStatus } : {}),
     usedTokens: value.usedTokens, usedChars: value.usedChars,
     protectedTokens: value.protectedTokens, protectedChars: value.protectedChars,
     unassignedTokens: value.unassignedTokens, unassignedChars: value.unassignedChars,

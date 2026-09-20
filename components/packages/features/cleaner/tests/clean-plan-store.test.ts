@@ -124,6 +124,20 @@ test("plan reader ignores unknown fields but fails closed for corrupt data and s
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("plan store preserves attribution status across save and read", async () => {
+  const root = await stateDir();
+  try {
+    const plan = { ...samplePlan(), attributionStatus: "waiting" as const };
+    assert.equal((await saveContextCleanPlan({ stateDir: root, plan })).bypassed, false);
+    assert.equal((await readContextCleanPlan({ stateDir: root, planId: plan.planId })).value?.plan.attributionStatus, "waiting");
+    const path = contextCleanPlanFilePath(root, plan.planId);
+    const stored = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    (stored.plan as Record<string, unknown>).attributionStatus = "unknown";
+    await writeFile(path, JSON.stringify(stored), "utf8");
+    assert.equal((await readContextCleanPlan({ stateDir: root, planId: plan.planId })).bypassed, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("execution claim is durable, revision-fenced, and single-owner", async () => {
   const root = await stateDir();
   try {
