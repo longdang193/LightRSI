@@ -136,8 +136,18 @@ function cumulativeItemsMatchPrefix(
 function buildCumulativeCommittedChain(params: {
   requests: Map<string, IndexedRequest>;
   responses: Map<string, IndexedResponse[]>;
+  headResponseId?: string;
 }): CumulativeChainResult {
-  const committed = committedResponses(params.responses, params.requests);
+  let committed = committedResponses(params.responses, params.requests);
+  if (params.headResponseId !== undefined) {
+    const head = findLastResponse(
+      committed,
+      ({ entry }) => entry.responseId === params.headResponseId,
+    );
+    if (!head) return { used: true, chain: [], complete: false };
+    const headIndex = committed.findIndex(({ journalIndex }) => journalIndex === head.journalIndex);
+    committed = committed.slice(0, headIndex + 1);
+  }
   if (committed.length < 2) {
     return { used: false, chain: [], complete: false };
   }
@@ -225,6 +235,7 @@ function itemIdentity(params: {
   turnOrdinal: number;
   phase: "input" | "output";
   itemOrdinal: number;
+  cumulativePosition?: number;
 }): string {
   const type = typeof params.item.type === "string"
     ? params.item.type
@@ -233,6 +244,9 @@ function itemIdentity(params: {
       : "item";
   if (typeof params.item.id === "string") return `${type}:id:${params.item.id}`;
   if (typeof params.item.call_id === "string") return `${type}:call:${params.item.call_id}`;
+  if (params.cumulativePosition !== undefined) {
+    return `${type}:cumulative:${params.cumulativePosition}`;
+  }
   return `${type}:synthetic:${hashJson({
     sessionId: params.sessionId,
     type,
@@ -254,8 +268,9 @@ function appendEffectiveItem(params: {
   observationOnlyItems: CodexEffectiveHistoryItem[];
   deferredItems: CodexEffectiveHistoryItem[];
   effectiveItemRecords?: EffectiveItemRecord[];
+  identityOverride?: string;
 }): string | undefined {
-  const nativeId = itemIdentity(params);
+  const nativeId = params.identityOverride ?? itemIdentity(params);
   if (params.seen.has(nativeId)) return undefined;
   params.seen.add(nativeId);
   const effectiveItem: CodexEffectiveHistoryItem = {
@@ -273,6 +288,62 @@ function appendEffectiveItem(params: {
     item: effectiveItem.item,
   });
   return effectiveItem.stableItemId;
+}
+
+function cumulativeOccurrenceKey(
+  turnOrdinal: number,
+  phase: "input" | "output",
+  itemOrdinal: number,
+): string {
+  return `${turnOrdinal}:${phase}:${itemOrdinal}`;
+}
+
+function buildCumulativeOccurrenceIdentities(params: {
+  chain: CommittedTurn[];
+  sessionId: string;
+}): Map<string, string> {
+  const identities = new Map<string, string>();
+  let committedSequence: string[] = [];
+
+  for (const turn of params.chain) {
+    const inputItems = modelVisibleInputItems(turn);
+    const inputIdentities = inputItems.map((item, itemOrdinal) => {
+      const identity = committedSequence[itemOrdinal] ?? itemIdentity({
+        item,
+        sessionId: params.sessionId,
+        turnOrdinal: turn.request.entry.turnOrdinal,
+        phase: "input",
+        itemOrdinal,
+        cumulativePosition: itemOrdinal,
+      });
+      identities.set(cumulativeOccurrenceKey(
+        turn.request.entry.turnOrdinal,
+        "input",
+        itemOrdinal,
+      ), identity);
+      return identity;
+    });
+    const outputIdentities = turn.response.entry.outputItems.map((item, itemOrdinal) => {
+      const cumulativePosition = inputIdentities.length + itemOrdinal;
+      const identity = itemIdentity({
+        item,
+        sessionId: params.sessionId,
+        turnOrdinal: turn.request.entry.turnOrdinal,
+        phase: "output",
+        itemOrdinal,
+        cumulativePosition,
+      });
+      identities.set(cumulativeOccurrenceKey(
+        turn.request.entry.turnOrdinal,
+        "output",
+        itemOrdinal,
+      ), identity);
+      return identity;
+    });
+    committedSequence = [...inputIdentities, ...outputIdentities];
+  }
+
+  return identities;
 }
 
 function turnAttributionKey(item: JsonObject): string {
@@ -682,9 +753,11 @@ export async function buildCodexEffectiveHistoryView(
     requests,
     responses,
   });
-  const cumulativeChain = params.headResponseId === undefined
-    ? buildCumulativeCommittedChain({ requests, responses })
-    : { used: false, chain: [], complete: false };
+  const cumulativeChain = buildCumulativeCommittedChain({
+    headResponseId: params.headResponseId,
+    requests,
+    responses,
+  });
   const committedChain = cumulativeChain.used
     ? cumulativeChain
     : ancestryChain;
@@ -746,6 +819,12 @@ export async function buildCodexEffectiveHistoryView(
   const deferredItems: CodexEffectiveHistoryItem[] = [];
   const effectiveItemRecords: EffectiveItemRecord[] = [];
   const seen = new Set<string>();
+  const cumulativeIdentities = cumulativeChain.used
+    ? buildCumulativeOccurrenceIdentities({
+        chain: committedChain.chain,
+        sessionId: params.sessionId,
+      })
+    : undefined;
   for (const turn of committedChain.chain) {
     modelVisibleInputItems(turn).forEach((item, itemOrdinal) => {
       appendEffectiveItem({
@@ -754,6 +833,11 @@ export async function buildCodexEffectiveHistoryView(
         turnOrdinal: turn.request.entry.turnOrdinal,
         phase: "input",
         itemOrdinal,
+        identityOverride: cumulativeIdentities?.get(cumulativeOccurrenceKey(
+          turn.request.entry.turnOrdinal,
+          "input",
+          itemOrdinal,
+        )),
         seen,
         replayableItems,
         observationOnlyItems,
@@ -768,6 +852,11 @@ export async function buildCodexEffectiveHistoryView(
         turnOrdinal: turn.request.entry.turnOrdinal,
         phase: "output",
         itemOrdinal,
+        identityOverride: cumulativeIdentities?.get(cumulativeOccurrenceKey(
+          turn.request.entry.turnOrdinal,
+          "output",
+          itemOrdinal,
+        )),
         seen,
         replayableItems,
         observationOnlyItems,
@@ -862,6 +951,7 @@ export async function buildCodexEffectiveHistoryView(
 
   const history: CodexEffectiveHistory = {
     revision,
+    historyFormat: cumulativeChain.used ? "cumulative" : "response_chain",
     replayableItems,
     observationOnlyItems,
     deferredItems,

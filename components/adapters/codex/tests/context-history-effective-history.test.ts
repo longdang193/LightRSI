@@ -248,6 +248,125 @@ test("effective history reconstructs verified cumulative requests without respon
   });
 });
 
+test("effective history reuses identities for ID-less cumulative resends", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-cumulative-idless";
+    const turns = [
+      {
+        input: [{ type: "message", role: "user", content: "first" }],
+        output: [{ type: "message", role: "assistant", content: "answer 1" }],
+      },
+      {
+        input: [
+          { type: "message", role: "user", content: "first" },
+          { type: "message", role: "assistant", content: "answer 1" },
+          { type: "message", role: "user", content: "second" },
+        ],
+        output: [{ type: "message", role: "assistant", content: "answer 2" }],
+      },
+      {
+        input: [
+          { type: "message", role: "user", content: "first" },
+          { type: "message", role: "assistant", content: "answer 1" },
+          { type: "message", role: "user", content: "second" },
+          { type: "message", role: "assistant", content: "answer 2" },
+          { type: "message", role: "user", content: "third" },
+        ],
+        output: [{ type: "message", role: "assistant", content: "answer 3" }],
+      },
+    ];
+
+    for (const [index, turn] of turns.entries()) {
+      const turnOrdinal = index + 1;
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        turnOrdinal,
+        payload: { input: turn.input },
+        status: "completed",
+      });
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        response: { id: `response-${turnOrdinal}`, output: turn.output },
+        status: "completed",
+      });
+    }
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+    const allItems = [
+      ...view.history.replayableItems,
+      ...view.history.observationOnlyItems,
+      ...view.history.deferredItems,
+    ];
+
+    assert.equal(view.semanticComplete, true);
+    assert.equal(new Set(allItems.map(({ stableItemId }) => stableItemId)).size, 6);
+    assert.deepEqual(view.turns.map(({ turnSeq }) => turnSeq), [1, 2, 3]);
+  });
+});
+
+test("effective history keeps cumulative reconstruction when an explicit head is supplied", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-cumulative-explicit-head";
+    const turns = [
+      {
+        input: [{ type: "message", role: "user", content: "first" }],
+        output: [{ type: "message", role: "assistant", content: "answer 1" }],
+      },
+      {
+        input: [
+          { type: "message", role: "user", content: "first" },
+          { type: "message", role: "assistant", content: "answer 1" },
+          { type: "message", role: "user", content: "second" },
+        ],
+        output: [{ type: "message", role: "assistant", content: "answer 2" }],
+      },
+      {
+        input: [
+          { type: "message", role: "user", content: "first" },
+          { type: "message", role: "assistant", content: "answer 1" },
+          { type: "message", role: "user", content: "second" },
+          { type: "message", role: "assistant", content: "answer 2" },
+          { type: "message", role: "user", content: "third" },
+        ],
+        output: [{ type: "message", role: "assistant", content: "answer 3" }],
+      },
+    ];
+
+    for (const [index, turn] of turns.entries()) {
+      const turnOrdinal = index + 1;
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        turnOrdinal,
+        payload: { input: turn.input },
+        status: "completed",
+      });
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        response: { id: `response-${turnOrdinal}`, output: turn.output },
+        status: "completed",
+      });
+    }
+
+    const withoutHead = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+    const withHead = await buildCodexEffectiveHistoryView({
+      stateDir,
+      sessionId,
+      headResponseId: "response-3",
+    });
+
+    assert.deepEqual(withHead.turns, withoutHead.turns);
+    assert.deepEqual(withHead.history, withoutHead.history);
+  });
+});
+
 test("effective history defers ambiguous cumulative correspondence", async () => {
   await withTempState(async (stateDir) => {
     const sessionId = "codex-session-ambiguous-cumulative-history";

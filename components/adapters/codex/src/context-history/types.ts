@@ -70,6 +70,7 @@ export type CodexEffectiveHistoryItem = {
 
 export type CodexEffectiveHistory = {
   revision: string;
+  historyFormat?: "response_chain" | "cumulative";
   replayableItems: CodexEffectiveHistoryItem[];
   observationOnlyItems: CodexEffectiveHistoryItem[];
   deferredItems: CodexEffectiveHistoryItem[];

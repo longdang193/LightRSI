@@ -169,21 +169,23 @@ export function createCodexContextCleanerBridge(params: {
       return listCodexCleanerSessions(params.stateDir);
     },
     async readAttributionStatus(sessionId): Promise<ContextCleanAttributionStatus> {
-      const estimator = resolveCodexTaskStateEstimator({ config: params.taskStateEstimator });
-      if (estimator.status === "disabled") return "disabled";
-      if (estimator.status !== "ready") return "failing";
+      let registryExists = false;
       try {
         const registry = await loadSessionTaskRegistry(params.stateDir, sessionId);
         if (Object.keys(registry.tasks).length > 0) return "available";
-      } catch {
-        return "failing";
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "failing";
       }
       try {
         await stat(sessionTaskRegistryPath(params.stateDir, sessionId));
-        return "empty";
+        registryExists = true;
       } catch (error) {
-        return (error as NodeJS.ErrnoException).code === "ENOENT" ? "waiting" : "failing";
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "failing";
       }
+      const estimator = resolveCodexTaskStateEstimator({ config: params.taskStateEstimator });
+      if (estimator.status === "disabled") return "disabled";
+      if (estimator.status !== "ready") return "failing";
+      return registryExists ? "empty" : "waiting";
     },
     async readCleanSnapshot(sessionId) {
       const session = await loadCodexSessionSnapshot(params.stateDir, sessionId);

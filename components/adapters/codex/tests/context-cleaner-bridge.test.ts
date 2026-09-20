@@ -81,6 +81,13 @@ test("Codex Cleaner reports attribution readiness without changing registry owne
     };
     await persistSessionTaskRegistry(stateDir, registry);
     assert.equal(await waiting.readAttributionStatus?.("session-1"), "available");
+
+    const estimatorDisabled = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane,
+      taskStateEstimator: { enabled: false },
+    });
+    assert.equal(await estimatorDisabled.readAttributionStatus?.("session-1"), "available");
   });
 });
 

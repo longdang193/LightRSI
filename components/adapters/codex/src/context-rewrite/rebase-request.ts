@@ -108,10 +108,80 @@ function closureReasons(items: JsonObject[]): string[] {
   return Array.from(new Set(reasons)).sort();
 }
 
+type ForwardedInputResult = {
+  items: JsonObject[];
+  reasons: string[];
+};
+
+function normalizedCurrentInput(currentInput: unknown): JsonObject[] {
+  return Array.isArray(currentInput)
+    ? currentInput.filter((item): item is JsonObject => Boolean(
+        item && typeof item === "object" && !Array.isArray(item),
+      )).map((item) => cloneJson(item))
+    : [];
+}
+
+function buildForwardedInput(params: {
+  effectiveHistory: CodexEffectiveHistory;
+  currentInput: unknown;
+  evicted: Set<string>;
+  inputFormat?: "response_chain" | "cumulative";
+}): ForwardedInputResult {
+  const currentInput = normalizedCurrentInput(params.currentInput);
+  if (params.inputFormat !== "cumulative") {
+    const currentInputKeys = new Set(currentInput.map(stableInputKey));
+    const retainedHistory = params.effectiveHistory.replayableItems
+      .filter((entry) => !params.evicted.has(entry.stableItemId))
+      .map((entry) => stripServerOwnedResponsesFields(entry.item))
+      .filter((item) => !currentInputKeys.has(stableInputKey(item)));
+    return { items: [...retainedHistory, ...currentInput], reasons: [] };
+  }
+
+  const historyOccurrences = new Map<string, string[]>();
+  for (const entry of params.effectiveHistory.replayableItems) {
+    const key = stableInputKey(entry.item);
+    const occurrences = historyOccurrences.get(key) ?? [];
+    occurrences.push(entry.stableItemId);
+    historyOccurrences.set(key, occurrences);
+  }
+
+  const currentOccurrences = new Map<string, number[]>();
+  for (const [index, item] of currentInput.entries()) {
+    const key = stableInputKey(item);
+    const indexes = currentOccurrences.get(key) ?? [];
+    indexes.push(index);
+    currentOccurrences.set(key, indexes);
+  }
+
+  const removedIndexes = new Set<number>();
+  const reasons: string[] = [];
+  for (const [key, historyStableIds] of historyOccurrences) {
+    if (!historyStableIds.some((stableItemId) => params.evicted.has(stableItemId))) continue;
+    const currentIndexes = currentOccurrences.get(key) ?? [];
+    if (currentIndexes.length !== historyStableIds.length) {
+      reasons.push(`cumulative_occurrence_ambiguous:${key}`);
+      continue;
+    }
+    for (const [ordinal, stableItemId] of historyStableIds.entries()) {
+      if (params.evicted.has(stableItemId)) {
+        const currentIndex = currentIndexes[ordinal];
+        if (currentIndex === undefined) reasons.push(`mutation_target_missing_in_current_input:${stableItemId}`);
+        else removedIndexes.add(currentIndex);
+      }
+    }
+  }
+
+  return {
+    items: currentInput.filter((_, index) => !removedIndexes.has(index)),
+    reasons,
+  };
+}
+
 export function validateCodexRebaseRequest(params: {
   baseRevision: string;
   effectiveHistory: CodexEffectiveHistory;
   currentInput: unknown;
+  inputFormat?: "response_chain" | "cumulative";
   mutationPlan: CodexMutationPlan;
 }): CodexRebaseValidation {
   const reasons: string[] = [];
@@ -135,13 +205,14 @@ export function validateCodexRebaseRequest(params: {
     if (!knownItemIds.has(stableItemId)) reasons.push(`mutation_target_missing:${stableItemId}`);
   }
 
-  const retainedItems = params.effectiveHistory.replayableItems
-    .filter((entry) => !evicted.has(entry.stableItemId))
-    .map((entry) => entry.item);
-  const currentInput = Array.isArray(params.currentInput)
-    ? params.currentInput.filter((item): item is JsonObject => Boolean(item && typeof item === "object" && !Array.isArray(item)))
-    : [];
-  reasons.push(...closureReasons([...retainedItems, ...currentInput]));
+  const forwardedInput = buildForwardedInput({
+    effectiveHistory: params.effectiveHistory,
+    currentInput: params.currentInput,
+    evicted,
+    inputFormat: params.inputFormat,
+  });
+  reasons.push(...forwardedInput.reasons);
+  reasons.push(...closureReasons(forwardedInput.items));
 
   return {
     valid: reasons.length === 0,
@@ -263,19 +334,19 @@ export function buildCodexRebaseRequest(params: {
   delete payload.previous_response_id;
 
   const evicted = evictedStableItemIds(params.mutationPlan);
-  const currentInput = Array.isArray(params.currentInput)
-    ? cloneJson(params.currentInput)
-    : [];
-  const currentInputKeys = new Set(currentInput.map(stableInputKey));
-  const retainedHistory = params.effectiveHistory.replayableItems
-    .filter((entry) => !evicted.has(entry.stableItemId))
-    .map((entry) => stripServerOwnedResponsesFields(entry.item))
-    .filter((item) => !currentInputKeys.has(stableInputKey(item)));
-
-  payload.input = [
-    ...retainedHistory,
-    ...currentInput,
-  ];
+  const forwardedInput = buildForwardedInput({
+    effectiveHistory: params.effectiveHistory,
+    currentInput: params.currentInput,
+    evicted,
+    inputFormat: typeof params.originalPayload.previous_response_id === "string"
+      && params.originalPayload.previous_response_id.trim()
+      ? "response_chain"
+      : "cumulative",
+  });
+  if (forwardedInput.reasons.length > 0) {
+    throw new Error(`Unsafe Codex rebase: ${forwardedInput.reasons.join(", ")}`);
+  }
+  payload.input = forwardedInput.items;
 
   return {
     payload,

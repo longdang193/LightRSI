@@ -37,6 +37,7 @@ export type CodexSharedBackendRequest = {
 export type CodexSharedBackendMetadata = {
   effectiveHistory: CodexEffectiveHistory;
   currentInput: unknown;
+  inputFormat?: "response_chain" | "cumulative";
   replayableItemIds: string[];
   activeTaskIds: string[];
   evictableTaskIds: string[];
@@ -138,6 +139,12 @@ export function buildCodexContextSnapshot(
     adapterMetadata: {
       effectiveHistory: history,
       currentInput,
+      inputFormat: typeof request.payload.previous_response_id === "string"
+        && request.payload.previous_response_id.trim()
+        ? "response_chain"
+        : Array.isArray(currentInput) && currentInput.length > 0
+          ? "cumulative"
+          : "response_chain",
       replayableItemIds: history.replayableItems.map((entry) => entry.stableItemId),
       activeTaskIds: normalizedStrings(request.activeTaskIds),
       evictableTaskIds: normalizedStrings(request.evictableTaskIds),
@@ -277,6 +284,7 @@ export const codexSharedContextRewriteBackend: CodexSharedContextRewriteBackend 
         baseRevision: snapshot.revision,
         effectiveHistory: metadata.effectiveHistory,
         currentInput: metadata.currentInput,
+        inputFormat: metadata.inputFormat,
         mutationPlan: codexMutationPlanFor(plan, candidates),
       });
       if (!codexValidation.valid) {

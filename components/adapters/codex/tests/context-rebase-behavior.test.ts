@@ -90,6 +90,7 @@ function baseResponsesPayload(): ResponsesPayload {
 function effectiveHistoryFixture(): CodexEffectiveHistory {
   return {
     revision: "history-rev-1",
+    historyFormat: "response_chain",
     replayableItems: [
       {
         stableItemId: "developer-1",
@@ -130,6 +131,60 @@ function effectiveHistoryFixture(): CodexEffectiveHistory {
     incomplete: false,
   };
 }
+
+test("CDR-02 removes selected cumulative occurrences from the forwarded full history", () => {
+  const history = effectiveHistoryFixture();
+  history.historyFormat = "cumulative";
+  const currentInput = history.replayableItems.map(({ item }) => item);
+  const originalPayload = {
+    ...baseResponsesPayload(),
+    input: currentInput,
+  };
+  delete originalPayload.previous_response_id;
+
+  const result = buildCodexRebaseRequest({
+    sessionId: "codex-session-cumulative-rebase",
+    planId: "plan-cumulative-rebase",
+    baseRevision: history.revision,
+    originalPayload,
+    effectiveHistory: history,
+    currentInput,
+    mutationPlan: {
+      operations: [{ type: "evict", stableItemId: "evicted-user-1" }],
+    },
+  });
+
+  const forwardedText = textFromResponsesInput(result.payload.input);
+  assert.equal(forwardedText.includes(EVICTED_SENTINEL), false);
+  assert.equal(forwardedText.includes(RETAINED_SENTINEL), true);
+});
+
+test("CDR-01 refuses ambiguous cumulative occurrence mapping", () => {
+  const history = effectiveHistoryFixture();
+  history.historyFormat = "cumulative";
+  history.replayableItems.push({
+    stableItemId: "evicted-user-duplicate",
+    nativeId: "msg-user-duplicate",
+    item: history.replayableItems[1]!.item,
+  });
+  const currentInput = history.replayableItems
+    .filter(({ stableItemId }) => stableItemId !== "evicted-user-duplicate")
+    .map(({ item }) => item);
+  const originalPayload = { ...baseResponsesPayload(), input: currentInput };
+  delete originalPayload.previous_response_id;
+
+  assert.throws(() => buildCodexRebaseRequest({
+    sessionId: "codex-session-cumulative-ambiguous",
+    planId: "plan-cumulative-ambiguous",
+    baseRevision: history.revision,
+    originalPayload,
+    effectiveHistory: history,
+    currentInput,
+    mutationPlan: {
+      operations: [{ type: "evict", stableItemId: "evicted-user-duplicate" }],
+    },
+  }), /cumulative_occurrence_ambiguous/);
+});
 
 test("CDR-02 builds a rebase request that removes previous_response_id and evicted history", async () => {
   const originalPayload = baseResponsesPayload();
