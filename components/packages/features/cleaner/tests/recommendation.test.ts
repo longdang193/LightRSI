@@ -29,6 +29,19 @@ function provider(output: unknown): ContextCleanRecommendationProvider {
   return { async recommend() { return { output }; } };
 }
 
+test("does not invoke recommendation provider when no tasks exist", async () => {
+  let calls = 0;
+  const recommendationProvider: ContextCleanRecommendationProvider = {
+    async recommend() {
+      calls += 1;
+      throw new Error("provider should not be called");
+    },
+  };
+  const result = await analyzeContextCleanRecommendations({ tasks: [], provider: recommendationProvider });
+  assert.equal(calls, 0);
+  assert.deepEqual(result, { tasks: [], confidenceByTaskId: {}, fallbackUsed: false, reasons: [] });
+});
+
 test("applies strict model recommendations without changing accounting or target identity", async () => {
   const original = task();
   const result = await analyzeContextCleanRecommendations({ tasks: [original], provider: provider(outputFor([original])) });

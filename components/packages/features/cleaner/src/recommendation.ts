@@ -228,6 +228,12 @@ export async function analyzeContextCleanRecommendations(params: {
   evidenceByTaskId?: Record<string, ContextCleanTaskEvidence>;
   provider?: ContextCleanRecommendationProvider;
 }): Promise<ContextCleanRecommendationResult> {
+  if (params.tasks.length === 0) {
+    return {
+      tasks: [], confidenceByTaskId: {}, fallbackUsed: !params.provider,
+      reasons: params.provider ? [] : ["recommendation_provider_unavailable"],
+    };
+  }
   if (!params.provider) {
     return { tasks: fallbackTasks(params.tasks), confidenceByTaskId: {}, fallbackUsed: true,
       reasons: ["recommendation_provider_unavailable"] };
