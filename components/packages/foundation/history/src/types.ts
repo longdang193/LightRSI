@@ -74,6 +74,7 @@ export type DeltaView = {
   inputMode?: DeltaInputMode;
   fromTurnSeqExclusive: number;
   toTurnSeqInclusive: number;
+  coveredTurnSeqs?: number[];
   coveredTurnAbsIds: string[];
   messages: DeltaTurnMessage[];
   toolCalls: DeltaToolCall[];
@@ -157,6 +158,11 @@ export type TaskState = {
   span: TaskStateSpan;
 };
 
+export type ProcessedTurnRange = {
+  fromTurnSeqInclusive: number;
+  toTurnSeqInclusive: number;
+};
+
 export type SessionTaskRegistryPatch = {
   upsertTasks?: Record<string, TaskState>;
   removeTaskIds?: string[];
@@ -166,6 +172,7 @@ export type SessionTaskRegistryPatch = {
   upsertTaskToBlockIds?: Record<string, string[]>;
   upsertBlockToTaskIds?: Record<string, string[]>;
   upsertTurnToTaskIds?: Record<string, string[]>;
+  processedTurnRanges?: ProcessedTurnRange[];
   lastProcessedTurnSeq?: number;
 };
 
@@ -179,6 +186,8 @@ export type SessionTaskRegistry = {
   taskToBlockIds: Record<string, string[]>;
   blockToTaskIds: Record<string, string[]>;
   turnToTaskIds: Record<string, string[]>;
+  /** Verified attribution coverage, including non-contiguous regions. */
+  processedTurnRanges?: ProcessedTurnRange[];
   lastProcessedTurnSeq: number;
 };
 

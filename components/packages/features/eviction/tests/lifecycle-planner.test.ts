@@ -244,6 +244,28 @@ test("successful no-op advances the watermark without reporting task changes", a
   ]);
 });
 
+test("successful no-op records later coverage without skipping an unresolved gap", async () => {
+  const result = await planLifecycleEviction(input({
+    registry: {
+      ...registry(),
+      lastProcessedTurnSeq: 0,
+    },
+    delta: {
+      ...delta(2),
+      coveredTurnSeqs: [2],
+    },
+    pendingTurnCount: 1,
+    estimator: estimator({ baseVersion: 0, taskUpdates: [] }),
+  }));
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(result.registry.processedTurnRanges, [
+    { fromTurnSeqInclusive: 2, toTurnSeqInclusive: 2 },
+  ]);
+  assert.equal(result.registry.lastProcessedTurnSeq, 0);
+  assert.equal(result.registryUpdateRequired, true);
+});
+
 test("observation-only eviction still updates registry without creating a mutation plan", async () => {
   const completed = registry();
   completed.version = 2;

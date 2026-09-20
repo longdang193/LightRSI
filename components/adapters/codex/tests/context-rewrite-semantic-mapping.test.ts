@@ -433,6 +433,33 @@ test("semantic mapping fails closed for partial, ambiguous and mismatched tool c
   }));
   assert.equal(partial.complete, false);
   assert.equal(partial.reasonCodes.includes("semantic_tool_closure_incomplete"), true);
+  assert.deepEqual(partial.blockedTurnSeqs, [1]);
+
+  const dirtyWithLaterWork = buildCodexRawSemanticTurns(view({
+    items: [
+      effective("orphan-call", {
+        type: "function_call",
+        call_id: "orphan",
+        name: "read",
+        arguments: "{}",
+      }),
+      effective("later-message", {
+        type: "message",
+        role: "user",
+        content: "unrelated completed work",
+      }),
+    ],
+    turns: [
+      { turnSeq: 1, outputItemIds: ["orphan-call"] },
+      { turnSeq: 2, inputItemIds: ["later-message"] },
+    ],
+  }));
+  assert.equal(dirtyWithLaterWork.complete, false);
+  assert.deepEqual(dirtyWithLaterWork.blockedTurnSeqs, [1]);
+  assert.deepEqual(dirtyWithLaterWork.turns.map((turn) => turn.turnSeq), [1, 2]);
+  assert.deepEqual(dirtyWithLaterWork.turns[1]!.messages.map(({ text }) => text), [
+    "unrelated completed work",
+  ]);
 
   const ambiguous = buildCodexRawSemanticTurns(view({
     items: [

@@ -733,3 +733,99 @@ test("lifecycle input rejects invalid snapshot identity and remains deterministi
     buildCodexLifecycleInput(structuredClone(params)),
   );
 });
+
+test("lifecycle input keeps unrelated verified work usable after a dirty turn", () => {
+  const view = sourceView({
+    items: [
+      effective("orphan-call", {
+        type: "function_call",
+        call_id: "orphan",
+        name: "read",
+        arguments: "{}",
+      }),
+      effective("later-message", {
+        type: "message",
+        role: "user",
+        content: "unrelated completed work",
+      }),
+    ],
+    turns: [
+      { turnSeq: 1, outputItemIds: ["orphan-call"] },
+      { turnSeq: 2, inputItemIds: ["later-message"] },
+    ],
+    semanticComplete: false,
+    historyIncomplete: true,
+    unresolvedCallIds: ["orphan"],
+    reasonCodes: ["history_unresolved_tool_calls"],
+  });
+  const registry = {
+    ...createEmptySessionTaskRegistry(SESSION_ID),
+    lastProcessedTurnSeq: 1,
+    processedTurnRanges: [{ fromTurnSeqInclusive: 1, toTurnSeqInclusive: 1 }],
+  };
+
+  const result = buildCodexLifecycleInput({
+    view,
+    registry,
+    backendRequest: {
+      sessionId: SESSION_ID,
+      payload: { input: [{ role: "user", content: "unrelated completed work" }] },
+      effectiveHistory: view.history,
+    },
+  });
+
+  assert.equal(result.status, "ready");
+  if (result.status !== "ready") return;
+  assert.equal(result.pendingTurnCount, 1);
+  assert.equal(result.delta.fromTurnSeqExclusive, 1);
+  assert.equal(result.delta.toTurnSeqInclusive, 2);
+  assert.deepEqual(result.delta.coveredTurnSeqs, [2]);
+  assert.deepEqual(result.delta.coveredTurnAbsIds, [`${SESSION_ID}:t2`]);
+});
+
+test("lifecycle input reprocesses a delayed result without repeating later coverage", () => {
+  const view = sourceView({
+    items: [
+      effective("call", {
+        type: "function_call",
+        call_id: "delayed",
+        name: "read",
+        arguments: "{}",
+      }),
+      effective("result", {
+        type: "function_call_output",
+        call_id: "delayed",
+        output: "resolved",
+      }),
+      effective("later-message", {
+        type: "message",
+        role: "user",
+        content: "later work already attributed",
+      }),
+    ],
+    turns: [
+      { turnSeq: 1, outputItemIds: ["call", "result"] },
+      { turnSeq: 2, inputItemIds: ["later-message"] },
+    ],
+  });
+  const registry = {
+    ...createEmptySessionTaskRegistry(SESSION_ID),
+    processedTurnRanges: [{ fromTurnSeqInclusive: 2, toTurnSeqInclusive: 2 }],
+  };
+
+  const result = buildCodexLifecycleInput({
+    view,
+    registry,
+    backendRequest: {
+      sessionId: SESSION_ID,
+      payload: { input: [{ role: "user", content: "later work already attributed" }] },
+      effectiveHistory: view.history,
+    },
+  });
+
+  assert.equal(result.status, "ready");
+  if (result.status !== "ready") return;
+  assert.equal(result.pendingTurnCount, 1);
+  assert.deepEqual(result.delta.coveredTurnSeqs, [1]);
+  assert.deepEqual(result.delta.coveredTurnAbsIds, [`${SESSION_ID}:t1`]);
+});

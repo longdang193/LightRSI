@@ -179,7 +179,7 @@ that native task through its own UI until the estimator is attempted; do not
 send follow-ups through controller tools, which can contaminate replay with
 orphan tool-result items.
 
-The September 20, 2026 implementation verification passed 484 adapter tests,
+The September 20, 2026 implementation verification passed 488 adapter tests,
 108 focused history/bridge/rebase/lifecycle tests, 92 Cleaner tests, 48
 eviction tests, 34 CLI tests, adapter and workspace typechecks, CLI build,
 and Project OS fast contract validation. A live clean probe against session
@@ -319,7 +319,7 @@ and integration correctness.
 | Task 3 | `completed` | current workspace | `codex` | Task 1 | locked approval, claim, and cancellation tests | approval replay and cancel/claim arbitration pass |
 | Task 4 | `completed` | current workspace | `codex` | Tasks 2–3 | uncertain-dispatch and receipt recovery tests | Codex targeted suite and typecheck pass |
 | Task 5 | `completed` | separate Project OS checkout | `codex` | none | canonical policy and generated-surface verification | policy prepared; canonical standing-permission paragraph added; all adapters synchronized; publication and activation remain separate; unrelated dirty README and files preserved |
-| Task 6A | `completed` | current workspace | `codex` | Tasks 2–5, 7–8 | canonical host-observation classification and semantic-mapping regression proof | Shared semantic mapping now reuses replayability classification; focused history/lifecycle/semantic tests 70/70, full adapter suite 485/485, adapter/workspace typechecks, CLI build, and diff check pass |
+| Task 6A | `completed` | current workspace | `codex` | Tasks 2–5, 7–8 | canonical host-observation classification and semantic-mapping regression proof | Shared semantic mapping now reuses replayability classification; focused history/lifecycle/semantic tests 70/70, full adapter suite 488/488, adapter/workspace typechecks, CLI build, and diff check pass |
 | Task 6 | `blocked` | current workspace | `codex` | Task 6A and Tasks 2–5, 7–8 | history correctness, operational separation, execution, recovery, and same-session pilot gates | `implementation partial`: cumulative identity, explicit-head handling, attribution progress, watermark diagnostics, focused rebase proof, typechecks, build, adapter/Cleaner/eviction/CLI suites, and contract validation pass; clean native attribution, real-provider full-history execution/recovery, stale-plan refresh, and live autonomy remain unproven; no manual registry edit or mutation permitted |
 | Task 7 | `completed` | current workspace | `codex` | Tasks 2–4 | duplicate-generation, claim-fencing, and retry regression proof | focused Codex suites, Cleaner suite, and adapter/Cleaner typechecks pass; no resend after accepted response; owner-token and cancellation fencing regressions pass |
 | Task 8 | `completed` | current workspace | `codex` | Task 7 | estimator observation plus approved Cleaner eligibility with automatic eviction disabled | lifecycle planner/runtime suites, eviction suite, adapter/eviction typechecks pass; real Codex lifecycle integration proves registry attribution → selectable task → approval → scheduling → safe execution revalidation; no automatic mutation plan is exposed |
@@ -813,11 +813,13 @@ closure errors. Ordinary unmatched or misbound tool results still fail closed.
 No changes occur to response-chain mutation, full-history execution, Cleaner
 authority, or recovery behavior.
 
-### Task 6: Restore full-history attribution and run gated autonomy pilot
+### Task 6: Restore dirty full-history attribution and run gated autonomy pilot
 
-**Purpose:** Make existing Cleaner ownership and execution work for Codex
-requests that resend cumulative history without `previous_response_id`, while
-preserving fail-closed behavior for ambiguous history and unresolved tool work.
+**Purpose:** Make existing Cleaner ownership and execution work for long, dirty
+Codex sessions that resend cumulative history without `previous_response_id`,
+including controller traffic, retries, interruptions, and incomplete exchanges.
+Preserve fail-closed behavior for ambiguous history and unresolved tool work;
+do not require a pristine session.
 
 **Task Function:** adapter debugging, backend implementation, regression proof,
 and bounded live validation.
@@ -899,12 +901,40 @@ and recovery gates pass.
   estimator or mutation capability; attribution must not require rewrite
   support; mutation must retain current ownership, retention, applicability,
   protocol-closure, and execution-fencing checks.
-- A committed-prefix boundary is the longest contiguous verified turn prefix.
-  Every included tool call must have exactly one included result. Malformed,
-  unresolved, reordered, ambiguous, or unknown history stops attribution before
-  the affected turn; no estimator input, selection, or mutation may cross that
-  boundary. The protected suffix remains ordinary context.
-- Stale-plan recovery may reanalyze against the current committed boundary and
+- A verified region is a derived view over existing journal evidence, not a new
+  state owner. Derive contiguous verified occurrence ranges from stable
+  occurrence IDs, semantic-turn correspondence, attribution, protection
+  reasons, and the current history revision. Do not add region lifecycle state,
+  a region dependency graph, or a region-specific watermark unless a failing
+  restart test proves the existing attribution contract cannot represent the
+  required coverage.
+- Every included tool call must have exactly one included result. Malformed,
+  unresolved, reordered, ambiguous, or unknown history stops attribution for the
+  affected region; unrelated verified regions may remain usable. The protected
+  dirty suffix remains ordinary context and is never silently repaired,
+  discarded, or used to authorize cleanup.
+- Resolve scalar watermark gaps explicitly. `lastProcessedTurnSeq` must not
+  advance across unresolved coverage. If later verified occurrences can be
+  processed, retain unresolved coverage in the existing attribution mechanism;
+  do not hide the gap by advancing to the latest turn or repeatedly estimate
+  unchanged later work. Add only the minimum coverage evidence to the existing
+  registry if current occurrence attribution cannot preserve this across
+  restart; do not create a second ledger.
+- Use concrete target evidence, not an absolute semantic-independence claim:
+  target occurrences and current contents are identifiable; existing
+  attribution proves completion and exclusive ownership; required instructions,
+  evidence, and dependencies remain retained; and any unresolved uncertainty
+  that can affect those decisions blocks those targets. A later verified
+  boundary restores structural correspondence but does not by itself prove
+  semantic independence.
+- Partial attribution may support analysis and stored-result reuse. Execution
+  additionally requires the adapter to construct a provider-valid request while
+  preserving protected and uncertain content, tool closure, and protocol
+  identity. Do not treat preserved dirty content as proof of provider validity.
+- Localized re-evaluation is an optimization. Reuse unaffected evidence when
+  impact is bounded; allow a conservative full rebuild when affected scope
+  cannot be determined. Prevent duplicate estimation against unchanged history.
+- Stale-plan recovery may reanalyze against the current verified regions and
   reuse valid stored attribution, but it must not silently add targets,
   reinterpret approval, or create a replacement dispatch while an earlier
   dispatch is successful or uncertain. Standing permission may authorize a new
@@ -921,12 +951,15 @@ and recovery gates pass.
   cumulative resends, resolve explicit heads without changing history format,
   keep host-source correspondence separate from outbound transformation, and
   prove proxy and Cleaner expose identical occurrence IDs and semantic-turn
-  membership. Estimator progress is insufficient; at least one genuinely
-  selectable completed task must be produced.
+  membership. Dirty controller/tool traffic, retries, interruptions, and
+  incomplete exchanges must block only affected regions while unrelated
+  verified completed work remains usable. Estimator progress is insufficient;
+  at least one genuinely selectable completed task must be produced.
 - **Delivery B — operational separation and execution:** make observation and
   stored-attribution reads independent from mutation settings, support a
-  verified committed prefix without weakening removal checks, and extend the
-  existing transaction/rebase machinery for verified cumulative execution.
+  verified region without weakening removal checks, and extend the existing
+  transaction/rebase machinery only when it can construct a provider-valid
+  cumulative request while preserving protected dirty content.
   Split acceptance into two checks: (B1) observation and stored attribution
   remain usable without estimator or mutation availability; (B2) one approved
   occurrence-bound cumulative removal is applied through existing transaction,
@@ -950,18 +983,18 @@ and recovery gates pass.
    historical occurrence, reuse its original stable identity; assign identity
    only to newly introduced occurrences. Never globally deduplicate by content.
    Accept cumulative history only when monotonic completed requests, verified
-   prefix correspondence, unique item mapping, branch consistency and complete
-   relevant tool relationships hold. Compute the longest contiguous verified
-   committed prefix; do not discard a valid prefix because a later turn is
-   incomplete, but do not attribute across that later turn. A call/result pair
-   may span turns, provided both occurrences are inside the selected boundary.
+    prefix correspondence, unique item mapping, branch consistency and complete
+    relevant tool relationships hold. Compute derived verified regions; do not
+    discard a valid region because a later region is incomplete, but do not
+    attribute across that later region. A call/result pair may span turns,
+    provided both occurrences are inside the selected region.
    Ambiguous duplicates, gaps, mixed ancestry or unresolved items must return a
    new explicit refusal reason. Preserve opaque provider items and protocol
    identities; unsupported compaction, edits or branch transitions defer
    cleanup while ordinary forwarding continues.
 3. Establish one history-resolution contract for proxy, estimator, Cleaner
    analysis and execution. Resolve history format from journal correspondence,
-   then apply an optional explicit committed head as a bound; an explicit head
+    then apply an optional explicit committed head as a bound; an explicit head
    must not disable verified cumulative reconstruction. Return one canonical
    history view and occurrence mapping. Keep native `previous_response_id`
    ancestry preferred when present, but do not synthesize a provider
@@ -982,16 +1015,25 @@ and recovery gates pass.
    before checking estimator readiness; valid stored attribution remains
    readable when the estimator is down. Require session identity,
    attribution provenance/version, processed-history watermark,
-   current-boundary revision, and unambiguous occurrence mapping for freshness.
+    current-boundary revision, and unambiguous occurrence mapping for freshness.
+    Do not advance the existing watermark over unresolved gaps. If later
+    regions are processed, persist enough existing coverage evidence to prevent
+    both skipped gaps and repeated estimation after restart; prove the minimum
+    representation with tests before adding fields.
    Keep `available`, `waiting`, `failing`, and `disabled` distinct in CLI output.
 6. Add focused red/green proof for stable ID-less cumulative occurrences,
    explicit-head consistency, proxy/Cleaner history agreement, default
    batching, estimator persistence, pending-turn and watermark diagnostics,
    independent no-link requests, duplicate item ambiguity, incomplete tool
-   relationships, committed-prefix attribution, estimator downtime with valid
-   stored attribution, stale-plan refresh without target expansion, invalid
-   registry identity, and a genuinely selectable completed task.
-7. Select and schedule only after Delivery A attribution proof passes. The active agent
+    relationships, verified-region attribution, estimator downtime with valid
+    stored attribution, stale-plan refresh without target expansion, invalid
+    registry identity, and a genuinely selectable completed task. Add dirty
+    long-history cases where an unresolved exchange blocks affected work while
+    unrelated completed work remains usable, a delayed result restores
+    eligibility, repeated messages remain distinct, metadata-only changes keep
+    correspondence, changed content under an existing ID invalidates affected
+    evidence, and restart preserves gap tracking without duplicate estimation.
+ 7. Select and schedule only after Delivery A attribution proof passes. The active agent
    decides cleanup is useful, selects exclusively owned eligible task IDs,
    obtains the existing approval, and schedules the existing immutable plan.
    Selection does not mutate immediately. Verify that selection plans and
@@ -1007,13 +1049,16 @@ and recovery gates pass.
 9. Execute only at the existing authorized dispatch boundary. Immediately
    before dispatch, revalidate current history correspondence, occurrence,
    ownership, retention, supported mutation capability, protocol closure and
-   session lock. Reapply only a committed removal whose original item
+   session lock. Require provider-valid request construction before dispatch;
+   analysis may remain partial when it cannot construct one. Reapply only a
+   committed removal whose original item
    occurrence maps unambiguously into the current session branch. Never extend
    an approved removal to newly introduced matching content, even when text or
    fingerprints are identical. Reapplication must not reopen an applied plan
    or dispatch another provider request. Existing Codex rewrite/rebase
    machinery applies the approved selection; Cleaner does not mutate provider
-   payloads directly.
+   payloads directly. If affected scope cannot be bounded, rebuild
+   conservatively instead of guessing.
 10. For response-chain requests, retain the existing rebase construction. For
     verified cumulative requests, transform corresponding occurrences in the
     current full-history input before forwarding. Do not filter an occurrence
@@ -1061,17 +1106,18 @@ and recovery gates pass.
 
 - **History-correctness gate:** cumulative resends preserve occurrence identity,
   explicit heads do not change history format, proxy and Cleaner agree on
-  occurrence IDs and semantic-turn membership, and a genuinely completed task
-  becomes selectable.
+  occurrence IDs and semantic-turn membership, dirty exchanges block only
+  affected regions, delayed results restore eligibility, restart preserves gap
+  tracking, and a genuinely completed task becomes selectable.
 - **Attribution gate:** eligible LightRSI task records persist with automatic
   eviction disabled; `Attribution: available` is backed by current watermark,
   boundary revision, provenance, and occurrence evidence.
 - **Operational-separation and execution gate:** observation and valid stored
   attribution remain usable without mutation or estimator availability;
-  committed-prefix analysis protects the suffix; the existing Codex
+  verified-region analysis protects uncertain content; the existing Codex
   rewrite/rebase and transaction machinery applies one approved cumulative
-  selection after immediate safety revalidation; Cleaner does not introduce a
-  second mutation engine.
+  selection only after immediate safety revalidation and provider-valid request
+  construction; Cleaner does not introduce a second mutation engine.
 - **Pilot gate:** one agent-initiated cleanup in the disposable session being
   cleaned survives restart or recovery, verifies removed occurrences do not
   return, and never automatically resends successful or uncertain dispatch.
@@ -1093,16 +1139,18 @@ lightrsi codex clean --plan PLAN_ID --select TASK_ID[,TASK_ID...]
 lightrsi codex clean --status PLAN_ID
 ```
 
-**Exit Criteria:** Native-chain and proven full-history sessions both produce
-correct semantic turns. Valid stored attribution remains readable during
-estimator downtime but cannot authorize execution without current watermark and
-occurrence proof. The attribution gate shows eligible persisted LightRSI task
-records without manual state edits. The execution gate proves the existing
-rewrite/rebase path applies one occurrence-bound approved selection at the next
-eligible boundary while preserving protected content and tool closure. The
-pilot gate proves one disposable agent session can request cleanup, prevents
-removed occurrences from returning on later requests, and ensures successful
-or uncertain dispatch never triggers automatic resend. Otherwise keep Cleaner
+**Exit Criteria:** Native-chain and proven dirty full-history sessions both
+produce correct semantic turns. Valid stored attribution remains readable
+during estimator downtime but cannot authorize execution without current
+watermark, gap, occurrence, ownership, retention, and provider-valid request
+proof. The attribution gate shows eligible persisted LightRSI task records
+without manual state edits; unresolved gaps survive restart without skipped or
+repeated unchanged work. The execution gate proves the existing rewrite/rebase
+path applies one occurrence-bound approved selection at the next eligible
+boundary while preserving protected content and tool closure. The pilot gate
+proves one disposable agent session can request cleanup, prevents removed
+occurrences from returning on later requests, and ensures successful or
+uncertain dispatch never triggers automatic resend. Otherwise keep Cleaner
 fail-closed and record one concrete missing capability.
 
 **Explicit Deferrals:** Response rejection classification and production-wide

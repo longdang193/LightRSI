@@ -1,10 +1,63 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type {
+  ProcessedTurnRange,
   SessionTaskRegistry,
   SessionTaskRegistryPatch,
   TaskState,
 } from "./types.js";
+
+function normalizeProcessedTurnRanges(
+  ranges: ProcessedTurnRange[] | undefined,
+): ProcessedTurnRange[] {
+  const sorted = (ranges ?? [])
+    .filter((range) => Number.isInteger(range.fromTurnSeqInclusive)
+      && Number.isInteger(range.toTurnSeqInclusive)
+      && range.fromTurnSeqInclusive > 0
+      && range.toTurnSeqInclusive >= range.fromTurnSeqInclusive)
+    .map((range) => ({
+      fromTurnSeqInclusive: range.fromTurnSeqInclusive,
+      toTurnSeqInclusive: range.toTurnSeqInclusive,
+    }))
+    .sort((left, right) => left.fromTurnSeqInclusive - right.fromTurnSeqInclusive);
+  const merged: ProcessedTurnRange[] = [];
+  for (const range of sorted) {
+    const previous = merged.at(-1);
+    if (!previous || range.fromTurnSeqInclusive > previous.toTurnSeqInclusive + 1) {
+      merged.push(range);
+      continue;
+    }
+    previous.toTurnSeqInclusive = Math.max(previous.toTurnSeqInclusive, range.toTurnSeqInclusive);
+  }
+  return merged;
+}
+
+export function processedTurnRanges(registry: SessionTaskRegistry): ProcessedTurnRange[] {
+  const ranges = normalizeProcessedTurnRanges(registry.processedTurnRanges);
+  if (ranges.length > 0 || registry.lastProcessedTurnSeq <= 0) return ranges;
+  return [{ fromTurnSeqInclusive: 1, toTurnSeqInclusive: registry.lastProcessedTurnSeq }];
+}
+
+export function mergeProcessedTurnRanges(
+  registry: SessionTaskRegistry,
+  additions: ProcessedTurnRange[],
+): ProcessedTurnRange[] {
+  return normalizeProcessedTurnRanges([
+    ...processedTurnRanges(registry),
+    ...additions,
+  ]);
+}
+
+export function highestContiguousProcessedTurnSeq(
+  ranges: ProcessedTurnRange[],
+): number {
+  let next = 1;
+  for (const range of normalizeProcessedTurnRanges(ranges)) {
+    if (range.fromTurnSeqInclusive > next) break;
+    next = Math.max(next, range.toTurnSeqInclusive + 1);
+  }
+  return next - 1;
+}
 
 function dedupeOrdered(values: string[] | undefined): string[] | undefined {
   if (!values) return undefined;
@@ -89,6 +142,11 @@ function parseRegistryJson(raw: string): SessionTaskRegistry {
     taskToBlockIds: isRecord(parsed.taskToBlockIds) ? (parsed.taskToBlockIds as Record<string, string[]>) : {},
     blockToTaskIds: isRecord(parsed.blockToTaskIds) ? (parsed.blockToTaskIds as Record<string, string[]>) : {},
     turnToTaskIds: isRecord(parsed.turnToTaskIds) ? (parsed.turnToTaskIds as Record<string, string[]>) : {},
+    processedTurnRanges: normalizeProcessedTurnRanges(
+      Array.isArray(parsed.processedTurnRanges)
+        ? parsed.processedTurnRanges as ProcessedTurnRange[]
+        : undefined,
+    ),
     lastProcessedTurnSeq:
       typeof parsed.lastProcessedTurnSeq === "number" ? parsed.lastProcessedTurnSeq : 0,
   };
@@ -135,6 +193,7 @@ export function createEmptySessionTaskRegistry(sessionId: string): SessionTaskRe
     taskToBlockIds: {},
     blockToTaskIds: {},
     turnToTaskIds: {},
+    processedTurnRanges: [],
     lastProcessedTurnSeq: 0,
   };
 }
@@ -154,6 +213,7 @@ export function cloneSessionTaskRegistry(registry: SessionTaskRegistry): Session
     taskToBlockIds: cloneRelationMap(registry.taskToBlockIds),
     blockToTaskIds: cloneRelationMap(registry.blockToTaskIds),
     turnToTaskIds: cloneRelationMap(registry.turnToTaskIds),
+    processedTurnRanges: processedTurnRanges(registry),
     lastProcessedTurnSeq: registry.lastProcessedTurnSeq,
   };
 }
@@ -190,6 +250,10 @@ export function applySessionTaskRegistryPatch(
   next.taskToBlockIds = mergeRelationMap(next.taskToBlockIds, patch.upsertTaskToBlockIds);
   next.blockToTaskIds = mergeRelationMap(next.blockToTaskIds, patch.upsertBlockToTaskIds);
   next.turnToTaskIds = mergeRelationMap(next.turnToTaskIds, patch.upsertTurnToTaskIds);
+
+  if (patch.processedTurnRanges) {
+    next.processedTurnRanges = normalizeProcessedTurnRanges(patch.processedTurnRanges);
+  }
 
   if (typeof patch.lastProcessedTurnSeq === "number") {
     next.lastProcessedTurnSeq = patch.lastProcessedTurnSeq;

@@ -1,3 +1,8 @@
+import {
+  highestContiguousProcessedTurnSeq,
+  mergeProcessedTurnRanges,
+  type ProcessedTurnRange,
+} from "@lightrsi/history";
 import type {
   SessionTaskRegistry,
   SessionTaskRegistryPatch,
@@ -35,6 +40,27 @@ function titleFromTaskId(taskId: string): string {
   return taskId.replace(/[-_]+/g, " ").trim() || taskId;
 }
 
+function turnSeqFromAbsId(turnAbsId: string): number | undefined {
+  const value = Number.parseInt(turnAbsId.split(":t").at(-1) ?? "", 10);
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function turnSeqsToRanges(turnSeqs: number[]): ProcessedTurnRange[] {
+  const sorted = [...new Set(turnSeqs)]
+    .filter((turnSeq) => Number.isInteger(turnSeq) && turnSeq > 0)
+    .sort((left, right) => left - right);
+  const ranges: ProcessedTurnRange[] = [];
+  for (const turnSeq of sorted) {
+    const previous = ranges.at(-1);
+    if (!previous || turnSeq > previous.toTurnSeqInclusive + 1) {
+      ranges.push({ fromTurnSeqInclusive: turnSeq, toTurnSeqInclusive: turnSeq });
+    } else {
+      previous.toTurnSeqInclusive = turnSeq;
+    }
+  }
+  return ranges;
+}
+
 function lifecycleBucketIds(tasks: Record<string, TaskState>, lifecycle: TaskLifecycle): string[] {
   return Object.values(tasks)
     .filter((task) => task.lifecycle === lifecycle)
@@ -62,9 +88,10 @@ export function mapTaskUpdatesToRegistryPatch(params: {
   registry: SessionTaskRegistry;
   updates: SemanticTaskUpdate[];
   coveredTurnAbsIds: string[];
+  coveredTurnSeqs?: number[];
   toTurnSeqInclusive: number;
 }): MapTaskUpdatesResult {
-  const { registry, updates, toTurnSeqInclusive } = params;
+  const { registry, updates, coveredTurnAbsIds, toTurnSeqInclusive } = params;
   const upsertTasks: Record<string, TaskState> = {};
   const upsertTurnToTaskIds: Record<string, string[]> = {};
   const transitions: TaskStateTransition[] = [];
@@ -179,6 +206,16 @@ export function mapTaskUpdatesToRegistryPatch(params: {
   }
 
   const nextTasks = { ...registry.tasks, ...upsertTasks };
+  const coveredTurnSeqs = params.coveredTurnSeqs
+    ?? coveredTurnAbsIds
+      .map(turnSeqFromAbsId)
+      .filter((turnSeq): turnSeq is number => turnSeq !== undefined);
+  const processedRanges = mergeProcessedTurnRanges(
+    registry,
+    params.coveredTurnSeqs
+      ? turnSeqsToRanges(coveredTurnSeqs)
+      : [{ fromTurnSeqInclusive: 1, toTurnSeqInclusive }],
+  );
   return {
     patch: {
       upsertTasks,
@@ -186,7 +223,8 @@ export function mapTaskUpdatesToRegistryPatch(params: {
       activeTaskIds: lifecycleBucketIds(nextTasks, "active"),
       completedTaskIds: lifecycleBucketIds(nextTasks, "completed"),
       evictableTaskIds: lifecycleBucketIds(nextTasks, "evictable"),
-      lastProcessedTurnSeq: toTurnSeqInclusive,
+      processedTurnRanges: processedRanges,
+      lastProcessedTurnSeq: highestContiguousProcessedTurnSeq(processedRanges),
     },
     transitions,
     rejectedUpdates,

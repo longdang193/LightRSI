@@ -40,6 +40,7 @@ export type CodexRawSemanticTurnsResult = {
   turns: RawSemanticTurnRecord[];
   complete: boolean;
   reasonCodes: CodexRawSemanticReasonCode[];
+  blockedTurnSeqs: number[];
 };
 
 type SupportedToolKind = "function" | "custom";
@@ -231,6 +232,10 @@ export function buildCodexRawSemanticTurns(
   view: CodexEffectiveHistoryView,
 ): CodexRawSemanticTurnsResult {
   const reasonCodes: CodexRawSemanticReasonCode[] = [];
+  const blockedTurnSeqs = new Set<number>();
+  const blockTurn = (turnSeq: number | undefined): void => {
+    if (Number.isInteger(turnSeq) && (turnSeq ?? 0) > 0) blockedTurnSeqs.add(turnSeq!);
+  };
   for (const reason of view.reasonCodes) appendReason(reasonCodes, reason);
   if (
     !view.semanticComplete
@@ -261,11 +266,13 @@ export function buildCodexRawSemanticTurns(
     const derivedSessionId = sessionIdFromTurn(turn);
     if (!derivedSessionId || (sessionId !== undefined && derivedSessionId !== sessionId)) {
       appendReason(reasonCodes, "semantic_turn_identity_invalid");
+      blockTurn(turn.turnSeq);
       continue;
     }
     sessionId ??= derivedSessionId;
     if (recordByTurnSeq.has(turn.turnSeq)) {
       appendReason(reasonCodes, "semantic_turn_sequence_duplicate");
+      blockTurn(turn.turnSeq);
       continue;
     }
 
@@ -284,10 +291,12 @@ export function buildCodexRawSemanticTurns(
       const effective = effectiveById.get(stableItemId);
       if (!effective) {
         appendReason(reasonCodes, "semantic_item_attribution_unknown");
+        blockTurn(turn.turnSeq);
         continue;
       }
       if (attributedById.has(stableItemId)) {
         appendReason(reasonCodes, "semantic_item_attribution_ambiguous");
+        blockTurn(turn.turnSeq);
         continue;
       }
       attributedById.set(stableItemId, { effective, turn, order: itemOrder });
@@ -301,6 +310,11 @@ export function buildCodexRawSemanticTurns(
       && !isIgnorableNonSemanticItem(effective.item)
     ) {
       appendReason(reasonCodes, "semantic_item_attribution_unknown");
+      const turn = orderedTurns.find((candidate) => (
+        candidate.inputItemIds.includes(stableItemId)
+        || candidate.outputItemIds.includes(stableItemId)
+      ));
+      blockTurn(turn?.turnSeq);
     }
   }
 
@@ -318,11 +332,13 @@ export function buildCodexRawSemanticTurns(
       if (role === "system" || role === "developer") continue;
       if (role !== "user" && role !== "assistant") {
         appendReason(reasonCodes, "semantic_message_role_unsupported");
+        blockTurn(attributed.turn.turnSeq);
         continue;
       }
       const extracted = messageTexts(item);
       if (extracted.unsupported) {
         appendReason(reasonCodes, "semantic_message_content_unsupported");
+        blockTurn(attributed.turn.turnSeq);
       }
       const record = recordByTurnSeq.get(attributed.turn.turnSeq);
       if (!record || !sessionId) continue;
@@ -348,6 +364,7 @@ export function buildCodexRawSemanticTurns(
         tool.side === "call" ? "semantic_tool_call_invalid" : "semantic_tool_result_invalid",
       );
       appendReason(reasonCodes, "semantic_tool_closure_incomplete");
+      blockTurn(attributed.turn.turnSeq);
       continue;
     }
     const candidate = { ...attributed, callId, kind: tool.kind };
@@ -390,6 +407,8 @@ export function buildCodexRawSemanticTurns(
           ? "semantic_tool_closure_ambiguous"
           : "semantic_tool_closure_incomplete",
       );
+      calls.forEach((call) => blockTurn(call.turn.turnSeq));
+      results.forEach((result) => blockTurn(result.turn.turnSeq));
       continue;
     }
 
@@ -397,10 +416,14 @@ export function buildCodexRawSemanticTurns(
     const result = results[0]!;
     if (call.kind !== result.kind) {
       appendReason(reasonCodes, "semantic_tool_protocol_mismatch");
+      blockTurn(call.turn.turnSeq);
+      blockTurn(result.turn.turnSeq);
       continue;
     }
     if (result.order < call.order) {
       appendReason(reasonCodes, "semantic_tool_result_precedes_call");
+      blockTurn(call.turn.turnSeq);
+      blockTurn(result.turn.turnSeq);
       continue;
     }
     const toolName = nonBlankString(call.effective.item.name);
@@ -408,16 +431,20 @@ export function buildCodexRawSemanticTurns(
     const resultValue = toolResultText(result.effective.item);
     if (!toolName || !argumentsValue.valid) {
       appendReason(reasonCodes, "semantic_tool_call_invalid");
+      blockTurn(call.turn.turnSeq);
       continue;
     }
     if (!resultValue.valid || resultValue.text === undefined) {
       appendReason(reasonCodes, "semantic_tool_result_invalid");
+      blockTurn(call.turn.turnSeq);
+      blockTurn(result.turn.turnSeq);
       continue;
     }
 
     const record = recordByTurnSeq.get(call.turn.turnSeq);
     if (!record || !sessionId) {
       appendReason(reasonCodes, "semantic_item_attribution_unknown");
+      blockTurn(call.turn.turnSeq);
       continue;
     }
     const anchor = createTurnAnchor(sessionId, call.turn.turnSeq, "tool");
@@ -459,5 +486,6 @@ export function buildCodexRawSemanticTurns(
     turns: records,
     complete: reasonCodes.length === 0,
     reasonCodes,
+    blockedTurnSeqs: [...blockedTurnSeqs].sort((left, right) => left - right),
   };
 }

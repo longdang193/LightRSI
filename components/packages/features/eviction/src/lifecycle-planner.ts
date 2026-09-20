@@ -326,6 +326,7 @@ export async function planLifecycleEviction<TAdapterMetadata = never>(
     registry: input.registry,
     updates: output.taskUpdates,
     coveredTurnAbsIds: input.delta.coveredTurnAbsIds,
+    coveredTurnSeqs: input.delta.coveredTurnSeqs,
     toTurnSeqInclusive: input.delta.toTurnSeqInclusive,
   });
   if (mapped.rejectedUpdates.length > 0) {

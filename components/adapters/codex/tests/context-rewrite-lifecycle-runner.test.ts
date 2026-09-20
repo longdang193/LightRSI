@@ -196,7 +196,11 @@ test("lifecycle runner persists the planner registry before exposing a validated
 
   const persisted = await loadSessionTaskRegistry(stateDir, SESSION_ID);
   assert.equal(persisted.version, 1);
-  assert.equal(persisted.lastProcessedTurnSeq, 3);
+  assert.equal(persisted.lastProcessedTurnSeq, 1);
+  assert.deepEqual(persisted.processedTurnRanges, [
+    { fromTurnSeqInclusive: 1, toTurnSeqInclusive: 1 },
+    { fromTurnSeqInclusive: 3, toTurnSeqInclusive: 3 },
+  ]);
   assert.deepEqual(persisted.evictableTaskIds, ["task-evict"]);
   assert.deepEqual(persisted.activeTaskIds, ["task-current"]);
 
