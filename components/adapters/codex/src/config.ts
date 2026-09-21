@@ -77,6 +77,10 @@ export function defaultStateDir(configPath = defaultTokenPilotConfigPath()): str
   return join(dirname(configPath), "tokenpilot-state", "tokenpilot");
 }
 
+export function codexProxyBaseUrl(config: Pick<TokenPilotCodexConfig, "proxyPort">): string {
+  return `http://127.0.0.1:${config.proxyPort}/v1`;
+}
+
 export function defaultHooksConfigPath(): string {
   return process.env.CODEX_HOOKS_CONFIG_PATH
     ? resolve(process.env.CODEX_HOOKS_CONFIG_PATH)

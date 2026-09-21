@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import {
+  codexProxyBaseUrl,
   loadTokenPilotCodexConfig,
   normalizeTokenPilotCodexConfig,
 } from "../src/config.js";
@@ -25,6 +26,10 @@ test("normalizeTokenPilotCodexConfig applies stable defaults", () => {
   assert.equal(config.taskStateEstimator.baseUrl, undefined);
   assert.equal(config.taskStateEstimator.requestTimeoutMs, undefined);
   assert.equal(config.taskStateEstimator.inputMode, undefined);
+});
+
+test("codexProxyBaseUrl uses canonical loopback port", () => {
+  assert.equal(codexProxyBaseUrl({ proxyPort: 17667 }), "http://127.0.0.1:17667/v1");
 });
 
 test("normalizeTokenPilotCodexConfig derives default stateDir from the tokenpilot config path", () => {

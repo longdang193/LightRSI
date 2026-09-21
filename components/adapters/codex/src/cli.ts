@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {
+  codexProxyBaseUrl,
   defaultTokenPilotConfigPath,
   loadTokenPilotCodexConfig,
 } from "./config.js";
@@ -92,7 +93,7 @@ async function main() {
     console.log(JSON.stringify({
       enabled: config.enabled,
       stateDir: config.stateDir,
-      proxyBaseUrl: `http://127.0.0.1:${config.proxyPort}/v1`,
+      proxyBaseUrl: codexProxyBaseUrl(config),
       daemon,
       upstreamProvider: config.upstreamProvider,
       modules: config.modules,

@@ -15,6 +15,7 @@ import type {
   TokenPilotCodexConfig,
 } from "./config.js";
 import {
+  codexProxyBaseUrl,
   readCodexMcpServerFromToml,
   readCodexProviderFromToml,
   readCodexRootModelProvider,
@@ -276,7 +277,7 @@ export async function inspectCodexDoctor(params: {
   hooksConfigPath: string;
 }): Promise<CodexDoctorReport> {
   const daemon = await readDaemonStatus(params.config);
-  const proxyBaseUrl = `http://127.0.0.1:${params.config.proxyPort}/v1`;
+  const proxyBaseUrl = codexProxyBaseUrl(params.config);
   const providerName = params.config.providerName || "tokenpilot";
   const expectedHookCommand = await resolveCodexHookCommandForInstall();
   const expectedMcpSpec = resolveCodexMcpServerSpecForInstall(params.config.stateDir);

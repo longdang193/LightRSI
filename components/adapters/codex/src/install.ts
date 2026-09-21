@@ -13,6 +13,7 @@ import {
   type TokenPilotMcpServerSpec,
 } from "../../../products/mcp/src/index.js";
 import {
+  codexProxyBaseUrl,
   defaultCodexConfigPath,
   defaultHooksConfigPath,
   defaultTokenPilotConfigPath,
@@ -493,7 +494,7 @@ export async function installCodexTokenPilot(params?: {
     tokenPilotConfig.upstream = upstreamProvider;
   }
   await writeTokenPilotCodexConfig(tokenPilotConfig, tokenPilotConfigPath);
-  const baseUrl = `http://127.0.0.1:${tokenPilotConfig.proxyPort}/v1`;
+  const baseUrl = codexProxyBaseUrl(tokenPilotConfig);
   const mcpServer = resolveCodexMcpServerSpecForInstall(tokenPilotConfig.stateDir);
   const mcpProbeServer = resolveCodexMcpServerSpecForProbe(tokenPilotConfig.stateDir);
 

@@ -2,6 +2,11 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
+  codexProxyBaseUrl,
+  defaultTokenPilotConfigPath,
+  loadTokenPilotCodexConfig,
+} from "../src/config.js";
+import {
   CODEX_PROVIDER_SMOKE_SCENARIOS,
   runCodexRebaseProviderSmoke,
   type CodexProviderSmokeScenario,
@@ -25,8 +30,8 @@ function printHelp(): void {
     "Options:",
     "  --mode=mock|provider       Run offline mock (default) or explicit provider smoke.",
     "  --model=<name>             Provider model; default is gpt-5.4-mini.",
-    "  --base-url=<url>           Provider base URL; defaults to OPENAI_BASE_URL.",
-    "  --credentials-file=<path> Provider env file; defaults to <initial cwd>/.env.",
+    "  --base-url=<url>           Provider base URL; defaults to OPENAI_BASE_URL or canonical Codex proxy config.",
+    "  --credentials-file=<path> Provider env file; defaults to <initial cwd>/.env after canonical tokenpilot.env.",
     "  --continuation-turns=<n>  Provider continuation turns, from 5 to 20.",
     "  --compatibility-scenarios=<list>",
     "                             Extra real-provider scenarios; available: web-search.",
@@ -35,8 +40,8 @@ function printHelp(): void {
     "  --output-dir=<path>        Directory for sanitized evidence JSON.",
     "  --help                     Show this help.",
     "",
-    "Mock mode never reads an API key. Provider mode reads OPENAI_API_KEY only",
-    "from the process environment or the selected local env file. Neither mode",
+    "Mock mode never reads an API key. Provider mode reads OPENAI_API_KEY from",
+    "process environment, canonical tokenpilot.env, or selected local env file. Neither mode",
     "persists raw prompts, headers, response ids, provider error bodies, or",
     "encrypted reasoning payloads in its evidence file.",
   ].join("\n"));
@@ -101,10 +106,12 @@ async function main(): Promise<void> {
   const mode = optionValue("mode") ?? "mock";
   if (mode === "provider") {
     const initialCwd = process.env.INIT_CWD?.trim() || process.cwd();
+    const config = await loadTokenPilotCodexConfig(defaultTokenPilotConfigPath());
     const envFile = resolve(optionValue("credentials-file") ?? resolve(initialCwd, ".env"));
     await loadProviderEnvFile(envFile);
-    const baseUrl = optionValue("base-url")?.trim() || process.env.OPENAI_BASE_URL?.trim();
-    if (!baseUrl) throw new Error("Provider smoke requires OPENAI_BASE_URL or --base-url");
+    const baseUrl = optionValue("base-url")?.trim()
+      || process.env.OPENAI_BASE_URL?.trim()
+      || codexProxyBaseUrl(config);
     const result = await runCodexRebaseProviderSmoke({
       baseUrl,
       model: optionValue("model"),
