@@ -9,6 +9,7 @@ import {
   CODEX_REBASE_PROVIDER_SMOKE_EVIDENCE_SCHEMA,
   buildProviderCompatibilityMatrix,
   compareProviderUsage,
+  mergeProviderSmokeVerifiedItemTypes,
   runCodexRebaseProviderSmoke,
   sanitizedEvidenceLabel,
   summarizeRealProviderCapabilities,
@@ -210,6 +211,17 @@ test("provider compatibility matrix reflects journal evidence for every catalog 
   assert.equal(matrix.find((entry) => entry.itemType === "shell_call")?.providerDecision, "real-reject");
   assert.equal(matrix.find((entry) => entry.itemType === "program")?.providerDecision, "not-observed");
   assert.equal(matrix.find((entry) => entry.itemType === "unknown")?.structuralPolicy, "deferred");
+});
+
+test("provider smoke accepts committed selected-payload evidence without item journal rows", () => {
+  assert.deepEqual(
+    mergeProviderSmokeVerifiedItemTypes(
+      [],
+      ["message:user", "function_call", "function_call_output", "reasoning"],
+      true,
+    ),
+    ["function_call", "function_call_output", "message", "reasoning"],
+  );
 });
 
 test("payload-specific rejection does not become item-wide incompatibility", () => {

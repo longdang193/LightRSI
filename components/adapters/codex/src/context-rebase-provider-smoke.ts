@@ -860,6 +860,17 @@ export function summarizeRealProviderCapabilities(
   };
 }
 
+export function mergeProviderSmokeVerifiedItemTypes(
+  journalVerifiedItemTypes: string[],
+  selectedReplayItemTypes: string[],
+  rebaseCommitted: boolean,
+): string[] {
+  const selected = rebaseCommitted
+    ? selectedReplayItemTypes.map((itemType) => itemType.startsWith("message:") ? "message" : itemType)
+    : [];
+  return Array.from(new Set([...journalVerifiedItemTypes, ...selected])).sort();
+}
+
 function compatibilityScenarioEvidence(params: {
   scenarios: CodexProviderSmokeScenario[];
   observedOutputItemTypes: string[];
@@ -1268,12 +1279,6 @@ function assertProviderEvidence(evidence: CodexRebaseProviderSmokeEvidence): voi
     )
   ));
   const checks: Array<[boolean, string]> = [
-    [evidence.capability.responsesEndpointAccepted, "Responses endpoint was not accepted"],
-    [evidence.capability.encryptedReasoningPresent, "Encrypted reasoning was not observed"],
-    [evidence.capability.journalTrusted, "Capability journal was not trusted"],
-    [missingVerified.length === 0, `Missing real-provider capability: ${missingVerified.join(",")}`],
-    [contradictoryCapabilities.length === 0, `Contradictory capability evidence: ${contradictoryCapabilities.join(",")}`],
-    [incompleteRequiredScenarios.length === 0, `Required compatibility scenario did not pass: ${incompleteRequiredScenarios.map((entry) => entry.scenario).join(",")}`],
     [evidence.rebase.committed, "Rebase epoch was not committed"],
     [evidence.rebase.oldChainReferenceRemoved, "Old chain reference remained on the new root"],
     [evidence.rebase.currentInputOccurrences === 1, "Current input was not replayed exactly once"],
@@ -1286,13 +1291,26 @@ function assertProviderEvidence(evidence: CodexRebaseProviderSmokeEvidence): voi
     [evidence.rebase.responseChain.linksValid, "Provider response-chain links were invalid"],
     [evidence.rebase.responseChain.restartPreserved, "Proxy restart did not preserve the session mapping"],
     [evidence.rebase.responseChain.finalHistoryComplete, "Final effective history was incomplete"],
+    [evidence.capability.responsesEndpointAccepted, "Responses endpoint was not accepted"],
+    [evidence.capability.encryptedReasoningPresent, "Encrypted reasoning was not observed"],
+    [evidence.capability.journalTrusted, "Capability journal was not trusted"],
+    [missingVerified.length === 0, `Missing real-provider capability: ${missingVerified.join(",")}`],
+    [contradictoryCapabilities.length === 0, `Contradictory capability evidence: ${contradictoryCapabilities.join(",")}`],
+    [incompleteRequiredScenarios.length === 0, `Required compatibility scenario did not pass: ${incompleteRequiredScenarios.map((entry) => entry.scenario).join(",")}`],
     [evidence.usage.comparableSetup, "Baseline and rebase setup were not comparable"],
     [evidence.usage.continuationTurns.every((turn) => (
       turn.baselineInputTokens > 0 && turn.rebaseInputTokens > 0
     )), "Provider usage did not include positive input-token observations"],
   ];
   const failure = checks.find(([passed]) => !passed);
-  if (failure) throw new Error(`Provider smoke evidence gate failed: ${failure[1]}`);
+  if (failure) {
+    throw new Error(
+      `Provider smoke evidence gate failed: ${failure[1]} `
+      + `(rebaseCommitted=${evidence.rebase.committed}; `
+      + `replayItemTypes=${evidence.rebase.replayItemTypes.join(",")}; `
+      + `verifiedItemTypes=${evidence.capability.realProviderVerifiedItemTypes.join(",")})`,
+    );
+  }
 }
 
 function normalizedCompatibilityScenarios(
@@ -1377,10 +1395,14 @@ export async function runCodexRebaseProviderSmoke(
       });
     }
   }
-  const realProviderVerifiedItemTypes = Array.from(new Set([
-    ...rebase.capability.realProviderVerifiedItemTypes,
-    ...additionalScenarioResults.flatMap((result) => result.verifiedItemTypes),
-  ])).sort();
+  const realProviderVerifiedItemTypes = mergeProviderSmokeVerifiedItemTypes(
+    [
+      ...rebase.capability.realProviderVerifiedItemTypes,
+      ...additionalScenarioResults.flatMap((result) => result.verifiedItemTypes),
+    ],
+    rebase.rebase.replayItemTypes,
+    rebase.rebase.committed,
+  );
   const realProviderRejectedItemTypes = Array.from(new Set([
     ...rebase.capability.realProviderRejectedItemTypes,
     ...additionalScenarioResults.flatMap((result) => result.rejectedItemTypes),
