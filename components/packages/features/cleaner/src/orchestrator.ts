@@ -140,6 +140,7 @@ export async function analyzeContextCleanSession(params: AnalyzeContextCleanSess
     tokenCountMode: breakdown.tokenCountMode,
     tokenCountMethod: breakdown.tokenCountMethod,
     attributionStatus,
+    occurrenceDigests: Object.fromEntries(snapshot.items.map((item) => [item.stableId, item.fingerprint])),
     tasks: recommendation.tasks,
     createdAt: snapshot.capturedAt,
   };
@@ -162,15 +163,36 @@ export async function approveContextCleanSelection(params: {
   const stored = await readContextCleanPlan({ stateDir: params.stateDir, planId: params.request.cleanPlanId });
   if (stored.bypassed || !stored.value) error("clean_approval_plan_unavailable", stored.reasons);
   const plan = stored.value.plan;
+  const occurrenceSelections = params.request.occurrenceSelections ?? [];
+  const occurrenceTaskIds = occurrenceSelections.map((selection) => `occurrence:${selection.stableId}`);
+  const ids = params.request.selectedTaskIds.length > 0
+    ? params.request.selectedTaskIds
+    : occurrenceTaskIds;
   if (params.request.hostId !== plan.hostId || params.request.sessionId !== plan.sessionId
-    || params.request.baseRevision !== plan.baseRevision || params.request.selectedTaskIds.length === 0) {
+    || params.request.baseRevision !== plan.baseRevision || ids.length === 0) {
     throw new Error("clean_approval_invalid");
   }
   const byId = new Map(plan.tasks.map((task) => [task.taskId, task]));
-  const ids = params.request.selectedTaskIds;
   if (new Set(ids).size !== ids.length) throw new Error("clean_approval_duplicate_task");
   for (const taskId of ids) {
     const task = byId.get(taskId);
+    if (!task && taskId.startsWith("occurrence:")) {
+      const stableId = taskId.slice("occurrence:".length);
+      const selection = occurrenceSelections.find((candidate) => candidate.stableId === stableId);
+      if (!selection || plan.occurrenceDigests?.[stableId] !== selection.fingerprint
+        || !Array.isArray(selection.completionEvidence)
+        || !selection.completionEvidence.every((value) => typeof value === "string" && value.trim())
+        || selection.completionEvidence.length === 0
+        || selection.continuingUseful
+        || selection.releaseIntent !== "release"
+        || !Array.isArray(selection.retainedFindings)
+        || !selection.retainedFindings.every((value) => typeof value === "string" && value.trim())
+        || selection.retainedFindings.length === 0
+        || !["none", "outgoing"].includes(selection.dependencyDirection)) {
+        throw new Error("clean_approval_occurrence_evidence_invalid");
+      }
+      continue;
+    }
     if (!task || !task.selectable) throw new Error("clean_approval_task_not_selectable");
   }
   const now = params.now ?? new Date().toISOString();

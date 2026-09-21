@@ -238,7 +238,10 @@ export const codexSharedContextRewriteBackend: CodexSharedContextRewriteBackend 
       reasons.push(`operation:${operationId || "<empty>"}:${reason}`);
     };
 
-    if (metadata.effectiveHistory.incomplete) {
+    if (metadata.effectiveHistory.deferredItems.length > 0
+      || (metadata.effectiveHistory.incomplete
+        && metadata.effectiveHistory.replayableItems.length === 0
+        && metadata.effectiveHistory.observationOnlyItems.length === 0)) {
       for (const operationId of [...candidates]) {
         defer(operationId, "effective_history_incomplete");
       }

@@ -57,12 +57,14 @@ export function createCodexCleanCommandBackend(params: {
   stateDir: string;
   taskStateEstimator?: TaskStateEstimatorApiConfig;
   recommendationProvider?: ContextCleanRecommendationProvider;
+  boundSessionId?: string;
 }): CleanCommandBackend {
   const controlPlane = createContextCleanerControlPlane({ stateDir: params.stateDir });
   const bridge = createCodexContextCleanerBridge({
     stateDir: params.stateDir,
     controlPlane,
     taskStateEstimator: params.taskStateEstimator,
+    boundSessionId: params.boundSessionId,
   });
   const service = createContextCleanerControlService({
     stateDir: params.stateDir,

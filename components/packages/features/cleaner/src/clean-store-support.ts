@@ -182,6 +182,9 @@ export function parseContextCleanPlan(value: unknown): ContextCleanPlan | undefi
   if (value.model !== undefined && !isNonBlankString(value.model)) return undefined;
   if (value.contextWindowTokens !== undefined && !finiteNonNegative(value.contextWindowTokens)) return undefined;
   if (value.attributionStatus !== undefined && !ATTRIBUTION_STATUSES.has(value.attributionStatus as ContextCleanAttributionStatus)) return undefined;
+  if (value.occurrenceDigests !== undefined
+    && (!isRecord(value.occurrenceDigests)
+      || Object.entries(value.occurrenceDigests).some(([id, digest]) => !isNonBlankString(id) || !isNonBlankString(digest)))) return undefined;
   const tasks = value.tasks.map(parseTask);
   if (tasks.some((task) => task === undefined)) return undefined;
   if (new Set(tasks.map((task) => task!.taskId)).size !== tasks.length) return undefined;
@@ -192,6 +195,9 @@ export function parseContextCleanPlan(value: unknown): ContextCleanPlan | undefi
     ...(value.model !== undefined ? { model: value.model } : {}),
     ...(value.contextWindowTokens !== undefined ? { contextWindowTokens: value.contextWindowTokens } : {}),
     ...(value.attributionStatus !== undefined ? { attributionStatus: value.attributionStatus as ContextCleanAttributionStatus } : {}),
+    ...(value.occurrenceDigests !== undefined
+      ? { occurrenceDigests: Object.fromEntries(Object.entries(value.occurrenceDigests).map(([id, digest]) => [id, digest as string])) }
+      : {}),
     usedTokens: value.usedTokens, usedChars: value.usedChars,
     protectedTokens: value.protectedTokens, protectedChars: value.protectedChars,
     unassignedTokens: value.unassignedTokens, unassignedChars: value.unassignedChars,

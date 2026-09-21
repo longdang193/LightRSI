@@ -2,7 +2,7 @@
 artifact_type: plan
 template_id: implementation-plan
 contract_version: "1"
-status: active
+status: superseded
 layer: change
 name: context-cleaner-safety-autonomy-follow-up
 targets:

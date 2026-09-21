@@ -228,6 +228,7 @@ export function createCodexCliBridge(target: {
         stateDir,
         taskStateEstimator: config.taskStateEstimator,
         recommendationProvider: createCodexCleanRecommendationProvider(config.taskStateEstimator),
+        boundSessionId: ctx.sessionId ?? target.sessionId,
       }),
     });
   }

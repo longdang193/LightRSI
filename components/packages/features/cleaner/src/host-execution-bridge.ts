@@ -124,16 +124,23 @@ function selectedTasksFromPlan(
   selectedTaskIds: readonly string[],
 ): ApprovedContextCleanTask[] | undefined {
   const selectedSet = new Set(selectedTaskIds);
-  const selectedTasks = record.plan.tasks
-    .filter((task) => selectedSet.has(task.taskId));
-  if (selectedTasks.length !== selectedTaskIds.length
-    || selectedTasks.some((task) => !task.selectable || task.itemIds.length === 0)) {
-    return undefined;
-  }
+  const selectedTasks = record.plan.tasks.filter((task) => selectedSet.has(task.taskId));
+  const occurrenceTasks = selectedTaskIds
+    .filter((taskId) => taskId.startsWith("occurrence:"))
+    .map((taskId) => {
+      const stableId = taskId.slice("occurrence:".length);
+      const fingerprint = record.plan.occurrenceDigests?.[stableId];
+      return fingerprint
+        ? { taskId, itemIds: [stableId], itemDigests: { [stableId]: fingerprint } }
+        : undefined;
+    });
+  if (selectedTasks.length + occurrenceTasks.filter(Boolean).length !== selectedTaskIds.length
+    || selectedTasks.some((task) => !task.selectable || task.itemIds.length === 0)
+    || occurrenceTasks.some((task) => !task)) return undefined;
 
   const claimedItemIds = new Set<string>();
   const result: ApprovedContextCleanTask[] = [];
-  for (const task of selectedTasks) {
+  for (const task of [...selectedTasks, ...occurrenceTasks as ApprovedContextCleanTask[]]) {
     if (task.itemIds.some((itemId) => claimedItemIds.has(itemId))) return undefined;
     for (const itemId of task.itemIds) claimedItemIds.add(itemId);
     result.push({
@@ -171,7 +178,7 @@ function buildMutationPlan(params: {
       targetItemFingerprints,
       taskIds: [task.taskId],
       rationale: "user_approved_context_clean",
-      estimatedSavedChars: planTask.charCount,
+      estimatedSavedChars: planTask?.charCount ?? 0,
     };
   });
   return {
@@ -331,24 +338,24 @@ async function prepareScheduledClean(params: {
     || current.snapshot.sessionId !== request.sessionId) {
     return bypassed(["clean_execution_snapshot_identity_mismatch"], stored.receipt);
   }
-  if (current.snapshot.revision !== request.baseRevision) {
-    return bypassed(["clean_execution_revision_stale"], stored.receipt);
-  }
-
   const currentItems = new Map(
     current.snapshot.items.map((item) => [item.stableId, item]),
   );
   for (const task of selectedTasks) {
-    const planTask = stored.record.plan.tasks.find((candidate) => candidate.taskId === task.taskId)!;
+    const planTask = stored.record.plan.tasks.find((candidate) => candidate.taskId === task.taskId);
+    const agentDirected = task.taskId.startsWith("occurrence:");
     const safety = evaluateContextCleanRemoval({
       taskId: task.taskId,
-      lifecycleState: planTask.lifecycleState,
+      lifecycleState: planTask?.lifecycleState ?? "completed",
       activeTaskIds: current.activeTaskIds,
       evictableTaskIds: current.evictableTaskIds,
-      currentRevision: current.snapshot.revision,
-      expectedRevision: request.baseRevision,
-      retentionDecision: current.taskIntents?.[task.taskId]?.retentionDecision,
-      dependencyDirection: current.taskIntents?.[task.taskId]?.dependencyDirection,
+      retentionDecision: planTask
+        ? current.taskIntents?.[task.taskId]?.retentionDecision
+        : "release",
+      dependencyDirection: planTask
+        ? current.taskIntents?.[task.taskId]?.dependencyDirection
+        : "outgoing",
+      agentDirected,
       items: task.itemIds.map((itemId) => ({
         item: currentItems.get(itemId),
         expectedFingerprint: task.itemDigests[itemId],

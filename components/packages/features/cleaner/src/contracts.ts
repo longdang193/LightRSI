@@ -145,6 +145,8 @@ export type ContextCleanPlan = {
   tokenCountMode: ContextCleanTokenCountMode;
   tokenCountMethod: string;
   attributionStatus?: ContextCleanAttributionStatus;
+  /** Host occurrence fingerprints available for one-off agent selection. */
+  occurrenceDigests?: Record<string, string>;
   tasks: ContextCleanTaskBreakdown[];
   createdAt: string;
 };
@@ -164,6 +166,12 @@ export type ContextCleanHistoryEvidence = {
   completeness: "complete" | "partial";
   protectedItemIds: string[];
   reasonCodes: string[];
+  verifiedItemIds?: string[];
+  uncertainItemIds?: string[];
+  unresolvedBoundaries?: string[];
+  unlocalizable?: boolean;
+  revision?: string;
+  provenance?: string;
 };
 
 type ContextCleanReceiptBase = {
@@ -313,6 +321,17 @@ export type ExecuteApprovedContextCleanParams = {
   approvedAt: string;
   /** Task IDs only; item targets and digests come from the immutable plan. */
   selectedTaskIds: string[];
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
+};
+
+export type ContextCleanOccurrenceSelection = {
+  stableId: string;
+  fingerprint: string;
+  completionEvidence: string[];
+  continuingUseful: boolean;
+  releaseIntent: "release";
+  retainedFindings: string[];
+  dependencyDirection: "none" | "outgoing";
 };
 
 /**

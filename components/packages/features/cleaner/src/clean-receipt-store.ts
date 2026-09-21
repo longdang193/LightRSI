@@ -87,13 +87,15 @@ export async function saveContextCleanReceiptUnlocked(params: {
     }
   }
   const tasksById = new Map(planRead.value.plan.tasks.map((task) => [task.taskId, task]));
+  const occurrenceIds = new Set(Object.keys(planRead.value.plan.occurrenceDigests ?? {})
+    .map((stableId) => `occurrence:${stableId}`));
   if (receipt.status === "analyzed" && receipt.selectedTaskIds.length > 0) {
     return bypassed("clean_receipt_analyzed_selection_not_empty");
   }
-  if (receipt.selectedTaskIds.some((taskId) => !tasksById.has(taskId))) {
+  if (receipt.selectedTaskIds.some((taskId) => !tasksById.has(taskId) && !occurrenceIds.has(taskId))) {
     return bypassed("clean_receipt_selected_task_unknown");
   }
-  if (receipt.selectedTaskIds.some((taskId) => !tasksById.get(taskId)?.selectable)) {
+  if (receipt.selectedTaskIds.some((taskId) => tasksById.has(taskId) && !tasksById.get(taskId)?.selectable)) {
     return bypassed("clean_receipt_selected_task_not_selectable");
   }
   if (receipt.deferredTaskIds.some((taskId) => !tasksById.has(taskId))) {

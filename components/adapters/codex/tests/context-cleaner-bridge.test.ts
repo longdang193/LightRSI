@@ -477,6 +477,86 @@ test("Codex cleaner bridge rejects unknown sessions instead of returning an empt
   }
 });
 
+test("Codex cleaner bridge reads history without a registry file", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-cleaner-missing-registry";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "unassigned work" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{ type: "message", role: "assistant", content: "done" }],
+      },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, {
+      latestResponseId: "response-1",
+      latestModel: "gpt-5.4",
+    });
+
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane: fakeControlPlane(),
+    });
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
+    assert.ok(snapshot.items.length > 0);
+    assert.ok(snapshot.items.every((item) => item.taskIds === undefined));
+    assert.equal(snapshot.historyEvidence?.completeness, "complete");
+  });
+});
+
+test("Codex cleaner accepts exact agent-directed release without registry or estimator", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-cleaner-agent-directed";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "obsolete work" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: { id: "response-1", output: [{ type: "message", role: "assistant", content: "done" }] },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, { latestResponseId: "response-1" });
+    const controlPlane = createContextCleanerControlPlane({ stateDir });
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane,
+      taskStateEstimator: { enabled: false },
+      boundSessionId: sessionId,
+    });
+    const service = createContextCleanerControlService({ stateDir, bridge });
+    const plan = await service.analyze(sessionId);
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
+    const target = snapshot.items.find((item) => item.kind === "user");
+    assert.ok(target);
+    const receipt = await service.approveOccurrences(plan.planId, [{
+      stableId: target.stableId,
+      fingerprint: target.fingerprint,
+      completionEvidence: ["response-1"],
+      continuingUseful: false,
+      releaseIntent: "release",
+      retainedFindings: ["done"],
+      dependencyDirection: "none",
+    }]);
+    assert.equal(receipt.status, "scheduled");
+    assert.deepEqual(receipt.selectedTaskIds, [`occurrence:${target.stableId}`]);
+  });
+});
+
 test("Context Cleaner reports missing task attribution instead of hiding it", async () => {
   await withTempState(async (stateDir) => {
     const sessionId = "codex-cleaner-no-task-registry";
@@ -919,4 +999,178 @@ test("Codex cleaner bridge rejects a snapshot with an invalid capture timestamp"
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }
+});
+
+test("Codex cleaner attribution survives unrelated history growth", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-cleaner-growth";
+    await persistSessionTaskRegistry(stateDir, createEmptySessionTaskRegistry(sessionId));
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "first" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{ type: "message", role: "assistant", content: "first done" }],
+      },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, {
+      latestResponseId: "response-1",
+      latestModel: "gpt-5.4",
+    });
+    const bridge = createCodexContextCleanerBridge({ stateDir, controlPlane: fakeControlPlane() });
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
+    const itemId = snapshot.items[0]?.stableId;
+    assert.ok(itemId);
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      previousResponseId: "response-1",
+      payload: { input: [{ role: "user", content: "unrelated" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      previousResponseId: "response-1",
+      response: {
+        id: "response-2",
+        output: [{ type: "message", role: "assistant", content: "unrelated done" }],
+      },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, {
+      latestResponseId: "response-2",
+      latestModel: "gpt-5.4",
+    });
+    const accepted = await bridge.submitAttribution!({
+      schemaVersion: 1,
+      submissionId: "growth-submission",
+      hostId: "codex",
+      sessionId,
+      callerId: "agent-1",
+      authorityRef: "turn-1",
+      evidenceRevision: snapshot.revision,
+      evidenceRefs: [itemId],
+      invalidationConditions: ["referenced_occurrence_changed"],
+      updates: [{
+        taskId: "task-growth",
+        objective: "first",
+        lifecycle: "active",
+        coveredOccurrenceRefs: [itemId],
+      }],
+      submittedAt: "2026-09-21T10:00:00.000Z",
+    });
+    assert.equal(accepted.status, "accepted");
+  });
+});
+
+test("Codex cleaner attribution rejects ownership collision across submissions", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-cleaner-owner-collision";
+    await persistSessionTaskRegistry(stateDir, createEmptySessionTaskRegistry(sessionId));
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "one task" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{ type: "message", role: "assistant", content: "done" }],
+      },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, { latestResponseId: "response-1" });
+    const bridge = createCodexContextCleanerBridge({ stateDir, controlPlane: fakeControlPlane() });
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
+    const itemId = snapshot.items[0]?.stableId;
+    assert.ok(itemId);
+    const base = {
+      schemaVersion: 1 as const,
+      hostId: "codex" as const,
+      sessionId,
+      callerId: "agent-1",
+      authorityRef: "turn-1",
+      evidenceRevision: snapshot.revision,
+      evidenceRefs: [itemId],
+      invalidationConditions: ["referenced_occurrence_changed"],
+      submittedAt: "2026-09-21T10:00:00.000Z",
+    };
+    await bridge.submitAttribution!({
+      ...base,
+      submissionId: "owner-1",
+      updates: [{ taskId: "task-one", objective: "one task", lifecycle: "active", coveredOccurrenceRefs: [itemId] }],
+    });
+    await assert.rejects(
+      bridge.submitAttribution!({
+        ...base,
+        submissionId: "owner-2",
+        updates: [{ taskId: "task-two", objective: "two tasks", lifecycle: "active", coveredOccurrenceRefs: [itemId] }],
+      }),
+      /codex_clean_attribution_occurrence_ambiguous/,
+    );
+  });
+});
+
+test("Codex cleaner attribution requires current Host session binding", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-cleaner-bound";
+    const otherSessionId = "codex-cleaner-other";
+    await persistSessionTaskRegistry(stateDir, createEmptySessionTaskRegistry(otherSessionId));
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: otherSessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "other" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: otherSessionId,
+      requestId: "request-1",
+      response: { id: "response-1", output: [{ type: "message", role: "assistant", content: "done" }] },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, otherSessionId, { latestResponseId: "response-1" });
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane: fakeControlPlane(),
+      boundSessionId: sessionId,
+    } as Parameters<typeof createCodexContextCleanerBridge>[0]);
+    const snapshot = await bridge.readCleanSnapshot(otherSessionId);
+    const itemId = snapshot.items[0]?.stableId;
+    assert.ok(itemId);
+    await assert.rejects(
+      bridge.submitAttribution!({
+        schemaVersion: 1,
+        submissionId: "wrong-host-session",
+        hostId: "codex",
+        sessionId: otherSessionId,
+        callerId: "agent-1",
+        authorityRef: "turn-1",
+        evidenceRevision: snapshot.revision,
+        evidenceRefs: [itemId],
+        invalidationConditions: ["referenced_occurrence_changed"],
+        updates: [{ taskId: "task-other", objective: "other", lifecycle: "active", coveredOccurrenceRefs: [itemId] }],
+        submittedAt: "2026-09-21T10:00:00.000Z",
+      }),
+      /codex_clean_attribution_session_binding_mismatch/,
+    );
+  });
 });

@@ -7,6 +7,7 @@ import {
   type ContextCleanerHostBridge,
   type ContextCleanerSchedulingControlPlane,
   type ExecuteApprovedContextCleanParams,
+  type ContextCleanOccurrenceSelection,
 } from "./contracts.js";
 import { readContextCleanPlan } from "./clean-plan-store.js";
 import { readContextCleanReceipt } from "./clean-receipt-store.js";
@@ -22,6 +23,7 @@ export interface ContextCleanerControlService {
   analyze(sessionId: string): Promise<ContextCleanPlan>;
   readPlan(planId: string): Promise<ContextCleanPlan | undefined>;
   approve(planId: string, selectedTaskIds: readonly string[]): Promise<ContextCleanReceipt>;
+  approveOccurrences(planId: string, selections: readonly ContextCleanOccurrenceSelection[]): Promise<ContextCleanReceipt>;
   readReceipt(planId: string): Promise<ContextCleanReceipt | undefined>;
   cancel(planId: string): Promise<ContextCleanReceipt>;
   submitAttribution(
@@ -92,6 +94,20 @@ export function createContextCleanerControlService(params: {
         selectedTaskIds: [...selectedTaskIds],
       };
       return params.bridge.executeApprovedClean(request);
+    },
+    async approveOccurrences(planId, selections) {
+      const plan = await this.readPlan(planId);
+      if (!plan) throw new Error("clean_plan_missing");
+      return params.bridge.executeApprovedClean({
+        schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+        cleanPlanId: plan.planId,
+        hostId: plan.hostId,
+        sessionId: plan.sessionId,
+        baseRevision: plan.baseRevision,
+        approvedAt: params.now?.() ?? new Date().toISOString(),
+        selectedTaskIds: [],
+        occurrenceSelections: selections.map((selection) => ({ ...selection })),
+      });
     },
     async readReceipt(planId) {
       const result = await readContextCleanReceipt({ stateDir: params.stateDir, planId });

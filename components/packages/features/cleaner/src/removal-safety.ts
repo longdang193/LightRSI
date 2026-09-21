@@ -16,10 +16,25 @@ export function evaluateContextCleanRemoval(input: {
   expectedRevision?: string;
   retentionDecision?: TaskRetentionDecision;
   dependencyDirection?: TaskDependencyDirection;
+  agentDirected?: boolean;
   items?: readonly ContextCleanRemovalItem[];
 }): { safe: boolean; reasons: string[] } {
   if (input.currentRevision !== undefined && input.expectedRevision !== undefined
     && input.currentRevision !== input.expectedRevision) return { safe: false, reasons: ["revision_stale"] };
+  if (input.agentDirected) {
+    for (const target of input.items ?? []) {
+      const item = target.item;
+      if (!item) return { safe: false, reasons: ["item_missing"] };
+      if (item.kind === "system" || item.kind === "developer"
+        || item.role === "system" || item.role === "developer") {
+        return { safe: false, reasons: ["protected_item"] };
+      }
+      if (target.expectedFingerprint !== undefined && item.fingerprint !== target.expectedFingerprint) {
+        return { safe: false, reasons: ["item_stale"] };
+      }
+    }
+    return { safe: true, reasons: [] };
+  }
   if (input.activeTaskIds.includes(input.taskId)) return { safe: false, reasons: ["task_active"] };
   if (input.lifecycleState === "unresolved") return { safe: false, reasons: ["task_unresolved"] };
   if (input.lifecycleState !== "completed") return { safe: false, reasons: ["task_not_completed"] };

@@ -186,7 +186,12 @@ export function validateCodexRebaseRequest(params: {
 }): CodexRebaseValidation {
   const reasons: string[] = [];
   if (params.baseRevision !== params.effectiveHistory.revision) reasons.push("revision_mismatch");
-  if (params.effectiveHistory.incomplete) reasons.push("effective_history_incomplete");
+  if (params.effectiveHistory.deferredItems.length > 0
+    || (params.effectiveHistory.incomplete
+      && params.effectiveHistory.replayableItems.length === 0
+      && params.effectiveHistory.observationOnlyItems.length === 0)) {
+    reasons.push("effective_history_incomplete");
+  }
 
   const knownItemIds = new Set(
     [

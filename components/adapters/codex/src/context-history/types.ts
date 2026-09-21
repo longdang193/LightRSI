@@ -110,6 +110,7 @@ export type CodexEffectiveHistoryView = {
   turns: CodexEffectiveHistoryTurn[];
   semanticComplete: boolean;
   reasonCodes: CodexEffectiveHistoryReasonCode[];
+  uncertainTurnSeqs?: number[];
 };
 
 export type CodexRolloutSessionMeta = {

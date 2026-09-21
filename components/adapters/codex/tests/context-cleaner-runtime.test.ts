@@ -468,7 +468,7 @@ test("Codex cleaner rejects an owner-token conflict instead of reusing stored cl
   });
 });
 
-test("Codex cleaner runtime marks revision drift stale and preserves the original request", async () => {
+test("Codex cleaner runtime accepts unrelated revision growth and preserves selected content", async () => {
   await withTempState(async (stateDir) => {
     const seeded = await seedScheduledClean(stateDir);
     const changedView = sourceView("changed-revision");
@@ -480,17 +480,9 @@ test("Codex cleaner runtime marks revision drift stale and preserves the origina
       now: "2026-08-22T00:00:04.000Z",
     });
 
-    assert.equal(result.outcome, "stale");
-    assert.deepEqual(result.reasonCodes, ["clean_execution_revision_stale"]);
-    const receipt = await readContextCleanReceipt({ stateDir, planId: CLEAN_PLAN_ID });
-    assert.equal(receipt.value?.status, "stale");
-    assert.equal(receipt.value?.fallbackUsed, false);
-    assert.equal("appliedSavedChars" in (receipt.value ?? {}), false);
-    assert.equal(
-      (await readCodexCleanerSchedule({ stateDir, sessionId: SESSION_ID })).outcome,
-      "terminal",
-    );
-  });
+    assert.equal(result.outcome, "ready");
+    assert.deepEqual(result.reasonCodes, []);
+});
 });
 
 test("Codex cleaner runtime terminates a scheduled plan that targets protected system content", async () => {

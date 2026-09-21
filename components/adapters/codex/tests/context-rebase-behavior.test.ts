@@ -347,6 +347,22 @@ test("CDR-01 rejects effective history containing deferred provider items", () =
   }), /effective_history_incomplete/);
 });
 
+test("CDR-01 allows unrelated incomplete history when selected input is complete", () => {
+  const originalPayload = baseResponsesPayload();
+  const effectiveHistory = effectiveHistoryFixture();
+  effectiveHistory.incomplete = true;
+
+  assert.doesNotThrow(() => buildCodexRebaseRequest({
+    sessionId: "codex-session-1",
+    planId: "plan-unrelated-incomplete",
+    baseRevision: effectiveHistory.revision,
+    originalPayload,
+    effectiveHistory,
+    currentInput: originalPayload.input,
+    mutationPlan: { operations: [] },
+  }));
+});
+
 test("CDR-01 rejects mutations that break function call closure", () => {
   const originalPayload = baseResponsesPayload();
   assert.throws(() => buildCodexRebaseRequest({

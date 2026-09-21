@@ -17,6 +17,7 @@ import {
   transitionContextCleanState,
 } from "../src/index.js";
 import { samplePlan, sampleReceipt, sampleSnapshot } from "./fixtures.js";
+import type { ContextCleanScheduledReceipt } from "../src/contracts.js";
 
 async function saveScheduledPlan(stateDir: string): Promise<void> {
   await saveContextCleanPlan({ stateDir, plan: samplePlan() });
@@ -80,6 +81,50 @@ test("execution bridge expands only the frozen scheduled task scope", async () =
       second.execution.mutationPlan.planId,
     );
     assert.equal("adapterMetadata" in first.execution.mutationPlan, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("execution bridge expands an exact agent-selected occurrence without registry task ownership", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-execution-occurrence-"));
+  try {
+    const plan = {
+      ...samplePlan(),
+      tasks: [],
+      occurrenceDigests: { "item-a": "digest-a" },
+    };
+    await saveContextCleanPlan({ stateDir: root, plan });
+    const receipt = {
+      ...sampleReceipt("approved"),
+      selectedTaskIds: ["occurrence:item-a"],
+    };
+    await transitionContextCleanState({ stateDir: root, receipt });
+    await transitionContextCleanState({
+      stateDir: root,
+      receipt: { ...receipt, status: "scheduled" } as ContextCleanScheduledReceipt,
+    });
+    const bridge = createContextCleanerHostExecutionBridge({
+      stateDir: root,
+      hostId: "codex",
+      async readExecutionSnapshot() {
+        return {
+          snapshot: sampleSnapshot(),
+          activeTaskIds: [],
+          evictableTaskIds: [],
+        };
+      },
+    });
+
+    const result = await bridge.prepareScheduledClean({
+      cleanPlanId: plan.planId,
+      sessionId: plan.sessionId,
+      baseRevision: plan.baseRevision,
+      selectedTaskIds: ["occurrence:item-a"],
+    });
+    assert.equal(result.outcome, "ready");
+    if (result.outcome !== "ready") return;
+    assert.deepEqual(result.execution.mutationPlan.operations[0]?.targetItemIds, ["item-a"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -251,7 +296,7 @@ test("approved plans cannot execute until a scheduler records the scheduled stat
   }
 });
 
-test("revision, digest, lifecycle, and task attribution drift preserve the Host request", async () => {
+test("unrelated revision growth is accepted while selected fingerprints remain stable", async () => {
   const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-execution-stale-"));
   try {
     await saveScheduledPlan(root);
@@ -274,7 +319,18 @@ test("revision, digest, lifecycle, and task attribution drift preserve the Host 
     }).prepareScheduledClean(request());
 
     const revision = await prepareWith({ snapshot: sampleSnapshot("rev-2") });
-    assert.deepEqual(revision.reasons, ["clean_execution_revision_stale"]);
+    assert.equal(revision.outcome, "ready");
+
+    const changedRevisionSnapshot = sampleSnapshot("rev-3");
+    changedRevisionSnapshot.items.push({
+      stableId: "item-new",
+      kind: "user",
+      role: "user",
+      fingerprint: "digest-new",
+      chars: 4,
+    });
+    const appended = await prepareWith({ snapshot: changedRevisionSnapshot });
+    assert.equal(appended.outcome, "ready");
 
     const digestSnapshot = sampleSnapshot();
     digestSnapshot.items[0] = {
