@@ -25,6 +25,9 @@ export function evaluateContextCleanRemoval(input: {
     for (const target of input.items ?? []) {
       const item = target.item;
       if (!item) return { safe: false, reasons: ["item_missing"] };
+      if (item.taskIds?.some((taskId) => input.activeTaskIds.includes(taskId))) {
+        return { safe: false, reasons: ["selected_occurrence_active"] };
+      }
       if (item.kind === "system" || item.kind === "developer"
         || item.role === "system" || item.role === "developer") {
         return { safe: false, reasons: ["protected_item"] };

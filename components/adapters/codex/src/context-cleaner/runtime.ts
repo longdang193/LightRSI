@@ -15,7 +15,7 @@ import {
   type ContextCleanTerminalReceipt,
 } from "@lightrsi/cleaner";
 import { createHash } from "node:crypto";
-import { loadSessionTaskRegistry } from "@lightrsi/history";
+import { createEmptySessionTaskRegistry, loadSessionTaskRegistry } from "@lightrsi/history";
 import type {
   ContextRewriteResult,
   ModelContextSnapshot,
@@ -61,6 +61,8 @@ const STALE_REASONS = new Set([
   "clean_execution_task_not_evictable",
   "clean_execution_revalidation_failed",
   "clean_execution_protocol_closure_failed",
+  "clean_execution_selected_occurrence_active",
+  "clean_execution_occurrence_evidence_invalid",
   "cleaner_runtime_snapshot_changed",
   "cleaner_runtime_plan_invalid",
 ]);
@@ -209,7 +211,13 @@ async function executionContext(params: {
     dependencyDirection?: "incoming" | "outgoing" | "none" | "unknown";
   }>;
 }> {
-  const registry = await loadSessionTaskRegistry(params.stateDir, params.sessionId);
+  let registry;
+  try {
+    registry = await loadSessionTaskRegistry(params.stateDir, params.sessionId);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    registry = createEmptySessionTaskRegistry(params.sessionId);
+  }
   if (registry.sessionId !== params.sessionId) {
     throw new Error("cleaner_runtime_registry_session_mismatch");
   }

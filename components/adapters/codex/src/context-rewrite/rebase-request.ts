@@ -331,7 +331,11 @@ export function buildCodexRebaseRequest(params: {
   currentInput: unknown;
   mutationPlan: CodexMutationPlan;
 }): CodexRebaseRequestResult {
-  const validation = validateCodexRebaseRequest(params);
+  const inputFormat = typeof params.originalPayload.previous_response_id === "string"
+    && params.originalPayload.previous_response_id.trim()
+    ? "response_chain" as const
+    : "cumulative" as const;
+  const validation = validateCodexRebaseRequest({ ...params, inputFormat });
   if (!validation.valid) {
     throw new Error(`Unsafe Codex rebase: ${validation.reasons.join(", ")}`);
   }
@@ -343,10 +347,7 @@ export function buildCodexRebaseRequest(params: {
     effectiveHistory: params.effectiveHistory,
     currentInput: params.currentInput,
     evicted,
-    inputFormat: typeof params.originalPayload.previous_response_id === "string"
-      && params.originalPayload.previous_response_id.trim()
-      ? "response_chain"
-      : "cumulative",
+    inputFormat,
   });
   if (forwardedInput.reasons.length > 0) {
     throw new Error(`Unsafe Codex rebase: ${forwardedInput.reasons.join(", ")}`);

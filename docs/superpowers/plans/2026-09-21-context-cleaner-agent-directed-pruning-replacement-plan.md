@@ -56,6 +56,15 @@ Older active Cleaner plans are deferred and superseded by this plan:
 Their findings and useful infrastructure remain inputs. They do not own future
 execution. This plan is the single Cleaner workflow owner.
 
+## Implementation Outcomes
+
+- Agent-directed occurrence selection uses existing Host history, claims,
+  transactions, receipts, continuation, and recovery.
+- One evaluator and one request compiler own release eligibility and forwarded
+  request construction.
+- Missing registry or estimator state remains optional for explicit pruning.
+- Redundant live Cleaner decision paths are removed only after replacement proof.
+
 ## Product Contract
 
 Context Cleaner is an agent-directed, evidence-gated pruning capability for a
@@ -215,7 +224,7 @@ must never be treated as safe to resend without recovery evidence.
 - No provider-validity guard is removed without direct request-shape proof.
 - Short and long sessions use one path; no separate mode-specific implementation.
 
-## Phase Breakdown
+## Task Breakdown
 
 ### Task 1: Baseline and ownership freeze
 
@@ -563,6 +572,12 @@ provider configured in `~/.codex/tokenpilot.env` passed both task-state
 estimation and Context Cleaner recommendation probes using model `combo-high`,
 with sanitized usage evidence. No external Codex provider write was attempted.
 Contract validation is intentionally skipped for this run.
+
+## Verification
+
+Task 7 owns required suites, typechecks, build, contract validation, backend
+boundary checks, and sanitized live probes. Acceptance scenarios below define
+expected behavior; no external provider write is implied.
 
 ## Acceptance Matrix
 

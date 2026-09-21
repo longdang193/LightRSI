@@ -37,6 +37,13 @@ targets:
 
 # Context Cleaner Governed Reconciliation
 
+## Goal
+
+Make Context Cleaner reconciliation session-bound, evidence-backed, serialized,
+and symmetric across short, long, dirty, restarted, and worker sessions while
+preserving existing Host, history, registry, transaction, receipt, and recovery
+owners.
+
 ## Review Verdict
 
 The recommendation is implementation-worthy. Its SSOT boundary matches the
@@ -94,6 +101,17 @@ Required corrections before implementation:
    suffixes, delayed results, ordinary controller traffic, and tool traffic use
    the same scoped assessment. Localized uncertainty protects affected work;
    unlocalizable uncertainty protects the broader affected scope.
+
+## Implementation Outcomes
+
+- One active Host session binds one logical registry without creating a second
+  session or attribution store.
+- One serialized reconciliation boundary owns registry writes and idempotency
+  settlement.
+- One eligibility evaluator consumes current history, attribution, retention,
+  dependency, and protocol evidence for analysis, selection, and execution.
+- Existing Cleaner claims, mutation, receipts, continuation, and recovery stay
+  as the only execution path.
 
 ## Canonical Contract
 
@@ -165,20 +183,47 @@ Invariants:
 - Live provider/autonomy pilot evidence; that remains Task 6 work.
 - Manual registry-file editing as a supported interface.
 
-## Work Order
+## Execution Approach
 
-| Task | State | Depends on | Required proof |
-| --- | --- | --- | --- |
-| R1. Serialize reconciliation and consolidate semantic mapping | completed | current source and recommendation review | lock/concurrency and mapper regression tests passed |
-| R2. Enforce exact reconciliation and current agent intent | completed | R1 | exact ownership, retain-before-dispatch, and invalidation tests passed |
-| R3. Unify scoped uncertainty across history | completed | R1, R2 | dirty-middle/late-result and protected-selection tests passed |
-| R4. Expose compact operations and process incrementally | completed | R1–R3 | sparse-window, restart, worker, and symmetric integration tests passed |
+- Mode: `inline sequential`
+- Coordination: `git-tracked`
+- Required skills: `skill-systematic-debugging`, `skill-test-driven-development`, `skill-backend-verification`, `skill-code-standards`, `skill-verification-before-completion`
+- Isolation: `current workspace`; preserve unrelated changes at preflight
+- Commit policy: `no commits during execution`
+- Preauthorized local actions: listed source/test edits, local mocks, sanitized probes, typecheck, build, and contract validation
+- User-approval actions: provider writes, credential changes, push, merge, destructive recovery, discard, and legacy deletion
+- Parallel ownership: none; shared Cleaner contracts and transaction state require sequential edits
 
-## Task R1: Serialize Reconciliation and Consolidate Semantic Mapping
+## Coordination State
+
+- Coordination owner: `single lead controller`
+- Coordination schema: `1`
+- Branch: `main`
+- Base commit: `d8036493af94c64fdb4606b64ac870db706cd787`
+- Expected workspace: `completed LightRSI working tree`
+- Next action: branch finishing only; no commit, merge, push, or publication authorized
+- Blockers: none
+
+## Task Breakdown
+
+| Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| Task 1 | completed | current | codex | none | lock/concurrency and mapper regression tests | passed |
+| Task 2 | completed | current | codex | Task 1 | exact ownership, retain-before-dispatch, and invalidation tests | passed |
+| Task 3 | completed | current | codex | Task 1, Task 2 | dirty-middle/late-result and protected-selection tests | passed |
+| Task 4 | completed | current | codex | Task 1–3 | sparse-window, restart, worker, and symmetric integration tests | passed |
+
+### Task 1: Serialize Reconciliation and Consolidate Semantic Mapping (R1)
 
 **Purpose:** Make ownership, authority, evidence, and lifecycle separation
 explicit, then make registry reconciliation one serialized operation without
 adding a transaction service.
+
+**Template Profile:**
+- Controller-selected: `normal`
+
+**Validator Profile:**
+- Controller-selected: `review`
 
 **Files and symbols:**
 
@@ -227,11 +272,17 @@ adding a transaction service.
 **Stop conditions:** a second persistent ledger, Project OS state copy, or
   authority field that cannot be verified at the Host/Project OS boundary.
 
-## Task R2: Enforce Exact Reconciliation and Current Agent Intent
+### Task 2: Enforce Exact Reconciliation and Current Agent Intent (R2)
 
 **Purpose:** Remove agent/session bookkeeping from the normal runtime path while
 keeping exact agent decisions authoritative only for their validated occurrence
 scope and current eligibility.
+
+**Template Profile:**
+- Controller-selected: `normal`
+
+**Validator Profile:**
+- Controller-selected: `review`
 
 **Files and symbols:**
 
@@ -282,11 +333,17 @@ scope and current eligibility.
   fallback, a new session registry, turn-wide ownership expansion, or execution
   that ignores current agent intent.
 
-## Task R3: Unify Scoped Uncertainty Across History
+### Task 3: Unify Scoped Uncertainty Across History (R3)
 
 **Purpose:** Let the active agent correct internal context-work interpretation
 without inventing historical occurrences, while applying the same scoped
 uncertainty rules to analysis, reconciliation, selection, and execution.
+
+**Template Profile:**
+- Controller-selected: `normal`
+
+**Validator Profile:**
+- Controller-selected: `review`
 
 **Files and symbols:**
 
@@ -323,11 +380,17 @@ uncertainty rules to analysis, reconciliation, selection, and execution.
   localizable uncertainty, uncertainty copied into a second ledger, or one
   blocked turn masking unrelated verified work.
 
-## Task R4: Expose Compact Operations and Process Incrementally
+### Task 4: Expose Compact Operations and Process Incrementally (R4)
 
 **Purpose:** Keep agent workflow small and prevent already assessed material
 from re-entering inference while preserving the same contracts for short, long,
 dirty, restarted, and worker sessions.
+
+**Template Profile:**
+- Controller-selected: `normal`
+
+**Validator Profile:**
+- Controller-selected: `review`
 
 **Files and symbols:**
 
@@ -436,7 +499,7 @@ Expected proof:
 10. Fresh verification reports `verified` before plan completion.
 11. Existing safety/autonomy plan Task 6 remains unchanged and deferred.
 
-## Completion Evidence
+## Completion Criteria
 
 Verified 2026-09-21 in the LightRSI working tree. All required package tests
 passed: Cleaner, eviction, history, Codex, Claude Code, TokenPilot, and CLI.

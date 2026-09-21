@@ -87,8 +87,11 @@ export async function saveContextCleanReceiptUnlocked(params: {
     }
   }
   const tasksById = new Map(planRead.value.plan.tasks.map((task) => [task.taskId, task]));
-  const occurrenceIds = new Set(Object.keys(planRead.value.plan.occurrenceDigests ?? {})
-    .map((stableId) => `occurrence:${stableId}`));
+  const occurrenceStableIds = Object.keys(planRead.value.plan.occurrenceDigests ?? {});
+  const occurrenceIds = new Set([
+    ...occurrenceStableIds,
+    ...occurrenceStableIds.map((stableId) => `occurrence:${stableId}`),
+  ]);
   if (receipt.status === "analyzed" && receipt.selectedTaskIds.length > 0) {
     return bypassed("clean_receipt_analyzed_selection_not_empty");
   }

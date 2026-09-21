@@ -17,7 +17,7 @@ import {
   transitionContextCleanState,
 } from "../src/index.js";
 import { samplePlan, sampleReceipt, sampleSnapshot } from "./fixtures.js";
-import type { ContextCleanScheduledReceipt } from "../src/contracts.js";
+import type { ContextCleanReceipt, ContextCleanScheduledReceipt } from "../src/contracts.js";
 
 async function saveScheduledPlan(stateDir: string): Promise<void> {
   await saveContextCleanPlan({ stateDir, plan: samplePlan() });
@@ -98,7 +98,18 @@ test("execution bridge expands an exact agent-selected occurrence without regist
     const receipt = {
       ...sampleReceipt("approved"),
       selectedTaskIds: ["occurrence:item-a"],
-    };
+      evidence: {
+        occurrenceSelections: [{
+          stableId: "item-a",
+          fingerprint: "digest-a",
+          completionEvidence: ["completed"],
+          continuingUseful: false,
+          releaseIntent: "release" as const,
+          retainedFindings: ["none"],
+          dependencyDirection: "none" as const,
+        }],
+      },
+    } as ContextCleanReceipt;
     await transitionContextCleanState({ stateDir: root, receipt });
     await transitionContextCleanState({
       stateDir: root,
@@ -125,6 +136,62 @@ test("execution bridge expands an exact agent-selected occurrence without regist
     assert.equal(result.outcome, "ready");
     if (result.outcome !== "ready") return;
     assert.deepEqual(result.execution.mutationPlan.operations[0]?.targetItemIds, ["item-a"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("execution bridge compiles selected occurrences into one atomic mutation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-execution-atomic-occurrences-"));
+  try {
+    const plan = {
+      ...samplePlan(),
+      tasks: [],
+      occurrenceDigests: { "item-a": "digest-a", "item-b": "digest-b" },
+    };
+    await saveContextCleanPlan({ stateDir: root, plan });
+    const receipt = {
+      ...sampleReceipt("approved"),
+      selectedTaskIds: ["occurrence:item-a", "occurrence:item-b"],
+      evidence: {
+        occurrenceSelections: ["item-a", "item-b"].map((stableId) => ({
+          stableId,
+          fingerprint: `digest-${stableId.slice(-1)}`,
+          completionEvidence: ["completed"],
+          continuingUseful: false,
+          releaseIntent: "release" as const,
+          retainedFindings: ["none"],
+          dependencyDirection: "none" as const,
+        })),
+      },
+    } as ContextCleanReceipt;
+    await transitionContextCleanState({ stateDir: root, receipt });
+    await transitionContextCleanState({
+      stateDir: root,
+      receipt: { ...receipt, status: "scheduled" } as ContextCleanScheduledReceipt,
+    });
+    const bridge = createContextCleanerHostExecutionBridge({
+      stateDir: root,
+      hostId: "codex",
+      async readExecutionSnapshot() {
+        return {
+          snapshot: sampleSnapshot(),
+          activeTaskIds: [],
+          evictableTaskIds: [],
+        };
+      },
+    });
+
+    const result = await bridge.prepareScheduledClean({
+      cleanPlanId: plan.planId,
+      sessionId: plan.sessionId,
+      baseRevision: plan.baseRevision,
+      selectedTaskIds: ["occurrence:item-a", "occurrence:item-b"],
+    });
+    assert.equal(result.outcome, "ready");
+    if (result.outcome !== "ready") return;
+    assert.equal(result.execution.mutationPlan.operations.length, 1);
+    assert.deepEqual(result.execution.mutationPlan.operations[0]?.targetItemIds, ["item-a", "item-b"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -936,11 +936,6 @@ export async function startCodexResponsesProxy(params: {
             reasonCodes: ["request_journal_unavailable"],
             fallbackUsed: true,
           });
-        } else if (typeof originalPayload.previous_response_id !== "string"
-          || !originalPayload.previous_response_id) {
-          await emitContextRewriteStage("context_rewrite_deferred", {
-            reasonCodes: ["response_chain_head_missing"],
-          });
         } else if (!config.contextRewrite.retryOriginalRequest
           || config.contextRewrite.mode !== "response_chain_rebase"
           || config.contextRewrite.failureMode !== "bypass") {

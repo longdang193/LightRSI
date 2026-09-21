@@ -160,6 +160,7 @@ export type ContextCleanEvidence = {
   eventIds?: string[];
   archiveRefs?: string[];
   providerResponseId?: string;
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
 };
 
 export type ContextCleanHistoryEvidence = {
@@ -331,6 +332,7 @@ export type ContextCleanOccurrenceSelection = {
   continuingUseful: boolean;
   releaseIntent: "release";
   retainedFindings: string[];
+  nothingReusable?: boolean;
   dependencyDirection: "none" | "outgoing";
 };
 
@@ -430,6 +432,7 @@ export type FinalizeContextCleanScheduleParams = {
   baseRevision: string;
   selectedTaskIds: string[];
   scheduledAt: string;
+  evidence?: ContextCleanEvidence;
 };
 
 export interface ContextCleanerSchedulingControlPlane extends ContextCleanerControlPlane {

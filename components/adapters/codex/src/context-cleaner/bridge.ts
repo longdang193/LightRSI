@@ -131,13 +131,14 @@ function validateApprovedRequest(request: ExecuteApprovedContextCleanParams): st
   if (request.hostId !== CODEX_HOST_ID) {
     throw new Error("codex_clean_approval_host_mismatch");
   }
-  const occurrenceTaskIds = (request.occurrenceSelections ?? [])
-    .map((selection) => `occurrence:${selection.stableId}`);
+  const occurrenceIds = (request.occurrenceSelections ?? [])
+    .map((selection) => selection.stableId);
   if ((request.occurrenceSelections ?? []).some((selection) => (
     !selection.stableId.trim()
     || !selection.fingerprint.trim()
     || !Array.isArray(selection.completionEvidence)
     || !Array.isArray(selection.retainedFindings)
+    || (selection.nothingReusable !== undefined && typeof selection.nothingReusable !== "boolean")
     || typeof selection.continuingUseful !== "boolean"
     || selection.releaseIntent !== "release"
     || !["none", "outgoing"].includes(selection.dependencyDirection)
@@ -148,12 +149,10 @@ function validateApprovedRequest(request: ExecuteApprovedContextCleanParams): st
     || !request.sessionId.trim()
     || !request.baseRevision.trim()
     || !canonicalTimestamp(request.approvedAt)
-    || (request.selectedTaskIds.length === 0 && occurrenceTaskIds.length === 0)) {
+    || (request.selectedTaskIds.length === 0 && occurrenceIds.length === 0)) {
     throw new Error("codex_clean_approval_invalid");
   }
-  const taskIds = normalizedUniqueStrings(
-    request.selectedTaskIds.length > 0 ? request.selectedTaskIds : occurrenceTaskIds,
-  );
+  const taskIds = normalizedUniqueStrings([...request.selectedTaskIds, ...occurrenceIds]);
   if (!taskIds) throw new Error("codex_clean_approval_invalid");
   return taskIds;
 }
@@ -581,6 +580,7 @@ export function createCodexContextCleanerBridge(params: {
             baseRevision: request.baseRevision,
             selectedTaskIds,
             scheduledAt: approved.updatedAt,
+            evidence: approved.evidence,
           }),
           planId: request.cleanPlanId,
           sessionId: request.sessionId,

@@ -553,7 +553,7 @@ test("Codex cleaner accepts exact agent-directed release without registry or est
       dependencyDirection: "none",
     }]);
     assert.equal(receipt.status, "scheduled");
-    assert.deepEqual(receipt.selectedTaskIds, [`occurrence:${target.stableId}`]);
+    assert.deepEqual(receipt.selectedTaskIds, [target.stableId]);
   });
 });
 
@@ -592,7 +592,6 @@ test("Context Cleaner reports missing task attribution instead of hiding it", as
     const receipt = await service.readReceipt(plan.planId);
     assert.deepEqual(receipt?.reasons, [
       "recommendation_provider_unavailable",
-      "task_registry_unavailable",
     ]);
     assert.equal(receipt?.fallbackUsed, true);
   });

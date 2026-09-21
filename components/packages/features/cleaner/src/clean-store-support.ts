@@ -10,6 +10,7 @@ import {
   type ContextCleanAttributionStatus,
   type ContextCleanDispatchState,
   type ContextCleanExecutionClaim,
+  type ContextCleanOccurrenceSelection,
   type ContextCleanPlan,
   type ContextCleanPlanRecord,
   type ContextCleanReceipt,
@@ -246,6 +247,23 @@ function parseEvidence(value: unknown, applied: boolean): ContextCleanReceipt["e
   for (const field of ["claimId", "previousRevision", "nextRevision", "providerResponseId"] as const) {
     if (value[field] !== undefined && !isNonBlankString(value[field])) return undefined;
   }
+  if (value.occurrenceSelections !== undefined) {
+    if (!Array.isArray(value.occurrenceSelections)
+      || value.occurrenceSelections.some((selection) => {
+        if (!isRecord(selection)
+          || !isNonBlankString(selection.stableId)
+          || !isNonBlankString(selection.fingerprint)
+          || selection.continuingUseful !== false
+          || selection.releaseIntent !== "release"
+          || !["none", "outgoing"].includes(String(selection.dependencyDirection))
+          || !uniqueStrings(selection.completionEvidence)
+          || selection.completionEvidence.length === 0
+          || !uniqueStrings(selection.retainedFindings)
+          || (selection.retainedFindings.length > 0) === Boolean(selection.nothingReusable)
+          || (selection.nothingReusable !== undefined && typeof selection.nothingReusable !== "boolean")) return true;
+        return false;
+      })) return undefined;
+  }
   if (applied && (!isNonBlankString(value.previousRevision) || !isNonBlankString(value.nextRevision)
     || !uniqueStrings(value.operationIds) || !uniqueStrings(value.itemIds))) return undefined;
   return {
@@ -257,6 +275,9 @@ function parseEvidence(value: unknown, applied: boolean): ContextCleanReceipt["e
     ...(value.eventIds ? { eventIds: [...value.eventIds as string[]] } : {}),
     ...(value.archiveRefs ? { archiveRefs: [...value.archiveRefs as string[]] } : {}),
     ...(value.providerResponseId ? { providerResponseId: value.providerResponseId as string } : {}),
+    ...(value.occurrenceSelections
+      ? { occurrenceSelections: value.occurrenceSelections as ContextCleanOccurrenceSelection[] }
+      : {}),
   };
 }
 

@@ -48,6 +48,42 @@ test("clean CLI analyzes and approves only selected task IDs", async () => {
   assert.deepEqual(calls, ["analyze", "read-plan", "task-1"]);
 });
 
+test("clean CLI releases exact occurrence evidence through the shared service", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-release-"));
+  try {
+    const path = join(dir, "occurrences.json");
+    await writeFile(path, JSON.stringify([{
+      stableId: "item-1",
+      fingerprint: "digest-1",
+      completionEvidence: ["completed"],
+      continuingUseful: false,
+      releaseIntent: "release",
+      retainedFindings: ["none"],
+      dependencyDirection: "none",
+    }]), "utf8");
+    let released = "";
+    const backend = {
+      async analyze() { return plan; },
+      async readPlan() { return plan; },
+      async approve() { return receipt; },
+      async approveOccurrences(_planId: string, selections: Array<{ stableId: string }>) {
+        released = selections[0]?.stableId ?? "";
+        return receipt;
+      },
+      async readReceipt() { return receipt; },
+      async cancel() { return { ...receipt, status: "cancelled" }; },
+    };
+    const result = await handleCleanCommand({
+      args: ["--plan", "plan-1", "--release", path],
+      backend,
+    });
+    assert.match(result.text, /scheduled/);
+    assert.equal(released, "item-1");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("clean CLI renders attribution status", async () => {
   const backend = {
     async analyze() { return plan; },

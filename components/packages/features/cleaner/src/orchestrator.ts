@@ -11,6 +11,7 @@ import {
   type ContextCleanPlan,
   type ContextCleanAttributionStatus,
   type ContextCleanReceipt,
+  type ContextCleanOccurrenceSelection,
   type ContextCleanerHostBridge,
   type ExecuteApprovedContextCleanParams,
   type FinalizeContextCleanScheduleParams,
@@ -68,6 +69,7 @@ function pendingReceipt(params: {
   selectedTaskIds: string[];
   updatedAt: string;
   fallbackUsed: boolean;
+  evidence?: ContextCleanReceipt["evidence"];
 }): ContextCleanPendingReceipt {
   const selectedTasks = params.plan.tasks.filter((task) => params.selectedTaskIds.includes(task.taskId));
   return {
@@ -86,7 +88,24 @@ function pendingReceipt(params: {
     reasons: [],
     updatedAt: params.updatedAt,
     fallbackUsed: params.fallbackUsed,
+    ...(params.evidence ? { evidence: params.evidence } : {}),
   };
+}
+
+function validOccurrenceSelection(
+  selection: ContextCleanOccurrenceSelection | undefined,
+  expectedFingerprint: string | undefined,
+): boolean {
+  return Boolean(selection
+    && selection.stableId.trim()
+    && selection.fingerprint === expectedFingerprint
+    && selection.completionEvidence.length > 0
+    && selection.completionEvidence.every((value) => typeof value === "string" && value.trim())
+    && selection.continuingUseful === false
+    && selection.releaseIntent === "release"
+    && (selection.retainedFindings.length > 0) !== Boolean(selection.nothingReusable)
+    && selection.retainedFindings.every((value) => typeof value === "string" && value.trim())
+    && ["none", "outgoing"].includes(selection.dependencyDirection));
 }
 
 export async function analyzeContextCleanSession(params: AnalyzeContextCleanSessionParams): Promise<{
@@ -118,11 +137,8 @@ export async function analyzeContextCleanSession(params: AnalyzeContextCleanSess
     itemTokenCounts: snapshot.itemTokenCounts,
   });
   const recommendation = await analyzeContextCleanRecommendations({ tasks: breakdown.tasks, provider: params.provider });
-  const attributionReasons = attributionStatus !== "available"
-    ? ["task_registry_unavailable"]
-    : [];
-  const fallbackUsed = recommendation.fallbackUsed || attributionReasons.length > 0;
-  const reasons = [...recommendation.reasons, ...attributionReasons];
+  const fallbackUsed = recommendation.fallbackUsed;
+  const reasons = [...recommendation.reasons];
   const base: Omit<ContextCleanPlan, "planId"> = {
     schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
     hostId: params.bridge.hostId,
@@ -164,10 +180,7 @@ export async function approveContextCleanSelection(params: {
   if (stored.bypassed || !stored.value) error("clean_approval_plan_unavailable", stored.reasons);
   const plan = stored.value.plan;
   const occurrenceSelections = params.request.occurrenceSelections ?? [];
-  const occurrenceTaskIds = occurrenceSelections.map((selection) => `occurrence:${selection.stableId}`);
-  const ids = params.request.selectedTaskIds.length > 0
-    ? params.request.selectedTaskIds
-    : occurrenceTaskIds;
+  const ids = [...params.request.selectedTaskIds, ...occurrenceSelections.map((selection) => selection.stableId)];
   if (params.request.hostId !== plan.hostId || params.request.sessionId !== plan.sessionId
     || params.request.baseRevision !== plan.baseRevision || ids.length === 0) {
     throw new Error("clean_approval_invalid");
@@ -176,19 +189,10 @@ export async function approveContextCleanSelection(params: {
   if (new Set(ids).size !== ids.length) throw new Error("clean_approval_duplicate_task");
   for (const taskId of ids) {
     const task = byId.get(taskId);
-    if (!task && taskId.startsWith("occurrence:")) {
-      const stableId = taskId.slice("occurrence:".length);
+    const stableId = taskId.startsWith("occurrence:") ? taskId.slice("occurrence:".length) : taskId;
+    if (!task && plan.occurrenceDigests?.[stableId] !== undefined) {
       const selection = occurrenceSelections.find((candidate) => candidate.stableId === stableId);
-      if (!selection || plan.occurrenceDigests?.[stableId] !== selection.fingerprint
-        || !Array.isArray(selection.completionEvidence)
-        || !selection.completionEvidence.every((value) => typeof value === "string" && value.trim())
-        || selection.completionEvidence.length === 0
-        || selection.continuingUseful
-        || selection.releaseIntent !== "release"
-        || !Array.isArray(selection.retainedFindings)
-        || !selection.retainedFindings.every((value) => typeof value === "string" && value.trim())
-        || selection.retainedFindings.length === 0
-        || !["none", "outgoing"].includes(selection.dependencyDirection)) {
+      if (!validOccurrenceSelection(selection, plan.occurrenceDigests?.[stableId])) {
         throw new Error("clean_approval_occurrence_evidence_invalid");
       }
       continue;
@@ -212,6 +216,7 @@ export async function approveContextCleanSelection(params: {
     reasons: [],
     updatedAt: now,
     fallbackUsed: false,
+    ...(occurrenceSelections.length > 0 ? { evidence: { occurrenceSelections } } : {}),
   };
   const result = await transitionContextCleanApproval({ stateDir: params.stateDir, receipt: pending });
   if (result.bypassed) error("clean_approval_store_failed", result.reasons);
@@ -241,6 +246,7 @@ export async function finalizeContextCleanSchedule(params: {
     selectedTaskIds: request.selectedTaskIds,
     updatedAt: request.scheduledAt,
     fallbackUsed: false,
+    evidence: params.request.evidence,
   });
   const result = await transitionContextCleanSchedule({ stateDir: params.stateDir, receipt: scheduled });
   if (result.bypassed) error("clean_schedule_store_failed", result.reasons);

@@ -126,12 +126,12 @@ function selectedTasksFromPlan(
   const selectedSet = new Set(selectedTaskIds);
   const selectedTasks = record.plan.tasks.filter((task) => selectedSet.has(task.taskId));
   const occurrenceTasks = selectedTaskIds
-    .filter((taskId) => taskId.startsWith("occurrence:"))
+    .filter((taskId) => !record.plan.tasks.some((task) => task.taskId === taskId))
     .map((taskId) => {
-      const stableId = taskId.slice("occurrence:".length);
+      const stableId = taskId.startsWith("occurrence:") ? taskId.slice("occurrence:".length) : taskId;
       const fingerprint = record.plan.occurrenceDigests?.[stableId];
       return fingerprint
-        ? { taskId, itemIds: [stableId], itemDigests: { [stableId]: fingerprint } }
+        ? { taskId: `occurrence:${stableId}`, itemIds: [stableId], itemDigests: { [stableId]: fingerprint } }
         : undefined;
     });
   if (selectedTasks.length + occurrenceTasks.filter(Boolean).length !== selectedTaskIds.length
@@ -161,26 +161,27 @@ function buildMutationPlan(params: {
   const tasksById = new Map(
     params.record.plan.tasks.map((task) => [task.taskId, task]),
   );
-  const operations: ContextMutationOperation[] = params.selectedTasks.map((task) => {
-    const planTask = tasksById.get(task.taskId)!;
-    const targetItemFingerprints = Object.fromEntries(
-      task.itemIds.map((itemId) => [itemId, task.itemDigests[itemId]!]),
-    );
-    return {
-      id: digestId("ctxcleanop", {
-        cleanPlanId: params.record.plan.planId,
-        taskId: task.taskId,
-        targetItemIds: task.itemIds,
-        targetItemFingerprints,
-      }),
-      type: "remove",
-      targetItemIds: [...task.itemIds],
+  const targetItemIds = params.selectedTasks.flatMap((task) => task.itemIds);
+  const targetItemFingerprints = Object.fromEntries(
+    params.selectedTasks.flatMap((task) => task.itemIds.map((itemId) => [itemId, task.itemDigests[itemId]!])),
+  );
+  const estimatedSavedChars = params.selectedTasks.reduce((total, task) => {
+    return total + (tasksById.get(task.taskId)?.charCount ?? 0);
+  }, 0);
+  const operations: ContextMutationOperation[] = [{
+    id: digestId("ctxcleanop", {
+      cleanPlanId: params.record.plan.planId,
+      taskIds: params.selectedTasks.map((task) => task.taskId),
+      targetItemIds,
       targetItemFingerprints,
-      taskIds: [task.taskId],
-      rationale: "user_approved_context_clean",
-      estimatedSavedChars: planTask?.charCount ?? 0,
-    };
-  });
+    }),
+    type: "remove",
+    targetItemIds,
+    targetItemFingerprints,
+    taskIds: params.selectedTasks.map((task) => task.taskId),
+    rationale: "user_approved_context_clean",
+    estimatedSavedChars,
+  }];
   return {
     schemaVersion: MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
     planId: digestId("ctxcleanplan", {
@@ -341,9 +342,24 @@ async function prepareScheduledClean(params: {
   const currentItems = new Map(
     current.snapshot.items.map((item) => [item.stableId, item]),
   );
+  const occurrenceEvidence = new Map(
+    (stored.receipt.evidence?.occurrenceSelections ?? [])
+      .map((selection) => [selection.stableId, selection]),
+  );
   for (const task of selectedTasks) {
     const planTask = stored.record.plan.tasks.find((candidate) => candidate.taskId === task.taskId);
     const agentDirected = task.taskId.startsWith("occurrence:");
+    if (agentDirected) {
+      const stableId = task.taskId.slice("occurrence:".length);
+      const evidence = occurrenceEvidence.get(stableId);
+      if (!evidence || evidence.fingerprint !== task.itemDigests[stableId]
+        || evidence.continuingUseful
+        || evidence.releaseIntent !== "release"
+        || evidence.completionEvidence.length === 0
+        || (evidence.retainedFindings.length > 0) === Boolean(evidence.nothingReusable)) {
+        return bypassed(["clean_execution_occurrence_evidence_invalid"], stored.receipt);
+      }
+    }
     const safety = evaluateContextCleanRemoval({
       taskId: task.taskId,
       lifecycleState: planTask?.lifecycleState ?? "completed",
@@ -351,10 +367,10 @@ async function prepareScheduledClean(params: {
       evictableTaskIds: current.evictableTaskIds,
       retentionDecision: planTask
         ? current.taskIntents?.[task.taskId]?.retentionDecision
-        : "release",
+        : undefined,
       dependencyDirection: planTask
         ? current.taskIntents?.[task.taskId]?.dependencyDirection
-        : "outgoing",
+        : undefined,
       agentDirected,
       items: task.itemIds.map((itemId) => ({
         item: currentItems.get(itemId),
@@ -376,6 +392,7 @@ async function prepareScheduledClean(params: {
         task_retained: "clean_execution_task_retained",
         incoming_dependency: "clean_execution_incoming_dependency",
         dependency_unknown: "clean_execution_dependency_unknown",
+        selected_occurrence_active: "clean_execution_selected_occurrence_active",
         item_stale: "clean_execution_item_stale",
       }[reason] ?? "clean_execution_revalidation_failed";
       return bypassed([mapped], stored.receipt);

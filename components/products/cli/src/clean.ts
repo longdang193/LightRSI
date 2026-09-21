@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import type {
   ContextCleanAttributionSubmission,
   ContextCleanAttributionSubmissionResult,
+  ContextCleanOccurrenceSelection,
 } from "@lightrsi/cleaner";
 import {
   renderCleanPlan,
@@ -14,6 +15,7 @@ export interface CleanCommandBackend {
   analyze(sessionId: string): Promise<CleanPlanView>;
   readPlan(planId: string): Promise<CleanPlanView | undefined>;
   approve(planId: string, selectedTaskIds: string[]): Promise<CleanReceiptView>;
+  approveOccurrences?(planId: string, selections: ContextCleanOccurrenceSelection[]): Promise<CleanReceiptView>;
   readReceipt(planId: string): Promise<CleanReceiptView | undefined>;
   cancel(planId: string): Promise<CleanReceiptView>;
   submitAttribution?(request: ContextCleanAttributionSubmission): Promise<ContextCleanAttributionSubmissionResult>;
@@ -24,6 +26,7 @@ export function formatCleanUsage(): string {
     "Usage:",
     "  lightrsi <host> clean --session <session-id>",
     "  lightrsi <host> clean --plan <plan-id> --select <task-id[,task-id...]>",
+    "  lightrsi <host> clean --plan <plan-id> --release <occurrence-evidence.json>",
     "  lightrsi <host> clean --status <plan-id>",
     "  lightrsi <host> clean --cancel <plan-id>",
     "  lightrsi <host> clean --submit-attribution <submission-file>",
@@ -75,6 +78,13 @@ export async function handleCleanCommand(params: {
       if (!task.selectable) throw new Error(`clean_selection_task_protected:${taskId}`);
     }
     return { text: renderCleanReceipt(await params.backend.approve(planId, selected)) };
+  }
+  if (args.length === 4 && args[0] === "--plan" && args[2] === "--release") {
+    if (!params.backend.approveOccurrences) throw new Error("clean_occurrence_release_unsupported");
+    const planId = valueAt(args, 1, "clean_plan_id_missing");
+    const selections = JSON.parse(await readFile(valueAt(args, 3, "clean_release_file_missing"), "utf8")) as ContextCleanOccurrenceSelection[];
+    if (!Array.isArray(selections) || selections.length === 0) throw new Error("clean_release_evidence_missing");
+    return { text: renderCleanReceipt(await params.backend.approveOccurrences(planId, selections)) };
   }
   if (args.length === 0 && params.sessionId) {
     const sessionId = await params.resolveSessionId?.(params.sessionId) ?? params.sessionId;

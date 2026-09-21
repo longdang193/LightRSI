@@ -138,7 +138,7 @@ remain unchanged.
 - Base commit: `3ff8885`
 - Expected workspace: `LightRSI main with follow-up implementation changes`
 - Next action: branch finishing only; no commit, merge, push, or publication authorized
-- Blockers: none within this follow-up; old Task 6 remains explicitly deferred and outside this plan's claims
+- Blockers: none
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -159,7 +159,7 @@ remain unchanged.
 - Contract correction and adapter integration.
 
 **Template Profile:**
-- Controller-selected: `unresolved`
+- Controller-selected: `normal`
 - Selection basis: current effective-history and semantic-mapping contracts are sufficient; Task 6 remains deferred.
 
 **Validator Profile:**
@@ -214,7 +214,7 @@ remain unchanged.
 - Host-neutral input validation, registry CAS integration, and adapter binding.
 
 **Template Profile:**
-- Controller-selected: `unresolved`
+- Controller-selected: `normal`
 - Selection basis: choose lowest profile that can safely handle identity, revision, and persistence boundaries.
 
 **Validator Profile:**
@@ -286,7 +286,7 @@ remain unchanged.
 - Contract and deterministic eligibility correction.
 
 **Template Profile:**
-- Controller-selected: `unresolved`
+- Controller-selected: `normal`
 - Selection basis: small schema change with direct safety consequences.
 
 **Validator Profile:**
@@ -346,7 +346,7 @@ remain unchanged.
 - End-to-end backend verification and CLI contract proof.
 
 **Template Profile:**
-- Controller-selected: `unresolved`
+- Controller-selected: `normal`
 - Selection basis: integration risk spans adapter, Cleaner, and CLI boundaries.
 
 **Validator Profile:**
