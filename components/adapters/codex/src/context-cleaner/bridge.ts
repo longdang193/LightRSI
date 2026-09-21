@@ -207,10 +207,13 @@ function scopedHistoryEvidence(params: {
 }): ContextCleanHistoryEvidence | undefined {
   const { view, semanticReasonCodes, blockedTurnSeqs } = params;
   if (blockedTurnSeqs.length === 0) return undefined;
+  const hasScopedUnresolvedTool = semanticReasonCodes.includes("history_unresolved_tool_calls");
   const unscoped = semanticReasonCodes.some((reason) => (
     reason !== "semantic_source_incomplete"
     && !reason.startsWith("semantic_tool_")
     && !reason.startsWith("semantic_message_")
+    && reason !== "history_unresolved_tool_calls"
+    && !(reason === "history_replay_incomplete" && hasScopedUnresolvedTool)
   ));
   if (unscoped) return undefined;
 

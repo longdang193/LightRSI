@@ -539,7 +539,7 @@ test("Codex cleaner bridge rejects a session whose committed response chain is i
   }
 });
 
-test("Codex cleaner bridge reports unresolved active tool calls in refusal reason", async () => {
+test("Codex cleaner bridge protects unresolved active tool calls without blocking clean history", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cleaner-active-tool-"));
   try {
     const sessionId = "codex-cleaner-active-tool";
@@ -584,10 +584,15 @@ test("Codex cleaner bridge reports unresolved active tool calls in refusal reaso
       stateDir,
       controlPlane: fakeControlPlane(),
     });
-    await assert.rejects(
-      bridge.readCleanSnapshot(sessionId),
-      /codex_clean_snapshot_incomplete:.*history_unresolved_tool_calls/,
-    );
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
+    assert.equal(snapshot.historyEvidence?.completeness, "partial");
+    assert.deepEqual(snapshot.historyEvidence?.reasonCodes, [
+      "history_replay_incomplete",
+      "history_unresolved_tool_calls",
+      "semantic_source_incomplete",
+      "semantic_tool_closure_incomplete",
+    ]);
+    assert.ok(snapshot.historyEvidence?.protectedItemIds.length);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }
