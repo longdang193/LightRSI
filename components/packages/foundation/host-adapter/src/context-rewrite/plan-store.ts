@@ -422,6 +422,21 @@ async function acquireSessionLock(params: {
   }
 }
 
+export async function withContextMutationPlanSessionLock<T>(params: {
+  stateDir: string;
+  sessionId: string;
+  lock?: ContextMutationPlanStoreLockOptions;
+  run: () => Promise<T>;
+}): Promise<T> {
+  const lock = await acquireSessionLock(params);
+  if (!lock) throw new Error("session_lock_unavailable");
+  try {
+    return await params.run();
+  } finally {
+    await lock.release();
+  }
+}
+
 async function readStoredPlanFile(params: {
   path: string;
   sessionId: string;

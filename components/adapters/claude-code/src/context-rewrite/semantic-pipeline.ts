@@ -14,6 +14,7 @@ import {
   type SessionTaskRegistry,
 } from "@lightrsi/history";
 import type { TaskStateEstimator } from "@lightrsi/eviction";
+import { withContextMutationPlanSessionLock } from "@lightrsi/host-adapter";
 import { createHash } from "node:crypto";
 import {
   buildRawSemanticTurnRecord,
@@ -187,12 +188,21 @@ export async function runSemanticPipeline(params: {
     }
 
     try {
-      await persistSessionTaskRegistry(stateDir, result.registry, {
-        expectedVersion: registry.version,
+      await withContextMutationPlanSessionLock({
+        stateDir,
+        sessionId,
+        run: async () => {
+          const current = await loadSessionTaskRegistry(stateDir, sessionId);
+          if (current.version !== registry.version) {
+            throw new SessionTaskRegistryVersionMismatchError(registry.version, current.version);
+          }
+          await persistSessionTaskRegistry(stateDir, result.registry, {
+            expectedVersion: current.version,
+          });
+        },
       });
     } catch (error) {
       if (error instanceof SessionTaskRegistryVersionMismatchError) {
-        // Another writer advanced the registry; abandon rather than clobber.
         return { ran: true, changed: false, turnSeq, note: "version_conflict" };
       }
       throw error;

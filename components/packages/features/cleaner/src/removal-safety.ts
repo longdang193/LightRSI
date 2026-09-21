@@ -1,4 +1,5 @@
 import type { ContextItemRef } from "@lightrsi/host-adapter";
+import type { TaskDependencyDirection, TaskRetentionDecision } from "@lightrsi/history";
 import type { ContextCleanLifecycleState } from "./contracts.js";
 
 export type ContextCleanRemovalItem = {
@@ -13,6 +14,8 @@ export function evaluateContextCleanRemoval(input: {
   evictableTaskIds: readonly string[];
   currentRevision?: string;
   expectedRevision?: string;
+  retentionDecision?: TaskRetentionDecision;
+  dependencyDirection?: TaskDependencyDirection;
   items?: readonly ContextCleanRemovalItem[];
 }): { safe: boolean; reasons: string[] } {
   if (input.currentRevision !== undefined && input.expectedRevision !== undefined
@@ -21,6 +24,9 @@ export function evaluateContextCleanRemoval(input: {
   if (input.lifecycleState === "unresolved") return { safe: false, reasons: ["task_unresolved"] };
   if (input.lifecycleState !== "completed") return { safe: false, reasons: ["task_not_completed"] };
   if (!input.evictableTaskIds.includes(input.taskId)) return { safe: false, reasons: ["task_not_evictable"] };
+  if (input.retentionDecision === "retain") return { safe: false, reasons: ["task_retained"] };
+  if (input.dependencyDirection === "incoming") return { safe: false, reasons: ["incoming_dependency"] };
+  if (input.dependencyDirection === "unknown") return { safe: false, reasons: ["dependency_unknown"] };
   for (const target of input.items ?? []) {
     const item = target.item;
     if (!item) return { safe: false, reasons: ["item_missing"] };

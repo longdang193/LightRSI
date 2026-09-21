@@ -71,6 +71,7 @@ export function mapTaskUpdatesToRegistryPatch(params: {
   const { registry, updates, coveredTurnAbsIds, toTurnSeqInclusive } = params;
   const upsertTasks: Record<string, TaskState> = {};
   const upsertTurnToTaskIds: Record<string, string[]> = {};
+  const upsertOccurrenceToTaskIds: Record<string, string[]> = {};
   const transitions: TaskStateTransition[] = [];
   const rejectedUpdates: RejectedTaskUpdate[] = [];
 
@@ -188,9 +189,14 @@ export function mapTaskUpdatesToRegistryPatch(params: {
       },
     };
     upsertTasks[taskId] = task;
-    for (const turnAbsId of covered) {
-      const existing = upsertTurnToTaskIds[turnAbsId] ?? registry.turnToTaskIds[turnAbsId] ?? [];
-      upsertTurnToTaskIds[turnAbsId] = uniqueStrings([...existing, taskId]);
+    for (const occurrenceRef of uniqueStrings(update.coveredOccurrenceRefs ?? [])) {
+      upsertOccurrenceToTaskIds[occurrenceRef] = [taskId];
+    }
+    if (update.coveredOccurrenceRefs === undefined) {
+      for (const turnAbsId of covered) {
+        const existing = upsertTurnToTaskIds[turnAbsId] ?? registry.turnToTaskIds[turnAbsId] ?? [];
+        upsertTurnToTaskIds[turnAbsId] = uniqueStrings([...existing, taskId]);
+      }
     }
     transitions.push({
       taskId,
@@ -222,6 +228,9 @@ export function mapTaskUpdatesToRegistryPatch(params: {
     patch: {
       upsertTasks,
       upsertTurnToTaskIds,
+      ...(Object.keys(upsertOccurrenceToTaskIds).length > 0
+        ? { upsertOccurrenceToTaskIds }
+        : {}),
       activeTaskIds: taskIdsByLifecycle(nextTasks, "active"),
       completedTaskIds: taskIdsByLifecycle(nextTasks, "completed"),
       evictableTaskIds: taskIdsByLifecycle(nextTasks, "evictable"),

@@ -194,6 +194,7 @@ export type SessionTaskRegistryPatch = {
   upsertTaskToBlockIds?: Record<string, string[]>;
   upsertBlockToTaskIds?: Record<string, string[]>;
   upsertTurnToTaskIds?: Record<string, string[]>;
+  upsertOccurrenceToTaskIds?: Record<string, string[]>;
   processedTurnRanges?: ProcessedTurnRange[];
   lastProcessedTurnSeq?: number;
   attributionSubmissions?: Record<string, AttributionSubmissionRecord>;
@@ -209,6 +210,8 @@ export type SessionTaskRegistry = {
   taskToBlockIds: Record<string, string[]>;
   blockToTaskIds: Record<string, string[]>;
   turnToTaskIds: Record<string, string[]>;
+  /** Exact stable occurrence ownership. Empty arrays mean verified unassigned. */
+  occurrenceToTaskIds?: Record<string, string[]>;
   /** Verified attribution coverage, including non-contiguous regions. */
   processedTurnRanges?: ProcessedTurnRange[];
   lastProcessedTurnSeq: number;

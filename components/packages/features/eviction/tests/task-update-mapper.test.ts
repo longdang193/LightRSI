@@ -194,3 +194,22 @@ test("version-conflict: caller checks baseVersion (mapper does not) — mapper s
   assert.ok(patch.upsertTasks?.["task-e"]);
   assert.equal((patch as any).baseVersion, undefined); // baseVersion not in patch
 });
+
+test("exact occurrence updates replace ownership without widening to whole turn", () => {
+  const registry = emptyRegistry();
+  registry.turnToTaskIds[`${SESSION}:t1`] = ["old-task"];
+  const { patch } = mapTaskUpdatesToRegistryPatch({
+    registry,
+    updates: [{
+      taskId: "new-task",
+      objective: "x",
+      lifecycle: "active",
+      coveredOccurrenceRefs: ["item-2"],
+      coveredTurnAbsIds: [`${SESSION}:t1`],
+    }],
+    coveredTurnAbsIds: [`${SESSION}:t1`],
+    toTurnSeqInclusive: 1,
+  });
+  assert.deepEqual(patch.upsertOccurrenceToTaskIds, { "item-2": ["new-task"] });
+  assert.deepEqual(patch.upsertTurnToTaskIds, {});
+});

@@ -259,6 +259,7 @@ test("revision, digest, lifecycle, and task attribution drift preserve the Host 
       snapshot?: ReturnType<typeof sampleSnapshot>;
       activeTaskIds?: string[];
       evictableTaskIds?: string[];
+      taskIntents?: Record<string, { retentionDecision?: "retain" | "release"; dependencyDirection?: "incoming" | "outgoing" | "none" | "unknown" }>;
     }) => createContextCleanerHostExecutionBridge({
       stateDir: root,
       hostId: "codex",
@@ -267,6 +268,7 @@ test("revision, digest, lifecycle, and task attribution drift preserve the Host 
           snapshot: params.snapshot ?? sampleSnapshot(),
           activeTaskIds: params.activeTaskIds ?? [],
           evictableTaskIds: params.evictableTaskIds ?? ["task-a"],
+          taskIntents: params.taskIntents,
         };
       },
     }).prepareScheduledClean(request());
@@ -306,6 +308,16 @@ test("revision, digest, lifecycle, and task attribution drift preserve the Host 
 
     const noLongerEvictable = await prepareWith({ evictableTaskIds: [] });
     assert.deepEqual(noLongerEvictable.reasons, ["clean_execution_task_not_evictable"]);
+
+    const retained = await prepareWith({
+      taskIntents: { "task-a": { retentionDecision: "retain" } },
+    });
+    assert.deepEqual(retained.reasons, ["clean_execution_task_retained"]);
+
+    const incoming = await prepareWith({
+      taskIntents: { "task-a": { dependencyDirection: "incoming" } },
+    });
+    assert.deepEqual(incoming.reasons, ["clean_execution_incoming_dependency"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -228,6 +228,9 @@ function taskIdsForStableItem(params: {
   stableItemId: string;
   turnIdsByStableItemId: ReadonlyMap<string, readonly string[]>;
 }): string[] {
+  if (Object.hasOwn(params.registry.occurrenceToTaskIds ?? {}, params.stableItemId)) {
+    return uniqueStrings(params.registry.occurrenceToTaskIds?.[params.stableItemId] ?? []);
+  }
   return uniqueStrings([
     ...(params.turnIdsByStableItemId.get(params.stableItemId) ?? [])
       .flatMap((turnAbsId) => params.registry.turnToTaskIds[turnAbsId] ?? []),
@@ -451,6 +454,14 @@ function validSnapshotIdentity(
     );
 }
 
+function semanticReasonsAreScoped(reasonCodes: readonly string[]): boolean {
+  return reasonCodes.every((reason) => (
+    reason === "semantic_source_incomplete"
+    || reason.startsWith("semantic_tool_")
+    || reason.startsWith("semantic_message_")
+  ));
+}
+
 /**
  * Pure Codex adapter projection for the shared lifecycle planner. It performs
  * no filesystem writes, estimator calls, planner calls, tracing, or mutation.
@@ -470,7 +481,10 @@ export function buildCodexLifecycleInput(
   const committed = committedHeadView(params);
   if ("status" in committed) return committed;
   const semantic = buildCodexRawSemanticTurns(committed);
-  if (!semantic.complete && semantic.blockedTurnSeqs.length === 0) {
+  if (
+    !semantic.complete
+    && (semantic.blockedTurnSeqs.length === 0 || !semanticReasonsAreScoped(semantic.reasonCodes))
+  ) {
     return deferred(semantic.reasonCodes);
   }
   if (semantic.turns.some((turn) => turn.sessionId !== params.registry.sessionId)) {

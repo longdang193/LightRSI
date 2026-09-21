@@ -27,6 +27,7 @@ import { stat } from "node:fs/promises";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
   countTextWithPreciseTokens,
+  withContextMutationPlanSessionLock,
   type ModelContextSnapshot,
 } from "@lightrsi/host-adapter";
 
@@ -231,6 +232,30 @@ function scopedHistoryEvidence(params: {
   };
 }
 
+function assessHistoryEvidence(
+  view: Awaited<ReturnType<typeof buildCodexEffectiveHistoryView>>,
+): {
+  semantic: ReturnType<typeof buildCodexRawSemanticTurns>;
+  historyEvidence: ContextCleanHistoryEvidence | undefined;
+} {
+  const semantic = buildCodexRawSemanticTurns(view);
+  const complete = semantic.complete
+    && !view.history.incomplete
+    && view.reasonCodes.length === 0
+    && view.history.deferredItems.length === 0
+    && view.history.unresolvedCallIds.length === 0;
+  return {
+    semantic,
+    historyEvidence: complete
+      ? { completeness: "complete", protectedItemIds: [], reasonCodes: [] }
+      : scopedHistoryEvidence({
+          view,
+          semanticReasonCodes: semantic.reasonCodes,
+          blockedTurnSeqs: semantic.blockedTurnSeqs,
+        }),
+  };
+}
+
 export function createCodexContextCleanerBridge(params: {
   stateDir: string;
   controlPlane: ContextCleanerControlPlane;
@@ -273,22 +298,7 @@ export function createCodexContextCleanerBridge(params: {
           return (await parseCodexRollout(session.transcriptPath))?.view ?? null;
         },
       });
-      const semantic = buildCodexRawSemanticTurns(view);
-      const historyEvidence = semantic.complete
-        && !view.history.incomplete
-        && view.reasonCodes.length === 0
-        && view.history.deferredItems.length === 0
-        && view.history.unresolvedCallIds.length === 0
-        ? {
-            completeness: "complete" as const,
-            protectedItemIds: [],
-            reasonCodes: [],
-          }
-        : scopedHistoryEvidence({
-            view,
-            semanticReasonCodes: semantic.reasonCodes,
-            blockedTurnSeqs: semantic.blockedTurnSeqs,
-          });
+       const { historyEvidence } = assessHistoryEvidence(view);
       if (!historyEvidence) {
         throw new Error(`codex_clean_snapshot_incomplete:${view.reasonCodes.join(",") || "unknown"}`);
       }
@@ -364,7 +374,11 @@ export function createCodexContextCleanerBridge(params: {
         throw new Error("codex_clean_attribution_submission_invalid");
       }
       const fingerprint = submissionFingerprint(request);
-      const registry = await loadSessionTaskRegistry(params.stateDir, request.sessionId);
+      return withContextMutationPlanSessionLock({
+        stateDir: params.stateDir,
+        sessionId: request.sessionId,
+        run: async () => {
+          const registry = await loadSessionTaskRegistry(params.stateDir, request.sessionId);
       const existing = registry.attributionSubmissions?.[request.submissionId];
       if (existing) {
         if (existing.fingerprint !== fingerprint) {
@@ -389,9 +403,10 @@ export function createCodexContextCleanerBridge(params: {
           return (await parseCodexRollout(session.transcriptPath))?.view ?? null;
         },
       });
-      if (view.history.incomplete || view.reasonCodes.length > 0) {
-        throw new Error("codex_clean_attribution_evidence_stale");
-      }
+       const { historyEvidence } = assessHistoryEvidence(view);
+       if (!historyEvidence) {
+         throw new Error("codex_clean_attribution_evidence_stale");
+       }
       if (view.history.revision !== request.evidenceRevision) {
         throw new Error("codex_clean_attribution_evidence_stale");
       }
@@ -403,15 +418,29 @@ export function createCodexContextCleanerBridge(params: {
           turnByItemId.set(itemId, { absId: turn.turnAbsId, seq: turn.turnSeq });
         }
       }
-      const evidenceRefs = new Set(request.evidenceRefs);
-      const allUpdateRefs = request.updates.flatMap((update) => update.coveredOccurrenceRefs ?? []);
-      for (const ref of allUpdateRefs) evidenceRefs.add(ref);
-      const resolved = [...evidenceRefs].map((ref) => {
-        const turn = turnByItemId.get(ref);
+       const evidenceRefs = new Set(request.evidenceRefs);
+       const allUpdateRefs = request.updates.flatMap((update) => update.coveredOccurrenceRefs ?? []);
+       for (const ref of allUpdateRefs) evidenceRefs.add(ref);
+       const protectedItemIds = new Set(historyEvidence.protectedItemIds);
+       const resolved = [...evidenceRefs].map((ref) => {
+         if (protectedItemIds.has(ref)) {
+           throw new Error(`codex_clean_attribution_occurrence_uncertain:${ref}`);
+         }
+         const turn = turnByItemId.get(ref);
         if (!turn) throw new Error(`codex_clean_attribution_occurrence_invalid:${ref}`);
         return [ref, turn] as const;
       });
       const resolvedByRef = new Map(resolved);
+      const occurrenceOwners = new Map<string, string>();
+      for (const update of request.updates) {
+        for (const ref of update.coveredOccurrenceRefs ?? []) {
+          const previousOwner = occurrenceOwners.get(ref);
+          if (previousOwner && previousOwner !== update.taskId.trim()) {
+            throw new Error(`codex_clean_attribution_occurrence_ambiguous:${ref}`);
+          }
+          occurrenceOwners.set(ref, update.taskId.trim());
+        }
+      }
       const provenance = {
         submissionId: request.submissionId,
         callerId: request.callerId.trim(),
@@ -425,6 +454,7 @@ export function createCodexContextCleanerBridge(params: {
         ...(update.title?.trim() ? { title: update.title.trim() } : {}),
         objective: update.objective.trim(),
         lifecycle: update.lifecycle,
+        coveredOccurrenceRefs: [...(update.coveredOccurrenceRefs ?? [])],
         coveredTurnAbsIds: [...new Set((update.coveredOccurrenceRefs ?? []).map((ref) => {
           const turn = resolvedByRef.get(ref);
           if (!turn) throw new Error(`codex_clean_attribution_occurrence_invalid:${ref}`);
@@ -480,6 +510,8 @@ export function createCodexContextCleanerBridge(params: {
         registryVersion: next.version,
         taskIds,
       };
+        },
+      });
     },
     async executeApprovedClean(request) {
       const selectedTaskIds = validateApprovedRequest(request);

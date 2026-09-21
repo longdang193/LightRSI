@@ -42,12 +42,6 @@ to run first, claim Task 6 evidence, or expand, renumber, or edit Task 6.
 ## Verified Review Findings
 
 ### Findings still live
-
-1. `buildCodexLifecycleInput` accepts incomplete semantic mapping whenever
-   `blockedTurnSeqs` is non-empty. `semantic_source_incomplete` and duplicate
-   attribution errors can remain unscoped, so one blocked turn can mask an
-   unrelated error. Source: `components/adapters/codex/src/context-rewrite/lifecycle-input.ts:479`
-   and `components/adapters/codex/src/context-rewrite/semantic-mapping.ts:239-253`.
 2. `processedTurnRanges` stores turn numbers only. No content, dependency, or
    history-revision evidence invalidates old coverage. `lastProcessedTurnSeq`
    remains independently writable. Source:
@@ -75,6 +69,11 @@ to run first, claim Task 6 evidence, or expand, renumber, or edit Task 6.
 
 ### Findings already fixed; preserve, do not redesign
 
+- `buildCodexLifecycleInput` now fails closed when duplicate or other unscoped
+  semantic attribution errors coexist with a blocked turn; only explicitly
+  scoped source, tool, and message reasons can preserve unrelated turns.
+  Regression proof exists in
+  `components/adapters/codex/tests/context-rewrite-lifecycle-input.test.ts`.
 - Sole-owner execution validation already rejects shared items in
   `components/packages/features/cleaner/src/removal-safety.ts:31-34`; regression
   proof exists in `components/packages/features/cleaner/tests/removal-safety.test.ts:44-52`.

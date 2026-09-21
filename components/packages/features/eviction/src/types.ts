@@ -71,6 +71,7 @@ export type SemanticTaskUpdate = {
   objective: string;
   lifecycle: TaskLifecycle;
   coveredTurnAbsIds?: string[];
+  coveredOccurrenceRefs?: string[];
   completionEvidence?: string[];
   unresolvedQuestions?: string[];
   currentSubgoal?: string;

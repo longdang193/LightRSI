@@ -11,12 +11,19 @@ import {
 import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import {
+  applySessionTaskRegistryPatch,
+  createEmptySessionTaskRegistry,
+  loadSessionTaskRegistry,
+  persistSessionTaskRegistry,
+} from "@lightrsi/history";
 
 import {
   CONTEXT_MUTATION_PLAN_STORE_SCHEMA_VERSION,
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
   contextMutationPlanFilePath,
   contextMutationPlanLockPath,
+  withContextMutationPlanSessionLock,
   contextMutationPlanQuarantineDir,
   contextMutationPlanSessionRoot,
   contextMutationPlanStatusDir,
@@ -27,6 +34,45 @@ import {
   saveActiveContextMutationPlan,
   type ContextMutationPlan,
 } from "../src/index.js";
+
+test("session lock serializes registry load-reconcile-persist operations", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-registry-lock-"));
+  const sessionId = "registry-lock-session";
+  try {
+    await persistSessionTaskRegistry(stateDir, createEmptySessionTaskRegistry(sessionId));
+    await Promise.all([1, 2].map((value) => withContextMutationPlanSessionLock({
+      stateDir,
+      sessionId,
+      run: async () => {
+        const registry = await loadSessionTaskRegistry(stateDir, sessionId);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        const next = applySessionTaskRegistryPatch(registry, {
+          upsertTasks: {
+            [`task-${value}`]: {
+              taskId: `task-${value}`,
+              title: `Task ${value}`,
+              objective: "serialized write",
+              lifecycle: "active",
+              completionEvidence: [],
+              unresolvedQuestions: [],
+              span: {
+                firstTurnAbsId: `${sessionId}:t${value}`,
+                lastTurnAbsId: `${sessionId}:t${value}`,
+                supportingTurnAbsIds: [`${sessionId}:t${value}`],
+                lastEstimatorTurnAbsId: `${sessionId}:t${value}`,
+              },
+            },
+          },
+        });
+        await persistSessionTaskRegistry(stateDir, next, { expectedVersion: registry.version });
+      },
+    })));
+    const persisted = await loadSessionTaskRegistry(stateDir, sessionId);
+    assert.deepEqual(Object.keys(persisted.tasks).sort(), ["task-1", "task-2"]);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
 
 function createPlan(
   planId: string,

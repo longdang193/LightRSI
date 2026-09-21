@@ -166,6 +166,18 @@ function mergeRelationMap(
   return next;
 }
 
+function mergeOccurrenceRelationMap(
+  current: Record<string, string[]>,
+  patch: Record<string, string[]> | undefined,
+): Record<string, string[]> {
+  if (!patch) return cloneRelationMap(current);
+  const next = cloneRelationMap(current);
+  for (const [key, values] of Object.entries(patch)) {
+    next[key] = dedupeOrdered(values) ?? [];
+  }
+  return next;
+}
+
 function safeSessionId(sessionId: string): string {
   return sessionId.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
@@ -205,6 +217,9 @@ function parseRegistryJson(raw: string): SessionTaskRegistry {
     taskToBlockIds: isRecord(parsed.taskToBlockIds) ? (parsed.taskToBlockIds as Record<string, string[]>) : {},
     blockToTaskIds: isRecord(parsed.blockToTaskIds) ? (parsed.blockToTaskIds as Record<string, string[]>) : {},
     turnToTaskIds: isRecord(parsed.turnToTaskIds) ? (parsed.turnToTaskIds as Record<string, string[]>) : {},
+    occurrenceToTaskIds: isRecord(parsed.occurrenceToTaskIds)
+      ? (parsed.occurrenceToTaskIds as Record<string, string[]>)
+      : {},
     processedTurnRanges: processedRanges,
     lastProcessedTurnSeq: highestContiguousProcessedTurnSeq(processedRanges),
   };
@@ -251,6 +266,7 @@ export function createEmptySessionTaskRegistry(sessionId: string): SessionTaskRe
     taskToBlockIds: {},
     blockToTaskIds: {},
     turnToTaskIds: {},
+    occurrenceToTaskIds: {},
     processedTurnRanges: [],
     lastProcessedTurnSeq: 0,
     attributionSubmissions: {},
@@ -272,6 +288,7 @@ export function cloneSessionTaskRegistry(registry: SessionTaskRegistry): Session
     taskToBlockIds: cloneRelationMap(registry.taskToBlockIds),
     blockToTaskIds: cloneRelationMap(registry.blockToTaskIds),
     turnToTaskIds: cloneRelationMap(registry.turnToTaskIds),
+    occurrenceToTaskIds: mergeOccurrenceRelationMap(registry.occurrenceToTaskIds ?? {}, undefined),
     processedTurnRanges: processedTurnRanges(registry),
     lastProcessedTurnSeq: processedTurnWatermark(registry),
     attributionSubmissions: Object.fromEntries(
@@ -315,6 +332,10 @@ export function applySessionTaskRegistryPatch(
   next.taskToBlockIds = mergeRelationMap(next.taskToBlockIds, patch.upsertTaskToBlockIds);
   next.blockToTaskIds = mergeRelationMap(next.blockToTaskIds, patch.upsertBlockToTaskIds);
   next.turnToTaskIds = mergeRelationMap(next.turnToTaskIds, patch.upsertTurnToTaskIds);
+  next.occurrenceToTaskIds = mergeOccurrenceRelationMap(
+    next.occurrenceToTaskIds ?? {},
+    patch.upsertOccurrenceToTaskIds,
+  );
 
   if (patch.processedTurnRanges) {
     next.processedTurnRanges = normalizeProcessedTurnRanges(patch.processedTurnRanges);

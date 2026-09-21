@@ -845,6 +845,22 @@ test("Codex cleaner attribution submission is idempotent and rejects conflicts",
     };
     const accepted = await bridge.submitAttribution!(request);
     assert.equal(accepted.status, "accepted");
+    const secondItemId = snapshot.items[1]?.stableId;
+    assert.ok(secondItemId);
+    const second = await bridge.submitAttribution!({
+      ...request,
+      submissionId: "submission-2",
+      updates: [{
+        ...request.updates[0],
+        taskId: "task-2",
+        coveredOccurrenceRefs: [secondItemId],
+      }],
+      evidenceRefs: [secondItemId],
+    });
+    assert.equal(second.status, "accepted");
+    const after = await bridge.readCleanSnapshot(sessionId);
+    assert.deepEqual(after.items.find((item) => item.stableId === itemId)?.taskIds, ["task-1"]);
+    assert.deepEqual(after.items.find((item) => item.stableId === secondItemId)?.taskIds, ["task-2"]);
     const replayed = await bridge.submitAttribution!(request);
     assert.equal(replayed.status, "replayed");
     await assert.rejects(

@@ -204,6 +204,10 @@ async function executionContext(params: {
 }): Promise<{
   backendRequest: CodexSharedBackendRequest;
   snapshot: ModelContextSnapshot<CodexSharedBackendMetadata>;
+  taskIntents: Record<string, {
+    retentionDecision?: "retain" | "release";
+    dependencyDirection?: "incoming" | "outgoing" | "none" | "unknown";
+  }>;
 }> {
   const registry = await loadSessionTaskRegistry(params.stateDir, params.sessionId);
   if (registry.sessionId !== params.sessionId) {
@@ -218,7 +222,14 @@ async function executionContext(params: {
     sessionId: params.sessionId,
     request: backendRequest,
   });
-  return { backendRequest, snapshot };
+  return {
+    backendRequest,
+    snapshot,
+    taskIntents: Object.fromEntries(Object.entries(registry.tasks).map(([taskId, task]) => [taskId, {
+      ...(task.retentionDecision ? { retentionDecision: task.retentionDecision } : {}),
+      ...(task.dependencyDirection ? { dependencyDirection: task.dependencyDirection } : {}),
+    }])),
+  };
 }
 
 function executionBridge(params: {
@@ -226,6 +237,10 @@ function executionBridge(params: {
   sessionId: string;
   backendRequest: CodexSharedBackendRequest;
   snapshot: ModelContextSnapshot<CodexSharedBackendMetadata>;
+  taskIntents: Record<string, {
+    retentionDecision?: "retain" | "release";
+    dependencyDirection?: "incoming" | "outgoing" | "none" | "unknown";
+  }>;
 }) {
   return createContextCleanerHostExecutionBridge({
     stateDir: params.stateDir,
@@ -239,6 +254,7 @@ function executionBridge(params: {
         snapshot: canonicalSnapshot,
         activeTaskIds: params.backendRequest.activeTaskIds ?? [],
         evictableTaskIds: params.backendRequest.evictableTaskIds ?? [],
+        taskIntents: params.taskIntents,
       };
     },
   });
@@ -736,6 +752,7 @@ export async function prepareCodexCleanerRebase(params: {
           ...params,
           backendRequest: context.backendRequest,
           snapshot: context.snapshot,
+          taskIntents: context.taskIntents,
         });
         const prepared = await bridge.prepareScheduledClean({
           cleanPlanId: currentSchedule.record.cleanPlanId,
@@ -917,6 +934,7 @@ export async function revalidateCodexCleanerPreparedRebase(params: {
     ...params,
     backendRequest: current.backendRequest,
     snapshot: current.snapshot,
+    taskIntents: current.taskIntents,
   });
   const prepared = await bridge.prepareScheduledClean({
     cleanPlanId: schedule.record.cleanPlanId,

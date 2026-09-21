@@ -102,6 +102,7 @@ function validExecutionSnapshot(value: ContextCleanExecutionSnapshot): boolean {
     || !uniqueNonBlankStringArray([...value.evictableTaskIds])) return false;
   const activeTaskIds = new Set(value.activeTaskIds);
   if (value.evictableTaskIds.some((taskId) => activeTaskIds.has(taskId))) return false;
+  if (value.taskIntents !== undefined && typeof value.taskIntents !== "object") return false;
 
   const stableIds = new Set<string>();
   for (const item of snapshot.items) {
@@ -346,6 +347,8 @@ async function prepareScheduledClean(params: {
       evictableTaskIds: current.evictableTaskIds,
       currentRevision: current.snapshot.revision,
       expectedRevision: request.baseRevision,
+      retentionDecision: current.taskIntents?.[task.taskId]?.retentionDecision,
+      dependencyDirection: current.taskIntents?.[task.taskId]?.dependencyDirection,
       items: task.itemIds.map((itemId) => ({
         item: currentItems.get(itemId),
         expectedFingerprint: task.itemDigests[itemId],
@@ -363,6 +366,9 @@ async function prepareScheduledClean(params: {
         protected_item: "clean_execution_protected_item_targeted",
         task_attribution_shared: "clean_execution_task_attribution_shared",
         task_attribution_stale: "clean_execution_task_attribution_stale",
+        task_retained: "clean_execution_task_retained",
+        incoming_dependency: "clean_execution_incoming_dependency",
+        dependency_unknown: "clean_execution_dependency_unknown",
         item_stale: "clean_execution_item_stale",
       }[reason] ?? "clean_execution_revalidation_failed";
       return bypassed([mapped], stored.receipt);

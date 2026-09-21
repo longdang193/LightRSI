@@ -11,10 +11,11 @@ import {
   type TaskStateEstimatorOutput,
 } from "@lightrsi/eviction";
 import { sameCanonicalValue } from "@lightrsi/cleaner";
-import type {
-  ContextMutationPlan,
-  ContextRewriteValidation,
-  ModelContextSnapshot,
+import {
+  withContextMutationPlanSessionLock,
+  type ContextMutationPlan,
+  type ContextRewriteValidation,
+  type ModelContextSnapshot,
 } from "@lightrsi/host-adapter";
 
 import type {
@@ -402,8 +403,12 @@ export async function runCodexLifecyclePlanner(
     let registryPersisted = false;
     if (planned.registryUpdateRequired) {
       try {
-        await persistSessionTaskRegistry(params.stateDir, planned.registry, {
-          expectedVersion: planned.expectedRegistryVersion,
+        await withContextMutationPlanSessionLock({
+          stateDir: params.stateDir,
+          sessionId: params.sessionId,
+          run: () => persistSessionTaskRegistry(params.stateDir, planned.registry, {
+            expectedVersion: planned.expectedRegistryVersion,
+          }),
         });
         registryPersisted = true;
       } catch (error) {

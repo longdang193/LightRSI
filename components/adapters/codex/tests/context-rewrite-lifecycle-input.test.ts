@@ -272,6 +272,33 @@ test("lifecycle input never masks unrelated history incompleteness behind the ex
   assert.ok(result.reasonCodes.includes("lifecycle_semantic_source_incomplete"));
 });
 
+test("lifecycle input fails closed on unscoped duplicate attribution beside a blocked turn", () => {
+  const view = sourceView({
+    items: [
+      effective("shared", { type: "message", role: "user", content: "shared" }),
+      effective("invalid-call", { type: "function_call", name: "read_file", arguments: "{}" }),
+      effective("later", { type: "message", role: "user", content: "later" }),
+    ],
+    turns: [
+      { turnSeq: 1, inputItemIds: ["shared"] },
+      { turnSeq: 2, inputItemIds: ["shared"], outputItemIds: ["invalid-call"] },
+      { turnSeq: 3, inputItemIds: ["later"] },
+    ],
+  });
+  const result = buildCodexLifecycleInput({
+    view,
+    registry: createEmptySessionTaskRegistry(SESSION_ID),
+    backendRequest: {
+      sessionId: SESSION_ID,
+      payload: { input: [] },
+      effectiveHistory: view.history,
+    },
+  });
+
+  assert.equal(result.status, "deferred");
+  assert.ok(result.reasonCodes.includes("semantic_item_attribution_ambiguous"));
+});
+
 test("lifecycle input defers partial and ambiguous tool closure", () => {
   const partial = sourceView({
     items: [effective("call", {

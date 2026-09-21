@@ -16,6 +16,7 @@ import {
   saveActiveContextMutationPlan,
   markContextMutationPlanApplied,
   markContextMutationPlanFailed,
+  withContextMutationPlanSessionLock,
 } from "@lightrsi/host-adapter";
 import {
   prepareObservedBeforeCall,
@@ -472,8 +473,14 @@ export async function startClaudeCodeGatewayRuntime(params: {
             let registryCommitted = !plannerResult.registryUpdateRequired;
             if (plannerResult.registryUpdateRequired) {
               try {
-                await (params.dependencies?.persistTaskRegistry ?? persistSessionTaskRegistry)(config.stateDir, plannerResult.registry, {
-                  expectedVersion: plannerResult.expectedRegistryVersion,
+                await withContextMutationPlanSessionLock({
+                  stateDir: config.stateDir,
+                  sessionId,
+                  run: () => (params.dependencies?.persistTaskRegistry ?? persistSessionTaskRegistry)(
+                    config.stateDir,
+                    plannerResult.registry,
+                    { expectedVersion: plannerResult.expectedRegistryVersion },
+                  ),
                 });
                 registryCommitted = true;
               } catch (error) {

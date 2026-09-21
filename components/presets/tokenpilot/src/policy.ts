@@ -60,6 +60,7 @@ import {
   type TaskLifecycle,
   type TaskState,
 } from "@lightrsi/history";
+import { withContextMutationPlanSessionLock } from "@lightrsi/host-adapter";
 
 export type PolicyModuleConfig = {
   localityEnabled?: boolean;
@@ -1334,6 +1335,7 @@ async function maybeRunTaskStateEstimator(
   estimator: TaskStateEstimator | null,
 ): Promise<TaskStateRunResult | null> {
   if (!config.stateDir) return null;
+  const stateDir = config.stateDir;
   await appendTaskStateTrace(config.stateDir, {
         stage: "estimator_gate_check",
         sessionId: ctx.sessionId,
@@ -1635,8 +1637,12 @@ async function maybeRunTaskStateEstimator(
       }
     }
     try {
-      await persistSessionTaskRegistry(config.stateDir, nextRegistry, {
-        expectedVersion: registry.version,
+      await withContextMutationPlanSessionLock({
+        stateDir,
+        sessionId: registry.sessionId,
+        run: () => persistSessionTaskRegistry(stateDir, nextRegistry, {
+          expectedVersion: registry.version,
+        }),
       });
     } catch (error) {
       if (error instanceof SessionTaskRegistryVersionMismatchError) {
