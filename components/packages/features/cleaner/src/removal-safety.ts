@@ -30,8 +30,9 @@ export function evaluateContextCleanOccurrence(input: {
   }
   if (!input.item) return { safe: false, reasons: ["item_missing"] };
   if (input.set.provenance === "agent") {
-    if (input.item.taskIds?.some((taskId) => input.activeTaskIds.includes(taskId))) {
-      return { safe: false, reasons: ["selected_occurrence_active"] };
+    if (!evidence) return { safe: false, reasons: ["occurrence_evidence_invalid"] };
+    if (evidence.retainedFindings.length > 0) {
+      return { safe: false, reasons: ["retained_findings"] };
     }
     if (input.item.kind === "system" || input.item.kind === "developer"
       || input.item.role === "system" || input.item.role === "developer") {

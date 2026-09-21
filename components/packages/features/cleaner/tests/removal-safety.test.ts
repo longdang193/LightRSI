@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { evaluateContextCleanRemoval } from "../src/index.js";
+import { evaluateContextCleanOccurrence, evaluateContextCleanRemoval } from "../src/index.js";
 
 const item = {
   stableId: "item-1",
@@ -49,4 +49,46 @@ test("removal safety rejects items shared with another task", () => {
     evictableTaskIds: ["task-1"],
     items: [{ item: { ...item, taskIds: ["task-1", "task-2"] } }],
   }), { safe: false, reasons: ["task_attribution_shared"] });
+});
+
+test("agent occurrence release ignores active task status without protection evidence", () => {
+  assert.deepEqual(evaluateContextCleanOccurrence({
+    occurrence: { stableId: "item-1", fingerprint: "digest-1" },
+    item,
+    set: { provenance: "agent", sourceTaskIds: ["task-1"] },
+    activeTaskIds: ["task-1"],
+    evictableTaskIds: [],
+    lifecycleState: "active",
+    releaseEvidence: {
+      stableId: "item-1",
+      fingerprint: "digest-1",
+      completionEvidence: ["completed"],
+      continuingUseful: false,
+      releaseIntent: "release",
+      retainedFindings: [],
+      nothingReusable: true,
+      dependencyDirection: "none",
+    },
+  }), { safe: true, reasons: [] });
+});
+
+test("agent occurrence release rejects retained findings", () => {
+  assert.deepEqual(evaluateContextCleanOccurrence({
+    occurrence: { stableId: "item-1", fingerprint: "digest-1" },
+    item,
+    set: { provenance: "agent", sourceTaskIds: ["task-1"] },
+    activeTaskIds: [],
+    evictableTaskIds: [],
+    lifecycleState: "completed",
+    releaseEvidence: {
+      stableId: "item-1",
+      fingerprint: "digest-1",
+      completionEvidence: ["completed"],
+      continuingUseful: false,
+      releaseIntent: "release",
+      retainedFindings: ["follow-up"],
+      nothingReusable: false,
+      dependencyDirection: "none",
+    },
+  }), { safe: false, reasons: ["retained_findings"] });
 });

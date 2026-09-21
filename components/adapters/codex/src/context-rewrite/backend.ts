@@ -238,7 +238,8 @@ export const codexSharedContextRewriteBackend: CodexSharedContextRewriteBackend 
       reasons.push(`operation:${operationId || "<empty>"}:${reason}`);
     };
 
-    if (metadata.effectiveHistory.deferredItems.length > 0
+    const inputFormat = metadata.inputFormat;
+    if ((inputFormat === "response_chain" && metadata.effectiveHistory.deferredItems.length > 0)
       || (metadata.effectiveHistory.incomplete
         && metadata.effectiveHistory.replayableItems.length === 0
         && metadata.effectiveHistory.observationOnlyItems.length === 0)) {

@@ -347,6 +347,41 @@ test("provider smoke emits sanitized real-chain, capability v2, matrix, and usag
   }
 });
 
+test("provider smoke keeps explicit rebase ownership when estimator env is configured", async () => {
+  const provider = await startProviderFixture();
+  const outputDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-estimator-isolation-test-"));
+  const names = [
+    "OPENAI_API_KEY",
+    "LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED",
+    "LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY",
+    "LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL",
+    "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL",
+  ] as const;
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    process.env.OPENAI_API_KEY = "provider-smoke-test-key-not-secret";
+    process.env.LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED = "true";
+    process.env.LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY = "estimator-test-key";
+    process.env.LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL = provider.baseUrl;
+    process.env.LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL = "estimator-test-model";
+    const result = await runCodexRebaseProviderSmoke({
+      baseUrl: provider.baseUrl,
+      model: "provider-fixture-model",
+      continuationTurns: 5,
+      outputDir,
+    });
+    assert.equal(result.evidence.rebase.committed, true);
+    assert.equal(result.evidence.rebase.sentinel.evictedAbsent, true);
+  } finally {
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+    await provider.close();
+    await rm(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
 test("optional provider scenarios record not-observed evidence without blocking core", async () => {
   const provider = await startProviderFixture({ omitWebSearchCall: true });
   const outputDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-optional-smoke-test-"));

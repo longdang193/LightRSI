@@ -7,13 +7,14 @@ import {
   type ContextCleanAttributionSubmissionResult,
   type ContextCleanPlan,
   type ContextCleanReceipt,
+  type ContextCleanSnapshot,
 } from "@lightrsi/cleaner";
 import type { TaskStateEstimatorApiConfig } from "@lightrsi/eviction";
 import type { JsonModelApiConfig, JsonModelClient } from "@lightrsi/runtime-core";
 import { resolveCodexTaskStateEstimator } from "../../../../adapters/codex/src/context-rewrite/estimator-config.js";
 import { createCodexContextCleanerBridge } from "../../../../adapters/codex/src/context-cleaner/bridge.js";
 import type { CleanCommandBackend } from "../clean.js";
-import type { CleanPlanView, CleanReceiptView } from "../clean-renderer.js";
+import type { CleanInspectionView, CleanPlanView, CleanReceiptView } from "../clean-renderer.js";
 
 export function createCodexCleanRecommendationProvider(
   config: TaskStateEstimatorApiConfig | undefined,
@@ -73,6 +74,7 @@ export function createCodexCleanCommandBackend(params: {
   });
   return {
     async analyze(sessionId) { return planView(await service.analyze(sessionId)); },
+    async inspect(sessionId) { return inspectionView(await service.inspect(sessionId)); },
     async readPlan(planId) { const plan = await service.readPlan(planId); return plan ? planView(plan) : undefined; },
     async approve(planId, selectedTaskIds) { return receiptView(await service.approve(planId, selectedTaskIds)); },
     async approveOccurrences(planId, selections) { return receiptView(await service.approveOccurrences(planId, selections)); },
@@ -81,5 +83,24 @@ export function createCodexCleanCommandBackend(params: {
     async submitAttribution(request: ContextCleanAttributionSubmission): Promise<ContextCleanAttributionSubmissionResult> {
       return service.submitAttribution(request);
     },
+  };
+}
+
+function inspectionView(snapshot: ContextCleanSnapshot): CleanInspectionView {
+  return {
+    hostId: snapshot.hostId,
+    sessionId: snapshot.sessionId,
+    revision: snapshot.revision,
+    occurrences: snapshot.items.map((item) => ({
+      stableId: item.stableId,
+      fingerprint: item.fingerprint,
+      shape: [item.kind, item.role, item.callId ? `call:${item.callId}` : undefined].filter(Boolean).join(" "),
+      chars: item.chars,
+      protectionReason: item.kind === "system" || item.kind === "developer"
+        ? "protocol_protected"
+        : item.taskIds && item.taskIds.length > 0
+          ? "task_attributed; release requires occurrence evidence"
+          : "unassigned; release requires occurrence evidence",
+    })),
   };
 }

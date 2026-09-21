@@ -18,6 +18,11 @@ import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
 import {
   acquireCodexRebaseSessionLock,
   appendPendingCodexRebaseEpoch,
+  appendCodexRebaseCapability,
+  CODEX_REBASE_API_VERSION,
+  CODEX_REBASE_ITEM_SCHEMA_VERSION,
+  CODEX_REBASE_WIRE_MODE,
+  codexRebaseEndpointIdentity,
   readCodexRebaseCapabilityJournal,
   readLatestCodexRebaseEpoch,
 } from "../src/context-rewrite/index.js";
@@ -498,7 +503,7 @@ test("CDR-06 proxy pipeline applies cumulative pruning without a response-chain 
       },
       contextRewrite: {
         enabled: true,
-        providerCompatibilityProbe: "mock_fixture",
+        providerCompatibilityProbe: "real_provider",
         mode: "response_chain_rebase",
         failureMode: "bypass",
         retryOriginalRequest: true,
@@ -509,7 +514,6 @@ test("CDR-06 proxy pipeline applies cumulative pruning without a response-chain 
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
-      allowMockFixtureEvidence: true,
     });
 
     const first = await fetch(`${runtime.baseUrl}/responses`, {
@@ -532,6 +536,19 @@ test("CDR-06 proxy pipeline applies cumulative pruning without a response-chain 
       (entry) => JSON.stringify(entry.item).includes("CUMULATIVE_EVICT"),
     );
     assert.ok(evictedItem);
+    await appendCodexRebaseCapability({
+      stateDir,
+      provider: "OpenAI",
+      model: "gpt-5.4-mini",
+      wireMode: CODEX_REBASE_WIRE_MODE,
+      apiVersion: CODEX_REBASE_API_VERSION,
+      endpointId: codexRebaseEndpointIdentity(upstream.baseUrl),
+      itemType: "message",
+      itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
+      status: "verified_unsupported",
+      evidence: "real_provider",
+      reason: "fixture_replay_gate",
+    });
     (config as any).contextRewrite.mutationPlan = {
       operations: [{ type: "evict", stableItemId: evictedItem.stableItemId }],
     };

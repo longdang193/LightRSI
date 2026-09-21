@@ -416,6 +416,7 @@ function buildProviderSmokeConfig(params: {
       requiresOpenAIAuth: true,
     },
     modules: { stabilizer: false, reduction: false },
+    taskStateEstimator: { enabled: false },
     contextRewrite: {
       enabled: params.rewriteEnabled,
       providerCompatibilityProbe: "real_provider",

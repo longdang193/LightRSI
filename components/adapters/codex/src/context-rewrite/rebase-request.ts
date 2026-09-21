@@ -132,35 +132,43 @@ function cumulativeCorrespondence(params: {
     indexes.push(index);
     currentIndexesByKey.set(key, indexes);
   });
-  if (params.currentInput.length >= params.historyItems.length
-    && params.historyItems.every((entry, index) => (
+  const mappableHistoryItems = params.historyItems.filter((entry) => (
+    (currentIndexesByKey.get(stableInputKey(entry.item))?.length ?? 0) > 0
+  ));
+  if (mappableHistoryItems.length === params.historyItems.length
+    && params.currentInput.length >= mappableHistoryItems.length
+    && mappableHistoryItems.every((entry, index) => (
       stableInputKey(entry.item) === stableInputKey(params.currentInput[index]!)
     ))) {
-    return new Map(params.historyItems.map((entry, index) => [entry.stableItemId, index]));
+    return new Map(mappableHistoryItems.map((entry, index) => [entry.stableItemId, index]));
   }
   const earliest: number[] = [];
   let cursor = -1;
   for (const entry of params.historyItems) {
+    if (!mappableHistoryItems.includes(entry)) continue;
     const indexes = currentIndexesByKey.get(stableInputKey(entry.item)) ?? [];
     const index = indexes.find((candidate) => candidate > cursor);
     if (index === undefined) return undefined;
     earliest.push(index);
     cursor = index;
   }
-  const latest = Array.from({ length: params.historyItems.length });
+  const latest = new Map<string, number>();
   cursor = params.currentInput.length;
   for (let historyIndex = params.historyItems.length - 1; historyIndex >= 0; historyIndex -= 1) {
     const entry = params.historyItems[historyIndex]!;
+    if (!mappableHistoryItems.includes(entry)) continue;
     const indexes = currentIndexesByKey.get(stableInputKey(entry.item)) ?? [];
     const index = [...indexes].reverse().find((candidate) => candidate < cursor);
     if (index === undefined) return undefined;
-    latest[historyIndex] = index;
+    latest.set(entry.stableItemId, index);
     cursor = index;
   }
-  if (earliest.some((index, indexOfHistoryItem) => index !== latest[indexOfHistoryItem])) {
+  if (earliest.some((index, indexOfHistoryItem) => (
+    index !== latest.get(mappableHistoryItems[indexOfHistoryItem]!.stableItemId)
+  ))) {
     return undefined;
   }
-  return new Map(params.historyItems.map((entry, index) => [entry.stableItemId, earliest[index]!])) as Map<string, number>;
+  return new Map(mappableHistoryItems.map((entry, index) => [entry.stableItemId, earliest[index]!])) as Map<string, number>;
 }
 
 function buildForwardedInput(params: {
@@ -217,7 +225,8 @@ export function validateCodexRebaseRequest(params: {
 }): CodexRebaseValidation {
   const reasons: string[] = [];
   if (params.baseRevision !== params.effectiveHistory.revision) reasons.push("revision_mismatch");
-  if (params.effectiveHistory.deferredItems.length > 0
+  const inputFormat = params.inputFormat ?? "response_chain";
+  if ((inputFormat === "response_chain" && params.effectiveHistory.deferredItems.length > 0)
     || (params.effectiveHistory.incomplete
       && params.effectiveHistory.replayableItems.length === 0
       && params.effectiveHistory.observationOnlyItems.length === 0)) {

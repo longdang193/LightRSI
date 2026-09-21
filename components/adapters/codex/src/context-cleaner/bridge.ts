@@ -552,6 +552,9 @@ export function createCodexContextCleanerBridge(params: {
       });
     },
     async executeApprovedClean(request) {
+      if (params.boundSessionId && params.boundSessionId !== request.sessionId) {
+        throw new Error("codex_clean_approval_session_binding_mismatch");
+      }
       const selectedTaskIds = validateApprovedRequest(request);
       if (isSchedulingControlPlane(params.controlPlane)) {
         const approved = validateReceipt({

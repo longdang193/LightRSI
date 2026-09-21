@@ -116,6 +116,7 @@ import {
   finalizeCodexCleanerHandoffFailure,
   markCodexCleanerDispatchStarted,
   isCodexCleanerStaleReasonCode,
+  readCodexCleanerCommittedMutationPlan,
   prepareCodexCleanerRebase,
   revalidateCodexCleanerPreparedRebase,
   type CodexCleanerPreparedRebase,
@@ -871,9 +872,16 @@ export async function startCodexResponsesProxy(params: {
       });
       const manualCleanerReserved = cleanerSchedule.outcome === "ready"
         || cleanerSchedule.outcome === "bypassed";
+      const committedCleanerMutationPlan = !manualCleanerReserved
+        && typeof originalPayload.previous_response_id !== "string"
+        ? await readCodexCleanerCommittedMutationPlan({
+          stateDir: config.stateDir,
+          sessionId,
+        })
+        : undefined;
       const mutationPlan = manualCleanerReserved || lifecyclePlanningConfigured
         ? undefined
-        : activeMutationPlan(config);
+        : committedCleanerMutationPlan ?? activeMutationPlan(config);
       let effectiveHistoryViewPromise: ReturnType<typeof buildCodexEffectiveHistoryView> | undefined;
       const buildEffectiveHistoryViewForHead = (): ReturnType<typeof buildCodexEffectiveHistoryView> => {
         if (!requestJournalEntry) {
@@ -1177,7 +1185,9 @@ export async function startCodexResponsesProxy(params: {
           rebaseRequest = buildCodexRebaseRequest({
             sessionId,
             planId,
-            baseRevision: mutationPlan.baseRevision ?? effectiveHistory.revision,
+            baseRevision: committedCleanerMutationPlan
+              ? effectiveHistory.revision
+              : mutationPlan.baseRevision ?? effectiveHistory.revision,
             originalPayload,
             effectiveHistory,
             currentInput: originalPayload.input,
@@ -1748,6 +1758,10 @@ export async function startCodexResponsesProxy(params: {
 
       const sendRebasedOrCurrentPayload = async () => {
         if (rebaseRequest && requestJournalEntry && rebasePlanId) {
+          const rebaseInputFormat = typeof originalPayload.previous_response_id === "string"
+            && originalPayload.previous_response_id.trim()
+            ? "response_chain"
+            : "cumulative";
           try {
             const result = await executeCodexRebaseWithFallback({
               sessionId,
@@ -1755,6 +1769,7 @@ export async function startCodexResponsesProxy(params: {
               epochId: `epoch-${requestJournalEntry.requestId}`,
               originalPayload: fallbackPayload,
               rebasedPayload: payload,
+              inputFormat: rebaseInputFormat,
               sendUpstream,
               beforeCommit: persistAcceptedRebaseResponse,
               accounting: rebaseAccounting,
@@ -1764,10 +1779,7 @@ export async function startCodexResponsesProxy(params: {
                   && originalPayload.previous_response_id.trim()
                   ? { oldPreviousResponseId: originalPayload.previous_response_id.trim() }
                   : {}),
-                inputFormat: typeof originalPayload.previous_response_id === "string"
-                  && originalPayload.previous_response_id.trim()
-                  ? "response_chain"
-                  : "cumulative",
+                inputFormat: rebaseInputFormat,
                 oldRevision: rebaseRequest.oldRevision,
                 newRevision: rebaseRequest.rebaseRevision,
               },

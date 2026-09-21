@@ -8,6 +8,7 @@ import {
   type ContextCleanerSchedulingControlPlane,
   type ExecuteApprovedContextCleanParams,
   type ContextCleanOccurrenceSelection,
+  type ContextCleanSnapshot,
 } from "./contracts.js";
 import { readContextCleanPlan } from "./clean-plan-store.js";
 import { readContextCleanReceipt } from "./clean-receipt-store.js";
@@ -21,6 +22,7 @@ import type { ContextCleanRecommendationProvider } from "./recommendation.js";
 
 export interface ContextCleanerControlService {
   analyze(sessionId: string): Promise<ContextCleanPlan>;
+  inspect(sessionId: string): Promise<ContextCleanSnapshot>;
   readPlan(planId: string): Promise<ContextCleanPlan | undefined>;
   approve(planId: string, selectedTaskIds: readonly string[]): Promise<ContextCleanReceipt>;
   approveOccurrences(planId: string, selections: readonly ContextCleanOccurrenceSelection[]): Promise<ContextCleanReceipt>;
@@ -65,6 +67,9 @@ export function createContextCleanerControlService(params: {
 }): ContextCleanerControlService {
   const controlPlane = createContextCleanerControlPlane({ stateDir: params.stateDir, now: params.now });
   return {
+    async inspect(sessionId) {
+      return params.bridge.readCleanSnapshot(sessionId);
+    },
     async analyze(sessionId) {
       const result = await analyzeContextCleanSession({
         stateDir: params.stateDir,

@@ -248,6 +248,48 @@ test("effective history reconstructs verified cumulative requests without respon
   });
 });
 
+test("effective history accepts cumulative user-input prefixes without replayed responses", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-cumulative-user-only";
+    const inputs = [
+      [{ role: "user", content: "first" }],
+      [
+        { role: "user", content: "first" },
+        { role: "user", content: "second" },
+      ],
+    ];
+
+    for (const [index, input] of inputs.entries()) {
+      const turnOrdinal = index + 1;
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        turnOrdinal,
+        payload: { input },
+        status: "completed",
+      });
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        response: {
+          id: `response-${turnOrdinal}`,
+          output: [{ type: "message", role: "assistant", content: `answer ${turnOrdinal}` }],
+        },
+        status: "completed",
+      });
+    }
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+
+    assert.equal(view.semanticComplete, true);
+    assert.deepEqual(view.reasonCodes, []);
+    assert.match(JSON.stringify(view.history.replayableItems), /first/);
+    assert.match(JSON.stringify(view.history.replayableItems), /second/);
+  });
+});
+
 test("effective history accepts normalized provider replay items with stable IDs", async () => {
   await withTempState(async (stateDir) => {
     const sessionId = "codex-session-cumulative-provider-normalization";

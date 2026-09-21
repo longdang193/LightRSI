@@ -86,6 +86,7 @@ test("occurrence approval persists frozen evidence, including explicit nothingRe
     });
     assert.equal(receipt.status, "approved");
     assert.deepEqual(receipt.selectedTaskIds, ["item-a"]);
+    assert.equal(receipt.estimatedSavedChars, 120);
     const stored = await readContextCleanReceipt({ stateDir, planId: analyzed.plan.planId });
     assert.deepEqual(stored.value?.evidence?.occurrenceSelections, receipt.evidence?.occurrenceSelections);
     await assert.rejects(

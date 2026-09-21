@@ -152,7 +152,7 @@ test("execution claim is durable, revision-fenced, and single-owner", async () =
       selectedTaskIds: ["task-a"],
       mutationPlanId: "mutation-1",
       analysisRevision: plan.baseRevision,
-      executionRevision: plan.baseRevision,
+       executionRevision: "rev-2",
       ownerToken: "owner-1",
       claimedAt: "2026-08-20T00:00:00.000Z",
       dispatchState: "dispatch_not_started" as const,

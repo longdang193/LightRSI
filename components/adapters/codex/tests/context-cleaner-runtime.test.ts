@@ -39,6 +39,7 @@ import {
   finalizeCodexCleanerHandoffFailure,
   ensureCodexCleanerExecutionClaim,
   markCodexCleanerDispatchStarted,
+  readCodexCleanerCommittedMutationPlan,
   prepareCodexCleanerRebase,
   revalidateCodexCleanerPreparedRebase,
 } from "../src/context-cleaner/runtime.js";
@@ -239,6 +240,7 @@ function backendRequest(view: CodexEffectiveHistoryView): CodexLifecycleBackendR
 
 function pendingReceipt(
   status: ContextCleanPendingReceipt["status"],
+  occurrenceSelection?: ContextCleanOccurrenceSelection,
 ): ContextCleanPendingReceipt {
   return {
     schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
@@ -246,13 +248,20 @@ function pendingReceipt(
     hostId: "codex",
     sessionId: SESSION_ID,
     status,
-    selectedTaskIds: status === "analyzed" ? [] : ["task-old"],
+    selectedTaskIds: status === "analyzed"
+      ? []
+      : occurrenceSelection
+        ? [`occurrence:${occurrenceSelection.stableId}`]
+        : ["task-old"],
     estimatedSavedTokens: null,
     estimatedSavedChars: 70,
     tokenCountMode: "chars_only",
     deferredTaskIds: [],
     fallbackUsed: false,
     reasons: [],
+    ...(occurrenceSelection && status !== "analyzed"
+      ? { evidence: { occurrenceSelections: [occurrenceSelection] } }
+      : {}),
     updatedAt: status === "analyzed"
       ? "2026-08-22T00:00:00.000Z"
       : status === "approved"
@@ -264,6 +273,7 @@ function pendingReceipt(
 async function seedScheduledClean(
   stateDir: string,
   targetRole: "user" | "system" = "user",
+  explicitOccurrence = false,
 ): Promise<{
   view: CodexEffectiveHistoryView;
   request: CodexLifecycleBackendRequestBase;
@@ -357,11 +367,26 @@ async function seedScheduledClean(
     ],
     createdAt: CREATED_AT,
   };
-  assert.equal((await saveContextCleanPlan({ stateDir, plan })).bypassed, false);
+  const occurrenceSelection = explicitOccurrence
+    ? {
+        stableId: "old-item",
+        fingerprint: oldItem.fingerprint,
+        completionEvidence: ["completed"],
+        continuingUseful: false,
+        releaseIntent: "release" as const,
+        retainedFindings: [],
+        nothingReusable: true,
+        dependencyDirection: "none" as const,
+      }
+    : undefined;
+  const persistedPlan = explicitOccurrence
+    ? { ...plan, occurrenceDigests: { "old-item": oldItem.fingerprint } }
+    : plan;
+  assert.equal((await saveContextCleanPlan({ stateDir, plan: persistedPlan })).bypassed, false);
   for (const status of ["analyzed", "approved", "scheduled"] as const) {
     assert.equal((await transitionContextCleanState({
       stateDir,
-      receipt: pendingReceipt(status),
+      receipt: pendingReceipt(status, occurrenceSelection),
     })).bypassed, false);
   }
   assert.equal((await scheduleCodexCleanerPlan({
@@ -369,8 +394,8 @@ async function seedScheduledClean(
     sessionId: SESSION_ID,
     cleanPlanId: CLEAN_PLAN_ID,
     baseRevision: REVISION,
-    selectedTaskIds: ["task-old"],
-    scheduledAt: pendingReceipt("scheduled").updatedAt,
+    selectedTaskIds: explicitOccurrence ? ["occurrence:old-item"] : ["task-old"],
+    scheduledAt: pendingReceipt("scheduled", occurrenceSelection).updatedAt,
   })).outcome, "stored");
   return { view, request };
 }
@@ -482,6 +507,12 @@ test("Codex cleaner runtime accepts unrelated revision growth and preserves sele
 
     assert.equal(result.outcome, "ready");
     assert.deepEqual(result.reasonCodes, []);
+    const claim = await readContextCleanExecutionClaim({
+      stateDir,
+      planId: CLEAN_PLAN_ID,
+    });
+    assert.equal(claim.value?.analysisRevision, REVISION);
+    assert.equal(claim.value?.executionRevision, "changed-revision");
 });
 });
 
@@ -581,6 +612,14 @@ test("Codex cleaner runtime repairs the crash window after a committed rebase ep
       now: "2026-08-22T00:00:06.000Z",
     });
     assert.equal(recovered.outcome, "committed");
+    const committedPlan = await readCodexCleanerCommittedMutationPlan({
+      stateDir,
+      sessionId: SESSION_ID,
+    });
+    assert.deepEqual(
+      committedPlan?.operations.map((operation) => operation.stableItemId),
+      ["old-item"],
+    );
     const receipt = await readContextCleanReceipt({ stateDir, planId: CLEAN_PLAN_ID });
     assert.equal(receipt.value?.status, "applied");
     if (receipt.value?.status === "applied") {
@@ -617,6 +656,59 @@ test("Codex cleaner runtime repairs the crash window after a committed rebase ep
   });
 });
 
+test("Codex cleaner runtime recovers explicit occurrence evidence before dispatch", async () => {
+  await withTempState(async (stateDir) => {
+    const seeded = await seedScheduledClean(stateDir, "user", true);
+    const first = await prepareCodexCleanerRebase({
+      stateDir,
+      sessionId: SESSION_ID,
+      view: seeded.view,
+      backendRequest: seeded.request,
+    });
+    assert.equal(first.outcome, "ready");
+    if (first.outcome !== "ready") return;
+    assert.deepEqual(first.prepared.execution.occurrenceSet.releaseEvidence.map((item) => item.stableId), ["old-item"]);
+
+    await appendPendingCodexRebaseEpoch({
+      stateDir,
+      sessionId: SESSION_ID,
+      planId: first.prepared.execution.mutationPlan.planId,
+      epochId: "epoch-explicit-occurrence-recovery",
+      oldPreviousResponseId: "response-parent",
+      oldRevision: first.prepared.rebaseRequest.oldRevision,
+      accounting: first.prepared.rebaseRequest.accounting,
+    });
+    await commitCodexRebaseEpoch({
+      stateDir,
+      sessionId: SESSION_ID,
+      epochId: "epoch-explicit-occurrence-recovery",
+      newResponseId: "response-after-explicit-occurrence-clean",
+      newRevision: first.prepared.rebaseRequest.rebaseRevision,
+      accounting: first.prepared.rebaseRequest.accounting,
+      updatedAt: "2026-08-22T00:00:05.000Z",
+    });
+    assert.equal((await appendCodexCleanerCommitted({
+      stateDir,
+      sessionId: SESSION_ID,
+      cleanPlanId: CLEAN_PLAN_ID,
+      mutationPlanId: first.prepared.execution.mutationPlan.planId,
+      epochId: "epoch-explicit-occurrence-recovery",
+      updatedAt: "2026-08-22T00:00:05.000Z",
+    })).outcome, "transitioned");
+
+    const postRecoveryView = sourceView("post-explicit-occurrence-recovery");
+    const recovered = await prepareCodexCleanerRebase({
+      stateDir,
+      sessionId: SESSION_ID,
+      view: postRecoveryView,
+      backendRequest: backendRequest(postRecoveryView),
+      now: "2026-08-22T00:00:06.000Z",
+    });
+    assert.equal(recovered.outcome, "committed");
+    const receipt = await readContextCleanReceipt({ stateDir, planId: CLEAN_PLAN_ID });
+    assert.deepEqual(receipt.value?.evidence?.occurrenceSelections?.map((item) => item.stableId), ["old-item"]);
+  });
+});
 test("Codex cleaner runtime accepts applied receipts written before claim evidence", async () => {
   await withTempState(async (stateDir) => {
     const seeded = await seedScheduledClean(stateDir);

@@ -157,6 +157,10 @@ export async function analyzeContextCleanSession(params: AnalyzeContextCleanSess
     tokenCountMethod: breakdown.tokenCountMethod,
     attributionStatus,
     occurrenceDigests: Object.fromEntries(snapshot.items.map((item) => [item.stableId, item.fingerprint])),
+    occurrenceSizes: Object.fromEntries(snapshot.items.map((item) => [item.stableId, {
+      chars: item.chars,
+      tokens: snapshot.itemTokenCounts?.[item.stableId] ?? null,
+    }])),
     tasks: recommendation.tasks,
     createdAt: snapshot.capturedAt,
   };
@@ -201,6 +205,19 @@ export async function approveContextCleanSelection(params: {
   }
   const now = params.now ?? new Date().toISOString();
   const selectedTasks = plan.tasks.filter((task) => ids.includes(task.taskId));
+  const selectedOccurrenceSizes = occurrenceSelections
+    .map((selection) => plan.occurrenceSizes?.[selection.stableId])
+    .filter((size): size is { chars: number; tokens: number | null } => size !== undefined);
+  const occurrenceChars = selectedOccurrenceSizes.reduce((sum, size) => sum + size.chars, 0);
+  const occurrenceTokens = selectedOccurrenceSizes.every((size) => size.tokens !== null)
+    ? selectedOccurrenceSizes.reduce((sum, size) => sum + (size.tokens ?? 0), 0)
+    : null;
+  const estimatedSavedChars = selectedTasks.reduce((sum, task) => sum + task.charCount, 0) + occurrenceChars;
+  const estimatedSavedTokens = plan.tokenCountMode === "chars_only"
+    || selectedTasks.some((task) => task.tokenCount === null)
+    || occurrenceTokens === null
+    ? null
+    : selectedTasks.reduce((sum, task) => sum + (task.tokenCount ?? 0), 0) + occurrenceTokens;
   const pending: ContextCleanPendingReceipt = {
     schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
     planId: plan.planId,
@@ -208,9 +225,8 @@ export async function approveContextCleanSelection(params: {
     sessionId: plan.sessionId,
     status: "approved",
     selectedTaskIds: ids,
-    estimatedSavedTokens: selectedTasks.every((task) => task.tokenCount !== null)
-      ? selectedTasks.reduce((sum, task) => sum + (task.tokenCount ?? 0), 0) : null,
-    estimatedSavedChars: selectedTasks.reduce((sum, task) => sum + task.charCount, 0),
+    estimatedSavedTokens,
+    estimatedSavedChars,
     tokenCountMode: plan.tokenCountMode,
     deferredTaskIds: [],
     reasons: [],

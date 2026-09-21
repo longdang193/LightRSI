@@ -37,6 +37,21 @@ export type CleanReceiptView = {
   reasons: string[];
 };
 
+export type CleanOccurrenceView = {
+  stableId: string;
+  fingerprint: string;
+  shape: string;
+  chars: number;
+  protectionReason: string;
+};
+
+export type CleanInspectionView = {
+  hostId: string;
+  sessionId: string;
+  revision: string;
+  occurrences: CleanOccurrenceView[];
+};
+
 function count(tokens: number | null, chars: number): string {
   return tokens === null ? `${chars} chars` : `${tokens} tokens / ${chars} chars`;
 }
@@ -68,5 +83,17 @@ export function renderCleanReceipt(receipt: CleanReceiptView): string {
   if (receipt.status === "applied") lines.push(`Applied savings: ${count(receipt.appliedSavedTokens ?? null, receipt.appliedSavedChars ?? 0)}`);
   if (receipt.deferredTaskIds.length > 0) lines.push(`Deferred: ${receipt.deferredTaskIds.join(", ")}`);
   if (receipt.reasons.length > 0) lines.push(`Reasons: ${receipt.reasons.join(", ")}`);
+  return lines.join("\n");
+}
+
+export function renderCleanInspection(inspection: CleanInspectionView): string {
+  const lines = [
+    `Context Cleaner occurrences: ${inspection.hostId} / ${inspection.sessionId}`,
+    `Revision: ${inspection.revision}`,
+  ];
+  for (const occurrence of inspection.occurrences) {
+    lines.push(`${occurrence.stableId} ${occurrence.shape} — ${occurrence.chars} chars — ${occurrence.protectionReason}`);
+    lines.push(`  fingerprint: ${occurrence.fingerprint}`);
+  }
   return lines.join("\n");
 }

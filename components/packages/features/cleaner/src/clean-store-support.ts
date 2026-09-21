@@ -186,6 +186,12 @@ export function parseContextCleanPlan(value: unknown): ContextCleanPlan | undefi
   if (value.occurrenceDigests !== undefined
     && (!isRecord(value.occurrenceDigests)
       || Object.entries(value.occurrenceDigests).some(([id, digest]) => !isNonBlankString(id) || !isNonBlankString(digest)))) return undefined;
+  if (value.occurrenceSizes !== undefined
+    && (!isRecord(value.occurrenceSizes)
+      || Object.entries(value.occurrenceSizes).some(([id, size]) => !isNonBlankString(id)
+        || !isRecord(size)
+        || !finiteNonNegative(size.chars)
+        || !nullableCount(size.tokens)))) return undefined;
   const tasks = value.tasks.map(parseTask);
   if (tasks.some((task) => task === undefined)) return undefined;
   if (new Set(tasks.map((task) => task!.taskId)).size !== tasks.length) return undefined;
@@ -198,6 +204,12 @@ export function parseContextCleanPlan(value: unknown): ContextCleanPlan | undefi
     ...(value.attributionStatus !== undefined ? { attributionStatus: value.attributionStatus as ContextCleanAttributionStatus } : {}),
     ...(value.occurrenceDigests !== undefined
       ? { occurrenceDigests: Object.fromEntries(Object.entries(value.occurrenceDigests).map(([id, digest]) => [id, digest as string])) }
+      : {}),
+    ...(value.occurrenceSizes !== undefined
+      ? { occurrenceSizes: Object.fromEntries(Object.entries(value.occurrenceSizes).map(([id, size]) => [id, {
+        chars: (size as Record<string, unknown>).chars as number,
+        tokens: (size as Record<string, unknown>).tokens as number | null,
+      }])) }
       : {}),
     usedTokens: value.usedTokens, usedChars: value.usedChars,
     protectedTokens: value.protectedTokens, protectedChars: value.protectedChars,

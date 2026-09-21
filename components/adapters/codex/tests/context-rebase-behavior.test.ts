@@ -159,6 +159,37 @@ test("CDR-02 removes selected cumulative occurrences from the forwarded full his
   assert.equal(forwardedText.includes(RETAINED_SENTINEL), true);
 });
 
+test("CDR-02 maps cumulative input when prior response items are absent", () => {
+  const history = effectiveHistoryFixture();
+  history.historyFormat = "cumulative";
+  history.replayableItems.splice(1, 0, {
+    stableItemId: "assistant-1",
+    nativeId: "msg-assistant-1",
+    item: { role: "assistant", content: "prior response not resent" },
+  });
+  const currentInput = history.replayableItems
+    .filter(({ stableItemId }) => stableItemId !== "assistant-1")
+    .map(({ item }) => item);
+  const originalPayload = { ...baseResponsesPayload(), input: currentInput };
+  delete originalPayload.previous_response_id;
+
+  const result = buildCodexRebaseRequest({
+    sessionId: "codex-session-cumulative-missing-response",
+    planId: "plan-cumulative-missing-response",
+    baseRevision: history.revision,
+    originalPayload,
+    effectiveHistory: history,
+    currentInput,
+    mutationPlan: {
+      operations: [{ type: "evict", stableItemId: "evicted-user-1" }],
+    },
+  });
+
+  const forwardedText = textFromResponsesInput(result.payload.input);
+  assert.equal(forwardedText.includes(EVICTED_SENTINEL), false);
+  assert.equal(forwardedText.includes(RETAINED_SENTINEL), true);
+});
+
 test("CDR-02 removes the original occurrence while retaining appended identical content", () => {
   const history = effectiveHistoryFixture();
   history.historyFormat = "cumulative";
@@ -383,6 +414,12 @@ test("CDR-01 allows unrelated incomplete history when selected input is complete
   const originalPayload = baseResponsesPayload();
   const effectiveHistory = effectiveHistoryFixture();
   effectiveHistory.incomplete = true;
+  effectiveHistory.deferredItems.push({
+    stableItemId: "deferred-unrelated-1",
+    nativeId: "future-unrelated-1",
+    item: { type: "future_provider_item", payload: "opaque" },
+  });
+  delete originalPayload.previous_response_id;
 
   assert.doesNotThrow(() => buildCodexRebaseRequest({
     sessionId: "codex-session-1",

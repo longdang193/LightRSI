@@ -124,13 +124,16 @@ function cumulativeItemKey(item: JsonObject): string {
 
 function cumulativeItemsMatchPrefix(
   inputItems: JsonObject[],
-  expectedPrefix: JsonObject[],
+  previousInputItems: JsonObject[],
+  previousOutputItems: JsonObject[],
 ): boolean {
-  if (inputItems.length <= expectedPrefix.length) return false;
   const inputKeys = inputItems.map(cumulativeItemKey);
-  const prefixKeys = expectedPrefix.map(cumulativeItemKey);
   if (new Set(inputKeys).size !== inputKeys.length) return false;
-  return prefixKeys.every((key, index) => inputKeys[index] === key);
+  return [previousInputItems, [...previousInputItems, ...previousOutputItems]].some((expectedPrefix) => {
+    if (inputItems.length <= expectedPrefix.length) return false;
+    const prefixKeys = expectedPrefix.map(cumulativeItemKey);
+    return prefixKeys.every((key, index) => inputKeys[index] === key);
+  });
 }
 
 function buildCumulativeCommittedChain(params: {
@@ -173,7 +176,8 @@ function buildCumulativeCommittedChain(params: {
     }
     if (!cumulativeItemsMatchPrefix(
       modelVisibleInputItems(current),
-      [...modelVisibleInputItems(previous), ...previous.response.entry.outputItems],
+      modelVisibleInputItems(previous),
+      previous.response.entry.outputItems,
     )) {
       return { used: true, chain: [], complete: false };
     }
@@ -303,19 +307,39 @@ function buildCumulativeOccurrenceIdentities(params: {
   sessionId: string;
 }): Map<string, string> {
   const identities = new Map<string, string>();
-  let committedSequence: string[] = [];
+  let previousInputItems: JsonObject[] = [];
+  let previousInputIdentities: string[] = [];
+  let previousOutputItems: JsonObject[] = [];
+  let previousOutputIdentities: string[] = [];
 
   for (const turn of params.chain) {
     const inputItems = modelVisibleInputItems(turn);
+    const previousSequence = [...previousInputItems, ...previousOutputItems];
+    const previousIdentities = [...previousInputIdentities, ...previousOutputIdentities];
+    const reusesFullPrefix = inputItems.length > previousSequence.length
+      && inputItems.slice(0, previousSequence.length).every((item, index) => (
+        cumulativeItemKey(item) === cumulativeItemKey(previousSequence[index]!)
+      ));
+    const reusesInputPrefix = inputItems.length > previousInputItems.length
+      && inputItems.slice(0, previousInputItems.length).every((item, index) => (
+        cumulativeItemKey(item) === cumulativeItemKey(previousInputItems[index]!)
+      ));
+    const reusedPrefixLength = reusesFullPrefix
+      ? previousSequence.length
+      : reusesInputPrefix
+        ? previousInputItems.length
+        : 0;
     const inputIdentities = inputItems.map((item, itemOrdinal) => {
-      const identity = committedSequence[itemOrdinal] ?? itemIdentity({
+      const identity = itemOrdinal < reusedPrefixLength
+        ? previousIdentities[itemOrdinal]!
+        : itemIdentity({
         item,
         sessionId: params.sessionId,
         turnOrdinal: turn.request.entry.turnOrdinal,
         phase: "input",
         itemOrdinal,
         cumulativePosition: itemOrdinal,
-      });
+        });
       identities.set(cumulativeOccurrenceKey(
         turn.request.entry.turnOrdinal,
         "input",
@@ -340,7 +364,10 @@ function buildCumulativeOccurrenceIdentities(params: {
       ), identity);
       return identity;
     });
-    committedSequence = [...inputIdentities, ...outputIdentities];
+    previousInputItems = inputItems;
+    previousInputIdentities = inputIdentities;
+    previousOutputItems = turn.response.entry.outputItems;
+    previousOutputIdentities = outputIdentities;
   }
 
   return identities;

@@ -48,6 +48,34 @@ test("clean CLI analyzes and approves only selected task IDs", async () => {
   assert.deepEqual(calls, ["analyze", "read-plan", "task-1"]);
 });
 
+test("clean CLI inspects stable occurrences without task selection", async () => {
+  const backend = {
+    async analyze() { return plan; },
+    async inspect() {
+      return {
+        hostId: "codex",
+        sessionId: "session-1",
+        revision: "rev-1",
+        occurrences: [{
+          stableId: "item-1",
+          fingerprint: "digest-1",
+          shape: "user",
+          chars: 40,
+          protectionReason: "unassigned; release requires occurrence evidence",
+        }],
+      };
+    },
+    async readPlan() { return plan; },
+    async approve() { return receipt; },
+    async readReceipt() { return receipt; },
+    async cancel() { return { ...receipt, status: "cancelled" }; },
+  };
+
+  const result = await handleCleanCommand({ args: ["--inspect", "session-1"], backend });
+  assert.match(result.text, /item-1 user/);
+  assert.match(result.text, /digest-1/);
+});
+
 test("clean CLI releases exact occurrence evidence through the shared service", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-release-"));
   try {

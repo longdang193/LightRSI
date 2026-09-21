@@ -276,6 +276,34 @@ test("Codex cleaner bridge rejects cross-host approvals before control-plane exe
   assert.equal(executions, 0);
 });
 
+test("Codex cleaner bridge rejects untrusted execution session binding", async () => {
+  let executions = 0;
+  const bridge = createCodexContextCleanerBridge({
+    stateDir: "unused-state-dir",
+    boundSessionId: "bound-session",
+    controlPlane: {
+      ...fakeControlPlane(),
+      async executeApprovedClean() {
+        executions += 1;
+        return pendingReceipt("scheduled");
+      },
+    },
+  });
+
+  await assert.rejects(
+    bridge.executeApprovedClean({
+      schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+      cleanPlanId: "clean-plan-1",
+      hostId: "codex",
+      sessionId: "other-session",
+      baseRevision: "revision-before",
+      approvedAt: "2026-08-21T00:00:00.000Z",
+      selectedTaskIds: ["task-1"],
+    }),
+    /codex_clean_approval_session_binding_mismatch/,
+  );
+  assert.equal(executions, 0);
+});
 test("Codex cleaner bridge rejects malformed approval task ids", async () => {
   const bridge = createCodexContextCleanerBridge({
     stateDir: "unused-state-dir",

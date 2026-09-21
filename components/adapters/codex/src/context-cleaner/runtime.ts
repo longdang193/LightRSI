@@ -38,6 +38,7 @@ import {
 } from "../context-rewrite/rebase-epoch.js";
 import type {
   CodexRebaseEpoch,
+  CodexMutationPlan,
   CodexRebaseRequestResult,
 } from "../context-rewrite/types.js";
 import {
@@ -90,6 +91,28 @@ export type CodexCleanerHandoffValidation = {
   reasonCodes: string[];
 };
 
+export async function readCodexCleanerCommittedMutationPlan(params: {
+  stateDir: string;
+  sessionId: string;
+}): Promise<CodexMutationPlan | undefined> {
+  const schedule = await readCodexCleanerSchedule({
+    stateDir: params.stateDir,
+    sessionId: params.sessionId,
+  });
+  if (schedule.outcome !== "committed") return undefined;
+  const receipt = await readContextCleanReceipt({
+    stateDir: params.stateDir,
+    planId: schedule.record.cleanPlanId,
+  });
+  if (receipt.bypassed || receipt.value?.status !== "applied") return undefined;
+  const itemIds = receipt.value.evidence.itemIds;
+  if (!itemIds || itemIds.length === 0 || new Set(itemIds).size !== itemIds.length) return undefined;
+  return {
+    baseRevision: schedule.record.baseRevision,
+    operations: itemIds.map((stableItemId) => ({ type: "evict", stableItemId })),
+  };
+}
+
 function executionClaimId(
   schedule: Pick<CodexCleanerScheduledRecord, "cleanPlanId" | "selectedTaskIds">,
   mutationPlanId: string,
@@ -103,6 +126,7 @@ export async function ensureCodexCleanerExecutionClaim(params: {
   stateDir: string;
   schedule: CodexCleanerScheduledRecord;
   mutationPlanId: string;
+  executionRevision?: string;
   now?: string;
   ownerToken?: string;
 }): Promise<{ claim?: ContextCleanExecutionClaim; reasons: string[] }> {
@@ -124,6 +148,7 @@ export async function ensureCodexCleanerExecutionClaim(params: {
   const plan = await readContextCleanPlan({ stateDir: params.stateDir, planId: params.schedule.cleanPlanId });
   if (plan.bypassed || !plan.value) return { reasons: ["cleaner_runtime_plan_unavailable"] };
   const revision = plan.value.plan.analysisRevision ?? plan.value.plan.baseRevision;
+  const executionRevision = params.executionRevision?.trim() || revision;
   const claim: ContextCleanExecutionClaim = {
     schemaVersion: 1,
     claimId: executionClaimId(params.schedule, params.mutationPlanId),
@@ -133,7 +158,7 @@ export async function ensureCodexCleanerExecutionClaim(params: {
     selectedTaskIds: [...params.schedule.selectedTaskIds],
     mutationPlanId: params.mutationPlanId,
     analysisRevision: revision,
-    executionRevision: revision,
+    executionRevision,
     ownerToken: params.ownerToken ?? `${process.pid}:${Date.now()}`,
     claimedAt: params.now ?? new Date().toISOString(),
     dispatchState: "dispatch_not_started",
@@ -549,6 +574,7 @@ async function recoverCodexCleanerCommittedEpoch(params: {
   const storedExecution = scheduledReceipt && deriveContextCleanStoredExecution({
     record: storedPlan.value,
     selectedTaskIds: params.schedule.selectedTaskIds,
+    receipt,
   });
   if (!scheduledReceipt || !storedExecution) {
     return { outcome: "reserved", reasonCodes: ["cleaner_runtime_receipt_scope_invalid"] };
@@ -790,6 +816,7 @@ export async function prepareCodexCleanerRebase(params: {
             stateDir: params.stateDir,
             schedule: currentSchedule.record,
             mutationPlanId: prepared.execution.mutationPlan.planId,
+            executionRevision: context.snapshot.revision,
             now,
           });
           if (!claimed.claim) {

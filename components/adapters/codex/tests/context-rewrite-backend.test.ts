@@ -331,6 +331,9 @@ test("Codex shared backend applies selected replayable items despite unrelated i
     message("active-user", "user", "keep current work"),
   ]);
   request.effectiveHistory.incomplete = true;
+  request.effectiveHistory.deferredItems = [message("deferred-unrelated", "user", "unrelated deferred history")];
+  delete request.payload.previous_response_id;
+  request.currentInput = request.effectiveHistory.replayableItems.map((entry) => entry.item);
   const snapshot = await codexSharedContextRewriteBackend.readSnapshot({ sessionId: SESSION_ID, request });
   const oldItem = snapshot.items.find((item) => item.stableId === "old-user")!;
   const plan = planFor({

@@ -103,7 +103,7 @@ async function saveContextCleanExecutionClaimUnlocked(params: {
   const analysisRevision = plan.analysisRevision ?? plan.baseRevision;
   if (plan.hostId !== params.claim.hostId || plan.sessionId !== params.claim.sessionId
     || params.claim.analysisRevision !== analysisRevision
-    || params.claim.executionRevision !== analysisRevision) {
+    || !params.claim.executionRevision.trim()) {
     return { outcome: "bypassed", bypassed: true, reasons: ["clean_claim_revision_or_identity_conflict"] };
   }
   const current = await readContextCleanExecutionClaim({ stateDir: params.stateDir, planId: params.claim.planId });

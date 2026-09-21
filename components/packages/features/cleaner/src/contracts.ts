@@ -147,6 +147,8 @@ export type ContextCleanPlan = {
   attributionStatus?: ContextCleanAttributionStatus;
   /** Host occurrence fingerprints available for one-off agent selection. */
   occurrenceDigests?: Record<string, string>;
+  /** Stable occurrence sizes used for release accounting without task ownership. */
+  occurrenceSizes?: Record<string, { chars: number; tokens: number | null }>;
   tasks: ContextCleanTaskBreakdown[];
   createdAt: string;
 };
