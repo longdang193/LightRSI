@@ -31,6 +31,22 @@ async function withTempState(
   }
 }
 
+test("cumulative rebase epochs keep response-chain identity absent", async () => {
+  await withTempState(async (stateDir) => {
+    const epoch = await appendPendingCodexRebaseEpoch({
+      stateDir,
+      sessionId: "codex-session-cumulative",
+      planId: "plan-cumulative",
+      oldRevision: "revision-a",
+      inputFormat: "cumulative",
+    });
+    assert.equal(epoch.inputFormat, "cumulative");
+    assert.equal("oldPreviousResponseId" in epoch, false);
+    const journal = await readCodexRebaseEpochJournal(stateDir, "codex-session-cumulative");
+    assert.equal(JSON.stringify(journal.entries[0]).includes("undefined"), false);
+  });
+});
+
 test("CDR-03 Rebase Epoch writes pending records and commits only with a response id", async () => {
   await withTempState(async (stateDir) => {
     const pending = await appendPendingCodexRebaseEpoch({

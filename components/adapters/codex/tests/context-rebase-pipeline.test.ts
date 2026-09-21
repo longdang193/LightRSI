@@ -477,6 +477,90 @@ test("CDR-06 proxy pipeline rebases a non-stream request from effective history"
   }
 });
 
+test("CDR-06 proxy pipeline applies cumulative pruning without a response-chain id", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cumulative-rebase-pipeline-"));
+  const upstream = await startSequencedResponsesUpstream();
+  let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  try {
+    const sessionId = "codex-session-cumulative-rebase-pipeline";
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir,
+      proxyPort: await reserveFetchPort(),
+      upstreamProvider: "OpenAI",
+      upstream: {
+        baseUrl: upstream.baseUrl,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      modules: {
+        stabilizer: false,
+        reduction: false,
+      },
+      contextRewrite: {
+        enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
+        mode: "response_chain_rebase",
+        failureMode: "bypass",
+        retryOriginalRequest: true,
+        cooldownMs: 300_000,
+        mutationPlan: { operations: [] },
+      },
+    } as any);
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
+    });
+
+    const first = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "CUMULATIVE_EVICT" }],
+      }),
+    });
+    assert.equal(first.status, 200);
+    const firstBody = await first.json() as JsonObject;
+    const firstOutput = Array.isArray(firstBody.output) ? firstBody.output[0] : undefined;
+    assert.ok(firstOutput && typeof firstOutput === "object" && !Array.isArray(firstOutput));
+
+    const history = await buildCodexEffectiveHistory({ stateDir, sessionId });
+    const evictedItem = history.replayableItems.find(
+      (entry) => JSON.stringify(entry.item).includes("CUMULATIVE_EVICT"),
+    );
+    assert.ok(evictedItem);
+    (config as any).contextRewrite.mutationPlan = {
+      operations: [{ type: "evict", stableItemId: evictedItem.stableItemId }],
+    };
+
+    const second = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [
+          { role: "user", content: "CUMULATIVE_EVICT" },
+          firstOutput,
+          { role: "user", content: "CUMULATIVE_KEEP" },
+        ],
+      }),
+    });
+    assert.equal(second.status, 200);
+    assert.equal(upstream.requests.length, 2);
+    assert.doesNotMatch(inputText(upstream.requests[1]), /CUMULATIVE_EVICT/);
+    assert.match(inputText(upstream.requests[1]), /CUMULATIVE_KEEP/);
+  } finally {
+    await runtime?.close();
+    await upstream.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("CDR-06 proxy automatically replaces an unsupported response chain with stateless replay", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-chain-fallback-"));
   const upstream = await startSequencedResponsesUpstream({ rejectChain: true });

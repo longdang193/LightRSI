@@ -479,9 +479,7 @@ function canAttemptCodexRebase(params: {
     && params.config.contextRewrite.failureMode === "bypass"
     && params.config.contextRewrite.retryOriginalRequest
     && params.requestEntry
-    && activeMutationPlan(params.config)
-    && typeof params.payload.previous_response_id === "string"
-    && params.payload.previous_response_id,
+    && activeMutationPlan(params.config),
   );
 }
 
@@ -1071,13 +1069,7 @@ export async function startCodexResponsesProxy(params: {
               historyWatermark: lifecycleResult.historyWatermark ?? null,
               estimatorUsage: lifecycleResult.estimatorUsage ?? null,
             });
-            if (lifecycleResult.preparedPlan
-              && typeof originalPayload.previous_response_id !== "string") {
-              activeLifecyclePlan = undefined;
-              await emitContextRewriteStage("context_rewrite_deferred", {
-                reasonCodes: ["response_chain_head_missing"],
-              });
-            } else if (lifecycleResult.preparedPlan) {
+            if (lifecycleResult.preparedPlan) {
               activeLifecyclePlan = codexSharedLifecyclePlan(lifecycleResult.preparedPlan.plan);
               await emitContextRewriteStage("context_rewrite_planned");
               const applied = await codexSharedContextRewriteBackend.apply({
@@ -1166,11 +1158,6 @@ export async function startCodexResponsesProxy(params: {
           await emitContextRewriteStage("context_rewrite_bypassed", {
             reasonCodes: ["fallback_original_request"],
             fallbackUsed: true,
-          });
-        } else if (typeof originalPayload.previous_response_id !== "string"
-          || !originalPayload.previous_response_id) {
-          await emitContextRewriteStage("context_rewrite_deferred", {
-            reasonCodes: ["response_chain_head_missing"],
           });
         } else if (!config.contextRewrite.retryOriginalRequest
           || config.contextRewrite.mode !== "response_chain_rebase"
@@ -1773,7 +1760,14 @@ export async function startCodexResponsesProxy(params: {
               accounting: rebaseAccounting,
               epochStore: {
                 stateDir: config.stateDir,
-                oldPreviousResponseId: String(originalPayload.previous_response_id),
+                ...(typeof originalPayload.previous_response_id === "string"
+                  && originalPayload.previous_response_id.trim()
+                  ? { oldPreviousResponseId: originalPayload.previous_response_id.trim() }
+                  : {}),
+                inputFormat: typeof originalPayload.previous_response_id === "string"
+                  && originalPayload.previous_response_id.trim()
+                  ? "response_chain"
+                  : "cumulative",
                 oldRevision: rebaseRequest.oldRevision,
                 newRevision: rebaseRequest.rebaseRevision,
               },

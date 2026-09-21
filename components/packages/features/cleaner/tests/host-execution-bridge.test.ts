@@ -61,11 +61,10 @@ test("execution bridge expands only the frozen scheduled task scope", async () =
     assert.equal(first.outcome, "ready");
     assert.equal(second.outcome, "ready");
     if (first.outcome !== "ready" || second.outcome !== "ready") return;
-    assert.deepEqual(first.execution.selectedTasks, [{
-      taskId: "task-a",
-      itemIds: ["item-a", "item-b"],
-      itemDigests: { "item-a": "digest-a", "item-b": "digest-b" },
-    }]);
+    assert.deepEqual(first.execution.occurrenceSet.occurrences, [
+      { stableId: "item-a", fingerprint: "digest-a" },
+      { stableId: "item-b", fingerprint: "digest-b" },
+    ]);
     assert.equal(first.execution.mutationPlan.sourceModuleId, "cleaner_manual");
     assert.equal(first.execution.mutationPlan.operations.length, 1);
     assert.deepEqual(

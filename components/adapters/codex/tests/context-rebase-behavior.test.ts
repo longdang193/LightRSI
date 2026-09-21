@@ -159,6 +159,38 @@ test("CDR-02 removes selected cumulative occurrences from the forwarded full his
   assert.equal(forwardedText.includes(RETAINED_SENTINEL), true);
 });
 
+test("CDR-02 removes the original occurrence while retaining appended identical content", () => {
+  const history = effectiveHistoryFixture();
+  history.historyFormat = "cumulative";
+  const duplicate = { role: "user", content: "IDENTICAL_OCCURRENCE" };
+  history.replayableItems = [
+    ...history.replayableItems,
+    { stableItemId: "identical-old", item: duplicate },
+  ];
+  const currentInput = [
+    ...history.replayableItems.map(({ item }) => item),
+    duplicate,
+  ];
+  const originalPayload = { ...baseResponsesPayload(), input: currentInput };
+  delete originalPayload.previous_response_id;
+
+  const result = buildCodexRebaseRequest({
+    sessionId: "codex-session-cumulative-identical",
+    planId: "plan-cumulative-identical",
+    baseRevision: history.revision,
+    originalPayload,
+    effectiveHistory: history,
+    currentInput,
+    mutationPlan: {
+      operations: [{ type: "evict", stableItemId: "identical-old" }],
+    },
+  });
+
+  assert.equal(result.payload.input?.filter((item) => (
+    JSON.stringify(item).includes("IDENTICAL_OCCURRENCE")
+  )).length, 1);
+});
+
 test("CDR-01 refuses ambiguous cumulative occurrence mapping", () => {
   const history = effectiveHistoryFixture();
   history.historyFormat = "cumulative";

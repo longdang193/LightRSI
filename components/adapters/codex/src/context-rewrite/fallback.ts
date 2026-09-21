@@ -123,6 +123,7 @@ export async function executeCodexRebaseWithFallback(params: {
   epochId: string;
   originalPayload: JsonObject;
   rebasedPayload: JsonObject;
+  inputFormat?: "response_chain" | "cumulative";
   sendUpstream: CodexUpstreamSender;
   beforeCommit?: (params: {
     response: CodexUpstreamResponse;
@@ -163,7 +164,7 @@ export async function executeCodexRebaseWithFallback(params: {
     return sendOriginalBypass(undefined, "rewrite_execution_guard_unavailable");
   }
 
-  if (params.capabilityStore && rebaseItems.length > 0) {
+  if (params.inputFormat !== "cumulative" && params.capabilityStore && rebaseItems.length > 0) {
     try {
       const probeMode = params.capabilityStore.probeMode ?? "disabled";
       const compatibilityResult = await resolveCodexProviderReplayCompatibility({

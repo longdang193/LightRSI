@@ -121,6 +121,48 @@ function normalizedCurrentInput(currentInput: unknown): JsonObject[] {
     : [];
 }
 
+function cumulativeCorrespondence(params: {
+  historyItems: CodexEffectiveHistory["replayableItems"];
+  currentInput: JsonObject[];
+}): Map<string, number> | undefined {
+  const currentIndexesByKey = new Map<string, number[]>();
+  params.currentInput.forEach((item, index) => {
+    const key = stableInputKey(item);
+    const indexes = currentIndexesByKey.get(key) ?? [];
+    indexes.push(index);
+    currentIndexesByKey.set(key, indexes);
+  });
+  if (params.currentInput.length >= params.historyItems.length
+    && params.historyItems.every((entry, index) => (
+      stableInputKey(entry.item) === stableInputKey(params.currentInput[index]!)
+    ))) {
+    return new Map(params.historyItems.map((entry, index) => [entry.stableItemId, index]));
+  }
+  const earliest: number[] = [];
+  let cursor = -1;
+  for (const entry of params.historyItems) {
+    const indexes = currentIndexesByKey.get(stableInputKey(entry.item)) ?? [];
+    const index = indexes.find((candidate) => candidate > cursor);
+    if (index === undefined) return undefined;
+    earliest.push(index);
+    cursor = index;
+  }
+  const latest = Array.from({ length: params.historyItems.length });
+  cursor = params.currentInput.length;
+  for (let historyIndex = params.historyItems.length - 1; historyIndex >= 0; historyIndex -= 1) {
+    const entry = params.historyItems[historyIndex]!;
+    const indexes = currentIndexesByKey.get(stableInputKey(entry.item)) ?? [];
+    const index = [...indexes].reverse().find((candidate) => candidate < cursor);
+    if (index === undefined) return undefined;
+    latest[historyIndex] = index;
+    cursor = index;
+  }
+  if (earliest.some((index, indexOfHistoryItem) => index !== latest[indexOfHistoryItem])) {
+    return undefined;
+  }
+  return new Map(params.historyItems.map((entry, index) => [entry.stableItemId, earliest[index]!])) as Map<string, number>;
+}
+
 function buildForwardedInput(params: {
   effectiveHistory: CodexEffectiveHistory;
   currentInput: unknown;
@@ -137,38 +179,27 @@ function buildForwardedInput(params: {
     return { items: [...retainedHistory, ...currentInput], reasons: [] };
   }
 
-  const historyOccurrences = new Map<string, string[]>();
-  for (const entry of params.effectiveHistory.replayableItems) {
-    const key = stableInputKey(entry.item);
-    const occurrences = historyOccurrences.get(key) ?? [];
-    occurrences.push(entry.stableItemId);
-    historyOccurrences.set(key, occurrences);
-  }
-
-  const currentOccurrences = new Map<string, number[]>();
-  for (const [index, item] of currentInput.entries()) {
-    const key = stableInputKey(item);
-    const indexes = currentOccurrences.get(key) ?? [];
-    indexes.push(index);
-    currentOccurrences.set(key, indexes);
-  }
-
   const removedIndexes = new Set<number>();
   const reasons: string[] = [];
-  for (const [key, historyStableIds] of historyOccurrences) {
-    if (!historyStableIds.some((stableItemId) => params.evicted.has(stableItemId))) continue;
-    const currentIndexes = currentOccurrences.get(key) ?? [];
-    if (currentIndexes.length !== historyStableIds.length) {
-      reasons.push(`cumulative_occurrence_ambiguous:${key}`);
+  const correspondence = cumulativeCorrespondence({
+    historyItems: params.effectiveHistory.replayableItems,
+    currentInput,
+  });
+  for (const stableItemId of params.evicted) {
+    const historyEntry = params.effectiveHistory.replayableItems.find(
+      (entry) => entry.stableItemId === stableItemId,
+    );
+    if (!historyEntry) continue;
+    const currentIndex = correspondence?.get(stableItemId);
+    if (currentIndex !== undefined) {
+      removedIndexes.add(currentIndex);
       continue;
     }
-    for (const [ordinal, stableItemId] of historyStableIds.entries()) {
-      if (params.evicted.has(stableItemId)) {
-        const currentIndex = currentIndexes[ordinal];
-        if (currentIndex === undefined) reasons.push(`mutation_target_missing_in_current_input:${stableItemId}`);
-        else removedIndexes.add(currentIndex);
-      }
-    }
+    const key = stableInputKey(historyEntry.item);
+    const currentHasKey = currentInput.some((item) => stableInputKey(item) === key);
+    reasons.push(currentHasKey
+      ? `cumulative_occurrence_ambiguous:${key}`
+      : `mutation_target_missing_in_current_input:${stableItemId}`);
   }
 
   return {

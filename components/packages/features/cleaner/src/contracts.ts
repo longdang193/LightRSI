@@ -313,6 +313,21 @@ export type ApprovedContextCleanTask = Pick<
   "taskId" | "itemIds" | "itemDigests"
 >;
 
+export type ContextCleanApprovedOccurrence = {
+  stableId: string;
+  fingerprint: string;
+};
+
+export type ContextCleanOccurrenceSet = {
+  hostId: string;
+  sessionId: string;
+  baseRevision: string;
+  occurrences: ContextCleanApprovedOccurrence[];
+  releaseEvidence: ContextCleanOccurrenceSelection[];
+  provenance: "agent" | "legacy_task";
+  sourceTaskIds: string[];
+};
+
 export type ExecuteApprovedContextCleanParams = {
   schemaVersion: typeof CONTEXT_CLEAN_SCHEMA_VERSION;
   cleanPlanId: string;
@@ -364,7 +379,7 @@ export type ContextCleanPreparedExecution = {
   hostId: string;
   sessionId: string;
   baseRevision: string;
-  selectedTasks: ApprovedContextCleanTask[];
+  occurrenceSet: ContextCleanOccurrenceSet;
   mutationPlan: ContextMutationPlan;
   scheduledReceipt: ContextCleanScheduledReceipt;
 };

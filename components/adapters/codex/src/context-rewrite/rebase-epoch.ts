@@ -237,7 +237,7 @@ function canonicalCodexRebaseEpoch(value: unknown): CodexRebaseEpoch | undefined
     || !isNonBlankString(entry.epochId)
     || !isNonBlankString(entry.sessionId)
     || !isNonBlankString(entry.planId)
-    || !isNonBlankString(entry.oldPreviousResponseId)
+    || (entry.oldPreviousResponseId !== undefined && !isNonBlankString(entry.oldPreviousResponseId))
     || !isNonBlankString(entry.oldRevision)
     || !isStatus(entry.status)
     || !isIsoTimestamp(entry.createdAt)
@@ -257,7 +257,10 @@ function canonicalCodexRebaseEpoch(value: unknown): CodexRebaseEpoch | undefined
     epochId: entry.epochId,
     sessionId: entry.sessionId,
     planId: entry.planId,
-    oldPreviousResponseId: entry.oldPreviousResponseId,
+    ...(entry.oldPreviousResponseId !== undefined ? { oldPreviousResponseId: entry.oldPreviousResponseId } : {}),
+    inputFormat: entry.inputFormat === "cumulative" || entry.oldPreviousResponseId === undefined
+      ? "cumulative"
+      : "response_chain",
     ...(entry.newResponseId !== undefined ? { newResponseId: entry.newResponseId } : {}),
     oldRevision: entry.oldRevision,
     ...(entry.newRevision !== undefined ? { newRevision: entry.newRevision } : {}),
@@ -337,7 +340,8 @@ export async function appendPendingCodexRebaseEpoch(params: {
   stateDir: string;
   sessionId: string;
   planId: string;
-  oldPreviousResponseId: string;
+  oldPreviousResponseId?: string;
+  inputFormat?: "cumulative" | "response_chain";
   oldRevision: string;
   epochId?: string;
   accounting?: CodexRebaseAccounting;
@@ -364,11 +368,12 @@ export async function appendPendingCodexRebaseEpoch(params: {
   }
 
   const createdAt = params.createdAt ?? new Date().toISOString();
+  const inputFormat = params.inputFormat ?? (params.oldPreviousResponseId ? "response_chain" : "cumulative");
   if (!isIsoTimestamp(createdAt)
     || !isNonBlankString(params.sessionId)
     || !isNonBlankString(params.planId)
-    || !isNonBlankString(params.epochId)
-    || !isNonBlankString(params.oldPreviousResponseId)
+    || !isNonBlankString(epochId)
+    || (inputFormat === "response_chain" && !isNonBlankString(params.oldPreviousResponseId))
     || !isNonBlankString(params.oldRevision)) {
     throw new Error("Codex rebase epoch requires valid identity and create time");
   }
@@ -377,7 +382,8 @@ export async function appendPendingCodexRebaseEpoch(params: {
     epochId,
     sessionId: params.sessionId,
     planId: params.planId,
-    oldPreviousResponseId: params.oldPreviousResponseId,
+    ...(params.oldPreviousResponseId ? { oldPreviousResponseId: params.oldPreviousResponseId } : {}),
+    inputFormat,
     oldRevision: params.oldRevision,
     status: "pending",
     accounting: params.accounting,

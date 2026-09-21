@@ -140,7 +140,7 @@ async function buildCodexRebaseReportLines(
     lines.push(
       "- CDR-03 latest rebase epoch: "
         + `${latest.status} ${latest.epochId} `
-        + `old=${latest.oldPreviousResponseId}`
+        + `old=${latest.oldPreviousResponseId ?? "none"}`
         + (latest.newResponseId ? ` new=${latest.newResponseId}` : ""),
     );
     const accountingLine = formatCodexRebaseAccounting(latest);

@@ -88,6 +88,31 @@ test("occurrence approval persists frozen evidence, including explicit nothingRe
     assert.deepEqual(receipt.selectedTaskIds, ["item-a"]);
     const stored = await readContextCleanReceipt({ stateDir, planId: analyzed.plan.planId });
     assert.deepEqual(stored.value?.evidence?.occurrenceSelections, receipt.evidence?.occurrenceSelections);
+    await assert.rejects(
+      () => approveContextCleanSelection({
+        stateDir,
+        request: {
+          schemaVersion: 1,
+          cleanPlanId: analyzed.plan.planId,
+          hostId: "codex",
+          sessionId: "session-1",
+          baseRevision: "rev-1",
+          approvedAt: "2026-09-20T10:02:00.000Z",
+          selectedTaskIds: [],
+          occurrenceSelections: [{
+            stableId: "item-a",
+            fingerprint: "digest-a",
+            completionEvidence: ["changed"],
+            continuingUseful: false,
+            releaseIntent: "release",
+            retainedFindings: [],
+            nothingReusable: true,
+            dependencyDirection: "none",
+          }],
+        },
+      }),
+      /clean_approval_facts_conflict/,
+    );
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

@@ -253,10 +253,7 @@ function executionBridge(params: {
   return createContextCleanerHostExecutionBridge({
     stateDir: params.stateDir,
     hostId: "codex",
-    async readExecutionSnapshot(sessionId) {
-      if (sessionId !== params.sessionId) {
-        throw new Error("cleaner_runtime_snapshot_session_mismatch");
-      }
+    async readExecutionSnapshot() {
       const { adapterMetadata: _adapterMetadata, ...canonicalSnapshot } = params.snapshot;
       return {
         snapshot: canonicalSnapshot,
@@ -561,7 +558,7 @@ async function recoverCodexCleanerCommittedEpoch(params: {
     hostId: storedPlan.value.plan.hostId,
     sessionId: storedPlan.value.plan.sessionId,
     baseRevision: storedPlan.value.plan.baseRevision,
-    selectedTasks: storedExecution.selectedTasks,
+    occurrenceSet: storedExecution.occurrenceSet,
     mutationPlan: storedExecution.mutationPlan,
     scheduledReceipt,
   };

@@ -43,10 +43,18 @@ function execution(): ContextCleanPreparedExecution {
     hostId: "codex",
     sessionId: "session-a",
     baseRevision: "revision-a",
-    selectedTasks: [
-      { taskId: "task-a", itemIds: ["item-a"], itemDigests: { "item-a": "digest-a" } },
-      { taskId: "task-b", itemIds: ["item-b"], itemDigests: { "item-b": "digest-b" } },
-    ],
+    occurrenceSet: {
+      hostId: "codex",
+      sessionId: "session-a",
+      baseRevision: "revision-a",
+      occurrences: [
+        { stableId: "item-a", fingerprint: "digest-a" },
+        { stableId: "item-b", fingerprint: "digest-b" },
+      ],
+      releaseEvidence: [],
+      provenance: "legacy_task",
+      sourceTaskIds: ["task-a", "task-b"],
+    },
     mutationPlan: {
       schemaVersion: MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
       planId: "mutation-plan",
@@ -74,6 +82,18 @@ function execution(): ContextCleanPreparedExecution {
       reasons: [],
       fallbackUsed: false,
       updatedAt: "2026-08-28T00:00:01.000Z",
+      evidence: {
+        occurrenceSelections: [{
+          stableId: "item-a",
+          fingerprint: "digest-a",
+          completionEvidence: ["done"],
+          continuingUseful: false,
+          releaseIntent: "release",
+          retainedFindings: [],
+          nothingReusable: true,
+          dependencyDirection: "none",
+        }],
+      },
     },
   };
 }
@@ -101,6 +121,10 @@ test("applied receipt records committed token savings instead of scheduled estim
   assert.ok(result.receipt);
   assert.equal(result.receipt.appliedSavedTokens, accounting.actuallyRemovedTokens);
   assert.notEqual(result.receipt.appliedSavedTokens, prepared.scheduledReceipt.estimatedSavedTokens);
+  assert.deepEqual(
+    result.receipt.evidence.occurrenceSelections,
+    prepared.scheduledReceipt.evidence?.occurrenceSelections,
+  );
 });
 
 test("rewrite evidence rejects duplicated operation or item IDs", () => {

@@ -105,6 +105,7 @@ export function buildCodexCleanerAppliedReceipt(
       appliedSavedTokens,
       appliedSavedChars: epoch.accounting.actuallyRemovedChars,
       evidence: {
+        ...(execution.scheduledReceipt.evidence ?? {}),
         ...(params.claimId ? { claimId: params.claimId } : {}),
         previousRevision: epoch.oldRevision,
         nextRevision: epoch.newRevision,

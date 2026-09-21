@@ -37,6 +37,12 @@ function sameStrings(left: readonly string[], right: readonly string[]): boolean
   return sortedLeft.every((value, index) => value === sortedRight[index]);
 }
 
+function sameApprovalFacts(left: ContextCleanReceipt, right: ContextCleanReceipt): boolean {
+  const { updatedAt: _leftUpdatedAt, ...leftFacts } = left;
+  const { updatedAt: _rightUpdatedAt, ...rightFacts } = right;
+  return sameCanonicalValue(leftFacts, rightFacts);
+}
+
 async function abortIntent(stateDir: string, planId: string): Promise<void> {
   await unlink(contextCleanTransactionFilePath(stateDir, planId)).catch(() => undefined);
 }
@@ -86,7 +92,9 @@ async function completeIntent(params: {
   const receiptRead = await readContextCleanReceipt({ stateDir: params.stateDir, planId: params.intent.planId });
   if (receiptRead.bypassed) return bypassed("clean_transaction_receipt_unavailable");
   if (receiptRead.value && receiptRead.value.status === receipt.status
-    && !sameCanonicalValue(receiptRead.value, receipt)) {
+    && !(receipt.status === "approved"
+      ? sameApprovalFacts(receiptRead.value, receipt)
+      : sameCanonicalValue(receiptRead.value, receipt))) {
     return abortIntentAndBypass(params.stateDir, params.intent.planId,
       "clean_transaction_receipt_content_conflict");
   }
@@ -149,8 +157,14 @@ export async function transitionContextCleanApproval(params: {
           if ((current.value.status === "approved"
             || current.value.status === "scheduled"
             || current.value.status === "applied")
-            && sameStrings(current.value.selectedTaskIds, params.receipt.selectedTaskIds)) {
+            && (current.value.status === "approved"
+              ? sameApprovalFacts(current.value, params.receipt)
+              : sameStrings(current.value.selectedTaskIds, params.receipt.selectedTaskIds))) {
             return { outcome: "unchanged", value: current.value, bypassed: false, reasons: [] };
+          }
+          if (current.value.status === "approved") {
+            return { outcome: "conflict", value: current.value, bypassed: true,
+              reasons: ["clean_approval_facts_conflict"] };
           }
           return { outcome: "conflict", value: current.value, bypassed: true,
             reasons: ["clean_approval_selection_conflict"] };
