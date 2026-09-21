@@ -40,7 +40,7 @@ function printHelp(): void {
     "  --output-dir=<path>        Directory for sanitized evidence JSON.",
     "  --help                     Show this help.",
     "",
-    "Mock mode never reads an API key. Provider mode reads OPENAI_API_KEY from",
+    "Mock mode never reads an API key. Provider mode reads OPENAI_* or estimator aliases from",
     "process environment, canonical tokenpilot.env, or selected local env file. Neither mode",
     "persists raw prompts, headers, response ids, provider error bodies, or",
     "encrypted reasoning payloads in its evidence file.",
@@ -72,10 +72,25 @@ async function loadProviderEnvFile(path: string): Promise<void> {
     const separator = line.indexOf("=");
     if (separator <= 0) continue;
     const name = line.slice(0, separator).trim();
-    if (name !== "OPENAI_API_KEY" && name !== "OPENAI_BASE_URL") continue;
+    if (!["OPENAI_API_KEY", "OPENAI_BASE_URL", "LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY", "LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL", "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL", "TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY", "TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL", "TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL"].includes(name)) continue;
     if (process.env[name]?.trim()) continue;
     process.env[name] = envValue(line.slice(separator + 1));
   }
+  if (!process.env.OPENAI_API_KEY?.trim()) {
+    process.env.OPENAI_API_KEY = process.env.LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY?.trim()
+      || process.env.TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY?.trim();
+  }
+  if (!process.env.OPENAI_BASE_URL?.trim()) {
+    process.env.OPENAI_BASE_URL = process.env.LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL?.trim()
+      || process.env.TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL?.trim();
+  }
+}
+
+export { loadProviderEnvFile };
+
+export function providerModelFromEnvironment(): string | undefined {
+  return process.env.LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL?.trim()
+    || process.env.TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL?.trim();
 }
 
 function integerOption(name: string): number | undefined {
@@ -114,7 +129,7 @@ async function main(): Promise<void> {
       || codexProxyBaseUrl(config);
     const result = await runCodexRebaseProviderSmoke({
       baseUrl,
-      model: optionValue("model"),
+      model: optionValue("model")?.trim() || providerModelFromEnvironment(),
       outputDir: optionValue("output-dir"),
       continuationTurns: integerOption("continuation-turns"),
       compatibilityScenarios: compatibilityScenariosOption(),
@@ -162,7 +177,9 @@ async function main(): Promise<void> {
   }, null, 2));
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] && /(?:^|[\\/])context-rebase-smoke\.ts$/u.test(process.argv[1])) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
