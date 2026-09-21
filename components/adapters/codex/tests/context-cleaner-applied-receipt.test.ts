@@ -168,3 +168,15 @@ test("rewrite evidence rejects duplicated operation or item IDs", () => {
   });
   assert.deepEqual(duplicateItem.reasons, ["cleaner_receipt_rewrite_evidence_invalid"]);
 });
+
+test("applied receipt settles against execution revision, not analysis revision", () => {
+  const prepared = execution();
+  const committedEpoch = { ...epoch(), oldRevision: "revision-execution" };
+  const result = buildCodexCleanerAppliedReceipt({
+    execution: prepared,
+    executionRevision: "revision-execution",
+    epoch: committedEpoch,
+  });
+  assert.ok(result.receipt);
+  assert.equal(result.receipt.evidence.previousRevision, "revision-execution");
+});

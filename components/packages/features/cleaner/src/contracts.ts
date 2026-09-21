@@ -424,6 +424,8 @@ export interface ContextCleanerHostBridge {
   readonly rewriteMode: ModelContextRewriteMode;
   listSessions(): Promise<ContextCleanerSession[]>;
   readCleanSnapshot(sessionId: string): Promise<ContextCleanSnapshot>;
+  /** Compatibility-only snapshot for legacy lifecycle analysis. */
+  readTaskAwareCleanSnapshot?(sessionId: string): Promise<ContextCleanSnapshot>;
   submitAttribution?(request: ContextCleanAttributionSubmission): Promise<ContextCleanAttributionSubmissionResult>;
   readAttributionStatus?(sessionId: string): Promise<ContextCleanAttributionStatus>;
   executeApprovedClean(

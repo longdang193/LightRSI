@@ -15,6 +15,8 @@ export type ContextProtocolClosureValidationParams<
   evictableTaskIds: readonly string[];
   /** Restricts validation when structural revalidation already deferred operations. */
   candidateOperationIds?: readonly string[];
+  /** Cleaner owns occurrence eligibility; lifecycle callers keep the default. */
+  enforceTaskPolicy?: boolean;
 };
 
 type ProtocolGroup = {
@@ -179,15 +181,17 @@ export function validateContextMutationProtocolClosure<
     }
 
     let reason: string | undefined;
-    const crossesActiveAndEvictableTasks = [...operationTaskIds].some(
-      (taskId) => activeTaskIds.has(taskId),
-    ) && [...operationTaskIds].some(
-      (taskId) => evictableTaskIds.has(taskId),
-    );
-    if (crossesActiveAndEvictableTasks) {
-      reason = "active_evictable_task_overlap";
-    } else if ([...operationTaskIds].some((taskId) => activeTaskIds.has(taskId))) {
-      reason = "active_task_targeted";
+    if (params.enforceTaskPolicy !== false) {
+      const crossesActiveAndEvictableTasks = [...operationTaskIds].some(
+        (taskId) => activeTaskIds.has(taskId),
+      ) && [...operationTaskIds].some(
+        (taskId) => evictableTaskIds.has(taskId),
+      );
+      if (crossesActiveAndEvictableTasks) {
+        reason = "active_evictable_task_overlap";
+      } else if ([...operationTaskIds].some((taskId) => activeTaskIds.has(taskId))) {
+        reason = "active_task_targeted";
+      }
     }
 
     const targetsProtocolItemWithoutCallId = [...targetItemIds].some(

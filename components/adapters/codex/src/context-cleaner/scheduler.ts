@@ -278,6 +278,24 @@ export async function readCodexCleanerSchedule(params: {
   return { outcome: "bypassed", reasons: ["cleaner_schedule_pending_conflict"] };
 }
 
+export async function readCodexCleanerScheduleHistory(params: {
+  stateDir: string;
+  sessionId: string;
+}): Promise<{
+  records: CodexCleanerScheduleRecord[];
+  reasons: string[];
+}> {
+  if (!params.stateDir.trim() || !params.sessionId.trim()) {
+    return { records: [], reasons: ["cleaner_schedule_request_invalid"] };
+  }
+  const journal = await readScheduleJournal(params.stateDir, params.sessionId);
+  const reasons = journalFailureReasons(journal);
+  return {
+    records: reasons ? [] : journal.records,
+    reasons: reasons ?? [],
+  };
+}
+
 function validScheduleParams(params: {
   stateDir: string;
   sessionId: string;

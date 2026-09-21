@@ -78,6 +78,7 @@ export function createCodexCleanCommandBackend(params: {
     async readPlan(planId) { const plan = await service.readPlan(planId); return plan ? planView(plan) : undefined; },
     async approve(planId, selectedTaskIds) { return receiptView(await service.approve(planId, selectedTaskIds)); },
     async approveOccurrences(planId, selections) { return receiptView(await service.approveOccurrences(planId, selections)); },
+    async releaseOccurrences(sessionId, selections) { return receiptView(await service.releaseOccurrences(sessionId, selections)); },
     async readReceipt(planId) { const receipt = await service.readReceipt(planId); return receipt ? receiptView(receipt) : undefined; },
     async cancel(planId) { return receiptView(await service.cancel(planId)); },
     async submitAttribution(request: ContextCleanAttributionSubmission): Promise<ContextCleanAttributionSubmissionResult> {

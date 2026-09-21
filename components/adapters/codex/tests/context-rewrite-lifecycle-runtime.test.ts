@@ -563,7 +563,7 @@ test("Codex proxy observes lifecycle attribution without automatic eviction", as
       hostId: "codex",
       async readExecutionSnapshot() {
         return {
-          snapshot: await cleanerBridge.readCleanSnapshot(sessionId),
+          snapshot: await cleanerBridge.readTaskAwareCleanSnapshot!(sessionId),
           activeTaskIds: registry.activeTaskIds,
           evictableTaskIds: registry.evictableTaskIds,
         };

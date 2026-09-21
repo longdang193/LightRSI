@@ -117,6 +117,7 @@ import {
   markCodexCleanerDispatchStarted,
   isCodexCleanerStaleReasonCode,
   readCodexCleanerCommittedMutationPlan,
+  applyCodexCleanerCommittedExclusions,
   prepareCodexCleanerRebase,
   revalidateCodexCleanerPreparedRebase,
   type CodexCleanerPreparedRebase,
@@ -872,25 +873,22 @@ export async function startCodexResponsesProxy(params: {
       });
       const manualCleanerReserved = cleanerSchedule.outcome === "ready"
         || cleanerSchedule.outcome === "bypassed";
-      const committedCleanerMutationPlan = !manualCleanerReserved
-        && typeof originalPayload.previous_response_id !== "string"
-        ? await readCodexCleanerCommittedMutationPlan({
-          stateDir: config.stateDir,
-          sessionId,
-        })
-        : undefined;
+      const committedCleanerMutationPlan = await readCodexCleanerCommittedMutationPlan({
+        stateDir: config.stateDir,
+        sessionId,
+      });
       const mutationPlan = manualCleanerReserved || lifecyclePlanningConfigured
         ? undefined
         : committedCleanerMutationPlan ?? activeMutationPlan(config);
       let effectiveHistoryViewPromise: ReturnType<typeof buildCodexEffectiveHistoryView> | undefined;
-      const buildEffectiveHistoryViewForHead = (): ReturnType<typeof buildCodexEffectiveHistoryView> => {
+      const buildEffectiveHistoryViewForHead = async (): ReturnType<typeof buildCodexEffectiveHistoryView> => {
         if (!requestJournalEntry) {
           throw new Error("Codex effective history requires a journaled request");
         }
         const headResponseId = typeof originalPayload.previous_response_id === "string"
           ? originalPayload.previous_response_id
           : undefined;
-        return buildCodexEffectiveHistoryView({
+        const view = await buildCodexEffectiveHistoryView({
           stateDir: config.stateDir,
           sessionId,
           headResponseId,
@@ -922,6 +920,7 @@ export async function startCodexResponsesProxy(params: {
             return validation.view;
           },
         });
+        return applyCodexCleanerCommittedExclusions(view, committedCleanerMutationPlan);
       };
       const effectiveHistoryViewForHead = (): ReturnType<typeof buildCodexEffectiveHistoryView> => {
         effectiveHistoryViewPromise ??= buildEffectiveHistoryViewForHead();

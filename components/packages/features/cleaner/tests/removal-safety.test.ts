@@ -92,3 +92,25 @@ test("agent occurrence release rejects retained findings", () => {
     },
   }), { safe: false, reasons: ["retained_findings"] });
 });
+
+test("agent occurrence release preserves retained findings with accessible references", () => {
+  assert.deepEqual(evaluateContextCleanOccurrence({
+    occurrence: { stableId: "item-1", fingerprint: "digest-1" },
+    item,
+    set: { provenance: "agent", sourceTaskIds: ["task-1"] },
+    activeTaskIds: [],
+    evictableTaskIds: [],
+    lifecycleState: "completed",
+    retainedFindingReferences: ["follow-up"],
+    releaseEvidence: {
+      stableId: "item-1",
+      fingerprint: "digest-1",
+      completionEvidence: ["completed"],
+      continuingUseful: false,
+      releaseIntent: "release",
+      retainedFindings: ["follow-up"],
+      nothingReusable: false,
+      dependencyDirection: "none",
+    },
+  }), { safe: true, reasons: [] });
+});

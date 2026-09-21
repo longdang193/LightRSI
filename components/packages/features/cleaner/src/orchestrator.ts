@@ -108,6 +108,50 @@ function validOccurrenceSelection(
     && ["none", "outgoing"].includes(selection.dependencyDirection));
 }
 
+export async function prepareContextCleanOccurrenceRelease(params: {
+  stateDir: string;
+  bridge: ContextCleanerHostBridge;
+  sessionId: string;
+  selections: readonly ContextCleanOccurrenceSelection[];
+}): Promise<ContextCleanPlan> {
+  const sessionId = params.sessionId.trim();
+  if (!params.stateDir.trim() || !sessionId) throw new Error("clean_analysis_identity_invalid");
+  const snapshot = await params.bridge.readCleanSnapshot(sessionId);
+  const usedChars = snapshot.items.reduce((sum, item) => sum + item.chars, 0);
+  const base: Omit<ContextCleanPlan, "planId"> = {
+    schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+    hostId: params.bridge.hostId,
+    sessionId,
+    baseRevision: snapshot.revision,
+    analysisRevision: snapshot.revision,
+    ...(snapshot.model ? { model: snapshot.model } : {}),
+    usedTokens: null,
+    usedChars,
+    protectedTokens: null,
+    protectedChars: 0,
+    unassignedTokens: null,
+    unassignedChars: usedChars,
+    tokenCountMode: "chars_only",
+    tokenCountMethod: "utf16_chars",
+    occurrenceDigests: Object.fromEntries(snapshot.items.map((item) => [item.stableId, item.fingerprint])),
+    occurrenceSizes: Object.fromEntries(snapshot.items.map((item) => [item.stableId, { chars: item.chars, tokens: null }])),
+    tasks: [],
+    createdAt: snapshot.capturedAt,
+  };
+  const plan: ContextCleanPlan = {
+    ...base,
+    planId: planId(base, false, params.selections.map((selection) => `${selection.stableId}:${selection.fingerprint}`)),
+  };
+  const saved = await saveContextCleanPlan({ stateDir: params.stateDir, plan });
+  if (saved.bypassed) error("clean_analysis_plan_store_failed", saved.reasons);
+  const receipt = await transitionContextCleanState({
+    stateDir: params.stateDir,
+    receipt: analyzedReceipt(plan, false, []),
+  });
+  if (receipt.bypassed) error("clean_analysis_receipt_store_failed", receipt.reasons);
+  return plan;
+}
+
 export async function analyzeContextCleanSession(params: AnalyzeContextCleanSessionParams): Promise<{
   plan: ContextCleanPlan;
   receipt: ContextCleanPendingReceipt;
@@ -116,7 +160,8 @@ export async function analyzeContextCleanSession(params: AnalyzeContextCleanSess
 }> {
   const sessionId = params.sessionId.trim();
   if (!params.stateDir.trim() || !sessionId) throw new Error("clean_analysis_identity_invalid");
-  const snapshot = await params.bridge.readCleanSnapshot(sessionId);
+  const snapshot = await params.bridge.readTaskAwareCleanSnapshot?.(sessionId)
+    ?? await params.bridge.readCleanSnapshot(sessionId);
   let registry: SessionTaskRegistry;
   let registryLoadFailed = false;
   try {

@@ -466,17 +466,16 @@ test("Codex cleaner bridge lists persisted sessions and reads canonical effectiv
     assert.equal(snapshot.sessionId, sessionId);
     assert.ok(snapshot.revision);
     assert.ok(snapshot.items.length > 0);
-    assert.equal(snapshot.tokenCountMode, "exact");
-    assert.equal(snapshot.tokenCountMethod, "openai_tokenizer");
+    assert.equal(snapshot.tokenCountMode, "chars_only");
+    assert.equal(snapshot.tokenCountMethod, "utf16_chars");
     assert.ok(snapshot.capturedAt);
     assert.ok(snapshot.items.every((item) => item.stableId && item.fingerprint));
-    assert.ok(snapshot.items.every((item) => item.taskIds?.length === 1));
-    assert.ok(snapshot.items.every((item) => item.taskIds?.[0] === taskId));
-    assert.ok(snapshot.items.every((item) => !item.taskIds?.includes(turnAbsId)));
-    assert.deepEqual(
-      Object.keys(snapshot.itemTokenCounts ?? {}).sort(),
-      snapshot.items.map((item) => item.stableId).sort(),
-    );
+    assert.ok(snapshot.items.every((item) => item.taskIds === undefined));
+    const compatibilitySnapshot = await bridge.readTaskAwareCleanSnapshot!(sessionId);
+    assert.ok(compatibilitySnapshot.items.every((item) => item.taskIds?.length === 1));
+    assert.ok(compatibilitySnapshot.items.every((item) => item.taskIds?.[0] === taskId));
+    assert.ok(compatibilitySnapshot.items.every((item) => !item.taskIds?.includes(turnAbsId)));
+    assert.deepEqual(Object.keys(snapshot.itemTokenCounts ?? {}), []);
     assert.equal("adapterMetadata" in snapshot, false);
 
     const repeated = await bridge.readCleanSnapshot(sessionId);
@@ -854,14 +853,20 @@ test("Codex cleaner bridge keeps a cross-turn tool pair on one semantic task", a
     };
     await persistSessionTaskRegistry(stateDir, registry);
 
-    const snapshot = await createCodexContextCleanerBridge({
+    const bridge = createCodexContextCleanerBridge({
       stateDir,
       controlPlane: fakeControlPlane(),
-    }).readCleanSnapshot(sessionId);
+    });
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
     const call = snapshot.items.find((item) => item.kind === "tool_call");
     const output = snapshot.items.find((item) => item.kind === "tool_result");
-    assert.deepEqual(call?.taskIds, [taskId]);
-    assert.deepEqual(output?.taskIds, [taskId]);
+    assert.equal(call?.taskIds, undefined);
+    assert.equal(output?.taskIds, undefined);
+    const compatibilitySnapshot = await bridge.readTaskAwareCleanSnapshot!(sessionId);
+    const compatibilityCall = compatibilitySnapshot.items.find((item) => item.kind === "tool_call");
+    const compatibilityOutput = compatibilitySnapshot.items.find((item) => item.kind === "tool_result");
+    assert.deepEqual(compatibilityCall?.taskIds, [taskId]);
+    assert.deepEqual(compatibilityOutput?.taskIds, [taskId]);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }
@@ -971,8 +976,11 @@ test("Codex cleaner attribution submission is idempotent and rejects conflicts",
     });
     assert.equal(second.status, "accepted");
     const after = await bridge.readCleanSnapshot(sessionId);
-    assert.deepEqual(after.items.find((item) => item.stableId === itemId)?.taskIds, ["task-1"]);
-    assert.deepEqual(after.items.find((item) => item.stableId === secondItemId)?.taskIds, ["task-2"]);
+    assert.equal(after.items.find((item) => item.stableId === itemId)?.taskIds, undefined);
+    assert.equal(after.items.find((item) => item.stableId === secondItemId)?.taskIds, undefined);
+    const compatibilityAfter = await bridge.readTaskAwareCleanSnapshot!(sessionId);
+    assert.deepEqual(compatibilityAfter.items.find((item) => item.stableId === itemId)?.taskIds, ["task-1"]);
+    assert.deepEqual(compatibilityAfter.items.find((item) => item.stableId === secondItemId)?.taskIds, ["task-2"]);
     const replayed = await bridge.submitAttribution!(request);
     assert.equal(replayed.status, "replayed");
     await assert.rejects(

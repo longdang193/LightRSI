@@ -260,6 +260,25 @@ test("defers active-only task targets", () => {
   ]);
 });
 
+test("Cleaner structural closure can ignore lifecycle task policy", () => {
+  const validation = validateContextMutationProtocolClosure({
+    snapshot: snapshot([
+      item("active-message", "assistant", { taskIds: ["active-task"] }),
+    ]),
+    plan: plan([remove("remove-active", ["active-message"], ["active-task"])]),
+    activeTaskIds: ["active-task"],
+    evictableTaskIds: [],
+    enforceTaskPolicy: false,
+  });
+
+  assert.deepEqual(validation, {
+    valid: true,
+    applicableOperationIds: ["remove-active"],
+    deferredOperationIds: [],
+    reasons: [],
+  });
+});
+
 test("rejects duplicate operation ids, missing targets, and ambiguous item ids", () => {
   const validation = validateContextMutationProtocolClosure({
     snapshot: snapshot([

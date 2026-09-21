@@ -49,6 +49,7 @@ import {
   appendCodexCleanerCommitted,
   appendCodexCleanerTerminal,
   readCodexCleanerSchedule,
+  readCodexCleanerScheduleHistory,
   type CodexCleanerCommittedRecord,
   type CodexCleanerScheduledRecord,
 } from "./scheduler.js";
@@ -95,20 +96,28 @@ export async function readCodexCleanerCommittedMutationPlan(params: {
   stateDir: string;
   sessionId: string;
 }): Promise<CodexMutationPlan | undefined> {
-  const schedule = await readCodexCleanerSchedule({
+  const history = await readCodexCleanerScheduleHistory({
     stateDir: params.stateDir,
     sessionId: params.sessionId,
   });
-  if (schedule.outcome !== "committed") return undefined;
-  const receipt = await readContextCleanReceipt({
-    stateDir: params.stateDir,
-    planId: schedule.record.cleanPlanId,
-  });
-  if (receipt.bypassed || receipt.value?.status !== "applied") return undefined;
-  const itemIds = receipt.value.evidence.itemIds;
-  if (!itemIds || itemIds.length === 0 || new Set(itemIds).size !== itemIds.length) return undefined;
+  if (history.reasons.length > 0) return undefined;
+  const itemIds: string[] = [];
+  let baseRevision: string | undefined;
+  for (const record of history.records) {
+    if (record.status !== "committed") continue;
+    const receipt = await readContextCleanReceipt({
+      stateDir: params.stateDir,
+      planId: record.cleanPlanId,
+    });
+    if (receipt.bypassed || receipt.value?.status !== "applied") continue;
+    const ids = receipt.value.evidence.itemIds;
+    if (!ids || ids.length === 0 || new Set(ids).size !== ids.length) continue;
+    baseRevision ??= record.baseRevision;
+    for (const itemId of ids) if (!itemIds.includes(itemId)) itemIds.push(itemId);
+  }
+  if (itemIds.length === 0 || !baseRevision) return undefined;
   return {
-    baseRevision: schedule.record.baseRevision,
+    baseRevision,
     operations: itemIds.map((stableItemId) => ({ type: "evict", stableItemId })),
   };
 }
@@ -223,11 +232,46 @@ function fullyApplied(
     && operationIds.every((operationId) => result.appliedOperationIds.includes(operationId));
 }
 
+export function applyCodexCleanerCommittedExclusions(
+  view: CodexEffectiveHistoryView,
+  mutationPlan: CodexMutationPlan | undefined,
+): CodexEffectiveHistoryView {
+  if (!mutationPlan || mutationPlan.operations.length === 0) return view;
+  const removed = new Set(
+    mutationPlan.operations.flatMap((operation) => (
+      "targetItemIds" in operation
+        ? operation.targetItemIds
+        : operation.stableItemId
+          ? [operation.stableItemId]
+          : []
+    )),
+  );
+  const filter = <T extends { stableItemId: string }>(items: readonly T[]): T[] => (
+    items.filter((item) => !removed.has(item.stableItemId))
+  );
+  const history = {
+    ...view.history,
+    replayableItems: filter(view.history.replayableItems),
+    observationOnlyItems: filter(view.history.observationOnlyItems),
+    deferredItems: filter(view.history.deferredItems),
+  };
+  return {
+    ...view,
+    history,
+    turns: view.turns.map((turn) => ({
+      ...turn,
+      inputItemIds: turn.inputItemIds.filter((id) => !removed.has(id)),
+      outputItemIds: turn.outputItemIds.filter((id) => !removed.has(id)),
+    })),
+  };
+}
+
 async function executionContext(params: {
   stateDir: string;
   sessionId: string;
   view: CodexEffectiveHistoryView;
   backendRequest: CodexLifecycleBackendRequestBase;
+  committedMutationPlan?: CodexMutationPlan;
 }): Promise<{
   backendRequest: CodexSharedBackendRequest;
   snapshot: ModelContextSnapshot<CodexSharedBackendMetadata>;
@@ -246,8 +290,9 @@ async function executionContext(params: {
   if (registry.sessionId !== params.sessionId) {
     throw new Error("cleaner_runtime_registry_session_mismatch");
   }
+  const view = applyCodexCleanerCommittedExclusions(params.view, params.committedMutationPlan);
   const backendRequest = buildCodexLifecycleBackendRequest({
-    view: params.view,
+    view,
     registry,
     request: params.backendRequest,
   });
@@ -417,6 +462,7 @@ export async function finalizeCodexCleanerAppliedReceipt(params: {
 }): Promise<CodexCleanerAppliedReceiptFinalization> {
   const built = buildCodexCleanerAppliedReceiptFromRewrite({
     execution: params.prepared.execution,
+    executionRevision: params.prepared.rebaseRequest.oldRevision,
     rewriteResult: params.prepared.rewriteResult,
     rebaseRequest: params.prepared.rebaseRequest,
     epoch: params.epoch,
@@ -691,6 +737,7 @@ export async function prepareCodexCleanerRebase(params: {
   now?: string;
 }): Promise<CodexCleanerRuntimeResult> {
   const now = params.now ?? new Date().toISOString();
+  const committedMutationPlan = await readCodexCleanerCommittedMutationPlan(params);
   const initial = await readCodexCleanerSchedule(params);
   if (initial.outcome === "missing") return { outcome: "absent", reasonCodes: [] };
   if (initial.outcome === "bypassed") {
@@ -771,7 +818,7 @@ export async function prepareCodexCleanerRebase(params: {
         }
         let context;
         try {
-          context = await executionContext(params);
+          context = await executionContext({ ...params, committedMutationPlan });
         } catch {
           decision = {
             outcome: "reserved",
@@ -955,7 +1002,10 @@ export async function revalidateCodexCleanerPreparedRebase(params: {
 
   let current;
   try {
-    current = await executionContext(params);
+    current = await executionContext({
+      ...params,
+      committedMutationPlan: await readCodexCleanerCommittedMutationPlan(params),
+    });
   } catch {
     return {
       valid: false,

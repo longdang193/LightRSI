@@ -14,6 +14,7 @@ import { readContextCleanPlan } from "./clean-plan-store.js";
 import { readContextCleanReceipt } from "./clean-receipt-store.js";
 import {
   analyzeContextCleanSession,
+  prepareContextCleanOccurrenceRelease,
   approveContextCleanSelection,
   cancelContextCleanPlan,
   finalizeContextCleanSchedule,
@@ -22,6 +23,7 @@ import type { ContextCleanRecommendationProvider } from "./recommendation.js";
 
 export interface ContextCleanerControlService {
   analyze(sessionId: string): Promise<ContextCleanPlan>;
+  releaseOccurrences(sessionId: string, selections: readonly ContextCleanOccurrenceSelection[]): Promise<ContextCleanReceipt>;
   inspect(sessionId: string): Promise<ContextCleanSnapshot>;
   readPlan(planId: string): Promise<ContextCleanPlan | undefined>;
   approve(planId: string, selectedTaskIds: readonly string[]): Promise<ContextCleanReceipt>;
@@ -99,6 +101,24 @@ export function createContextCleanerControlService(params: {
         selectedTaskIds: [...selectedTaskIds],
       };
       return params.bridge.executeApprovedClean(request);
+    },
+    async releaseOccurrences(sessionId, selections) {
+      const plan = await prepareContextCleanOccurrenceRelease({
+        stateDir: params.stateDir,
+        bridge: params.bridge,
+        sessionId,
+        selections,
+      });
+      return params.bridge.executeApprovedClean({
+        schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+        cleanPlanId: plan.planId,
+        hostId: plan.hostId,
+        sessionId: plan.sessionId,
+        baseRevision: plan.baseRevision,
+        approvedAt: params.now?.() ?? new Date().toISOString(),
+        selectedTaskIds: selections.map((selection) => "occurrence:" + selection.stableId),
+        occurrenceSelections: selections.map((selection) => ({ ...selection })),
+      });
     },
     async approveOccurrences(planId, selections) {
       const plan = await this.readPlan(planId);

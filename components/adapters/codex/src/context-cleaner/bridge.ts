@@ -9,6 +9,7 @@ import {
   type ContextCleanAttributionStatus,
   type ContextCleanHistoryEvidence,
   type ContextCleanReceipt,
+  type ContextCleanSnapshot,
   type ExecuteApprovedContextCleanParams,
 } from "@lightrsi/cleaner";
 import { createHash } from "node:crypto";
@@ -23,11 +24,11 @@ import {
   loadSessionTaskRegistry,
   persistSessionTaskRegistry,
   sessionTaskRegistryPath,
+  type SessionTaskRegistry,
 } from "@lightrsi/history";
 import { stat } from "node:fs/promises";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
-  countTextWithPreciseTokens,
   withContextMutationPlanSessionLock,
   type ModelContextSnapshot,
 } from "@lightrsi/host-adapter";
@@ -280,6 +281,74 @@ export function createCodexContextCleanerBridge(params: {
   taskStateEstimator?: TaskStateEstimatorApiConfig;
   boundSessionId?: string;
 }): ContextCleanerHostBridge {
+  async function readCleanSnapshotWithRegistry(
+    sessionId: string,
+    registry: SessionTaskRegistry,
+  ): Promise<ContextCleanSnapshot> {
+    const session = await loadCodexSessionSnapshot(params.stateDir, sessionId);
+    if (!session) throw new Error("codex_clean_session_not_found");
+    const view = await buildCodexEffectiveHistoryView({
+      stateDir: params.stateDir,
+      sessionId,
+      headResponseId: session.latestResponseId,
+      async rolloutViewBootstrap() {
+        if (!session.transcriptPath) return null;
+        return (await parseCodexRollout(session.transcriptPath))?.view ?? null;
+      },
+    });
+    const { historyEvidence } = assessHistoryEvidence(view);
+    if (!historyEvidence) {
+      throw new Error(`codex_clean_snapshot_incomplete:${view.reasonCodes.join(",") || "unknown"}`);
+    }
+    const model = session.latestModel?.trim() || undefined;
+    const backendRequest = buildCodexLifecycleBackendRequest({
+      view,
+      registry,
+      request: {
+        sessionId,
+        payload: {
+          ...(model ? { model } : {}),
+          ...(session.latestResponseId
+            ? { previous_response_id: session.latestResponseId }
+            : {}),
+          input: [],
+        },
+        effectiveHistory: view.history,
+        currentInput: [],
+      },
+    });
+    const backendSnapshot = await codexSharedContextRewriteBackend.readSnapshot({
+      sessionId,
+      request: backendRequest,
+    });
+    const sourceItems = [
+      ...view.history.replayableItems,
+      ...view.history.observationOnlyItems,
+      ...view.history.deferredItems,
+    ];
+    const sourceItemsById = new Map(
+      sourceItems.map((item) => [item.stableItemId, item] as const),
+    );
+    const { adapterMetadata: _adapterMetadata, ...persistableSnapshot } = backendSnapshot;
+    if (!validPersistableSnapshot(persistableSnapshot, sessionId, view.history.revision)
+      || sourceItemsById.size !== sourceItems.length
+      || sourceItems.length !== persistableSnapshot.items.length
+      || persistableSnapshot.items.some((item) => !sourceItemsById.has(item.stableId))) {
+      throw new Error("codex_clean_snapshot_invalid");
+    }
+    if (Number.isNaN(Date.parse(session.updatedAt))) {
+      throw new Error("codex_clean_snapshot_timestamp_invalid");
+    }
+    return {
+      ...persistableSnapshot,
+      capturedAt: session.updatedAt,
+      ...(model ? { model } : {}),
+      tokenCountMode: "chars_only",
+      tokenCountMethod: "utf16_chars",
+      historyEvidence,
+    };
+  }
+
   return {
     hostId: CODEX_HOST_ID,
     rewriteMode: "response_chain_rebase",
@@ -306,22 +375,10 @@ export function createCodexContextCleanerBridge(params: {
       return registryExists ? "empty" : "waiting";
     },
     async readCleanSnapshot(sessionId) {
-      const session = await loadCodexSessionSnapshot(params.stateDir, sessionId);
-      if (!session) throw new Error("codex_clean_session_not_found");
-      const view = await buildCodexEffectiveHistoryView({
-        stateDir: params.stateDir,
-        sessionId,
-        headResponseId: session.latestResponseId,
-        async rolloutViewBootstrap() {
-          if (!session.transcriptPath) return null;
-          return (await parseCodexRollout(session.transcriptPath))?.view ?? null;
-        },
-      });
-       const { historyEvidence } = assessHistoryEvidence(view);
-      if (!historyEvidence) {
-        throw new Error(`codex_clean_snapshot_incomplete:${view.reasonCodes.join(",") || "unknown"}`);
-      }
-      let registry;
+      return readCleanSnapshotWithRegistry(sessionId, createEmptySessionTaskRegistry(sessionId));
+    },
+    async readTaskAwareCleanSnapshot(sessionId) {
+      let registry: SessionTaskRegistry;
       try {
         registry = await loadSessionTaskRegistry(params.stateDir, sessionId);
       } catch (error) {
@@ -331,66 +388,7 @@ export function createCodexContextCleanerBridge(params: {
       if (registry.sessionId !== sessionId) {
         throw new Error("codex_clean_registry_session_mismatch");
       }
-      const model = session.latestModel?.trim() || undefined;
-      const backendRequest = buildCodexLifecycleBackendRequest({
-        view,
-        registry,
-        request: {
-          sessionId,
-          payload: {
-            ...(model ? { model } : {}),
-            ...(session.latestResponseId
-              ? { previous_response_id: session.latestResponseId }
-              : {}),
-            input: [],
-          },
-          effectiveHistory: view.history,
-          currentInput: [],
-        },
-      });
-      const backendSnapshot = await codexSharedContextRewriteBackend.readSnapshot({
-        sessionId,
-        request: backendRequest,
-      });
-      const sourceItems = [
-        ...view.history.replayableItems,
-        ...view.history.observationOnlyItems,
-        ...view.history.deferredItems,
-      ];
-      const sourceItemsById = new Map(
-        sourceItems.map((item) => [item.stableItemId, item] as const),
-      );
-      const { adapterMetadata: _adapterMetadata, ...persistableSnapshot } = backendSnapshot;
-      if (!validPersistableSnapshot(persistableSnapshot, sessionId, view.history.revision)
-        || sourceItemsById.size !== sourceItems.length
-        || sourceItems.length !== persistableSnapshot.items.length
-        || persistableSnapshot.items.some((item) => !sourceItemsById.has(item.stableId))) {
-        throw new Error("codex_clean_snapshot_invalid");
-      }
-      if (Number.isNaN(Date.parse(session.updatedAt))) {
-        throw new Error("codex_clean_snapshot_timestamp_invalid");
-      }
-      const counts = model
-        ? persistableSnapshot.items.map((item) => {
-            const sourceItem = sourceItemsById.get(item.stableId)!;
-            return [
-              item.stableId,
-              countTextWithPreciseTokens(model, JSON.stringify(sourceItem.item)),
-            ] as const;
-          })
-        : [];
-      const exact = counts.length > 0 && counts.every(([, count]) => count.mode === "openai_tokens");
-      return {
-        ...persistableSnapshot,
-        capturedAt: session.updatedAt,
-        ...(model ? { model } : {}),
-        tokenCountMode: exact ? "exact" : "chars_only",
-        tokenCountMethod: exact ? "openai_tokenizer" : "utf16_chars",
-        ...(exact
-          ? { itemTokenCounts: Object.fromEntries(counts.map(([itemId, count]) => [itemId, count.count])) }
-          : {}),
-        historyEvidence,
-      };
+      return readCleanSnapshotWithRegistry(sessionId, registry);
     },
     async submitAttribution(
       request: ContextCleanAttributionSubmission,
@@ -554,6 +552,9 @@ export function createCodexContextCleanerBridge(params: {
     async executeApprovedClean(request) {
       if (params.boundSessionId && params.boundSessionId !== request.sessionId) {
         throw new Error("codex_clean_approval_session_binding_mismatch");
+      }
+      if (!params.boundSessionId && request.selectedTaskIds.some((id) => id.startsWith("occurrence:"))) {
+        throw new Error("codex_clean_approval_session_binding_untrusted");
       }
       const selectedTaskIds = validateApprovedRequest(request);
       if (isSchedulingControlPlane(params.controlPlane)) {

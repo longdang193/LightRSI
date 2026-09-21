@@ -373,6 +373,7 @@ async function prepareScheduledClean(params: {
       item: currentItems.get(occurrence.stableId),
       set: occurrenceSet,
       releaseEvidence: occurrenceEvidence.get(occurrence.stableId),
+      retainedFindingReferences: current.snapshot.items.map((item) => item.stableId),
       lifecycleState: planTask?.lifecycleState ?? "completed",
       activeTaskIds: current.activeTaskIds,
       evictableTaskIds: current.evictableTaskIds,
@@ -421,6 +422,7 @@ async function prepareScheduledClean(params: {
     activeTaskIds: current.activeTaskIds,
     evictableTaskIds: current.evictableTaskIds,
     candidateOperationIds: revalidation.applicableOperationIds,
+    enforceTaskPolicy: false,
   });
   if (!closure.valid
     || closure.deferredOperationIds.length > 0

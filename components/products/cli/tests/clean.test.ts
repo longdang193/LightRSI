@@ -222,3 +222,29 @@ test("Codex Cleaner uses ready estimator config for recommendations", async () =
     requestTimeoutMs: 60_000,
   });
 });
+
+test("clean CLI releases exact occurrences without exposing an internal plan id", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-direct-release-"));
+  try {
+    const path = join(dir, "occurrences.json");
+    await writeFile(path, JSON.stringify([{
+      stableId: "item-1", fingerprint: "digest-1", completionEvidence: ["completed"],
+      continuingUseful: false, releaseIntent: "release", retainedFindings: [],
+      nothingReusable: true, dependencyDirection: "none",
+    }]), "utf8");
+    let releasedSession = "";
+    const backend = {
+      async analyze() { return plan; },
+      async readPlan() { return plan; },
+      async approve() { return receipt; },
+      async releaseOccurrences(sessionId: string) { releasedSession = sessionId; return receipt; },
+      async readReceipt() { return receipt; },
+      async cancel() { return { ...receipt, status: "cancelled" }; },
+    };
+    const result = await handleCleanCommand({ args: ["--session", "session-1", "--release", path], backend });
+    assert.match(result.text, /scheduled/);
+    assert.equal(releasedSession, "session-1");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

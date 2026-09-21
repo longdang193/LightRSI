@@ -13,6 +13,7 @@ import { sameCanonicalValue } from "@lightrsi/cleaner";
 
 export type CodexCleanerAppliedReceiptInput = {
   execution: ContextCleanPreparedExecution;
+  executionRevision?: string;
   epoch: CodexRebaseEpoch;
   claimId?: string;
 };
@@ -80,7 +81,7 @@ export function buildCodexCleanerAppliedReceipt(
   if (epoch.status !== "committed"
     || epoch.sessionId !== execution.sessionId
     || epoch.planId !== execution.mutationPlan.planId
-    || epoch.oldRevision !== execution.baseRevision
+    || epoch.oldRevision !== (params.executionRevision?.trim() || execution.baseRevision)
     || !epoch.newResponseId?.trim()
     || !epoch.newRevision?.trim()
     || !epoch.accounting
@@ -122,6 +123,7 @@ export function buildCodexCleanerAppliedReceipt(
 /** Validates that a just-prepared rewrite fully matches the committed epoch. */
 export function buildCodexCleanerAppliedReceiptFromRewrite(params: {
   execution: ContextCleanPreparedExecution;
+  executionRevision?: string;
   rewriteResult: ContextRewriteResult<CodexSharedBackendDetails>;
   rebaseRequest: CodexRebaseRequestResult;
   epoch: CodexRebaseEpoch;

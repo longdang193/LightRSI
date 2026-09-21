@@ -15,6 +15,7 @@ export function evaluateContextCleanOccurrence(input: {
   lifecycleState: ContextCleanLifecycleState;
   retentionDecision?: TaskRetentionDecision;
   dependencyDirection?: TaskDependencyDirection;
+  retainedFindingReferences?: readonly string[];
   releaseEvidence?: ContextCleanOccurrenceSelection;
 }): { safe: boolean; reasons: string[] } {
   const evidence = input.releaseEvidence;
@@ -32,7 +33,10 @@ export function evaluateContextCleanOccurrence(input: {
   if (input.set.provenance === "agent") {
     if (!evidence) return { safe: false, reasons: ["occurrence_evidence_invalid"] };
     if (evidence.retainedFindings.length > 0) {
-      return { safe: false, reasons: ["retained_findings"] };
+      const references = new Set(input.retainedFindingReferences ?? []);
+      if (evidence.retainedFindings.some((finding) => !references.has(finding))) {
+        return { safe: false, reasons: ["retained_findings"] };
+      }
     }
     if (input.item.kind === "system" || input.item.kind === "developer"
       || input.item.role === "system" || input.item.role === "developer") {
