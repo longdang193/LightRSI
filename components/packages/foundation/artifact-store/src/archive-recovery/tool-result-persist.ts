@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   buildArchiveLocation,
+  buildArtifactRef,
   buildRecoveryHint,
 } from "./index.js";
 import { archiveDirWriteTargets, hashText, pluginStateSubdir } from "./archive-paths.js";
@@ -22,6 +23,7 @@ function updateArchiveLookupSync(
   dataKey: string,
   archivePath: string,
   archiveDir: string,
+  artifactRef?: string,
 ): void {
   const keyDir = join(archiveDir, "keys");
   const keyPath = join(keyDir, `${hashText(dataKey)}.json`);
@@ -41,6 +43,24 @@ function updateArchiveLookupSync(
   }
   lookup[dataKey] = archivePath;
   writeFileSync(lookupPath, JSON.stringify(lookup, null, 2), "utf8");
+  if (artifactRef) {
+    const artifactLookupPath = join(archiveDir, "artifact-lookup.json");
+    let artifactLookup: Record<string, string[]> = {};
+    try {
+      const parsed = JSON.parse(readFileSync(artifactLookupPath, "utf8")) as Record<string, unknown>;
+      artifactLookup = Object.fromEntries(Object.entries(parsed).map(([key, value]) => [
+        key,
+        Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [],
+      ]));
+    } catch {
+      artifactLookup = {};
+    }
+    const digest = artifactRef.slice("artifact:v2:".length);
+    const locations = artifactLookup[digest] ?? [];
+    if (!locations.includes(archivePath)) locations.push(archivePath);
+    artifactLookup[digest] = locations;
+    writeFileSync(artifactLookupPath, JSON.stringify(artifactLookup, null, 2), "utf8");
+  }
 }
 
 function archiveContentSync(params: {
@@ -52,9 +72,10 @@ function archiveContentSync(params: {
   originalText: string;
   archiveDir: string;
   metadata?: Record<string, unknown>;
-}): { archivePath: string; archiveDir: string } {
+}): { archivePath: string; archiveDir: string; artifactRef: string } {
+  const artifactRef = buildArtifactRef(params.originalText);
   const entry = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: `${params.sourcePass}_archive`,
     sessionId: params.sessionId,
     segmentId: params.segmentId,
@@ -64,6 +85,8 @@ function archiveContentSync(params: {
     originalText: params.originalText,
     originalSize: params.originalText.length,
     archivedAt: new Date().toISOString(),
+    artifactRef,
+    contentSha256: artifactRef.slice("artifact:v2:".length),
     metadata: params.metadata,
   };
   const primary = buildArchiveLocation(params);
@@ -74,9 +97,9 @@ function archiveContentSync(params: {
     const archivePath = join(archiveDir, fileName);
     mkdirSync(dirname(archivePath), { recursive: true });
     writeFileSync(archivePath, payload, "utf8");
-    updateArchiveLookupSync(params.dataKey, archivePath, archiveDir);
+    updateArchiveLookupSync(params.dataKey, archivePath, archiveDir, artifactRef);
   }
-  return primary;
+  return { ...primary, artifactRef };
 }
 
 export function resolveToolNameFromPersistEvent(event: any): string {
@@ -94,6 +117,7 @@ export type ToolResultPersistOutcome = {
   inlineLimit: number;
   originalChars: number;
   dataKey?: string;
+  artifactRef?: string;
   outputFile?: string;
   resultMode: "inline" | "artifact" | "inline-fallback";
   previewText?: string;
@@ -128,6 +152,7 @@ export function planToolResultPersistence(params: {
   const dataKey = `tool_result_persist:${toolPart}:${callId ? params.safeId(callId) : digest}`;
 
   let outputFile: string | undefined;
+  let artifactRef: string | undefined;
   try {
     const sessionId = String(params.sessionId ?? params.event?.sessionId ?? params.event?.session_id ?? "proxy-session").trim() || "proxy-session";
     const archived = archiveContentSync({
@@ -144,6 +169,7 @@ export function planToolResultPersistence(params: {
       },
     });
     outputFile = archived.archivePath;
+    artifactRef = archived.artifactRef;
   } catch {
     outputFile = undefined;
   }
@@ -155,6 +181,7 @@ export function planToolResultPersistence(params: {
   const recoveryHint = outputFile
     ? buildRecoveryHint({
         dataKey,
+        artifactRef,
         originalSize: text.length,
         archivePath: outputFile,
         sourceLabel: "tool_result_persist",
@@ -167,6 +194,7 @@ export function planToolResultPersistence(params: {
     inlineLimit: limit,
     originalChars: text.length,
     dataKey,
+    artifactRef,
     outputFile,
     resultMode: outputFile ? "artifact" : "inline-fallback",
     previewText,

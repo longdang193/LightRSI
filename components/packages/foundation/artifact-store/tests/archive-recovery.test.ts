@@ -47,6 +47,20 @@ test("buildRecoveryHint advertises focused line-window recovery", () => {
   assert.match(hint, /internal recovery read; do not call the original tool again/i);
 });
 
+test("buildRecoveryHint prefers exact artifact references when available", () => {
+  const hint = buildRecoveryHint({
+    dataKey: "legacy:key",
+    artifactRef: `artifact:v2:${"a".repeat(64)}`,
+    originalSize: 4096,
+    archivePath: "/tmp/archive.json",
+    sourceLabel: "tool_payload_trim",
+    enabled: true,
+  });
+
+  assert.match(hint, /"artifactRef":"artifact:v2:/);
+  assert.doesNotMatch(hint, /"dataKey":"legacy:key"/);
+});
+
 test("renderRecoveredArchive returns focused line-window content with recovery metadata", () => {
   const archive = {
     schemaVersion: 1,
@@ -83,6 +97,41 @@ test("renderRecoveredArchive returns focused line-window content with recovery m
   assert.equal(result.details.recoveredStartLine, 2);
   assert.equal(result.details.recoveredEndLine, 4);
   assert.equal(result.details.recoveredLineCount, 3);
+});
+
+test("renderRecoveredArchive supports bounded stats and literal search", () => {
+  const archive = {
+    schemaVersion: 2,
+    kind: "tool_payload_trim_archive",
+    sessionId: "sess-1",
+    segmentId: "seg-1",
+    sourcePass: "tool_payload_trim",
+    toolName: "read",
+    dataKey: "repo:file.ts",
+    artifactRef: `artifact:v2:${"b".repeat(64)}`,
+    originalText: "alpha\nneedle one\ngamma\nneedle two\nomega",
+    originalSize: 42,
+    archivedAt: "2026-07-03T00:00:00.000Z",
+    metadata: { readWindow: { offset: 10, limit: 5 } },
+  };
+
+  const stats = renderRecoveredArchive({ artifactRef: archive.artifactRef, archive, mode: "stats" });
+  assert.match(stats.text, /Line count: 5/);
+  assert.doesNotMatch(stats.text, /needle one/);
+  assert.equal(stats.details.lineBasis, "source-relative");
+
+  const search = renderRecoveredArchive({
+    artifactRef: archive.artifactRef,
+    archive,
+    mode: "search",
+    query: "needle",
+    contextLines: 0,
+    maxMatches: 1,
+  });
+  assert.match(search.text, /Matches: 2; returned: 1; omitted: 1/);
+  assert.match(search.text, /12: needle one/);
+  assert.equal(search.details.omittedMatches, 1);
+  assert.equal(search.details.scanComplete, true);
 });
 
 test("file system artifact store preserves archive and lookup behavior", async () => {

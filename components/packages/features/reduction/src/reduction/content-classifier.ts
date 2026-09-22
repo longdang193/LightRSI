@@ -21,8 +21,11 @@ export type ToolPayloadHint = {
   toolName?: string;
   fieldName?: string;
   path?: string;
+  readWindow?: {
+    offset?: number;
+    limit?: number;
+  };
   payloadKind?: "stdout" | "stderr" | "json" | "blob";
-  readWindow?: { offset?: number; limit?: number };
   readState?: "fresh" | "superseded" | "stale";
   execution?: ToolExecutionHint;
 };

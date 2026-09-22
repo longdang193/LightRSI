@@ -167,6 +167,28 @@ test("Claude Code host e2e wires install, gateway reduction, report/visual, and 
           text: recoveryContent?.[0]?.text ?? "",
         };
       },
+      async recoverReference(reference) {
+        const recovery = await handleMcpRequest(
+          {
+            id: 1,
+            method: "tools/call",
+            params: {
+              name: MEMORY_FAULT_RECOVER_TOOL_NAME,
+              arguments: {
+                artifactRef: reference.artifactRef,
+                startLine: reference.startLine,
+                endLine: reference.endLine,
+              },
+            },
+          },
+          { stateDir },
+        );
+        const recoveryContent = recovery?.result?.content as Array<{ type: string; text: string }>;
+        return {
+          isError: recovery?.result?.isError === true,
+          text: recoveryContent?.[0]?.text ?? "",
+        };
+      },
     });
 
     const { handleCommand } = createClaudeCodeCliBridge({ host: "claude-code" });

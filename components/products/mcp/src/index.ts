@@ -8,7 +8,7 @@ import {
   MEMORY_FAULT_RECOVER_TOOL_NAME,
   readArchive,
   renderRecoveredArchive,
-  resolveArchivePathAcrossSessionsByArtifactRef,
+  resolveArchiveAcrossSessionsByArtifactRef,
   resolveArchivePathAcrossSessions,
   resolveRecoveryStateDir,
 } from "@lightrsi/artifact-store";
@@ -439,8 +439,13 @@ export async function resolveMemoryFaultRecover(params: {
   artifactRef?: string;
   dataKey?: string;
   stateDir?: string;
+  mode?: "range" | "stats" | "search";
   startLine?: number;
   endLine?: number;
+  query?: string;
+  contextLines?: number;
+  maxMatches?: number;
+  maxOutputChars?: number;
 }): Promise<MemoryFaultRecoverResult> {
   const artifactRef = typeof params.artifactRef === "string" ? params.artifactRef.trim() : "";
   const dataKey = typeof params.dataKey === "string" ? params.dataKey.trim() : "";
@@ -450,12 +455,31 @@ export async function resolveMemoryFaultRecover(params: {
       details: { error: "invalid_recovery_reference" },
     };
   }
+  const mode = params.mode ?? "range";
+  if (mode !== "range" && mode !== "stats" && mode !== "search") {
+    return { text: "mode must be range, stats, or search", details: { error: "invalid_recovery_mode" } };
+  }
+  if (params.startLine != null && (!Number.isInteger(params.startLine) || params.startLine < 1)) {
+    return { text: "startLine must be a positive integer", details: { error: "invalid_start_line" } };
+  }
+  if (params.endLine != null && (!Number.isInteger(params.endLine) || params.endLine < 1)) {
+    return { text: "endLine must be a positive integer", details: { error: "invalid_end_line" } };
+  }
+  if (params.startLine != null && params.endLine != null && params.startLine > params.endLine) {
+    return { text: "startLine must be less than or equal to endLine", details: { error: "invalid_line_range" } };
+  }
+  if (mode === "search" && !params.query?.trim()) {
+    return { text: "query is required for search mode", details: { error: "invalid_search_query" } };
+  }
 
   const stateDir = resolveRecoveryStateDir(params.stateDir);
-  const archivePath = artifactRef
-    ? await resolveArchivePathAcrossSessionsByArtifactRef(artifactRef, stateDir)
-    : await resolveArchivePathAcrossSessions(dataKey, stateDir);
-  const archive = archivePath ? await readArchive(archivePath) : null;
+  const resolvedByArtifact = artifactRef
+    ? await resolveArchiveAcrossSessionsByArtifactRef(artifactRef, stateDir)
+    : null;
+  const archivePath = resolvedByArtifact?.archivePath ?? (dataKey
+    ? await resolveArchivePathAcrossSessions(dataKey, stateDir)
+    : null);
+  const archive = resolvedByArtifact?.archive ?? (archivePath ? await readArchive(archivePath) : null);
   if (!archive) {
     return {
       text: "No archived content found",
@@ -466,12 +490,26 @@ export async function resolveMemoryFaultRecover(params: {
     };
   }
 
-  const rendered = renderRecoveredArchive({
-    dataKey,
-    archive,
-    startLine: params.startLine,
-    endLine: params.endLine,
-  });
+  let rendered;
+  try {
+    rendered = renderRecoveredArchive({
+      dataKey,
+      artifactRef,
+      archive,
+      mode,
+      startLine: params.startLine,
+      endLine: params.endLine,
+      query: params.query,
+      contextLines: params.contextLines,
+      maxMatches: params.maxMatches,
+      maxOutputChars: params.maxOutputChars,
+    });
+  } catch (error) {
+    return {
+      text: error instanceof Error ? error.message : String(error),
+      details: { error: "invalid_recovery_request" },
+    };
+  }
 
   return {
     text: rendered.text,
@@ -568,6 +606,12 @@ export async function handleMcpRequest(message: McpRequest, params?: {
                   type: "string",
                   description: "Archive dataKey from a prior [Tool payload trimmed] notice.",
                 },
+                mode: {
+                  type: "string",
+                  enum: ["range", "stats", "search"],
+                  default: "range",
+                  description: "Recovery view. range preserves legacy behavior; stats returns metadata; search returns bounded literal matches.",
+                },
                 startLine: {
                   type: "integer",
                   minimum: 1,
@@ -577,6 +621,28 @@ export async function handleMcpRequest(message: McpRequest, params?: {
                   type: "integer",
                   minimum: 1,
                   description: "Optional 1-based end line for partial recovery.",
+                },
+                query: {
+                  type: "string",
+                  description: "Literal search query. Required when mode is search.",
+                },
+                contextLines: {
+                  type: "integer",
+                  minimum: 0,
+                  default: 2,
+                  description: "Lines of context around each search match.",
+                },
+                maxMatches: {
+                  type: "integer",
+                  minimum: 1,
+                  default: 20,
+                  description: "Maximum returned search matches.",
+                },
+                maxOutputChars: {
+                  type: "integer",
+                  minimum: 1,
+                  default: 12000,
+                  description: "Maximum search response size; oversized requests fail instead of returning unbounded output.",
                 },
               },
               oneOf: [
@@ -607,8 +673,13 @@ export async function handleMcpRequest(message: McpRequest, params?: {
       artifactRef: typeof argumentsObject.artifactRef === "string" ? argumentsObject.artifactRef : undefined,
       dataKey: typeof argumentsObject.dataKey === "string" ? argumentsObject.dataKey : undefined,
       stateDir: params?.stateDir,
+      mode: typeof argumentsObject.mode === "string" ? argumentsObject.mode as "range" | "stats" | "search" : undefined,
       startLine: typeof argumentsObject.startLine === "number" ? argumentsObject.startLine : undefined,
       endLine: typeof argumentsObject.endLine === "number" ? argumentsObject.endLine : undefined,
+      query: typeof argumentsObject.query === "string" ? argumentsObject.query : undefined,
+      contextLines: typeof argumentsObject.contextLines === "number" ? argumentsObject.contextLines : undefined,
+      maxMatches: typeof argumentsObject.maxMatches === "number" ? argumentsObject.maxMatches : undefined,
+      maxOutputChars: typeof argumentsObject.maxOutputChars === "number" ? argumentsObject.maxOutputChars : undefined,
     });
     const isError = typeof result.details.error === "string";
     return {

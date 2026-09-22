@@ -90,6 +90,39 @@ test("resolveMemoryFaultRecover can restore only a requested line window", async
   }
 });
 
+test("resolveMemoryFaultRecover supports stats and literal search modes", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-mcp-modes-"));
+  try {
+    const location = await archiveContent({
+      sessionId: "session-modes",
+      segmentId: "segment-modes",
+      sourcePass: "tool_payload_trim",
+      toolName: "read",
+      dataKey: "segment:modes",
+      originalText: "alpha\nneedle one\ngamma\nneedle two",
+      archiveDir: join(dir, "tokenpilot", "tool-result-archives", "session-modes"),
+      metadata: { readWindow: { offset: 10, limit: 4 } },
+    });
+
+    const stats = await resolveMemoryFaultRecover({ artifactRef: location.artifactRef, stateDir: dir, mode: "stats" });
+    assert.equal(stats.details.mode, "stats");
+    assert.doesNotMatch(stats.text, /needle one/);
+
+    const search = await resolveMemoryFaultRecover({
+      artifactRef: location.artifactRef,
+      stateDir: dir,
+      mode: "search",
+      query: "needle",
+      contextLines: 0,
+      maxMatches: 1,
+    });
+    assert.match(search.text, /omitted: 1/);
+    assert.equal(search.details.lineBasis, "source-relative");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("handleMcpRequest returns tools/list and tools/call responses", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-mcp-rpc-"));
   try {
@@ -126,6 +159,22 @@ test("handleMcpRequest returns tools/list and tools/call responses", async () =>
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("handleMcpRequest rejects unknown recovery modes", async () => {
+  const response = await handleMcpRequest({
+    id: 1,
+    method: "tools/call",
+    params: {
+      name: MEMORY_FAULT_RECOVER_TOOL_NAME,
+      arguments: { artifactRef: "artifact:missing", mode: "unknown" },
+    },
+  });
+
+  assert.ok(response);
+  assert.equal(response.result?.isError, true);
+  const structuredContent = response.result?.structuredContent as { error?: string } | undefined;
+  assert.equal(structuredContent?.error, "invalid_recovery_mode");
 });
 
 test("handleMcpRequest marks archive miss as tool error", async () => {

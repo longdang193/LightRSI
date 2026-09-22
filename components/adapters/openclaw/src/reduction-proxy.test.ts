@@ -155,7 +155,7 @@ test("applyProxyReductionToInput reduces large tool payload and preserves non-to
   assert.ok(out.savedChars > 0);
   assertReductionMarkerText(String(payload.input[0].content));
   assert.match(String(payload.input[0].content), /memory_fault_recover/);
-  assert.match(String(payload.input[0].content), /"dataKey":/);
+  assert.match(String(payload.input[0].content), /"artifactRef":"artifact:v2:/);
   assert.equal(payload.input[1].content, "keep me unchanged");
 });
 

@@ -30,13 +30,21 @@ export type GenericArchiveEntry = {
 export type RecoveredArchiveRenderResult = {
   text: string;
   details: {
+    mode: "range" | "stats" | "search";
+    artifactRef?: string;
+    lineBasis: "archive-relative" | "source-relative";
     originalSize: number;
+    lineCount: number;
     sourcePass: string;
     toolName: string;
     recovered: true;
     recoveredStartLine?: number;
     recoveredEndLine?: number;
     recoveredLineCount?: number;
+    matches?: Array<{ line: number; text: string }>;
+    omittedMatches?: number;
+    scanComplete?: boolean;
+    truncated?: boolean;
   };
 };
 
@@ -103,35 +111,124 @@ export function isMemoryFaultRecoveryEnabled(): boolean {
 
 export function buildRecoveryHint(params: {
   dataKey: string;
+  artifactRef?: string;
   originalSize: number;
   archivePath: string;
   sourceLabel: string;
   enabled?: boolean;
 }): string {
-  const { dataKey, originalSize, archivePath, sourceLabel, enabled } = params;
+  const { dataKey, artifactRef, originalSize, archivePath, sourceLabel, enabled } = params;
   const effectiveEnabled = (enabled ?? true) && isMemoryFaultRecoveryEnabled();
   if (!effectiveEnabled) return "";
   return (
     `\n\n[${sourceLabel}] Full content omitted to save context (${originalSize.toLocaleString()} chars).\n` +
-    `To recover it, call the tool memory_fault_recover with {\"dataKey\":\"${dataKey}\"}.\n` +
-    `For a focused code window, you may instead call memory_fault_recover with {\"dataKey\":\"${dataKey}\",\"startLine\":20,\"endLine\":80}.\n` +
+    (artifactRef
+      ? `To recover it, call the tool memory_fault_recover with {\"artifactRef\":\"${artifactRef}\"}.\n` +
+        `For a focused code window, you may instead call memory_fault_recover with {\"artifactRef\":\"${artifactRef}\",\"startLine\":20,\"endLine\":80}.\n`
+      : `To recover it, call the tool memory_fault_recover with {\"dataKey\":\"${dataKey}\"}.\n` +
+        `For a focused code window, you may instead call memory_fault_recover with {\"dataKey\":\"${dataKey}\",\"startLine\":20,\"endLine\":80}.\n`) +
     `This is an internal recovery read; do not call the original tool again for this content.`
   );
 }
 
 export function renderRecoveredArchive(params: {
-  dataKey: string;
+  dataKey?: string;
+  artifactRef?: string;
   archive: GenericArchiveEntry;
+  mode?: "range" | "stats" | "search";
   startLine?: number;
   endLine?: number;
+  query?: string;
+  contextLines?: number;
+  maxMatches?: number;
+  maxOutputChars?: number;
 }): RecoveredArchiveRenderResult {
+  const mode = params.mode ?? "range";
   const startLine = typeof params.startLine === "number" && Number.isFinite(params.startLine)
     ? Math.max(1, Math.trunc(params.startLine))
     : undefined;
   const endLine = typeof params.endLine === "number" && Number.isFinite(params.endLine)
     ? Math.max(1, Math.trunc(params.endLine))
     : undefined;
+  if (startLine != null && endLine != null && startLine > endLine) {
+    throw new Error("startLine must be less than or equal to endLine");
+  }
   const lines = params.archive.originalText.split("\n");
+  const readWindow = params.archive.metadata?.readWindow;
+  const offset = readWindow && typeof readWindow === "object" && typeof (readWindow as Record<string, unknown>).offset === "number"
+    ? Math.max(0, Math.trunc((readWindow as Record<string, unknown>).offset as number))
+    : undefined;
+  const lineBasis: "archive-relative" | "source-relative" = offset == null ? "archive-relative" : "source-relative";
+  const sourceLine = (line: number): number => offset == null ? line : offset + line;
+  const reference = params.artifactRef ?? params.dataKey ?? params.archive.artifactRef ?? params.archive.dataKey;
+  const baseDetails = {
+    mode,
+    ...(params.artifactRef ? { artifactRef: params.artifactRef } : params.archive.artifactRef ? { artifactRef: params.archive.artifactRef } : {}),
+    lineBasis,
+    originalSize: params.archive.originalSize,
+    lineCount: lines.length,
+    sourcePass: params.archive.sourcePass,
+    toolName: params.archive.toolName,
+    recovered: true as const,
+  };
+  if (mode === "stats") {
+    return {
+      text:
+        `[Memory Fault Recovery] Archive stats for: ${reference}\n` +
+        `Original size: ${params.archive.originalSize.toLocaleString()} chars\n` +
+        `Line count: ${lines.length}\n` +
+        `Available lines: 1-${lines.length}\n` +
+        `Line basis: ${lineBasis}`,
+      details: baseDetails,
+    };
+  }
+  if (mode === "search") {
+    const query = params.query ?? "";
+    if (!query) throw new Error("query is required for search mode");
+    const contextLines = typeof params.contextLines === "number" && Number.isFinite(params.contextLines)
+      ? Math.max(0, Math.trunc(params.contextLines))
+      : 2;
+    const maxMatches = typeof params.maxMatches === "number" && Number.isFinite(params.maxMatches)
+      ? Math.max(1, Math.trunc(params.maxMatches))
+      : 20;
+    const matchLines: number[] = [];
+    lines.forEach((line, index) => {
+      if (line.includes(query)) matchLines.push(index + 1);
+    });
+    const selected = matchLines.slice(0, maxMatches);
+    const renderedLines = new Set<number>();
+    for (const line of selected) {
+      for (let index = Math.max(1, line - contextLines); index <= Math.min(lines.length, line + contextLines); index += 1) {
+        renderedLines.add(index);
+      }
+    }
+    const output = [...renderedLines].sort((a, b) => a - b).map((line) => `${sourceLine(line)}: ${lines[line - 1]}`);
+    const omittedMatches = Math.max(0, matchLines.length - selected.length);
+    const renderedText =
+      `[Memory Fault Recovery] Search results for: ${reference}\n` +
+      `Query: ${query}\n` +
+      `Line basis: ${lineBasis}\n` +
+      `Matches: ${matchLines.length}; returned: ${selected.length}; omitted: ${omittedMatches}\n` +
+      `Scan complete: true\n` +
+      `--- Search Context ---\n` +
+      `${output.join("\n")}\n` +
+      "--- End Search Context ---";
+    const maxOutputChars = typeof params.maxOutputChars === "number" && Number.isFinite(params.maxOutputChars)
+      ? Math.max(1, Math.trunc(params.maxOutputChars))
+      : 12_000;
+    if (renderedText.length > maxOutputChars) throw new Error("search output exceeds maxOutputChars");
+    return {
+      text:
+        renderedText,
+      details: {
+        ...baseDetails,
+        matches: selected.map((line) => ({ line: sourceLine(line), text: lines[line - 1] ?? "" })),
+        omittedMatches,
+        scanComplete: true,
+        truncated: omittedMatches > 0,
+      },
+    };
+  }
   const hasLineWindow = startLine != null || endLine != null;
   const boundedStart = startLine ?? 1;
   const boundedEnd = Math.min(endLine ?? lines.length, lines.length);
@@ -141,22 +238,20 @@ export function renderRecoveredArchive(params: {
 
   return {
     text:
-      `[Memory Fault Recovery] Recovered content for: ${params.dataKey}\n`
+      `[Memory Fault Recovery] Recovered content for: ${reference}\n`
       + `Original size: ${params.archive.originalSize.toLocaleString()} chars\n`
-      + (hasLineWindow ? `Recovered lines: ${boundedStart}-${boundedEnd}\n` : "")
+      + `Line basis: ${lineBasis}\n`
+      + (hasLineWindow ? `Recovered lines: ${sourceLine(boundedStart)}-${sourceLine(boundedEnd)}\n` : "")
       + `Archived by: ${params.archive.sourcePass}\n`
       + `--- Recovered Content ---\n`
       + `${recoveredText}\n`
       + "--- End Recovered Content ---",
     details: {
-      originalSize: params.archive.originalSize,
-      sourcePass: params.archive.sourcePass,
-      toolName: params.archive.toolName,
-      recovered: true,
+      ...baseDetails,
       ...(hasLineWindow
         ? {
-            recoveredStartLine: boundedStart,
-            recoveredEndLine: boundedEnd,
+            recoveredStartLine: sourceLine(boundedStart),
+            recoveredEndLine: sourceLine(boundedEnd),
             recoveredLineCount: Math.max(0, boundedEnd - boundedStart + 1),
           }
         : {}),
@@ -195,7 +290,7 @@ export async function archiveContent(params: ArchiveContentParams): Promise<Arch
     const archivePath = join(archiveDir, fileName);
     await mkdir(dirname(archivePath), { recursive: true });
     await atomicWriteFile(archivePath, payload);
-    await updateArchiveLookup(params.dataKey, archivePath, archiveDir);
+    await updateArchiveLookup(params.dataKey, archivePath, archiveDir, artifactRef);
   }
 
   return { ...primary, artifactRef };
@@ -213,6 +308,7 @@ export async function updateArchiveLookup(
   dataKey: string,
   archivePath: string,
   archiveDir: string,
+  artifactRef?: string,
 ): Promise<void> {
   const keyDir = join(archiveDir, "keys");
   const keyPath = join(keyDir, `${hashText(dataKey)}.json`);
@@ -232,6 +328,27 @@ export async function updateArchiveLookup(
   }
   lookup[dataKey] = archivePath;
   await atomicWriteFile(lookupPath, JSON.stringify(lookup, null, 2));
+  if (artifactRef) {
+    const artifactLookupPath = join(archiveDir, "artifact-lookup.json");
+    let artifactLookup: Record<string, string[]> = {};
+    try {
+      const raw = await readFile(artifactLookupPath, "utf8");
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      artifactLookup = Object.fromEntries(Object.entries(parsed).map(([key, value]) => [
+        key,
+        Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [],
+      ]));
+    } catch {
+      artifactLookup = {};
+    }
+    const digest = artifactDigest(artifactRef);
+    if (digest) {
+      const locations = artifactLookup[digest] ?? [];
+      if (!locations.includes(archivePath)) locations.push(archivePath);
+      artifactLookup[digest] = locations;
+      await atomicWriteFile(artifactLookupPath, JSON.stringify(artifactLookup, null, 2));
+    }
+  }
 }
 
 export async function readArchive(archivePath: string): Promise<GenericArchiveEntry | null> {
@@ -270,6 +387,14 @@ export async function resolveArchivePathAcrossSessionsByArtifactRef(
   artifactRef: string,
   stateDir: string,
 ): Promise<string | null> {
+  const resolved = await resolveArchiveAcrossSessionsByArtifactRef(artifactRef, stateDir);
+  return resolved?.archivePath ?? null;
+}
+
+export async function resolveArchiveAcrossSessionsByArtifactRef(
+  artifactRef: string,
+  stateDir: string,
+): Promise<{ archivePath: string; archive: GenericArchiveEntry } | null> {
   if (!artifactDigest(artifactRef)) return null;
   const sessionRootCandidates = pluginStateSubdirCandidates(stateDir, "tool-result-archives");
   for (const sessionRoot of sessionRootCandidates) {
@@ -278,11 +403,20 @@ export async function resolveArchivePathAcrossSessionsByArtifactRef(
       for (const session of sessions) {
         if (!session.isDirectory()) continue;
         const archiveDir = join(sessionRoot, session.name);
+        const indexedPaths = await readArtifactLookup(archiveDir, artifactRef);
+        for (const archivePath of indexedPaths) {
+          const archive = await readArchiveForArtifactRef(archivePath, artifactRef);
+          if (archive) return { archivePath, archive };
+        }
         const entries = await readdir(archiveDir, { withFileTypes: true });
         for (const entry of entries) {
           if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name === "key-lookup.json") continue;
           const archivePath = join(archiveDir, entry.name);
-          if (await readArchiveForArtifactRef(archivePath, artifactRef)) return archivePath;
+          const archive = await readArchiveForArtifactRef(archivePath, artifactRef);
+          if (archive) {
+            await updateArchiveLookup(archive.dataKey, archivePath, archiveDir, artifactRef);
+            return { archivePath, archive };
+          }
         }
       }
     } catch {
@@ -290,6 +424,20 @@ export async function resolveArchivePathAcrossSessionsByArtifactRef(
     }
   }
   return null;
+}
+
+async function readArtifactLookup(archiveDir: string, artifactRef: string): Promise<string[]> {
+  const digest = artifactDigest(artifactRef);
+  if (!digest) return [];
+  try {
+    const raw = await readFile(join(archiveDir, "artifact-lookup.json"), "utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Array.isArray(parsed[digest])
+      ? parsed[digest].filter((entry): entry is string => typeof entry === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function resolveArchivePathFromLookup(
