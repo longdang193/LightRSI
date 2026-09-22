@@ -11,6 +11,7 @@ import {
   type ToolPayloadKind,
   type ToolPayloadRouteConfig,
 } from "../reduction/tool-payload-router.js";
+import type { ToolExecutionHint } from "../reduction/content-classifier.js";
 import {
   analyzeReadStateCompaction,
   isReadOutputSegment,
@@ -139,6 +140,7 @@ const reduceSegment = (
         : undefined;
   const readWindow =
     asObject(meta?.readWindow) ?? asObject(toolPayload?.readWindow);
+  const execution = asObject(meta?.execution) ?? asObject(toolPayload?.execution);
 
   return reduceToolPayloadText(
     segment.text,
@@ -156,6 +158,7 @@ const reduceSegment = (
           }
         : undefined,
       readState: readStateBySegmentId.get(segment.id),
+      execution: execution as ToolExecutionHint | undefined,
     },
     {
       queryText:
@@ -328,6 +331,8 @@ export const toolPayloadTrimPass: ImmutableReductionPassHandler = {
 
       const dataKey = extractDataKey(segment);
       const toolName = extractToolName(segment);
+      const segmentToolPayload = asObject(segmentMeta?.toolPayload);
+      const readWindow = asObject(segmentMeta?.readWindow) ?? asObject(segmentToolPayload?.readWindow);
       const { archivePath } = buildArchiveLocation({
         sessionId: turnCtx.sessionId,
         segmentId: segment.id,
@@ -362,6 +367,7 @@ export const toolPayloadTrimPass: ImmutableReductionPassHandler = {
           contentRouteReason: reduced.reason,
           reducedPreviewChars: reduced.text.length,
           readState: readStateBySegmentId.get(segment.id),
+          ...(readWindow ? { readWindow } : {}),
         },
       });
 
@@ -387,7 +393,12 @@ export const toolPayloadTrimPass: ImmutableReductionPassHandler = {
               reducedSize: reduced.text.length,
               archivePath,
               readState: readStateBySegmentId.get(segment.id),
+              ...(readWindow ? { readWindow } : {}),
             },
+          },
+          recovery: {
+            source: "tool_payload_trim",
+            skipReduction: true,
           },
         },
       });

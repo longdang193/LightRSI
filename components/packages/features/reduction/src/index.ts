@@ -16,3 +16,12 @@ export * from "./reduction/pipeline.js";
 export * from "./reduction/registry.js";
 export * from "./reduction/types.js";
 export * from "./reduction/resource-key.js";
+export {
+  classifyToolPayloadContent,
+  classifyToolPayloadContentWithHint,
+  type CommandFamily,
+  type ToolExecutionHint,
+  type ToolPayloadClassification,
+  type ToolPayloadContentType,
+  type ToolPayloadHint,
+} from "./reduction/content-classifier.js";

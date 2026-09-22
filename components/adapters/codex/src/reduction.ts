@@ -8,6 +8,7 @@ import {
   runReductionBeforeCall,
   resourceKey,
 } from "@lightrsi/reduction";
+import type { ToolExecutionHint } from "@lightrsi/reduction";
 import type { TokenPilotCodexConfig } from "./config.js";
 import { loadCodexSessionSnapshot } from "./session-state.js";
 
@@ -162,6 +163,58 @@ function extractReadWindow(value: unknown): ReadWindow | undefined {
   return offset == null && limit == null ? undefined : { offset, limit };
 }
 
+function extractCommandText(value: unknown): string {
+  const record = asRecord(value);
+  for (const key of ["command", "cmd", "script", "args"]) {
+    const candidate = record[key];
+    if (typeof candidate === "string") return candidate;
+    if (Array.isArray(candidate) && candidate.every((part) => typeof part === "string")) {
+      return candidate.join(" ");
+    }
+  }
+  return "";
+}
+
+function normalizeExecutionHint(
+  toolName: unknown,
+  argumentsValue: unknown,
+  outputValue?: unknown,
+): ToolExecutionHint | undefined {
+  const name = typeof toolName === "string" ? toolName.trim().toLowerCase() : "";
+  const command = extractCommandText(argumentsValue).trim().toLowerCase();
+  const ambiguousShell = /[;&|]/.test(command);
+  const commandFamily = !ambiguousShell && (name === "node" || command.startsWith("node ")) && /(^|\s)--test(?:\s|$)/.test(command)
+    ? "node_test"
+    : !ambiguousShell && (name === "tsc" || command.startsWith("tsc "))
+      ? "typescript_diagnostics"
+      : undefined;
+  const outputRecord = asRecord(outputValue);
+  const outputStream = /stderr/.test(name) || /stderr/.test(String(outputRecord.stream ?? outputRecord.channel ?? ""))
+    ? "stderr"
+    : /stdout/.test(name) || /stdout/.test(String(outputRecord.stream ?? outputRecord.channel ?? ""))
+      ? "stdout"
+      : undefined;
+  const rawExitCode = outputRecord.exitCode ?? outputRecord.exit_code ?? outputRecord.code;
+  const exitCode = typeof rawExitCode === "number" && Number.isFinite(rawExitCode) ? rawExitCode : undefined;
+  const rawStatus = outputRecord.status ?? outputRecord.state;
+  const completion = rawStatus === "running" || rawStatus === "in_progress"
+    ? "running"
+    : rawStatus === "completed" || rawStatus === "complete" || exitCode != null
+      ? "complete"
+      : undefined;
+  if (!commandFamily && !outputStream && exitCode == null && !completion) return undefined;
+  return { commandFamily, outputStream, exitCode, completion };
+}
+
+function mergeExecutionHints(
+  base: ToolExecutionHint | undefined,
+  update: ToolExecutionHint | undefined,
+): ToolExecutionHint | undefined {
+  if (!base) return update;
+  if (!update) return base;
+  return { ...base, ...update };
+}
+
 export function normalizeResponsesInputForUpstream(input: any): any {
   if (!Array.isArray(input)) return input;
   let nextInput = input;
@@ -263,6 +316,7 @@ function segmentForText(params: {
   path?: string;
   toolName?: string;
   readWindow?: ReadWindow;
+  execution?: ToolExecutionHint;
 }): ContextSegment {
   const isToolLike =
     String(params.item?.role ?? "").toLowerCase() === "tool"
@@ -285,6 +339,7 @@ function segmentForText(params: {
       precedingUserQuery: params.latestUserQuery,
        ...(params.path ? { path: params.path } : {}),
        ...(params.readWindow ? { readWindow: params.readWindow } : {}),
+       ...(params.execution ? { execution: params.execution } : {}),
       ...(isToolLike
         ? {
             role: "tool",
@@ -297,6 +352,7 @@ function segmentForText(params: {
               fieldName: params.field,
               ...(params.path ? { path: params.path } : {}),
               ...(params.readWindow ? { readWindow: params.readWindow } : {}),
+              ...(params.execution ? { execution: params.execution } : {}),
             },
             reduction: {
               target: "tool_payload",
@@ -338,7 +394,7 @@ function buildTurnContext(
   const bindings: SegmentBinding[] = [];
   const frozenSegmentIds = new Set<string>();
   let currentUserQuery = "";
-  const toolCallHints = new Map<string, { toolName?: string; path?: string; readWindow?: ReadWindow }>();
+  const toolCallHints = new Map<string, { toolName?: string; path?: string; readWindow?: ReadWindow; execution?: ToolExecutionHint }>();
   let inputItems = 0;
   let toolLikeItems = 0;
   const latestUserIndex = Array.isArray(payload?.input)
@@ -359,6 +415,7 @@ function buildTurnContext(
             toolName: typeof item.name === "string" ? item.name : undefined,
             path: extractPathHint(parseStructuredObject(item.arguments)),
             readWindow: extractReadWindow(parseStructuredObject(item.arguments)),
+            execution: normalizeExecutionHint(item.name, parseStructuredObject(item.arguments)),
           });
         }
       }
@@ -366,6 +423,10 @@ function buildTurnContext(
       if (!isToolLikeInputItem(item)) return;
       toolLikeItems += 1;
       const callHint = typeof item.call_id === "string" ? toolCallHints.get(item.call_id) : undefined;
+      const execution = mergeExecutionHints(
+        callHint?.execution,
+        normalizeExecutionHint(callHint?.toolName, undefined, item),
+      );
       const addBinding = (binding: SegmentBinding): void => {
         bindings.push(binding);
         if (typeof item.id === "string" && item.id.trim()) frozenSegmentIds.add(binding.segmentId);
@@ -382,6 +443,7 @@ function buildTurnContext(
            path: callHint?.path,
            toolName: callHint?.toolName,
            readWindow: callHint?.readWindow,
+           execution,
         }));
         addBinding({
           segmentId: id,
@@ -402,6 +464,7 @@ function buildTurnContext(
            path: callHint?.path,
            toolName: callHint?.toolName,
            readWindow: callHint?.readWindow,
+           execution,
         }));
         addBinding({
           segmentId: id,
@@ -426,6 +489,7 @@ function buildTurnContext(
             path: callHint?.path,
             toolName: callHint?.toolName,
             readWindow: callHint?.readWindow,
+            execution,
           }));
           addBinding({
             segmentId: id,
@@ -453,6 +517,7 @@ function buildTurnContext(
             path: callHint?.path,
             toolName: callHint?.toolName,
             readWindow: callHint?.readWindow,
+            execution,
           }));
           addBinding({
             segmentId: id,

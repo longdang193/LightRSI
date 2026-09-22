@@ -24,6 +24,16 @@ export type ToolPayloadHint = {
   payloadKind?: "stdout" | "stderr" | "json" | "blob";
   readWindow?: { offset?: number; limit?: number };
   readState?: "fresh" | "superseded" | "stale";
+  execution?: ToolExecutionHint;
+};
+
+export type CommandFamily = "node_test" | "typescript_diagnostics";
+
+export type ToolExecutionHint = {
+  commandFamily?: CommandFamily;
+  outputStream?: "stdout" | "stderr";
+  exitCode?: number;
+  completion?: "complete" | "running" | "unknown";
 };
 
 const SEARCH_LINE_RE = /^(.+?):(\d+)(?::|-)(.*)$/;

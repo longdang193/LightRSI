@@ -427,42 +427,128 @@ function summarizeLogOutput(text: string, cfg: PayloadBlockConfig): string {
   if (text.length <= cfg.maxChars) return text;
   const lines = text.split("\n");
   const capacity = Math.max(8, cfg.maxItems * 4);
-  const selected = new Set<string>();
-  const add = (line: string): void => {
-    if (selected.size < capacity) selected.add(line);
-  };
   const severity = (line: string): number => {
     if (/\bfatal|panic|exception|traceback\b/i.test(line)) return 4;
     if (/\bfailed|error|denied|timeout\b/i.test(line)) return 3;
     return 2;
   };
-  const failures = lines
-    .map((line, index) => ({ line, index }))
-    .filter(({ line }) => /\b(error|failed|exception|traceback|panic|fatal|denied|timeout)\b/i.test(line))
-    .sort((a, b) => severity(b.line) - severity(a.line) || a.index - b.index);
-  for (const failure of failures.slice(0, Math.max(2, cfg.maxItems))) add(failure.line);
-  for (let i = 0; i < lines.length; i += 1) {
-    if (!STACK_TRACE_RE.test(lines[i])) continue;
-    add(lines[i]);
-    for (const frame of lines.slice(i + 1, i + 4)) {
-      if (!/^\s+/.test(frame)) break;
-      add(frame);
+  const failureBlocks = new Map<string, { lines: string[]; firstIndex: number; score: number; occurrences: number }>();
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!/\b(error|failed|exception|traceback|panic|fatal|denied|timeout)\b/i.test(line)) continue;
+    let start = index;
+    while (start > 0 && /^\s*(?:not ok|FAIL|✖|test\b)/i.test(lines[start - 1])) start -= 1;
+    const blockLines = [
+      ...(start < index ? [lines[start]] : []),
+      line,
+      ...lines.slice(index + 1, index + 4).filter((frame) => /^\s+/.test(frame)),
+    ];
+    const key = line.trim().replace(/\s+/g, " ").toLowerCase();
+    const existing = failureBlocks.get(key);
+    if (existing) {
+      existing.occurrences += 1;
+      continue;
     }
+    failureBlocks.set(key, {
+      lines: blockLines,
+      firstIndex: start,
+      score: severity(line),
+      occurrences: 1,
+    });
   }
+  const selected = [...failureBlocks.values()]
+    .sort((a, b) => b.score - a.score || a.firstIndex - b.firstIndex)
+    .slice(0, Math.max(2, cfg.maxItems));
+  const selectedKeys = new Set(selected.flatMap((block) => block.lines.map((line) => line.trim())));
+  const statusLines: string[] = [];
   for (const line of lines) {
-    if (/\b(summary|completed|exit code|duration|elapsed|passed|failed)\b/i.test(line)) add(line);
+    if (/\b(summary|completed|exit code|duration|elapsed|passed|failed)\b/i.test(line) && !selectedKeys.has(line.trim())) {
+      if (!statusLines.includes(line)) statusLines.push(line);
+    }
   }
   const header = lines.slice(0, Math.min(cfg.keepHeadLines, 6));
   const tail = lines.slice(-Math.min(cfg.keepTailLines, 6));
-  for (const line of header) add(line);
-  for (const line of tail) add(line);
+  const renderedFailures = selected
+    .sort((a, b) => a.firstIndex - b.firstIndex)
+    .flatMap((block) => [
+      ...block.lines.slice(0, 1),
+      `${block.lines[block.lines.length > 1 ? 1 : 0]}${block.occurrences > 1 ? ` [Occurrences: ${block.occurrences}]` : ""}`,
+      ...block.lines.slice(2),
+    ]);
+  const rendered = [...renderedFailures, ...statusLines].slice(0, capacity);
   const merged = [
     ...header,
-    `...[log reduced important_lines=${selected.size} total_lines=${lines.length}]`,
-    ...selected,
+    `...[log reduced important_lines=${rendered.length} total_lines=${lines.length}]`,
+    ...rendered,
     ...tail,
   ];
   return merged.join("\n").trim();
+}
+
+function summarizeNodeTestOutput(
+  text: string,
+  cfg: PayloadBlockConfig,
+  hint: ToolPayloadHint,
+): string | undefined {
+  const lines = text.split("\n");
+  const signalCount = lines.filter((line) => /^(?:TAP version|1\.\.\d+|\s*(?:not )?ok\b|# (?:tests|pass|fail|cancelled|skipped|todo|duration)\b)/i.test(line)).length;
+  if (signalCount < 2) return undefined;
+
+  const selected: string[] = [];
+  const failures = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => /^\s*not ok\b/i.test(line))
+    .slice(0, Math.max(2, cfg.maxItems));
+  for (const failure of failures) {
+    selected.push(failure.line);
+    for (let index = failure.index + 1; index < Math.min(lines.length, failure.index + 12); index += 1) {
+      if (/^\s*(?:not )?ok\b/i.test(lines[index])) break;
+      if (/^\s*(?:location|failureType|error|code|stack|operator|expected|actual|duration_ms):/i.test(lines[index]) || /^\s{4,}/.test(lines[index])) {
+        selected.push(lines[index]);
+      }
+    }
+  }
+  const status = [...new Set(lines.filter((line) => /^\s*(?:TAP version|1\.\.\d+|# (?:tests|pass|fail|cancelled|skipped|todo|duration)\b)/i.test(line)))];
+  const complete = hint.execution?.completion === "complete";
+  const result = [
+    ...status.slice(0, 1),
+    ...selected,
+    ...status.slice(1),
+    ...(!complete ? ["[node test output incomplete; completion status preserved]"] : []),
+  ];
+  return result.length > 1 ? result.join("\n") : undefined;
+}
+
+function summarizeTypeScriptDiagnostics(
+  text: string,
+  cfg: PayloadBlockConfig,
+  hint: ToolPayloadHint,
+): string | undefined {
+  const lines = text.split("\n");
+  const diagnosticRe = /^(.+?)(?:\((\d+),(\d+)\)|:(\d+):(\d+)):\s*(error|warning)\s+(TS\d+):\s*(.*)$/i;
+  const diagnostics = new Map<string, { line: string; count: number }>();
+  for (const line of lines) {
+    const match = line.match(diagnosticRe);
+    if (!match) continue;
+    const file = match[1].trim();
+    const row = match[2] ?? match[4] ?? "?";
+    const column = match[3] ?? match[5] ?? "?";
+    const code = match[7].toUpperCase();
+    const message = match[8].trim();
+    const key = `${file}:${row}:${column}:${code}:${message}`.toLowerCase();
+    const existing = diagnostics.get(key);
+    if (existing) existing.count += 1;
+    else diagnostics.set(key, { line: `${file}(${row},${column}): ${match[6].toLowerCase()} ${code}: ${clipText(message, cfg.maxPreviewChars * 2)}`, count: 1 });
+  }
+  if (diagnostics.size === 0) return undefined;
+  const status = [...new Set(lines.filter((line) => /\b(?:Found \d+ errors?|error TS\d+|warning TS\d+)\b/i.test(line)))];
+  const complete = hint.execution?.completion === "complete";
+  const output = [
+    ...[...diagnostics.values()].slice(0, Math.max(2, cfg.maxItems)).map(({ line, count }) => `${line}${count > 1 ? ` [Occurrences: ${count}]` : ""}`),
+    ...status.slice(-2),
+    ...(!complete ? ["[TypeScript diagnostics incomplete; completion status preserved]"] : []),
+  ];
+  return output.join("\n");
 }
 
 function summarizeMarkdownDoc(text: string, cfg: PayloadBlockConfig): string {
@@ -622,17 +708,11 @@ function looksLikeControlledCodeRead(text: string, hint: ToolPayloadHint | undef
   const pathLooksCode = path != null && /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|swift|rb|php|cs|cpp|c|h|hpp|scala)$/i.test(path);
   const hasExplicitReadWindow = hint?.readWindow && (hint.readWindow.offset != null || hint.readWindow.limit != null);
 
-  if (
-    hasExplicitReadWindow
-    && (pathLooksCode || toolName === "read" || toolName === "file_read")
-    && text.length <= 9_000
-  ) {
+  if (hasExplicitReadWindow && (pathLooksCode || toolName === "read" || toolName === "file_read")) {
     return true;
   }
 
   if (lines.length < 4 || lines.length > 160) return false;
-  if (text.length > 9_000) return false;
-
   let numbered = 0;
   let codeish = 0;
   for (const line of lines) {
@@ -813,6 +893,28 @@ function reduceByClassification(
   }
 
   let nextText = text;
+  if (hint?.execution?.commandFamily === "node_test") {
+    const specialized = summarizeNodeTestOutput(text, blockCfg, hint);
+    if (specialized != null) {
+      return {
+        text: specialized,
+        changed: specialized !== text,
+        route: classification.contentType,
+        reason: `${classification.reason}:node_test_selector`,
+      };
+    }
+  }
+  if (hint?.execution?.commandFamily === "typescript_diagnostics") {
+    const specialized = summarizeTypeScriptDiagnostics(text, blockCfg, hint);
+    if (specialized != null) {
+      return {
+        text: specialized,
+        changed: specialized !== text,
+        route: classification.contentType,
+        reason: `${classification.reason}:typescript_diagnostics_selector`,
+      };
+    }
+  }
   switch (classification.contentType) {
     case "json_array":
     case "json_object":
@@ -833,7 +935,13 @@ function reduceByClassification(
       nextText = summarizeSearchResults(text, blockCfg);
       break;
     case "log_output":
-      nextText = summarizeLogOutput(text, blockCfg);
+      if (hint?.execution?.commandFamily === "node_test") {
+        nextText = summarizeNodeTestOutput(text, blockCfg, hint) ?? summarizeLogOutput(text, blockCfg);
+      } else if (hint?.execution?.commandFamily === "typescript_diagnostics") {
+        nextText = summarizeTypeScriptDiagnostics(text, blockCfg, hint) ?? summarizeLogOutput(text, blockCfg);
+      } else {
+        nextText = summarizeLogOutput(text, blockCfg);
+      }
       break;
     case "diff_output":
       nextText = summarizeDiffOutput(text, blockCfg);
@@ -863,6 +971,12 @@ function reduceByClassification(
             reason: `${classification.reason}:controlled_code_read`,
           };
         }
+        return {
+          text: `[controlled code read oversized chars=${text.length}; exact recovery available from archive]`,
+          changed: true,
+          route: classification.contentType,
+          reason: `${classification.reason}:controlled_code_read_oversized`,
+        };
       }
       nextText = summarizeCodeLike(text, blockCfg);
       break;

@@ -336,6 +336,80 @@ test("reduceToolPayloadText keeps important log lines", () => {
   assert.match(result.text, /Error: build failed/);
 });
 
+test("reduceToolPayloadText keeps Node TAP failures and final counts", () => {
+  const payload = [
+    "TAP version 13",
+    "not ok 1 - rejects invalid token",
+    "  error: expected 401, received 200",
+    "  location: 'test/auth.test.ts:12:3'",
+    "ok 2 - accepts valid token",
+    "1..2",
+    "# tests 2",
+    "# pass 1",
+    "# fail 1",
+    "# duration_ms 18.2",
+  ].join("\n").repeat(8);
+
+  const result = reduceToolPayloadText(payload, "stderr", defaultCfg, {
+    toolName: "bash",
+    payloadKind: "stderr",
+    execution: { commandFamily: "node_test", completion: "complete", exitCode: 1 },
+  });
+
+  assert.equal(result.route, "log_output");
+  assert.equal(result.changed, true);
+  assert.match(result.text, /rejects invalid token/);
+  assert.match(result.text, /test\/auth\.test\.ts:12:3/);
+  assert.match(result.text, /# fail 1/);
+  assert.doesNotMatch(result.text, /output incomplete/);
+});
+
+test("reduceToolPayloadText keeps TypeScript diagnostic identity and count", () => {
+  const payload = [
+    "src/a.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+    "src/b.ts(8,2): error TS2304: Cannot find name 'missing'.",
+    "Found 2 errors.",
+  ].join("\n").repeat(8);
+
+  const result = reduceToolPayloadText(payload, "stderr", defaultCfg, {
+    toolName: "tsc",
+    payloadKind: "stderr",
+    execution: { commandFamily: "typescript_diagnostics", completion: "complete", exitCode: 2 },
+  });
+
+  assert.equal(result.route, "log_output");
+  assert.equal(result.changed, true);
+  assert.match(result.text, /src\/a\.ts\(4,7\).*TS2322/);
+  assert.match(result.text, /src\/b\.ts\(8,2\).*TS2304/);
+  assert.match(result.text, /Found 2 errors/);
+});
+
+test("reduceToolPayloadText preserves distinct failure blocks during duplicate floods", () => {
+  const payload = [
+    ...Array.from({ length: 6 }, () => [
+      "not ok 1 - connection test",
+      "Error: connection reset",
+      "    at connect (/app/client.js:10:1)",
+    ].join("\n")),
+    "not ok 7 - authentication test",
+    "Error: invalid authentication token",
+    "    at authenticate (/app/auth.js:22:4)",
+    "7 tests failed",
+    "Process exited with code 1",
+  ].join("\n").repeat(3);
+
+  const result = reduceToolPayloadText(payload, "stderr", {
+    ...defaultCfg,
+    stderr: { ...defaultCfg.stderr, maxItems: 2 },
+  });
+
+  assert.equal(result.route, "log_output");
+  assert.equal(result.changed, true);
+  assert.match(result.text, /invalid authentication token/);
+  assert.match(result.text, /Process exited with code 1/);
+  assert.match(result.text, /Occurrences:/);
+});
+
 test("reduceToolPayloadText summarizes diff payloads by file", () => {
   const payload = `
 diff --git a/src/app.ts b/src/app.ts
@@ -529,6 +603,25 @@ test("reduceToolPayloadText does not outline explicit code line windows", () => 
 
   assert.equal(result.route, "code_like");
   assert.equal(result.changed, false);
+});
+
+test("reduceToolPayloadText marks oversized explicit code reads for exact recovery", () => {
+  const payload = Array.from(
+    { length: 120 },
+    (_, index) => `${index + 1} | export const value${index} = "${"x".repeat(82)}";`,
+  ).join("\n");
+
+  const result = reduceToolPayloadText(payload, "stdout", defaultCfg, {
+    toolName: "read",
+    path: "/repo/src/large.ts?start_line=1&end_line=120",
+    payloadKind: "stdout",
+  });
+
+  assert.equal(result.route, "code_like");
+  assert.equal(result.changed, true);
+  assert.match(result.reason, /controlled_code_read_oversized/);
+  assert.match(result.text, /exact recovery/i);
+  assert.doesNotMatch(result.text, /code reduced lines=/);
 });
 
 test("reduceToolPayloadText passes through repeated reads of the same code path", () => {

@@ -144,3 +144,49 @@ test("toolPayloadTrimPass keeps markdown-shaped recovery output exempt from retr
   assert.equal(result?.changed, false);
   assert.equal(result?.skippedReason, "recovery_exempt");
 });
+
+test("toolPayloadTrimPass archives oversized bounded reads before publishing recovery text", async () => {
+  const original = Array.from(
+    { length: 120 },
+    (_, index) => `${index + 1} | export const value${index} = "${"x".repeat(82)}";`,
+  ).join("\n");
+  const result = await toolPayloadTrimPass.beforeCall?.({
+    turnCtx: buildTurnContext(original, {
+      readWindow: { offset: 0, limit: 120 },
+      toolPayload: {
+        toolName: "read",
+        path: "/repo/file.ts",
+        readWindow: { offset: 0, limit: 120 },
+      },
+    }),
+    spec: {
+      id: "tool_payload_trim",
+      phase: "before_call",
+      target: "tool_payload",
+      options: { maxChars: 300 },
+    },
+  });
+
+  assert.ok(result?.changed);
+  const segment = result?.turnCtx?.segments[0];
+  assert.ok(segment);
+  assert.match(segment.text, /Tool payload trimmed/);
+  assert.match(segment.text, /recover/i);
+  const reduction = (segment.metadata as Record<string, any>).reduction as Record<string, any>;
+  const trim = reduction.toolPayloadTrim as Record<string, any>;
+  assert.equal(trim.contentRouteReason, "read_path_code_hint:controlled_code_read_oversized");
+  assert.deepEqual(trim.readWindow, { offset: 0, limit: 120 });
+  assert.equal(typeof trim.archivePath, "string");
+
+  const rerun = await toolPayloadTrimPass.beforeCall?.({
+    turnCtx: result!.turnCtx!,
+    spec: {
+      id: "tool_payload_trim",
+      phase: "before_call",
+      target: "tool_payload",
+      options: { maxChars: 120 },
+    },
+  });
+  assert.equal(rerun?.changed, false);
+  assert.equal(rerun?.skippedReason, "recovery_exempt");
+});

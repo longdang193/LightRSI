@@ -118,4 +118,66 @@ for (const size of [100_000, 1_000_000, 5_000_000]) {
   });
 }
 
-console.log(JSON.stringify({ benchmark: "reduction-hotspots", node: process.version, platform: process.platform, sampleRuns, analyzerResults, routerResults }, null, 2));
+const commandFixtures = [
+  {
+    fixtureId: "tap-failure-flood-v1",
+    kind: "stderr",
+    text: [
+      "TAP version 13",
+      ...Array.from({ length: 120 }, (_, index) => [
+        `not ok ${index + 1} - auth test ${index % 4}`,
+        "  error: expected 401, received 200",
+        `  location: 'test/auth-${index % 4}.test.ts:${index + 1}:3'`,
+      ].join("\n")),
+      "1..120",
+      "# tests 120",
+      "# pass 0",
+      "# fail 120",
+    ].join("\n"),
+    hint: { toolName: "node", payloadKind: "stderr", execution: { commandFamily: "node_test", completion: "complete", exitCode: 1 } },
+  },
+  {
+    fixtureId: "tsc-diagnostic-flood-v1",
+    kind: "stderr",
+    text: Array.from({ length: 120 }, (_, index) => `src/file-${index % 8}.ts(${index + 1},2): error TS2322: Type 'string' is not assignable to type 'number'.`).join("\n") + "\nFound 120 errors.",
+    hint: { toolName: "tsc", payloadKind: "stderr", execution: { commandFamily: "typescript_diagnostics", completion: "complete", exitCode: 2 } },
+  },
+];
+
+const commandAwareResults = [];
+for (const fixture of commandFixtures) {
+  for (const [arm, operation] of [
+    ["raw", (value) => value],
+    ["generic", (value) => reduceToolPayloadText(value, fixture.kind, routeConfig)],
+    ["command-aware", (value) => reduceToolPayloadText(value, fixture.kind, routeConfig, fixture.hint)],
+  ]) {
+    const measured = await measure(`${fixture.fixtureId}:${arm}`, fixture.text, operation);
+    const outputText = arm === "raw" ? measured.output : measured.output.text;
+    const reduction = arm === "raw" ? undefined : measured.output;
+    commandAwareResults.push({
+      fixtureId: fixture.fixtureId,
+      arm,
+      samples: measured.samples,
+      inputBytes: measured.inputBytes,
+      outputBytes: Buffer.byteLength(outputText),
+      medianMs: measured.medianMs,
+      p95Ms: measured.p95Ms,
+      outputHash: measured.outputHash,
+      route: arm === "raw" ? "raw" : reduction.route,
+      reason: arm === "raw" ? "raw_forward" : reduction.reason,
+      changed: arm !== "raw" && reduction.changed,
+      evidenceCount: (outputText.match(/not ok|TS\d+/g) ?? []).length,
+    });
+  }
+}
+
+console.log(JSON.stringify({
+  benchmark: "reduction-hotspots",
+  node: process.version,
+  platform: process.platform,
+  commit: process.env.GIT_COMMIT ?? "unknown",
+  sampleRuns,
+  analyzerResults,
+  routerResults,
+  commandAwareResults,
+}, null, 2));

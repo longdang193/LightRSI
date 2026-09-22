@@ -683,6 +683,61 @@ test("applyBeforeCallReductionToPayload preserves references for no-op input", a
   assert.equal(payload.input[0], item);
 });
 
+test("command-aware reduction uses direct node test provenance and ignores ambiguous shells", async () => {
+  const config = normalizeTokenPilotCodexConfig({
+    reduction: {
+      triggerMinChars: 1,
+      maxToolChars: 220,
+      passes: {
+        readStateCompaction: false,
+        toolPayloadTrim: true,
+        htmlSlimming: false,
+        execOutputTruncation: false,
+        agentsStartupOptimization: false,
+      },
+    },
+  });
+  const codec = createCodexResponsesPayloadCodec();
+  const output = [
+    "TAP version 13",
+    "not ok 1 - rejects invalid token",
+    "  location: 'test/auth.test.ts:12:3'",
+    "1..1",
+    "# tests 1",
+    "# pass 0",
+    "# fail 1",
+  ].join("\n").repeat(12);
+  const direct = await reduceCodexRequestEnvelope({
+    envelope: codec.decodeRequest({
+      model: "tokenpilot/test",
+      input: [
+        { role: "user", content: "run tests" },
+        { type: "function_call", call_id: "call-1", name: "node", arguments: { command: "node --test" } },
+        { type: "function_call_output", call_id: "call-1", output },
+      ],
+    }),
+    codec,
+    config,
+  });
+  const directOutput = JSON.stringify(direct.envelope.rawPayload);
+  assert.match(directOutput, /rejects invalid token/);
+  assert.match(directOutput, /# fail 1/);
+
+  const ambiguous = await reduceCodexRequestEnvelope({
+    envelope: codec.decodeRequest({
+      model: "tokenpilot/test",
+      input: [
+        { role: "user", content: "run tests" },
+        { type: "function_call", call_id: "call-2", name: "bash", arguments: { command: 'bash -c "pnpm build && pnpm test"' } },
+        { type: "function_call_output", call_id: "call-2", output },
+      ],
+    }),
+    codec,
+    config,
+  });
+  assert.match(JSON.stringify(ambiguous.envelope.rawPayload), /search results reduced/);
+});
+
 test("applyBeforeCallReductionToPayload fails open without publishing staged input", async () => {
   const config = normalizeTokenPilotCodexConfig({
     reduction: {
