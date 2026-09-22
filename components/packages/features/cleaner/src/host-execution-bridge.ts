@@ -30,6 +30,7 @@ import { sameCanonicalValue } from "./clean-store-support.js";
 import { evaluateContextCleanOccurrence } from "./removal-safety.js";
 
 const EXECUTION_ID_VERSION = 1 as const;
+const LEGACY_OCCURRENCE_TASK_PREFIX = ["occurrence", ":"].join("");
 const CONTEXT_ITEM_KINDS = new Set([
   "system",
   "developer",
@@ -128,7 +129,6 @@ function occurrenceSetFromPlan(
   if (selectedTasks.some((task) => !task.selectable || task.itemIds.length === 0)) return undefined;
   const legacyIds = new Set(selectedTasks.map((task) => task.taskId));
   const releaseEvidence = receipt.evidence?.occurrenceSelections ?? [];
-  const evidenceById = new Map(releaseEvidence.map((selection) => [selection.stableId, selection]));
   const occurrences: ContextCleanApprovedOccurrence[] = [];
   const sourceTaskIds: string[] = [];
   const seen = new Set<string>();
@@ -140,11 +140,10 @@ function occurrenceSetFromPlan(
       occurrences.push({ stableId, fingerprint: task.itemDigests[stableId]! });
     }
   }
-  for (const selectedId of selectedTaskIds) {
-    if (legacyIds.has(selectedId)) continue;
-    const stableId = selectedId.startsWith("occurrence:") ? selectedId.slice("occurrence:".length) : selectedId;
+  for (const selection of releaseEvidence) {
+    const stableId = selection.stableId;
     const fingerprint = record.plan.occurrenceDigests?.[stableId];
-    if (!fingerprint || seen.has(stableId) || !evidenceById.has(stableId)) return undefined;
+    if (!fingerprint || seen.has(stableId) || selection.fingerprint !== fingerprint) return undefined;
     seen.add(stableId);
     occurrences.push({ stableId, fingerprint });
   }
@@ -212,7 +211,8 @@ export function deriveContextCleanStoredExecution(params: {
   occurrenceSet: ContextCleanOccurrenceSet;
   mutationPlan: ContextMutationPlan;
 } | undefined {
-  if (!uniqueNonBlankStrings([...params.selectedTaskIds])) return undefined;
+  if (params.selectedTaskIds.length === 0 && !params.receipt?.evidence?.occurrenceSelections?.length) return undefined;
+  if (params.selectedTaskIds.length > 0 && !uniqueNonBlankStrings([...params.selectedTaskIds])) return undefined;
   const occurrenceSet = occurrenceSetFromPlan(
     params.record,
     params.selectedTaskIds,
@@ -282,6 +282,24 @@ function validateStoredIdentity(params: {
   if (!sameStringSet(receipt.selectedTaskIds, request.selectedTaskIds)) {
     return ["clean_execution_selection_mismatch"];
   }
+  const legacyOccurrenceIds = request.selectedTaskIds
+    .filter((taskId) => taskId.startsWith(LEGACY_OCCURRENCE_TASK_PREFIX))
+    .map((taskId) => taskId.slice(LEGACY_OCCURRENCE_TASK_PREFIX.length));
+  if (legacyOccurrenceIds.length > 0 && (request.occurrenceSelections?.length ?? 0) === 0) {
+    const storedOccurrenceIds = receipt.evidence?.occurrenceSelections?.map(
+      (selection) => selection.stableId,
+    ) ?? [];
+    if (!sameStringSet(legacyOccurrenceIds, storedOccurrenceIds)) {
+      return ["clean_execution_occurrence_selection_mismatch"];
+    }
+    return [];
+  }
+  if (!sameCanonicalValue(
+    request.occurrenceSelections ?? [],
+    receipt.evidence?.occurrenceSelections ?? [],
+  )) {
+    return ["clean_execution_occurrence_selection_mismatch"];
+  }
   return [];
 }
 
@@ -293,7 +311,7 @@ async function prepareScheduledClean(params: {
   if (!request.cleanPlanId.trim()
     || !request.sessionId.trim()
     || !request.baseRevision.trim()
-    || !uniqueNonBlankStrings(request.selectedTaskIds)) {
+    || (request.selectedTaskIds.length > 0 && !uniqueNonBlankStrings(request.selectedTaskIds))) {
     return bypassed(["clean_execution_request_invalid"]);
   }
 
@@ -366,6 +384,10 @@ async function prepareScheduledClean(params: {
     (stored.receipt.evidence?.occurrenceSelections ?? [])
       .map((selection) => [selection.stableId, selection]),
   );
+  const approvedOccurrenceIds = new Set(occurrenceSet.occurrences.map((occurrence) => occurrence.stableId));
+  const finalRetainedFindingReferences = current.snapshot.items
+    .map((item) => item.stableId)
+    .filter((stableId) => !approvedOccurrenceIds.has(stableId));
   for (const occurrence of occurrenceSet.occurrences) {
     const planTask = stored.record.plan.tasks.find((candidate) => candidate.itemIds.includes(occurrence.stableId));
     const safety = evaluateContextCleanOccurrence({
@@ -373,7 +395,7 @@ async function prepareScheduledClean(params: {
       item: currentItems.get(occurrence.stableId),
       set: occurrenceSet,
       releaseEvidence: occurrenceEvidence.get(occurrence.stableId),
-      retainedFindingReferences: current.snapshot.items.map((item) => item.stableId),
+      retainedFindingReferences: finalRetainedFindingReferences,
       lifecycleState: planTask?.lifecycleState ?? "completed",
       activeTaskIds: current.activeTaskIds,
       evictableTaskIds: current.evictableTaskIds,
@@ -422,7 +444,6 @@ async function prepareScheduledClean(params: {
     activeTaskIds: current.activeTaskIds,
     evictableTaskIds: current.evictableTaskIds,
     candidateOperationIds: revalidation.applicableOperationIds,
-    enforceTaskPolicy: false,
   });
   if (!closure.valid
     || closure.deferredOperationIds.length > 0

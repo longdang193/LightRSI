@@ -580,7 +580,8 @@ test("Codex cleaner accepts exact agent-directed release without registry or est
       dependencyDirection: "none",
     }]);
     assert.equal(receipt.status, "scheduled");
-    assert.deepEqual(receipt.selectedTaskIds, [target.stableId]);
+    assert.deepEqual(receipt.selectedTaskIds, []);
+    assert.deepEqual(receipt.evidence?.occurrenceSelections?.map((selection) => selection.stableId), [target.stableId]);
   });
 });
 

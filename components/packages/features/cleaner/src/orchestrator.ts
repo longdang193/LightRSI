@@ -72,6 +72,14 @@ function pendingReceipt(params: {
   evidence?: ContextCleanReceipt["evidence"];
 }): ContextCleanPendingReceipt {
   const selectedTasks = params.plan.tasks.filter((task) => params.selectedTaskIds.includes(task.taskId));
+  const occurrenceSelections = params.evidence?.occurrenceSelections ?? [];
+  const occurrenceSizes = occurrenceSelections
+    .map((selection) => params.plan.occurrenceSizes?.[selection.stableId])
+    .filter((size): size is { chars: number; tokens: number | null } => size !== undefined);
+  const occurrenceChars = occurrenceSizes.reduce((sum, size) => sum + size.chars, 0);
+  const occurrenceTokens = occurrenceSizes.every((size) => size.tokens !== null)
+    ? occurrenceSizes.reduce((sum, size) => sum + (size.tokens ?? 0), 0)
+    : null;
   return {
     schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
     planId: params.plan.planId,
@@ -79,10 +87,12 @@ function pendingReceipt(params: {
     sessionId: params.plan.sessionId,
     status: params.status,
     selectedTaskIds: [...params.selectedTaskIds],
-    estimatedSavedTokens: selectedTasks.every((task) => task.tokenCount !== null)
-      ? selectedTasks.reduce((sum, task) => sum + (task.tokenCount ?? 0), 0)
-      : null,
-    estimatedSavedChars: selectedTasks.reduce((sum, task) => sum + task.charCount, 0),
+    estimatedSavedTokens: params.plan.tokenCountMode === "chars_only"
+      || selectedTasks.some((task) => task.tokenCount === null)
+      || occurrenceTokens === null
+      ? null
+      : selectedTasks.reduce((sum, task) => sum + (task.tokenCount ?? 0), 0) + occurrenceTokens,
+    estimatedSavedChars: selectedTasks.reduce((sum, task) => sum + task.charCount, 0) + occurrenceChars,
     tokenCountMode: params.plan.tokenCountMode,
     deferredTaskIds: [],
     reasons: [],
@@ -108,6 +118,14 @@ function validOccurrenceSelection(
     && ["none", "outgoing"].includes(selection.dependencyDirection));
 }
 
+function canonicalOccurrenceSelections(
+  selections: readonly ContextCleanOccurrenceSelection[],
+): ContextCleanOccurrenceSelection[] {
+  return selections
+    .map((selection) => ({ ...selection }))
+    .sort((left, right) => left.stableId.localeCompare(right.stableId));
+}
+
 export async function prepareContextCleanOccurrenceRelease(params: {
   stateDir: string;
   bridge: ContextCleanerHostBridge;
@@ -116,7 +134,16 @@ export async function prepareContextCleanOccurrenceRelease(params: {
 }): Promise<ContextCleanPlan> {
   const sessionId = params.sessionId.trim();
   if (!params.stateDir.trim() || !sessionId) throw new Error("clean_analysis_identity_invalid");
+  const selections = canonicalOccurrenceSelections(params.selections);
   const snapshot = await params.bridge.readCleanSnapshot(sessionId);
+  const seen = new Set<string>();
+  for (const selection of selections) {
+    if (!validOccurrenceSelection(selection, snapshot.items.find((item) => item.stableId === selection.stableId)?.fingerprint)
+      || seen.has(selection.stableId)) {
+      throw new Error("clean_occurrence_release_invalid");
+    }
+    seen.add(selection.stableId);
+  }
   const usedChars = snapshot.items.reduce((sum, item) => sum + item.chars, 0);
   const base: Omit<ContextCleanPlan, "planId"> = {
     schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
@@ -140,7 +167,7 @@ export async function prepareContextCleanOccurrenceRelease(params: {
   };
   const plan: ContextCleanPlan = {
     ...base,
-    planId: planId(base, false, params.selections.map((selection) => `${selection.stableId}:${selection.fingerprint}`)),
+    planId: planId(base, false, selections.map((selection) => `${selection.stableId}:${selection.fingerprint}`)),
   };
   const saved = await saveContextCleanPlan({ stateDir: params.stateDir, plan });
   if (saved.bypassed) error("clean_analysis_plan_store_failed", saved.reasons);
@@ -228,28 +255,34 @@ export async function approveContextCleanSelection(params: {
   const stored = await readContextCleanPlan({ stateDir: params.stateDir, planId: params.request.cleanPlanId });
   if (stored.bypassed || !stored.value) error("clean_approval_plan_unavailable", stored.reasons);
   const plan = stored.value.plan;
-  const occurrenceSelections = params.request.occurrenceSelections ?? [];
-  const ids = [...params.request.selectedTaskIds, ...occurrenceSelections.map((selection) => selection.stableId)];
+  const occurrenceSelections = canonicalOccurrenceSelections(params.request.occurrenceSelections ?? []);
+  const taskIds = [...params.request.selectedTaskIds];
+  const occurrenceIds = occurrenceSelections.map((selection) => selection.stableId);
   if (params.request.hostId !== plan.hostId || params.request.sessionId !== plan.sessionId
-    || params.request.baseRevision !== plan.baseRevision || ids.length === 0) {
+    || params.request.baseRevision !== plan.baseRevision
+    || (taskIds.length === 0 && occurrenceIds.length === 0)) {
     throw new Error("clean_approval_invalid");
   }
   const byId = new Map(plan.tasks.map((task) => [task.taskId, task]));
-  if (new Set(ids).size !== ids.length) throw new Error("clean_approval_duplicate_task");
-  for (const taskId of ids) {
+  if (new Set(taskIds).size !== taskIds.length || new Set(occurrenceIds).size !== occurrenceIds.length) {
+    throw new Error("clean_approval_duplicate_task");
+  }
+  const selectedTaskItems = new Set(taskIds.flatMap((taskId) => byId.get(taskId)?.itemIds ?? []));
+  if (occurrenceIds.some((stableId) => selectedTaskItems.has(stableId))) {
+    throw new Error("clean_approval_duplicate_occurrence");
+  }
+  for (const taskId of taskIds) {
     const task = byId.get(taskId);
-    const stableId = taskId.startsWith("occurrence:") ? taskId.slice("occurrence:".length) : taskId;
-    if (!task && plan.occurrenceDigests?.[stableId] !== undefined) {
-      const selection = occurrenceSelections.find((candidate) => candidate.stableId === stableId);
-      if (!validOccurrenceSelection(selection, plan.occurrenceDigests?.[stableId])) {
-        throw new Error("clean_approval_occurrence_evidence_invalid");
-      }
-      continue;
-    }
     if (!task || !task.selectable) throw new Error("clean_approval_task_not_selectable");
   }
+  for (const stableId of occurrenceIds) {
+    const selection = occurrenceSelections.find((candidate) => candidate.stableId === stableId);
+    if (!validOccurrenceSelection(selection, plan.occurrenceDigests?.[stableId])) {
+      throw new Error("clean_approval_occurrence_evidence_invalid");
+    }
+  }
   const now = params.now ?? new Date().toISOString();
-  const selectedTasks = plan.tasks.filter((task) => ids.includes(task.taskId));
+  const selectedTasks = plan.tasks.filter((task) => taskIds.includes(task.taskId));
   const selectedOccurrenceSizes = occurrenceSelections
     .map((selection) => plan.occurrenceSizes?.[selection.stableId])
     .filter((size): size is { chars: number; tokens: number | null } => size !== undefined);
@@ -269,7 +302,7 @@ export async function approveContextCleanSelection(params: {
     hostId: plan.hostId,
     sessionId: plan.sessionId,
     status: "approved",
-    selectedTaskIds: ids,
+    selectedTaskIds: taskIds,
     estimatedSavedTokens,
     estimatedSavedChars,
     tokenCountMode: plan.tokenCountMode,
@@ -296,7 +329,7 @@ export async function finalizeContextCleanSchedule(params: {
   if (request.hostId !== plan.hostId
     || request.sessionId !== plan.sessionId
     || request.baseRevision !== plan.baseRevision
-    || request.selectedTaskIds.length === 0
+    || (request.selectedTaskIds.length === 0 && (request.occurrenceSelections?.length ?? 0) === 0)
     || new Set(request.selectedTaskIds).size !== request.selectedTaskIds.length
     || Number.isNaN(Date.parse(request.scheduledAt))) {
     throw new Error("clean_schedule_identity_invalid");

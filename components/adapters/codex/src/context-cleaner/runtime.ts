@@ -13,6 +13,7 @@ import {
   type ContextCleanReceipt,
   type ContextCleanScheduledReceipt,
   type ContextCleanTerminalReceipt,
+  type ContextCleanOccurrenceSelection,
 } from "@lightrsi/cleaner";
 import { createHash } from "node:crypto";
 import { createEmptySessionTaskRegistry, loadSessionTaskRegistry } from "@lightrsi/history";
@@ -109,8 +110,28 @@ export async function readCodexCleanerCommittedMutationPlan(params: {
       stateDir: params.stateDir,
       planId: record.cleanPlanId,
     });
-    if (receipt.bypassed || receipt.value?.status !== "applied") continue;
-    const ids = receipt.value.evidence.itemIds;
+    let ids = receipt.value?.status === "applied"
+      ? receipt.value.evidence.itemIds
+      : undefined;
+    if (!ids || ids.length === 0 || new Set(ids).size !== ids.length) {
+      const plan = await readContextCleanPlan({
+        stateDir: params.stateDir,
+        planId: record.cleanPlanId,
+      });
+      if (plan.value) {
+        const legacyPrefix = ["occurrence", ":"].join("");
+        const occurrenceIds = (record.occurrenceSelections ?? []).map((selection) => selection.stableId);
+        ids = [
+          ...plan.value.plan.tasks
+            .filter((task) => record.selectedTaskIds.includes(task.taskId))
+            .flatMap((task) => task.itemIds),
+          ...record.selectedTaskIds
+            .filter((taskId) => taskId.startsWith(legacyPrefix))
+            .map((taskId) => taskId.slice(legacyPrefix.length)),
+          ...occurrenceIds,
+        ];
+      }
+    }
     if (!ids || ids.length === 0 || new Set(ids).size !== ids.length) continue;
     baseRevision ??= record.baseRevision;
     for (const itemId of ids) if (!itemIds.includes(itemId)) itemIds.push(itemId);
@@ -123,11 +144,11 @@ export async function readCodexCleanerCommittedMutationPlan(params: {
 }
 
 function executionClaimId(
-  schedule: Pick<CodexCleanerScheduledRecord, "cleanPlanId" | "selectedTaskIds">,
+  schedule: Pick<CodexCleanerScheduledRecord, "cleanPlanId" | "selectedTaskIds" | "occurrenceSelections">,
   mutationPlanId: string,
 ): string {
   return `codex-clean-claim-v1-${createHash("sha256")
-    .update(JSON.stringify([schedule.cleanPlanId, mutationPlanId, schedule.selectedTaskIds]))
+    .update(JSON.stringify([schedule.cleanPlanId, mutationPlanId, schedule.selectedTaskIds, schedule.occurrenceSelections ?? []]))
     .digest("hex")}`;
 }
 
@@ -136,6 +157,7 @@ export async function ensureCodexCleanerExecutionClaim(params: {
   schedule: CodexCleanerScheduledRecord;
   mutationPlanId: string;
   executionRevision?: string;
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
   now?: string;
   ownerToken?: string;
 }): Promise<{ claim?: ContextCleanExecutionClaim; reasons: string[] }> {
@@ -165,6 +187,7 @@ export async function ensureCodexCleanerExecutionClaim(params: {
     hostId: "codex",
     sessionId: params.schedule.sessionId,
     selectedTaskIds: [...params.schedule.selectedTaskIds],
+    ...(params.schedule.occurrenceSelections ? { occurrenceSelections: params.schedule.occurrenceSelections.map((selection) => ({ ...selection })) } : {}),
     mutationPlanId: params.mutationPlanId,
     analysisRevision: revision,
     executionRevision,
@@ -237,32 +260,26 @@ export function applyCodexCleanerCommittedExclusions(
   mutationPlan: CodexMutationPlan | undefined,
 ): CodexEffectiveHistoryView {
   if (!mutationPlan || mutationPlan.operations.length === 0) return view;
-  const removed = new Set(
-    mutationPlan.operations.flatMap((operation) => (
-      "targetItemIds" in operation
-        ? operation.targetItemIds
-        : operation.stableItemId
-          ? [operation.stableItemId]
-          : []
-    )),
-  );
-  const filter = <T extends { stableItemId: string }>(items: readonly T[]): T[] => (
-    items.filter((item) => !removed.has(item.stableItemId))
-  );
+  const removed = new Set<string>();
+  for (const operation of mutationPlan.operations) {
+    if ("targetItemIds" in operation && Array.isArray(operation.targetItemIds)) {
+      for (const itemId of operation.targetItemIds) {
+        if (typeof itemId === "string") removed.add(itemId);
+      }
+    } else if (operation.stableItemId) {
+      removed.add(operation.stableItemId);
+    }
+  }
   const history = {
     ...view.history,
-    replayableItems: filter(view.history.replayableItems),
-    observationOnlyItems: filter(view.history.observationOnlyItems),
-    deferredItems: filter(view.history.deferredItems),
+    committedExcludedItemIds: [...new Set([
+      ...(view.history.committedExcludedItemIds ?? []),
+      ...removed,
+    ])].sort(),
   };
   return {
     ...view,
     history,
-    turns: view.turns.map((turn) => ({
-      ...turn,
-      inputItemIds: turn.inputItemIds.filter((id) => !removed.has(id)),
-      outputItemIds: turn.outputItemIds.filter((id) => !removed.has(id)),
-    })),
   };
 }
 
@@ -296,6 +313,7 @@ async function executionContext(params: {
     registry,
     request: params.backendRequest,
   });
+  backendRequest.taskPolicy = "manual";
   const snapshot = await codexSharedContextRewriteBackend.readSnapshot({
     sessionId: params.sessionId,
     request: backendRequest,
@@ -836,7 +854,8 @@ export async function prepareCodexCleanerRebase(params: {
           cleanPlanId: currentSchedule.record.cleanPlanId,
           sessionId: currentSchedule.record.sessionId,
           baseRevision: currentSchedule.record.baseRevision,
-          selectedTaskIds: currentSchedule.record.selectedTaskIds,
+            selectedTaskIds: currentSchedule.record.selectedTaskIds,
+            occurrenceSelections: currentSchedule.record.occurrenceSelections,
         });
         if (prepared.outcome === "terminal") {
           decision = {
@@ -1023,6 +1042,7 @@ export async function revalidateCodexCleanerPreparedRebase(params: {
     sessionId: schedule.record.sessionId,
     baseRevision: schedule.record.baseRevision,
     selectedTaskIds: schedule.record.selectedTaskIds,
+    occurrenceSelections: schedule.record.occurrenceSelections,
   });
   if (prepared.outcome !== "ready") {
     return { valid: false, reasonCodes: prepared.reasons };

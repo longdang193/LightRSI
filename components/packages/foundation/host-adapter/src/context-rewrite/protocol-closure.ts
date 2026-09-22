@@ -15,8 +15,6 @@ export type ContextProtocolClosureValidationParams<
   evictableTaskIds: readonly string[];
   /** Restricts validation when structural revalidation already deferred operations. */
   candidateOperationIds?: readonly string[];
-  /** Cleaner owns occurrence eligibility; lifecycle callers keep the default. */
-  enforceTaskPolicy?: boolean;
 };
 
 type ProtocolGroup = {
@@ -69,8 +67,6 @@ export function validateContextMutationProtocolClosure<
   const candidates = new Set(
     params.candidateOperationIds ?? operationIds(plan),
   );
-  const activeTaskIds = new Set(uniqueNonEmpty(params.activeTaskIds));
-  const evictableTaskIds = new Set(uniqueNonEmpty(params.evictableTaskIds));
   const itemsByStableId = new Map<string, typeof snapshot.items>();
   for (const item of snapshot.items) {
     itemsByStableId.set(item.stableId, [
@@ -181,18 +177,6 @@ export function validateContextMutationProtocolClosure<
     }
 
     let reason: string | undefined;
-    if (params.enforceTaskPolicy !== false) {
-      const crossesActiveAndEvictableTasks = [...operationTaskIds].some(
-        (taskId) => activeTaskIds.has(taskId),
-      ) && [...operationTaskIds].some(
-        (taskId) => evictableTaskIds.has(taskId),
-      );
-      if (crossesActiveAndEvictableTasks) {
-        reason = "active_evictable_task_overlap";
-      } else if ([...operationTaskIds].some((taskId) => activeTaskIds.has(taskId))) {
-        reason = "active_task_targeted";
-      }
-    }
 
     const targetsProtocolItemWithoutCallId = [...targetItemIds].some(
       (targetItemId) => protocolItemsWithoutCallId.has(targetItemId),

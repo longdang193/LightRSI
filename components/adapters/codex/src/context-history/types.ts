@@ -77,6 +77,7 @@ export type CodexEffectiveHistory = {
   unresolvedCallIds: string[];
   source: "proxy_journal" | "rollout_bootstrap" | "rollout_proxy_merge" | "empty";
   incomplete: boolean;
+  committedExcludedItemIds?: string[];
 };
 
 export type CodexEffectiveHistoryTurn = {

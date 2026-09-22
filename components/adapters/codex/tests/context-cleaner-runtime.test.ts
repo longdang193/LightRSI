@@ -931,22 +931,6 @@ test("Codex proxy gives the scheduled manual cleaner exclusive ownership of the 
       ));
       assert.ok(selectedItem);
       const registry = createEmptySessionTaskRegistry(sessionId);
-      registry.version = 1;
-      registry.lastProcessedTurnSeq = Math.max(...view.turns.map((turn) => turn.turnSeq));
-      registry.evictableTaskIds = ["task-proxy-old"];
-      registry.blockToTaskIds[selectedItem.stableItemId] = ["task-proxy-old"];
-      registry.tasks["task-proxy-old"] = {
-        taskId: "task-proxy-old",
-        title: "old proxy task",
-        objective: "remove the approved old request",
-        lifecycle: "evictable",
-        completionEvidence: ["completed"],
-        unresolvedQuestions: [],
-        span: { startTurnSeq: 2, endTurnSeq: 2 },
-        coveredTurnAbsIds: [],
-        updatedAt: CREATED_AT,
-      };
-      await persistSessionTaskRegistry(stateDir, registry);
 
       const baseRequest: CodexLifecycleBackendRequestBase = {
         sessionId,
@@ -986,37 +970,36 @@ test("Codex proxy gives the scheduled manual cleaner exclusive ownership of the 
         unassignedChars: totalChars - selectedSnapshotItem.chars,
         tokenCountMode: "chars_only",
         tokenCountMethod: "utf16_chars",
-        tasks: [{
-          taskId: "task-proxy-old",
-          label: "old proxy task",
-          description: "approved old request",
-          summary: "completed",
-          lifecycleState: "completed",
-          itemIds: [selectedItem.stableItemId],
-          itemDigests: { [selectedItem.stableItemId]: selectedSnapshotItem.fingerprint },
-          tokenCount: null,
-          charCount: selectedSnapshotItem.chars,
-          tokenPercent: null,
-          recommendation: "clean",
-          reasonCodes: ["completed"],
-          selectable: true,
-        }],
+        occurrenceDigests: { [selectedItem.stableItemId]: selectedSnapshotItem.fingerprint },
+        occurrenceSizes: { [selectedItem.stableItemId]: { chars: selectedSnapshotItem.chars, tokens: null } },
+        tasks: [],
         createdAt: CREATED_AT,
       };
       assert.equal((await saveContextCleanPlan({ stateDir, plan })).bypassed, false);
+      const occurrenceSelection = {
+        stableId: selectedItem.stableItemId,
+        fingerprint: selectedSnapshotItem.fingerprint,
+        completionEvidence: ["response-cleaner-2"],
+        continuingUseful: false,
+        releaseIntent: "release" as const,
+        retainedFindings: [],
+        nothingReusable: true,
+        dependencyDirection: "none" as const,
+      };
       const receiptFor = (status: ContextCleanPendingReceipt["status"]): ContextCleanPendingReceipt => ({
         schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
         planId: cleanPlanId,
         hostId: "codex",
         sessionId,
         status,
-        selectedTaskIds: status === "analyzed" ? [] : ["task-proxy-old"],
+        selectedTaskIds: [],
         estimatedSavedTokens: null,
         estimatedSavedChars: selectedSnapshotItem.chars,
         tokenCountMode: "chars_only",
         deferredTaskIds: [],
         fallbackUsed: false,
         reasons: [],
+        ...(status !== "analyzed" ? { evidence: { occurrenceSelections: [occurrenceSelection] } } : {}),
         updatedAt: status === "analyzed"
           ? "2026-08-22T00:01:00.000Z"
           : status === "approved"
@@ -1034,7 +1017,8 @@ test("Codex proxy gives the scheduled manual cleaner exclusive ownership of the 
         sessionId,
         cleanPlanId,
         baseRevision: snapshot.revision,
-        selectedTaskIds: ["task-proxy-old"],
+        selectedTaskIds: [],
+        occurrenceSelections: [occurrenceSelection],
         scheduledAt: receiptFor("scheduled").updatedAt,
       })).outcome, "stored");
       const estimatorCallsBeforeManualRequest = estimator.calls();

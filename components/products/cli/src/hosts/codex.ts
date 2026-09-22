@@ -42,7 +42,6 @@ import {
 import { handleCleanCommand } from "../clean.js";
 import {
   createCodexCleanCommandBackend,
-  createCodexCleanRecommendationProvider,
 } from "./cleaner.js";
 import { handleStandaloneVisualCommandWithSelection } from "./visual.js";
 import type { CliHostPathOverrides } from "../context-store.js";
@@ -226,8 +225,6 @@ export function createCodexCliBridge(target: {
       }),
       backend: createCodexCleanCommandBackend({
         stateDir,
-        taskStateEstimator: config.taskStateEstimator,
-        recommendationProvider: createCodexCleanRecommendationProvider(config.taskStateEstimator),
         boundSessionId: ctx.sessionId ?? target.sessionId,
       }),
     });

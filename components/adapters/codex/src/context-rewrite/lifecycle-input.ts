@@ -294,6 +294,7 @@ export function buildCodexLifecycleBackendRequest(
   }
   return {
     ...params.request,
+    taskPolicy: "lifecycle",
     effectiveHistory: params.view.history,
     taskIdsByItemId,
     activeTaskIds: uniqueStrings(params.registry.activeTaskIds),

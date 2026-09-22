@@ -56,7 +56,6 @@ function receiptView(receipt: ContextCleanReceipt): CleanReceiptView {
 
 export function createCodexCleanCommandBackend(params: {
   stateDir: string;
-  taskStateEstimator?: TaskStateEstimatorApiConfig;
   recommendationProvider?: ContextCleanRecommendationProvider;
   boundSessionId?: string;
 }): CleanCommandBackend {
@@ -64,7 +63,6 @@ export function createCodexCleanCommandBackend(params: {
   const bridge = createCodexContextCleanerBridge({
     stateDir: params.stateDir,
     controlPlane,
-    taskStateEstimator: params.taskStateEstimator,
     boundSessionId: params.boundSessionId,
   });
   const service = createContextCleanerControlService({
