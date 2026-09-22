@@ -67,6 +67,9 @@ type LiveOptions = {
 type TurnResult = {
   label: string;
   inputBytes: number;
+  inputItemCount: number;
+  historyPreparationMs: number;
+  serializationMs: number;
   timing: BenchmarkTimingSnapshot;
 };
 
@@ -340,19 +343,24 @@ async function sendTurn(params: {
   durableCompletion?: () => Promise<void>;
 }): Promise<{ history: JsonObject[]; result: TurnResult }> {
   const timing = createBenchmarkTiming();
-  const input = [...params.history, { role: "user", content: params.content }];
   timing.mark("handlerStart");
+  const preparationStartedAt = performance.now();
+  const input = [...params.history, { role: "user", content: params.content }];
+  const historyPreparationMs = performance.now() - preparationStartedAt;
   timing.mark("bodyComplete");
+  const serializationStartedAt = performance.now();
+  const requestBody = JSON.stringify({
+    model: params.model,
+    stream: true,
+    metadata: { tokenpilotSessionId: params.sessionId },
+    input,
+  });
+  const serializationMs = performance.now() - serializationStartedAt;
   timing.mark("dispatchStart");
   const response = await fetch(`${params.runtime.baseUrl}/responses`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      model: params.model,
-      stream: true,
-      metadata: { tokenpilotSessionId: params.sessionId },
-      input,
-    }),
+    body: requestBody,
   });
   assert.equal(response.status, 200);
   timing.mark("upstreamHeaders");
@@ -414,6 +422,9 @@ async function sendTurn(params: {
     result: {
       label: params.label,
       inputBytes: Buffer.byteLength(JSON.stringify(input), "utf8"),
+      inputItemCount: input.length,
+      historyPreparationMs,
+      serializationMs,
       timing: timing.snapshot("streamed"),
     },
   };
@@ -617,10 +628,16 @@ function percentile(values: number[], rank: number): number | null {
 
 function summarize(runs: RunResult[]) {
   const values = runs.flatMap((run) => run.turns.map((turn) => turn.timing.durationsMs.handlerToFinish ?? 0));
+  const historyPreparation = runs.flatMap((run) => run.turns.map((turn) => turn.historyPreparationMs));
+  const serialization = runs.flatMap((run) => run.turns.map((turn) => turn.serializationMs));
   return {
     samples: values.length,
     p50HandlerToFinishMs: percentile(values, 0.5),
     p95HandlerToFinishMs: percentile(values, 0.95),
+    p50HistoryPreparationMs: percentile(historyPreparation, 0.5),
+    p95HistoryPreparationMs: percentile(historyPreparation, 0.95),
+    p50SerializationMs: percentile(serialization, 0.5),
+    p95SerializationMs: percentile(serialization, 0.95),
     incompleteRequests: runs.flatMap((run) => run.turns).filter((turn) => !turn.timing.complete).length,
     totalInputBytes: runs.reduce((total, run) => total + run.localInputBytes.reduce((sum, bytes) => sum + bytes, 0), 0),
   };
