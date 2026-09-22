@@ -106,3 +106,32 @@ test("benchmark rejects A/B pairs that diverge before Cleaner release", () => {
     true,
   );
 });
+
+test("benchmark rejects cache identity drift before Cleaner release", () => {
+  const shape = (promptCacheKey: string, providerWirePrefixHash: string): ProviderShape => ({
+    inputBytes: 1,
+    inputFingerprint: "same-input",
+    userItemCount: 1,
+    replayableItemCount: 1,
+    inputTypeCounts: {},
+    outputItemTypes: [],
+    providerLatencyMs: null,
+    providerHeadersLatencyMs: null,
+    promptCacheKey,
+    responsePromptCacheKey: promptCacheKey,
+    providerWirePrefixHash,
+    providerWirePrefixItemCount: 1,
+    promptCacheBreakpoint: false,
+  });
+  const labels = ["retained", "release_a", "after_release_a"];
+
+  assert.equal(
+    providerShapesComparableBeforeRelease(
+      labels,
+      [shape("same-key", "same-wire"), shape("same-key", "same-wire"), shape("baseline", "baseline-wire")],
+      labels,
+      [shape("different-key", "same-wire"), shape("same-key", "same-wire"), shape("cleaner", "cleaner-wire")],
+    ),
+    false,
+  );
+});
