@@ -1,4 +1,4 @@
-import type { ReductionPassHandler } from "../reduction/types.js";
+import type { ImmutableReductionPassHandler } from "../reduction/types.js";
 import { stripLineNumbers } from "../analyzers/line-number-strip-analyzer.js";
 
 type AsObject<T> = T extends Record<string, unknown> ? T : Record<string, unknown>;
@@ -9,7 +9,8 @@ const asObject = <T>(value: unknown): AsObject<T> | undefined => {
     : undefined;
 };
 
-export const lineNumberStripPass: ReductionPassHandler = {
+export const lineNumberStripPass: ImmutableReductionPassHandler = {
+  immutableInput: true,
   afterCall({ currentResult, spec, turnCtx }) {
     // Check if policy provided instructions for this strategy
     const policy = asObject(turnCtx.metadata?.policy);

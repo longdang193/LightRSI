@@ -1,4 +1,7 @@
 import type { ContextSegment } from "@lightrsi/kernel";
+import type { DeepReadonly } from "./types.js";
+
+type ReadonlyContextSegment = DeepReadonly<ContextSegment>;
 
 export type ReadState = "fresh" | "superseded" | "stale";
 export type ReadStateReason = "later_read" | "later_mutation" | "none";
@@ -107,7 +110,7 @@ const buildReadKey = (dataKey: string, window: ReadWindow | undefined): string =
   return `${dataKey}#offset=${offset ?? "?"}:limit=${limit ?? "?"}`;
 };
 
-export const isReadOutputSegment = (segment: ContextSegment): boolean => {
+export const isReadOutputSegment = (segment: ContextSegment | ReadonlyContextSegment): boolean => {
   const meta = asObject(segment.metadata);
   const toolName = normalizeToolName(meta);
   if (toolName !== "read" && toolName !== "file_read") return false;
@@ -130,14 +133,14 @@ export const isReadOutputSegment = (segment: ContextSegment): boolean => {
   return fieldName === undefined;
 };
 
-export const isMutatingToolSegment = (segment: ContextSegment): boolean => {
+export const isMutatingToolSegment = (segment: ContextSegment | ReadonlyContextSegment): boolean => {
   const meta = asObject(segment.metadata);
   const toolName = normalizeToolName(meta);
   if (!toolName || !MUTATING_TOOL_NAMES.has(toolName)) return false;
   return Boolean(extractDataKey(meta));
 };
 
-function collectFileEvents(segments: ContextSegment[]): FileEvent[] {
+function collectFileEvents(segments: ReadonlyArray<ContextSegment | ReadonlyContextSegment>): FileEvent[] {
   const events: FileEvent[] = [];
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index];
@@ -169,7 +172,7 @@ function collectFileEvents(segments: ContextSegment[]): FileEvent[] {
 }
 
 export function analyzeReadStateCompaction(
-  segments: ContextSegment[],
+  segments: ReadonlyArray<ContextSegment | ReadonlyContextSegment>,
 ): Map<string, ReadStateClassification> {
   const events = collectFileEvents(segments);
   const eventsByDataKey = new Map<string, FileEvent[]>();
@@ -221,7 +224,7 @@ export function analyzeReadStateCompaction(
 }
 
 export function classifyReadStates(
-  segments: ContextSegment[],
+  segments: ReadonlyArray<ContextSegment | ReadonlyContextSegment>,
 ): Map<string, ReadState> {
   const analyzed = analyzeReadStateCompaction(segments);
   const states = new Map<string, ReadState>();

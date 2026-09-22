@@ -1,4 +1,4 @@
-import type { ReductionPassHandler } from "../reduction/types.js";
+import type { ImmutableReductionPassHandler } from "../reduction/types.js";
 import { truncatePath } from "../analyzers/path-truncation-analyzer.js";
 
 type AsObject<T> = T extends Record<string, unknown> ? T : Record<string, unknown>;
@@ -45,7 +45,8 @@ const applyPathTruncation = (
   };
 };
 
-export const pathTruncationPass: ReductionPassHandler = {
+export const pathTruncationPass: ImmutableReductionPassHandler = {
+  immutableInput: true,
   afterCall({ currentResult, spec, turnCtx }) {
     // Check if policy provided instructions for this strategy
     const policy = asObject(turnCtx.metadata?.policy);

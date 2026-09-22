@@ -33,6 +33,12 @@ function buildSegment(
   };
 }
 
+function deepFreeze<T>(value: T): T {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  return Object.freeze(value);
+}
+
 test("classifyReadStates marks latest untouched read as fresh", () => {
   const states = classifyReadStates([
     buildSegment("read-1-output", "read", "/repo/a.ts", "const a = 1;", "output"),
@@ -112,6 +118,39 @@ test("runReductionBeforeCall restores nested context after pass failure", async 
   assert.equal(typeof result.report[0]?.durationMs, "number");
 });
 
+test("runReductionBeforeCall publishes successful legacy mutations even when changed is false", async () => {
+  const turnCtx: RuntimeTurnContext = {
+    sessionId: "legacy-before-success-session",
+    sessionMode: "single",
+    provider: "test",
+    model: "test-model",
+    apiFamily: "other",
+    prompt: "test",
+    budget: { maxInputTokens: 0, reserveOutputTokens: 0 },
+    segments: [buildSegment("segment-1", "read", "/repo/a.ts", "original", "output")],
+    metadata: { nested: { value: "original" } },
+  };
+  const result = await runReductionBeforeCall({
+    turnCtx,
+    passes: [{ id: "legacy_before_success", phase: "before_call", target: "context_segment" }],
+    registry: {
+      legacy_before_success: {
+        beforeCall({ turnCtx: current }) {
+          current.segments[0]!.text = "mutated";
+          (current.metadata as any).nested.value = "published";
+          return { changed: false };
+        },
+      },
+    },
+  });
+
+  assert.equal(result.turnCtx.segments[0]?.text, "mutated");
+  assert.equal((result.turnCtx.metadata as any).nested.value, "published");
+  assert.equal(turnCtx.segments[0]?.text, "original");
+  assert.equal((turnCtx.metadata as any).nested.value, "original");
+  assert.equal(result.report[0]?.changed, false);
+});
+
 test("runReductionAfterCall restores nested context after pass failure", async () => {
   const turnCtx: RuntimeTurnContext = {
     sessionId: "after-call-failure-session",
@@ -145,6 +184,77 @@ test("runReductionAfterCall restores nested context after pass failure", async (
   assert.deepEqual(reduced.result, result);
   assert.equal(reduced.report[0]?.skippedReason, "pass_error");
   assert.equal(typeof reduced.report[0]?.durationMs, "number");
+});
+
+test("runReductionAfterCall publishes successful legacy result and context mutations", async () => {
+  const turnCtx: RuntimeTurnContext = {
+    sessionId: "legacy-after-success-session",
+    sessionMode: "single",
+    provider: "test",
+    model: "test-model",
+    apiFamily: "other",
+    prompt: "test",
+    budget: { maxInputTokens: 0, reserveOutputTokens: 0 },
+    segments: [buildSegment("segment-1", "read", "/repo/a.ts", "original", "output")],
+    metadata: { nested: { value: "original" } },
+  };
+  const reduced = await runReductionAfterCall({
+    turnCtx,
+    result: { content: "original result" },
+    passes: [{ id: "legacy_after_success", phase: "after_call", target: "result_content" }],
+    registry: {
+      legacy_after_success: {
+        afterCall({ turnCtx: currentCtx, currentResult }) {
+          (currentCtx.metadata as any).nested.value = "published";
+          currentResult.content = "mutated result";
+          return { changed: false };
+        },
+      },
+    },
+  });
+
+  assert.equal(reduced.result.content, "mutated result");
+  assert.equal((turnCtx.metadata as any).nested.value, "published");
+  assert.equal(reduced.report[0]?.changed, false);
+});
+
+test("immutable read-state pass accepts recursively frozen input", async () => {
+  const turnCtx = deepFreeze<RuntimeTurnContext>({
+    sessionId: "immutable-input-session",
+    sessionMode: "single",
+    provider: "test",
+    model: "test-model",
+    apiFamily: "other",
+    prompt: "",
+    budget: { maxInputTokens: 100000, reserveOutputTokens: 1000 },
+    segments: [
+      buildSegment("read-1-output", "read", "/repo/a.ts", "const a = 1;\n".repeat(100), "output"),
+      buildSegment("read-2-output", "read", "/repo/a.ts", "const a = 2;\n", "output"),
+    ],
+    metadata: {
+      workspaceDir: "/tmp",
+      policy: {
+        decisions: {
+          reduction: {
+            instructions: [{ strategy: "read_state_compaction", segmentIds: ["read-1-output"] }],
+          },
+        },
+      },
+    },
+  });
+
+  const result = await readStateCompactionPass.beforeCall?.({
+    turnCtx,
+    spec: {
+      id: "read_state_compaction",
+      phase: "before_call",
+      target: "context_segment",
+      options: { archiveDir: "/tmp/lightrsi-immutable-test" },
+    },
+  });
+
+  assert.equal(result?.changed, true);
+  assert.equal(result?.turnCtx?.segments[0]?.text.includes("[Read superseded]"), true);
 });
 
 test("readStateCompactionPass replaces superseded reads with state stub", async () => {

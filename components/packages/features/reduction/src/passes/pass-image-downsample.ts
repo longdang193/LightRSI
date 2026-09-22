@@ -1,4 +1,4 @@
-import type { ReductionPassHandler } from "../reduction/types.js";
+import type { ImmutableReductionPassHandler } from "../reduction/types.js";
 import { createImagePlaceholder, createSvgPlaceholder } from "../analyzers/image-downsample-analyzer.js";
 
 type AsObject<T> = T extends Record<string, unknown> ? T : Record<string, unknown>;
@@ -86,7 +86,8 @@ const applyImageDownsample = (
   };
 };
 
-export const imageDownsamplePass: ReductionPassHandler = {
+export const imageDownsamplePass: ImmutableReductionPassHandler = {
+  immutableInput: true,
   afterCall({ currentResult, spec, turnCtx }) {
     // Check if policy provided instructions for this strategy
     const policy = asObject(turnCtx.metadata?.policy);

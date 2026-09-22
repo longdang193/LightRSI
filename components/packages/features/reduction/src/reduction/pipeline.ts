@@ -144,6 +144,13 @@ const isPhaseMatch = (spec: ReductionPassSpec, phase: ReductionPhase): boolean =
 const cloneTurnContext = (turnCtx: RuntimeTurnContext): RuntimeTurnContext =>
   structuredClone(turnCtx);
 
+const publishTurnContext = (target: RuntimeTurnContext, source: RuntimeTurnContext): void => {
+  for (const key of Object.keys(target)) {
+    if (!(key in source)) delete (target as Record<string, unknown>)[key];
+  }
+  Object.assign(target, source);
+};
+
 export function readReductionMetadata(metadata?: Record<string, unknown>): ReductionMetadata {
   const raw = metadata?.reduction;
   if (!raw || typeof raw !== "object") return {};
@@ -201,16 +208,16 @@ export async function runReductionBeforeCall(
     }
 
     const beforeChars = totalSegmentChars(currentCtx);
-    const beforeCtx = cloneTurnContext(currentCtx);
+    const immutableInput = handler.immutableInput === true;
+    const workingCtx = immutableInput ? currentCtx : cloneTurnContext(currentCtx);
     const startedAt = Date.now();
     let outcome: Awaited<ReturnType<NonNullable<ReductionPassHandler["beforeCall"]>>>;
     try {
       outcome = await handler.beforeCall({
-        turnCtx: currentCtx,
+        turnCtx: workingCtx,
         spec,
       });
     } catch (error) {
-      currentCtx = beforeCtx;
       report.push({
         id: spec.id,
         phase: "before_call",
@@ -235,6 +242,16 @@ export async function runReductionBeforeCall(
             },
           }
         : outcome.turnCtx;
+    } else if (!immutableInput) {
+      currentCtx = outcome.metadata
+        ? {
+            ...workingCtx,
+            metadata: {
+              ...(workingCtx.metadata ?? {}),
+              ...outcome.metadata,
+            },
+          }
+        : workingCtx;
     } else if (outcome.metadata) {
       currentCtx = {
         ...currentCtx,
@@ -300,23 +317,19 @@ export async function runReductionAfterCall(
     }
 
     const beforeChars = currentResult.content.length;
-    const beforeResult = structuredClone(currentResult);
-    const beforeTurnCtx = cloneTurnContext(turnCtx);
+    const immutableInput = handler.immutableInput === true;
+    const workingResult = immutableInput ? currentResult : structuredClone(currentResult);
+    const workingTurnCtx = immutableInput ? turnCtx : cloneTurnContext(turnCtx);
     const startedAt = Date.now();
     let outcome: Awaited<ReturnType<NonNullable<ReductionPassHandler["afterCall"]>>>;
     try {
       outcome = await handler.afterCall({
-        turnCtx,
-        originalResult: result,
-        currentResult,
+        turnCtx: workingTurnCtx,
+        originalResult: immutableInput ? result : structuredClone(result),
+        currentResult: workingResult,
         spec,
       });
     } catch (error) {
-      currentResult = beforeResult;
-      for (const key of Object.keys(turnCtx)) {
-        if (!(key in beforeTurnCtx)) delete (turnCtx as Record<string, unknown>)[key];
-      }
-      Object.assign(turnCtx, beforeTurnCtx);
       report.push({
         id: spec.id,
         phase: "after_call",
@@ -331,6 +344,8 @@ export async function runReductionAfterCall(
       continue;
     }
 
+    if (!immutableInput) publishTurnContext(turnCtx, workingTurnCtx);
+
     if (outcome.result) {
       currentResult = outcome.metadata
         ? {
@@ -341,6 +356,16 @@ export async function runReductionAfterCall(
             },
           }
         : outcome.result;
+    } else if (!immutableInput) {
+      currentResult = outcome.metadata
+        ? {
+            ...workingResult,
+            metadata: {
+              ...(workingResult.metadata ?? {}),
+              ...outcome.metadata,
+            },
+          }
+        : workingResult;
     } else if (outcome.metadata) {
       currentResult = {
         ...currentResult,

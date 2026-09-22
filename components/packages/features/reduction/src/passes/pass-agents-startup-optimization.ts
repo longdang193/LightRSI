@@ -1,4 +1,4 @@
-import type { ReductionPassHandler } from "../reduction/types.js";
+import type { ImmutableReductionPassHandler } from "../reduction/types.js";
 
 type AsObject<T> = T extends Record<string, unknown> ? T : Record<string, unknown>;
 
@@ -87,7 +87,8 @@ function replaceMemorySection(content: string): { content: string; changed: bool
   return { content: newContent, changed: newContent !== content };
 }
 
-export const agentsStartupOptimizationPass: ReductionPassHandler = {
+export const agentsStartupOptimizationPass: ImmutableReductionPassHandler = {
+  immutableInput: true,
   beforeCall({ turnCtx, spec }) {
     // Check if enabled
     const options = spec.options ?? {};
@@ -107,6 +108,7 @@ export const agentsStartupOptimizationPass: ReductionPassHandler = {
     let agentsSegmentFound = false;
 
     // Find segments that contain an injected agent instruction file.
+    const nextSegments = [...turnCtx.segments];
     for (let i = 0; i < turnCtx.segments.length; i += 1) {
       const segment = turnCtx.segments[i];
       const text = segment.text;
@@ -147,7 +149,7 @@ export const agentsStartupOptimizationPass: ReductionPassHandler = {
         modifiedSegmentCount++;
         modifiedSegmentIds.push(segment.id);
 
-        turnCtx.segments[i] = {
+        nextSegments[i] = {
           ...segment,
           text: newContent,
         };
@@ -171,6 +173,10 @@ export const agentsStartupOptimizationPass: ReductionPassHandler = {
 
     return {
       changed: true,
+      turnCtx: {
+        ...turnCtx,
+        segments: nextSegments,
+      },
       note: `agents_startup_optimization: modified ${modifiedSegmentCount} segments, prevented redundant read instructions (~${totalSavedChars} chars)`,
       touchedSegmentIds: modifiedSegmentIds,
       metadata: {

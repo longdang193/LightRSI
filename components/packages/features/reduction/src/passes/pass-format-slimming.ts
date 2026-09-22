@@ -1,5 +1,5 @@
 import type { RuntimeTurnResult, RuntimeTurnContext } from "@lightrsi/kernel";
-import type { ReductionPassHandler } from "../reduction/types.js";
+import type { ImmutableReductionPassHandler } from "../reduction/types.js";
 
 type AsObject<T> = T extends Record<string, unknown> ? T : Record<string, unknown>;
 
@@ -35,7 +35,8 @@ const applyFormatSlimming = (
   };
 };
 
-export const formatSlimmingPass: ReductionPassHandler = {
+export const formatSlimmingPass: ImmutableReductionPassHandler = {
+  immutableInput: true,
   afterCall({ currentResult, spec, turnCtx }) {
     // Check if policy provided instructions for this strategy
     const policy = asObject(turnCtx.metadata?.policy);
