@@ -40,7 +40,8 @@ export function resolveReductionPass(
   id: ReductionPassId,
   overrides?: ReductionPassRegistry,
 ): ReductionPassHandler | undefined {
-  return overrides?.[id] ?? BUILTIN_PASSES[id as BuiltinReductionPassId];
+  const override = overrides?.[id];
+  return override ? { ...override, immutableInput: false } : BUILTIN_PASSES[id as BuiltinReductionPassId];
 }
 
 export function listBuiltinReductionPasses(): BuiltinReductionPassId[] {
