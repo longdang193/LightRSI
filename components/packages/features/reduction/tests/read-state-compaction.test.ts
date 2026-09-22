@@ -67,6 +67,16 @@ test("classifyReadStates does not mark different read windows as superseded", ()
   assert.equal(states.get("read-2-output"), "fresh");
 });
 
+test("classifyReadStates preserves explicit offset zero in read identity", () => {
+  const states = classifyReadStates([
+    buildSegment("read-1-output", "read", "/repo/a.ts", "const a = 1;", "output", { offset: 0, limit: 200 }),
+    buildSegment("read-2-output", "read", "/repo/a.ts", "const b = 2;", "output", { offset: 200, limit: 200 }),
+  ]);
+
+  assert.equal(states.get("read-1-output"), "fresh");
+  assert.equal(states.get("read-2-output"), "fresh");
+});
+
 test("classifyReadStates marks read as stale when file is edited later", () => {
   const states = classifyReadStates([
     buildSegment("read-1-output", "read", "/repo/a.ts", "const a = 1;", "output"),

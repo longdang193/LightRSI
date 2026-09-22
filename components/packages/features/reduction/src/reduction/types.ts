@@ -1,4 +1,5 @@
 import type { ContextSegment, RuntimeTurnContext, RuntimeTurnResult } from "@lightrsi/kernel";
+import type { ReadStateClassification } from "./read-state-compaction.js";
 
 export type BuiltinReductionPassId =
   | "read_state_compaction"
@@ -41,6 +42,12 @@ export type DeepReadonly<T> = T extends (...args: never[]) => unknown
 export type ReductionBeforeCallContext = {
   turnCtx: RuntimeTurnContext;
   spec: ReductionPassSpec;
+  requestState?: ReductionRequestState;
+};
+
+export type ReductionRequestState = {
+  segmentIndex?: Map<string, ContextSegment>;
+  readStateClassifications?: Map<string, ReadStateClassification>;
 };
 
 export type ReductionBeforeCallOutcome = {
@@ -62,6 +69,7 @@ export type ReductionAfterCallContext = {
 export type ImmutableReductionBeforeCallContext = {
   turnCtx: DeepReadonly<RuntimeTurnContext>;
   spec: DeepReadonly<ReductionPassSpec>;
+  requestState?: ReductionRequestState;
 };
 
 export type ImmutableReductionAfterCallContext = {

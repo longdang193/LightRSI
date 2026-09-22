@@ -8,6 +8,7 @@ import type {
   ReductionPassHandler,
   ReductionPassSpec,
   ReductionReportEntry,
+  ReductionRequestState,
 } from "./types.js";
 
 export type RunReductionBeforeCallParams = {
@@ -15,6 +16,7 @@ export type RunReductionBeforeCallParams = {
   passes: ReductionPassSpec[];
   registry?: ReductionPassRegistry;
   frozenSegmentIds?: ReadonlySet<string>;
+  requestState?: ReductionRequestState;
 };
 
 export type RunReductionAfterCallParams = {
@@ -165,6 +167,7 @@ export async function runReductionBeforeCall(
   params: RunReductionBeforeCallParams,
 ): Promise<{ turnCtx: RuntimeTurnContext; report: ReductionReportEntry[] }> {
   const { turnCtx, passes, registry, frozenSegmentIds } = params;
+  const requestState = params.requestState ?? {};
   let currentCtx: RuntimeTurnContext = {
     ...turnCtx,
     segments: frozenSegmentIds?.size
@@ -172,6 +175,7 @@ export async function runReductionBeforeCall(
       : turnCtx.segments,
   };
   const report: ReductionReportEntry[] = [];
+  requestState.segmentIndex = new Map(currentCtx.segments.map((segment) => [segment.id, segment]));
 
   for (const rawSpec of passes) {
     const spec = clonePass(rawSpec);
@@ -216,6 +220,7 @@ export async function runReductionBeforeCall(
       outcome = await handler.beforeCall({
         turnCtx: workingCtx,
         spec,
+        requestState,
       });
     } catch (error) {
       report.push({
@@ -274,6 +279,7 @@ export async function runReductionBeforeCall(
       durationMs: Date.now() - startedAt,
       touchedSegmentIds: outcome.touchedSegmentIds,
     });
+    requestState.segmentIndex = new Map(currentCtx.segments.map((segment) => [segment.id, segment]));
   }
 
   return { turnCtx: currentCtx, report };

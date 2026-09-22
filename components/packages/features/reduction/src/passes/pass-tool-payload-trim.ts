@@ -12,13 +12,11 @@ import {
   type ToolPayloadRouteConfig,
 } from "../reduction/tool-payload-router.js";
 import {
-  hasRecoveryMarker,
-  hasRecoverySkipReductionFlag,
-  isRecoveryText,
-  MEMORY_FAULT_RECOVER_TOOL_NAME,
-} from "@lightrsi/artifact-store";
-import { classifyReadStates, isReadOutputSegment } from "../reduction/read-state-compaction.js";
+  analyzeReadStateCompaction,
+  isReadOutputSegment,
+} from "../reduction/read-state-compaction.js";
 import { resourceKey } from "../reduction/resource-key.js";
+import { isRecoveryExemptSegment } from "../reduction/recovery-exemptions.js";
 
 const DEFAULT_MAX_CHARS = 1200;
 const DEFAULT_HEAD_LINES = 8;
@@ -221,17 +219,9 @@ const readDisclosedReadPaths = (metadata: Record<string, unknown> | undefined): 
   return [...next].slice(-MAX_DISCLOSED_READ_PATHS);
 };
 
-const isRecoveryExemptSegment = (segment: ContextSegment): boolean => {
-  const meta = asObject(segment.metadata);
-  if (hasRecoverySkipReductionFlag(meta, asObject)) return true;
-  if (hasRecoveryMarker(meta, asObject)) return true;
-  if (extractToolName(segment) === MEMORY_FAULT_RECOVER_TOOL_NAME) return true;
-  return isRecoveryText(segment.text);
-};
-
 export const toolPayloadTrimPass: ImmutableReductionPassHandler = {
   immutableInput: true,
-  async beforeCall({ turnCtx, spec }) {
+  async beforeCall({ turnCtx, spec, requestState }) {
     const cfg = resolveConfig(spec.options);
 
     // Check if policy provided instructions for this strategy
@@ -259,7 +249,8 @@ export const toolPayloadTrimPass: ImmutableReductionPassHandler = {
     for (const instr of toolPayloadInstructions) {
       const payloadKind = (instr.parameters?.payloadKind as ToolPayloadKind) ?? "stdout";
       for (const id of instr.segmentIds) {
-        const segment = turnCtx.segments.find((s) => s.id === id);
+        const segment = requestState?.segmentIndex?.get(id)
+          ?? turnCtx.segments.find((s) => s.id === id);
         if (segment) {
           segmentMap.set(id, { segment, payloadKind });
         }
@@ -277,7 +268,12 @@ export const toolPayloadTrimPass: ImmutableReductionPassHandler = {
     const touchedSegmentIds: string[] = [];
     const reducedKinds = new Set<ToolPayloadKind>();
     const reducedRoutes = new Set<string>();
-    const readStateBySegmentId = classifyReadStates(turnCtx.segments);
+    const readStateClassifications = requestState?.readStateClassifications
+      ?? analyzeReadStateCompaction(turnCtx.segments);
+    if (requestState) requestState.readStateClassifications = readStateClassifications;
+    const readStateBySegmentId = new Map(
+      [...readStateClassifications].map(([id, value]) => [id, value.state]),
+    );
     const previouslyReadPaths = new Set<string>(readDisclosedReadPaths(turnCtx.metadata));
 
     const workspaceDir =
@@ -351,6 +347,7 @@ export const toolPayloadTrimPass: ImmutableReductionPassHandler = {
         dataKey,
         originalText: segment.text,
         workspaceDir,
+        archivePath,
         metadata: {
           payloadKind: entry.payloadKind,
           contentRoute: reduced.route,

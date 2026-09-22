@@ -2,6 +2,7 @@ import type { ContextSegment } from "@lightrsi/kernel";
 import type { ImmutableReductionPassHandler } from "../reduction/types.js";
 import {
   archiveContent,
+  buildArchiveLocation,
   buildRecoveryHint,
   buildRecoveryContextSafePatch,
 } from "@lightrsi/artifact-store";
@@ -10,6 +11,7 @@ import {
   isReadOutputSegment,
   normalizeToolName,
 } from "../reduction/read-state-compaction.js";
+import { isRecoveryExemptSegment } from "../reduction/recovery-exemptions.js";
 
 const DEFAULT_HEAD_PREVIEW_SIZE = 400;
 const DEFAULT_TAIL_PREVIEW_SIZE = 240;
@@ -114,7 +116,7 @@ function buildLifecycleStub(params: {
 
 export const readStateCompactionPass: ImmutableReductionPassHandler = {
   immutableInput: true,
-  beforeCall: async ({ turnCtx, spec }) => {
+  beforeCall: async ({ turnCtx, spec, requestState }) => {
     const config = resolveConfig(spec.options);
     if (!config.enabled) {
       return {
@@ -145,7 +147,9 @@ export const readStateCompactionPass: ImmutableReductionPassHandler = {
       }
     }
 
-    const readStates = analyzeReadStateCompaction(turnCtx.segments);
+    const readStates = requestState?.readStateClassifications
+      ?? analyzeReadStateCompaction(turnCtx.segments);
+    if (requestState) requestState.readStateClassifications = readStates;
     if (readStates.size === 0) {
       return {
         changed: false,
@@ -165,6 +169,7 @@ export const readStateCompactionPass: ImmutableReductionPassHandler = {
     const nextSegments = await Promise.all(turnCtx.segments.map(async (segment) => {
       if (!isReadOutputSegment(segment)) return segment;
       if (!eligibleSegmentIds.has(segment.id)) return segment;
+      if (isRecoveryExemptSegment(segment)) return segment;
       const classification = readStates.get(segment.id);
       if (!classification) return segment;
       if (classification.state === "fresh") return segment;
@@ -174,20 +179,11 @@ export const readStateCompactionPass: ImmutableReductionPassHandler = {
       const meta = asObject(segment.metadata);
       const toolName = normalizeToolName(meta) ?? "read";
       const dataKey = extractDataKey(segment);
-      const { archivePath } = await archiveContent({
+      const { archivePath } = buildArchiveLocation({
         sessionId: turnCtx.sessionId,
         segmentId: segment.id,
-        sourcePass: "read_state_compaction",
-        toolName,
-        dataKey,
-        originalText: segment.text,
         workspaceDir,
         archiveDir: config.archiveDir,
-        metadata: {
-          lifecycleState: classification.state,
-          lifecycleReason: classification.reason,
-          triggeringIndex: classification.triggeringIndex,
-        },
       });
 
       const replacementText = buildLifecycleStub({
@@ -203,6 +199,23 @@ export const readStateCompactionPass: ImmutableReductionPassHandler = {
       if (replacementText.length >= segment.text.length) {
         return segment;
       }
+
+      await archiveContent({
+        sessionId: turnCtx.sessionId,
+        segmentId: segment.id,
+        sourcePass: "read_state_compaction",
+        toolName,
+        dataKey,
+        originalText: segment.text,
+        workspaceDir,
+        archiveDir: config.archiveDir,
+        archivePath,
+        metadata: {
+          lifecycleState: classification.state,
+          lifecycleReason: classification.reason,
+          triggeringIndex: classification.triggeringIndex,
+        },
+      });
 
       touchedSegmentIds.push(segment.id);
       replacedStates.add(classification.state);

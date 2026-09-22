@@ -205,13 +205,14 @@ function summarizeJsonText(text: string, cfg: PayloadBlockConfig): string {
   return summarizeJsonTextWithContext(text, cfg);
 }
 
-function minifyJsonLossless(text: string): string | undefined {
+function minifyJsonLossless(text: string, maxChars: number): string | undefined {
   let inString = false;
   let escaped = false;
   let output = "";
   for (const character of text) {
     if (inString) {
       output += character;
+      if (output.length > maxChars) return undefined;
       if (escaped) escaped = false;
       else if (character === "\\") escaped = true;
       else if (character === '"') inString = false;
@@ -219,6 +220,7 @@ function minifyJsonLossless(text: string): string | undefined {
     }
     if (/\s/.test(character)) continue;
     output += character;
+    if (output.length > maxChars) return undefined;
     if (character === '"') inString = true;
   }
   return inString ? undefined : output;
@@ -232,9 +234,8 @@ function summarizeJsonTextWithContext(
 ): string {
   try {
     const parsed = parsedOverride ?? JSON.parse(text);
-    const minified = minifyJsonLossless(text);
-    if (!minified) return summarizeLineBlock(text, "json", cfg);
-    if (minified.length <= cfg.maxChars) {
+    const minified = minifyJsonLossless(text, cfg.maxChars);
+    if (minified) {
       return minified;
     }
 
@@ -430,8 +431,16 @@ function summarizeLogOutput(text: string, cfg: PayloadBlockConfig): string {
   const add = (line: string): void => {
     if (selected.size < capacity) selected.add(line);
   };
-  const failures = lines.filter((line) => /\b(error|failed|exception|traceback|panic|fatal|denied|timeout)\b/i.test(line));
-  for (const line of failures.slice(-Math.max(2, cfg.maxItems))) add(line);
+  const severity = (line: string): number => {
+    if (/\bfatal|panic|exception|traceback\b/i.test(line)) return 4;
+    if (/\bfailed|error|denied|timeout\b/i.test(line)) return 3;
+    return 2;
+  };
+  const failures = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => /\b(error|failed|exception|traceback|panic|fatal|denied|timeout)\b/i.test(line))
+    .sort((a, b) => severity(b.line) - severity(a.line) || a.index - b.index);
+  for (const failure of failures.slice(0, Math.max(2, cfg.maxItems))) add(failure.line);
   for (let i = 0; i < lines.length; i += 1) {
     if (!STACK_TRACE_RE.test(lines[i])) continue;
     add(lines[i]);
@@ -727,7 +736,7 @@ function summarizeDiffOutput(text: string, cfg: PayloadBlockConfig): string {
   }
 
   const output: string[] = [
-    `[diff reduced files=${files.size} displayed_files=${ranked.length} omitted_files=${Math.max(0, files.size - ranked.length)} total_lines=${lines.length} recoverable=true]`,
+    `[diff reduced files=${files.size} displayed_files=${ranked.length} omitted_files=${Math.max(0, files.size - ranked.length)} total_lines=${lines.length} lossy=true recovery=archive_required]`,
   ];
   for (const item of ranked) {
     const identity = item.status === "renamed" && item.oldFile && item.newFile

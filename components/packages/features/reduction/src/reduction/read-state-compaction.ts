@@ -92,7 +92,7 @@ const extractReadWindow = (metadata: Record<string, unknown> | undefined): ReadW
     ?? asObject(toolPayload?.readWindow);
   if (!candidate) return undefined;
   const offset =
-    typeof candidate.offset === "number" && Number.isFinite(candidate.offset) && candidate.offset > 0
+    typeof candidate.offset === "number" && Number.isFinite(candidate.offset) && candidate.offset >= 0
       ? Math.floor(candidate.offset)
       : undefined;
   const limit =
@@ -175,49 +175,33 @@ export function analyzeReadStateCompaction(
   segments: ReadonlyArray<ContextSegment | ReadonlyContextSegment>,
 ): Map<string, ReadStateClassification> {
   const events = collectFileEvents(segments);
-  const eventsByDataKey = new Map<string, FileEvent[]>();
-
-  for (const event of events) {
-    const bucket = eventsByDataKey.get(event.dataKey) ?? [];
-    bucket.push(event);
-    eventsByDataKey.set(event.dataKey, bucket);
-  }
-
   const stateBySegmentId = new Map<string, ReadStateClassification>();
+  const nearestMutationByDataKey = new Map<string, number>();
+  const nearestReadByReadKey = new Map<string, number>();
 
-  for (const bucket of eventsByDataKey.values()) {
-    const reads = bucket.filter((event): event is ReadEvent => event.kind === "read");
-    if (reads.length === 0) continue;
-
-    for (const read of reads) {
-      let state: ReadState = "fresh";
-      let reason: ReadStateReason = "none";
-      let triggeringIndex: number | undefined;
-      for (const event of bucket) {
-        if (event.index <= read.index) continue;
-        if (event.kind === "mutate") {
-          state = "stale";
-          reason = "later_mutation";
-          triggeringIndex = event.index;
-          break;
-        }
-        if (event.kind === "read") {
-          if (event.readKey !== read.readKey) continue;
-          state = "superseded";
-          reason = "later_read";
-          triggeringIndex = event.index;
-          break;
-        }
-      }
-      stateBySegmentId.set(read.segmentId, {
-        segmentId: read.segmentId,
-        dataKey: read.dataKey,
-        readKey: read.readKey,
-        state,
-        reason,
-        triggeringIndex,
-      });
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const event = events[eventIndex];
+    if (event.kind === "mutate") {
+      nearestMutationByDataKey.set(event.dataKey, event.index);
+      continue;
     }
+
+    const mutationIndex = nearestMutationByDataKey.get(event.dataKey);
+    const laterReadIndex = nearestReadByReadKey.get(event.readKey);
+    const state = mutationIndex != null && (laterReadIndex == null || mutationIndex < laterReadIndex)
+      ? "stale"
+      : laterReadIndex != null
+        ? "superseded"
+        : "fresh";
+    stateBySegmentId.set(event.segmentId, {
+      segmentId: event.segmentId,
+      dataKey: event.dataKey,
+      readKey: event.readKey,
+      state,
+      reason: state === "stale" ? "later_mutation" : state === "superseded" ? "later_read" : "none",
+      triggeringIndex: state === "stale" ? mutationIndex : laterReadIndex,
+    });
+    nearestReadByReadKey.set(event.readKey, event.index);
   }
 
   return stateBySegmentId;

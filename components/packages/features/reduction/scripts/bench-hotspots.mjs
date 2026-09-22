@@ -81,7 +81,7 @@ async function measure(name, input, operation) {
 
 const analyzerResults = [];
 for (const mode of ["repeated", "interleaved", "mutating"]) {
-  for (const count of [20, 50, 100]) {
+  for (const count of [1_000, 2_000, 4_000, 8_000]) {
     const segments = buildSegments(count, mode);
     const measured = await measure(`read-state:${mode}:${count}`, segments, (value) => analyzeReadStateCompaction(value));
     const classifications = measured.output.instructions.reduce((counts, instruction) => {
@@ -89,7 +89,13 @@ for (const mode of ["repeated", "interleaved", "mutating"]) {
       counts[state] = (counts[state] ?? 0) + instruction.segmentIds.length;
       return counts;
     }, {});
-    analyzerResults.push({ ...measured, output: undefined, instructionCount: measured.output.instructions.length, classifications });
+    analyzerResults.push({
+      ...measured,
+      output: undefined,
+      eventCount: segments.length,
+      instructionCount: measured.output.instructions.length,
+      classifications,
+    });
   }
 }
 
