@@ -32,7 +32,7 @@ import { loadCodexSessionSnapshot } from "../src/session-state.js";
 import { loadProviderEnvFile, providerModelFromEnvironment } from "./context-rebase-smoke.js";
 import { createBenchmarkTiming, type BenchmarkTimingSnapshot } from "../src/benchmark-timing.js";
 import { createConsoleLogger } from "../src/logger.js";
-import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
+import { computeEncodedProviderWirePrefixDiagnostics, startCodexResponsesProxy } from "../src/proxy-runtime.js";
 
 type JsonObject = Record<string, unknown>;
 type Arm = "baseline" | "cleaner";
@@ -57,6 +57,11 @@ type UpstreamRequest = {
   providerUsage: ProviderUsage | null;
   providerLatencyMs: number | null;
   providerHeadersLatencyMs: number | null;
+  promptCacheKey: string | null;
+  responsePromptCacheKey: string | null;
+  providerWirePrefixHash: string;
+  providerWirePrefixItemCount: number;
+  promptCacheBreakpoint: boolean;
   outputItemTypes: string[];
 };
 
@@ -73,6 +78,8 @@ type LiveOptions = {
   baseUrl: string;
   model: string;
 };
+
+const BENCHMARK_STABLE_INSTRUCTIONS = "Stable benchmark policy. ".repeat(512).trim();
 
 type TurnResult = {
   label: string;
@@ -114,6 +121,11 @@ export type ProviderShape = {
   outputItemTypes: string[];
   providerLatencyMs: number | null;
   providerHeadersLatencyMs: number | null;
+  promptCacheKey?: string | null;
+  responsePromptCacheKey?: string | null;
+  providerWirePrefixHash?: string;
+  providerWirePrefixItemCount?: number;
+  promptCacheBreakpoint?: boolean;
 };
 
 function createFixture(name: FixtureName): Fixture {
@@ -188,7 +200,24 @@ async function startUpstream(initialRequestCount = 0): Promise<{
       response: { id: responseId, status: "completed" },
     })}data: [DONE]\n\n`);
     const finishedAt = performance.now();
-    requests.push({ body, inputBytes, startedAt, headersAt, firstChunkAt, finishedAt, providerUsage: null, providerLatencyMs: finishedAt - startedAt, providerHeadersLatencyMs: headersAt - startedAt, outputItemTypes: ["message"] });
+    const prefixDiagnostics = computeEncodedProviderWirePrefixDiagnostics(body);
+    requests.push({
+      body,
+      inputBytes,
+      startedAt,
+      headersAt,
+      firstChunkAt,
+      finishedAt,
+      providerUsage: null,
+      providerLatencyMs: finishedAt - startedAt,
+      providerHeadersLatencyMs: headersAt - startedAt,
+      promptCacheKey: typeof body.prompt_cache_key === "string" ? body.prompt_cache_key : null,
+      responsePromptCacheKey: null,
+      providerWirePrefixHash: prefixDiagnostics.fullHash,
+      providerWirePrefixItemCount: prefixDiagnostics.inputItems.length,
+      promptCacheBreakpoint: hasPromptCacheBreakpoint(body.input),
+      outputItemTypes: ["message"],
+    });
   });
   const port = await reserveUnusedPort();
   await new Promise<void>((resolve, reject) => {
@@ -228,6 +257,17 @@ function providerUsage(value: unknown): ProviderUsage | null {
   };
 }
 
+function hasPromptCacheBreakpoint(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const content = (item as JsonObject).content;
+    return Array.isArray(content) && content.some((block: unknown) => (
+      block && typeof block === "object" && "prompt_cache_breakpoint" in (block as JsonObject)
+    ));
+  });
+}
+
 async function consumeProviderResponse(response: Response, request: UpstreamRequest): Promise<void> {
   const reader = response.body?.getReader();
   if (!reader) {
@@ -258,6 +298,13 @@ async function consumeProviderResponse(response: Response, request: UpstreamRequ
           request.firstChunkAt = performance.now();
         }
         request.providerUsage = providerUsage(event.response) ?? providerUsage(event) ?? request.providerUsage;
+        const eventResponse = event.response && typeof event.response === "object"
+          ? event.response as JsonObject
+          : event;
+        const responsePromptCacheKey = typeof eventResponse.prompt_cache_key === "string"
+          ? eventResponse.prompt_cache_key
+          : null;
+        if (responsePromptCacheKey) request.responsePromptCacheKey = responsePromptCacheKey;
       } catch {
         // Provider stream diagnostics stay in memory only; malformed events remain unknown.
       }
@@ -283,6 +330,7 @@ function captureLiveProvider(baseUrl: string): {
     if (!url.startsWith(`${endpointPrefix}/responses`)) return originalFetch(input, init);
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as JsonObject : {};
     const inputValue = body.input ?? body;
+    const prefixDiagnostics = computeEncodedProviderWirePrefixDiagnostics(body);
     const request: UpstreamRequest = {
       body,
       inputBytes: Buffer.byteLength(JSON.stringify(inputValue), "utf8"),
@@ -293,6 +341,11 @@ function captureLiveProvider(baseUrl: string): {
       providerUsage: null,
       providerLatencyMs: null,
       providerHeadersLatencyMs: null,
+      promptCacheKey: typeof body.prompt_cache_key === "string" ? body.prompt_cache_key : null,
+      responsePromptCacheKey: null,
+      providerWirePrefixHash: prefixDiagnostics.fullHash,
+      providerWirePrefixItemCount: prefixDiagnostics.inputItems.length,
+      promptCacheBreakpoint: hasPromptCacheBreakpoint(body.input),
       outputItemTypes: [],
     };
     const response = await originalFetch(input, init);
@@ -362,6 +415,11 @@ function providerShape(request: UpstreamRequest): ProviderShape {
     outputItemTypes: request.outputItemTypes,
     providerLatencyMs: request.providerLatencyMs,
     providerHeadersLatencyMs: request.providerHeadersLatencyMs,
+    promptCacheKey: request.promptCacheKey,
+    responsePromptCacheKey: request.responsePromptCacheKey,
+    providerWirePrefixHash: request.providerWirePrefixHash,
+    providerWirePrefixItemCount: request.providerWirePrefixItemCount,
+    promptCacheBreakpoint: request.promptCacheBreakpoint,
   };
 }
 
@@ -376,7 +434,18 @@ export function providerShapesComparableBeforeRelease(
   const cleanerBoundary = cleanerLabels.indexOf("after_release_a");
   if (baselineBoundary < 0 || cleanerBoundary < 0 || baselineBoundary !== cleanerBoundary) return false;
   for (let index = 0; index < baselineBoundary; index += 1) {
-    if (baselineShapes[index]?.inputFingerprint !== cleanerShapes[index]?.inputFingerprint) return false;
+    const baseline = baselineShapes[index];
+    const cleaner = cleanerShapes[index];
+    if (baseline?.inputFingerprint !== cleaner?.inputFingerprint) return false;
+    if (baseline?.promptCacheKey !== undefined
+      && cleaner?.promptCacheKey !== undefined
+      && baseline.promptCacheKey !== cleaner.promptCacheKey) return false;
+    if (baseline?.providerWirePrefixHash !== undefined
+      && cleaner?.providerWirePrefixHash !== undefined
+      && baseline.providerWirePrefixHash !== cleaner.providerWirePrefixHash) return false;
+    if (baseline?.promptCacheBreakpoint !== undefined
+      && cleaner?.promptCacheBreakpoint !== undefined
+      && baseline.promptCacheBreakpoint !== cleaner.promptCacheBreakpoint) return false;
   }
   return true;
 }
@@ -408,6 +477,7 @@ async function sendTurn(params: {
   const requestBody = JSON.stringify({
     model: params.model,
     stream: true,
+    instructions: BENCHMARK_STABLE_INSTRUCTIONS,
     metadata: { tokenpilotSessionId: params.sessionId },
     input,
   });
@@ -563,7 +633,7 @@ function benchmarkConfig(
       wireApi: "responses",
       requiresOpenAIAuth: mode === "live",
     },
-    modules: { stabilizer: false, reduction: false },
+    modules: { stabilizer: true, reduction: false },
     contextRewrite: {
       enabled: true,
       providerCompatibilityProbe: mode === "live" ? "real_provider" : "mock_fixture",
