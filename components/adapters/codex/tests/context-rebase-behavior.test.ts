@@ -90,6 +90,7 @@ function baseResponsesPayload(): ResponsesPayload {
 function effectiveHistoryFixture(): CodexEffectiveHistory {
   return {
     revision: "history-rev-1",
+    historyFormat: "response_chain",
     replayableItems: [
       {
         stableItemId: "developer-1",
@@ -130,6 +131,123 @@ function effectiveHistoryFixture(): CodexEffectiveHistory {
     incomplete: false,
   };
 }
+
+test("CDR-02 removes selected cumulative occurrences from the forwarded full history", () => {
+  const history = effectiveHistoryFixture();
+  history.historyFormat = "cumulative";
+  const currentInput = history.replayableItems.map(({ item }) => item);
+  const originalPayload = {
+    ...baseResponsesPayload(),
+    input: currentInput,
+  };
+  delete originalPayload.previous_response_id;
+
+  const result = buildCodexRebaseRequest({
+    sessionId: "codex-session-cumulative-rebase",
+    planId: "plan-cumulative-rebase",
+    baseRevision: history.revision,
+    originalPayload,
+    effectiveHistory: history,
+    currentInput,
+    mutationPlan: {
+      operations: [{ type: "evict", stableItemId: "evicted-user-1" }],
+    },
+  });
+
+  const forwardedText = textFromResponsesInput(result.payload.input);
+  assert.equal(forwardedText.includes(EVICTED_SENTINEL), false);
+  assert.equal(forwardedText.includes(RETAINED_SENTINEL), true);
+});
+
+test("CDR-02 maps cumulative input when prior response items are absent", () => {
+  const history = effectiveHistoryFixture();
+  history.historyFormat = "cumulative";
+  history.replayableItems.splice(1, 0, {
+    stableItemId: "assistant-1",
+    nativeId: "msg-assistant-1",
+    item: { role: "assistant", content: "prior response not resent" },
+  });
+  const currentInput = history.replayableItems
+    .filter(({ stableItemId }) => stableItemId !== "assistant-1")
+    .map(({ item }) => item);
+  const originalPayload = { ...baseResponsesPayload(), input: currentInput };
+  delete originalPayload.previous_response_id;
+
+  const result = buildCodexRebaseRequest({
+    sessionId: "codex-session-cumulative-missing-response",
+    planId: "plan-cumulative-missing-response",
+    baseRevision: history.revision,
+    originalPayload,
+    effectiveHistory: history,
+    currentInput,
+    mutationPlan: {
+      operations: [{ type: "evict", stableItemId: "evicted-user-1" }],
+    },
+  });
+
+  const forwardedText = textFromResponsesInput(result.payload.input);
+  assert.equal(forwardedText.includes(EVICTED_SENTINEL), false);
+  assert.equal(forwardedText.includes(RETAINED_SENTINEL), true);
+});
+
+test("CDR-02 removes the original occurrence while retaining appended identical content", () => {
+  const history = effectiveHistoryFixture();
+  history.historyFormat = "cumulative";
+  const duplicate = { role: "user", content: "IDENTICAL_OCCURRENCE" };
+  history.replayableItems = [
+    ...history.replayableItems,
+    { stableItemId: "identical-old", item: duplicate },
+  ];
+  const currentInput = [
+    ...history.replayableItems.map(({ item }) => item),
+    duplicate,
+  ];
+  const originalPayload = { ...baseResponsesPayload(), input: currentInput };
+  delete originalPayload.previous_response_id;
+
+  const result = buildCodexRebaseRequest({
+    sessionId: "codex-session-cumulative-identical",
+    planId: "plan-cumulative-identical",
+    baseRevision: history.revision,
+    originalPayload,
+    effectiveHistory: history,
+    currentInput,
+    mutationPlan: {
+      operations: [{ type: "evict", stableItemId: "identical-old" }],
+    },
+  });
+
+  assert.equal(result.payload.input?.filter((item) => (
+    JSON.stringify(item).includes("IDENTICAL_OCCURRENCE")
+  )).length, 1);
+});
+
+test("CDR-01 refuses ambiguous cumulative occurrence mapping", () => {
+  const history = effectiveHistoryFixture();
+  history.historyFormat = "cumulative";
+  history.replayableItems.push({
+    stableItemId: "evicted-user-duplicate",
+    nativeId: "msg-user-duplicate",
+    item: history.replayableItems[1]!.item,
+  });
+  const currentInput = history.replayableItems
+    .filter(({ stableItemId }) => stableItemId !== "evicted-user-duplicate")
+    .map(({ item }) => item);
+  const originalPayload = { ...baseResponsesPayload(), input: currentInput };
+  delete originalPayload.previous_response_id;
+
+  assert.throws(() => buildCodexRebaseRequest({
+    sessionId: "codex-session-cumulative-ambiguous",
+    planId: "plan-cumulative-ambiguous",
+    baseRevision: history.revision,
+    originalPayload,
+    effectiveHistory: history,
+    currentInput,
+    mutationPlan: {
+      operations: [{ type: "evict", stableItemId: "evicted-user-duplicate" }],
+    },
+  }), /cumulative_occurrence_ambiguous/);
+});
 
 test("CDR-02 builds a rebase request that removes previous_response_id and evicted history", async () => {
   const originalPayload = baseResponsesPayload();
@@ -290,6 +408,28 @@ test("CDR-01 rejects effective history containing deferred provider items", () =
     currentInput: originalPayload.input,
     mutationPlan: { operations: [] },
   }), /effective_history_incomplete/);
+});
+
+test("CDR-01 allows unrelated incomplete history when selected input is complete", () => {
+  const originalPayload = baseResponsesPayload();
+  const effectiveHistory = effectiveHistoryFixture();
+  effectiveHistory.incomplete = true;
+  effectiveHistory.deferredItems.push({
+    stableItemId: "deferred-unrelated-1",
+    nativeId: "future-unrelated-1",
+    item: { type: "future_provider_item", payload: "opaque" },
+  });
+  delete originalPayload.previous_response_id;
+
+  assert.doesNotThrow(() => buildCodexRebaseRequest({
+    sessionId: "codex-session-1",
+    planId: "plan-unrelated-incomplete",
+    baseRevision: effectiveHistory.revision,
+    originalPayload,
+    effectiveHistory,
+    currentInput: originalPayload.input,
+    mutationPlan: { operations: [] },
+  }));
 });
 
 test("CDR-01 rejects mutations that break function call closure", () => {

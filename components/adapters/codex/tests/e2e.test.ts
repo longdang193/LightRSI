@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { createServer as createHttpServer } from "node:http";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import { join } from "node:path";
 import test from "node:test";
 import {
@@ -417,6 +417,120 @@ test("Codex streaming requests persist response-session mapping before the next 
         await runtime.close();
       }
     } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+});
+
+test("Codex streaming client abort settles context-history journal as incomplete", async () => {
+  await withTempHome("lightrsi-codex-stream-abort-journal-", async (homeDir) => {
+    const proxyPort = await reserveUnusedPort();
+    const upstreamPort = await reserveUnusedPort();
+    const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
+    const codexConfigPath = defaultCodexConfigPath();
+    const tokenPilotConfigPath = defaultTokenPilotConfigPath();
+
+    const upstream = createHttpServer(async (req, res) => {
+      if (req.method !== "POST" || req.url !== "/v1/responses") {
+        res.statusCode = 404;
+        res.end("not found");
+        return;
+      }
+      for await (const _chunk of req) {}
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/event-stream; charset=utf-8");
+      res.write("event: response.created\n");
+      res.write("data: {\"response\":{\"id\":\"resp-aborted\"}}\n\n");
+      await new Promise<void>((resolve) => res.once("close", resolve));
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      upstream.once("error", reject);
+      upstream.listen(upstreamPort, "127.0.0.1", () => {
+        upstream.off("error", reject);
+        resolve();
+      });
+    });
+
+    await writeTokenPilotCodexConfig(
+      normalizeTokenPilotCodexConfig({
+        proxyPort,
+        stateDir,
+        upstreamProvider: "OpenAI",
+        upstream: {
+          name: "OpenAI",
+          baseUrl: `http://127.0.0.1:${upstreamPort}/v1`,
+          wireApi: "responses",
+          requiresOpenAIAuth: true,
+        },
+        reduction: {
+          triggerMinChars: 999999,
+          maxToolChars: 999999,
+          passes: {
+            readStateCompaction: false,
+            toolPayloadTrim: false,
+            htmlSlimming: false,
+            execOutputTruncation: false,
+            agentsStartupOptimization: false,
+          },
+        },
+      }),
+      tokenPilotConfigPath,
+    );
+
+    const config = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
+    const runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+      codexConfigPath,
+    });
+
+    try {
+      await new Promise<void>((resolve) => {
+        const client = httpRequest(`${runtime.baseUrl}/responses`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+        }, (response) => {
+          response.once("data", () => {
+            client.destroy();
+            resolve();
+          });
+          response.once("error", () => resolve());
+        });
+        client.once("error", () => resolve());
+        client.once("close", () => resolve());
+        client.end(JSON.stringify({
+          model: "tokenpilot/gpt-5.4-mini",
+          stream: true,
+          input: [{ role: "user", content: "abort me" }],
+        }));
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const sessionIds = await readdir(join(stateDir, "context-history", "codex", "sessions"));
+      assert.equal(sessionIds.length, 1);
+      const sessionId = sessionIds[0] ?? "";
+      const journalPath = join(
+        stateDir,
+        "context-history",
+        "codex",
+        "sessions",
+        sessionId,
+        "journal.jsonl",
+      );
+      const journal = (await readFile(journalPath, "utf8"))
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { kind: string; status: string });
+
+      assert.deepEqual(journal.map((entry) => [entry.kind, entry.status]), [
+        ["request", "pending"],
+        ["response", "incomplete"],
+        ["request", "incomplete"],
+      ]);
+    } finally {
+      await runtime.close();
       await new Promise<void>((resolve) => upstream.close(() => resolve()));
     }
   });

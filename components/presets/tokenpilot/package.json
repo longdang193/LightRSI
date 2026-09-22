@@ -16,6 +16,7 @@
   "dependencies": {
     "@lightrsi/eviction": "workspace:*",
     "@lightrsi/history": "workspace:*",
+    "@lightrsi/host-adapter": "workspace:*",
     "@lightrsi/kernel": "workspace:*",
     "@lightrsi/product-surface": "workspace:*",
     "@lightrsi/reduction": "workspace:*",

@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
-import { normalizeTokenPilotCodexConfig } from "../src/config.js";
+import {
+  codexProxyBaseUrl,
+  loadTokenPilotCodexConfig,
+  normalizeTokenPilotCodexConfig,
+} from "../src/config.js";
 
 test("normalizeTokenPilotCodexConfig applies stable defaults", () => {
   const config = normalizeTokenPilotCodexConfig({});
@@ -20,7 +26,9 @@ test("normalizeTokenPilotCodexConfig applies stable defaults", () => {
   assert.equal(config.taskStateEstimator.requestTimeoutMs, undefined);
   assert.equal(config.taskStateEstimator.inputMode, undefined);
 });
-
+test("codexProxyBaseUrl uses canonical loopback port", () => {
+  assert.equal(codexProxyBaseUrl({ proxyPort: 17667 }), "http://127.0.0.1:17667/v1");
+});
 test("normalizeTokenPilotCodexConfig derives default stateDir from the tokenpilot config path", () => {
   const config = normalizeTokenPilotCodexConfig({}, {
     configPath: "/tmp/custom-codex-root/tokenpilot.json",

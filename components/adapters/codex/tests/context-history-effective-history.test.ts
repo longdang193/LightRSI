@@ -70,6 +70,31 @@ test("CDH-04 Effective History Builder marks an orphan incomplete response after
   });
 });
 
+test("CDH-04 Effective History View does not mark a pending-only session as committed-chain incomplete", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-pending-only";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-current",
+      turnOrdinal: 1,
+      payload: { input: [{ role: "user", content: "current" }] },
+      status: "pending",
+    });
+
+    const view = await buildCodexEffectiveHistoryView({
+      stateDir,
+      sessionId,
+      currentRequestId: "request-current",
+    });
+
+    assert.equal(view.history.incomplete, false);
+    assert.equal(view.semanticComplete, false);
+    assert.deepEqual(view.reasonCodes, ["journal_current_request_uncommitted"]);
+    assert.deepEqual(view.turns, []);
+  });
+});
+
 test("CDH-04 Effective History Builder preserves ordered turns when a provider reuses response ids", async () => {
   await withTempState(async (stateDir) => {
     const sessionId = "codex-session-reused-response-id";
@@ -165,6 +190,340 @@ test("CDH-04 Effective History View builds deterministic journal turn sidecars",
       assert.equal(turn.inputItemIds.every((itemId) => allItemIds.has(itemId)), true);
       assert.equal(turn.outputItemIds.every((itemId) => allItemIds.has(itemId)), true);
     }
+  });
+});
+
+test("effective history reconstructs verified cumulative requests without response ancestry", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-cumulative-history";
+    const turns = [
+      {
+        input: [{ id: "user-1", type: "message", role: "user", content: "first" }],
+        output: [{ id: "assistant-1", type: "message", role: "assistant", content: "answer 1" }],
+      },
+      {
+        input: [
+          { id: "user-1", type: "message", role: "user", content: "first" },
+          { id: "assistant-1", type: "message", role: "assistant", content: "answer 1" },
+          { id: "user-2", type: "message", role: "user", content: "second" },
+        ],
+        output: [{ id: "assistant-2", type: "message", role: "assistant", content: "answer 2" }],
+      },
+      {
+        input: [
+          { id: "user-1", type: "message", role: "user", content: "first" },
+          { id: "assistant-1", type: "message", role: "assistant", content: "answer 1" },
+          { id: "user-2", type: "message", role: "user", content: "second" },
+          { id: "assistant-2", type: "message", role: "assistant", content: "answer 2" },
+          { id: "user-3", type: "message", role: "user", content: "third" },
+        ],
+        output: [{ id: "assistant-3", type: "message", role: "assistant", content: "answer 3" }],
+      },
+    ];
+
+    for (const [index, turn] of turns.entries()) {
+      const turnOrdinal = index + 1;
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        turnOrdinal,
+        payload: { input: turn.input },
+        status: "completed",
+      });
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        response: { id: `response-${turnOrdinal}`, output: turn.output },
+        status: "completed",
+      });
+    }
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+
+    assert.equal(view.semanticComplete, true);
+    assert.deepEqual(view.reasonCodes, []);
+    assert.deepEqual(view.turns.map(({ turnSeq }) => turnSeq), [1, 2, 3]);
+  });
+});
+
+test("effective history accepts cumulative user-input prefixes without replayed responses", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-cumulative-user-only";
+    const inputs = [
+      [{ role: "user", content: "first" }],
+      [
+        { role: "user", content: "first" },
+        { role: "user", content: "second" },
+      ],
+    ];
+
+    for (const [index, input] of inputs.entries()) {
+      const turnOrdinal = index + 1;
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        turnOrdinal,
+        payload: { input },
+        status: "completed",
+      });
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        response: {
+          id: `response-${turnOrdinal}`,
+          output: [{ type: "message", role: "assistant", content: `answer ${turnOrdinal}` }],
+        },
+        status: "completed",
+      });
+    }
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+
+    assert.equal(view.semanticComplete, true);
+    assert.deepEqual(view.reasonCodes, []);
+    assert.match(JSON.stringify(view.history.replayableItems), /first/);
+    assert.match(JSON.stringify(view.history.replayableItems), /second/);
+  });
+});
+
+test("effective history accepts normalized provider replay items with stable IDs", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-cumulative-provider-normalization";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      turnOrdinal: 1,
+      payload: { input: [{ id: "user-1", type: "message", role: "user", content: "first" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{
+          id: "assistant-1",
+          type: "message",
+          status: "completed",
+          content: [{ type: "output_text", text: "answer", annotations: [], logprobs: [] }],
+          internal_chat_message_metadata_passthrough: { turn_id: "turn-1" },
+          phase: "final_answer",
+          role: "assistant",
+          metadata: { turn_id: "turn-1" },
+        }],
+      },
+      status: "completed",
+    });
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      turnOrdinal: 2,
+      payload: {
+        input: [
+          { id: "user-1", type: "message", role: "user", content: "first" },
+          {
+            id: "assistant-1",
+            type: "message",
+            content: [{ type: "output_text", text: "answer" }],
+            phase: "final_answer",
+            role: "assistant",
+          },
+          { id: "user-2", type: "message", role: "user", content: "second" },
+        ],
+      },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      response: { id: "response-2", output: [] },
+      status: "completed",
+    });
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+
+    assert.equal(view.semanticComplete, true);
+    assert.deepEqual(view.turns.map(({ turnSeq }) => turnSeq), [1, 2]);
+  });
+});
+
+test("effective history reuses identities for ID-less cumulative resends", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-cumulative-idless";
+    const turns = [
+      {
+        input: [{ type: "message", role: "user", content: "first" }],
+        output: [{ type: "message", role: "assistant", content: "answer 1" }],
+      },
+      {
+        input: [
+          { type: "message", role: "user", content: "first" },
+          { type: "message", role: "assistant", content: "answer 1" },
+          { type: "message", role: "user", content: "second" },
+        ],
+        output: [{ type: "message", role: "assistant", content: "answer 2" }],
+      },
+      {
+        input: [
+          { type: "message", role: "user", content: "first" },
+          { type: "message", role: "assistant", content: "answer 1" },
+          { type: "message", role: "user", content: "second" },
+          { type: "message", role: "assistant", content: "answer 2" },
+          { type: "message", role: "user", content: "third" },
+        ],
+        output: [{ type: "message", role: "assistant", content: "answer 3" }],
+      },
+    ];
+
+    for (const [index, turn] of turns.entries()) {
+      const turnOrdinal = index + 1;
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        turnOrdinal,
+        payload: { input: turn.input },
+        status: "completed",
+      });
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        response: { id: `response-${turnOrdinal}`, output: turn.output },
+        status: "completed",
+      });
+    }
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+    const allItems = [
+      ...view.history.replayableItems,
+      ...view.history.observationOnlyItems,
+      ...view.history.deferredItems,
+    ];
+
+    assert.equal(view.semanticComplete, true);
+    assert.equal(new Set(allItems.map(({ stableItemId }) => stableItemId)).size, 6);
+    assert.deepEqual(view.turns.map(({ turnSeq }) => turnSeq), [1, 2, 3]);
+  });
+});
+
+test("effective history keeps cumulative reconstruction when an explicit head is supplied", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-cumulative-explicit-head";
+    const turns = [
+      {
+        input: [{ type: "message", role: "user", content: "first" }],
+        output: [{ type: "message", role: "assistant", content: "answer 1" }],
+      },
+      {
+        input: [
+          { type: "message", role: "user", content: "first" },
+          { type: "message", role: "assistant", content: "answer 1" },
+          { type: "message", role: "user", content: "second" },
+        ],
+        output: [{ type: "message", role: "assistant", content: "answer 2" }],
+      },
+      {
+        input: [
+          { type: "message", role: "user", content: "first" },
+          { type: "message", role: "assistant", content: "answer 1" },
+          { type: "message", role: "user", content: "second" },
+          { type: "message", role: "assistant", content: "answer 2" },
+          { type: "message", role: "user", content: "third" },
+        ],
+        output: [{ type: "message", role: "assistant", content: "answer 3" }],
+      },
+    ];
+
+    for (const [index, turn] of turns.entries()) {
+      const turnOrdinal = index + 1;
+      await appendCodexRequestJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        turnOrdinal,
+        payload: { input: turn.input },
+        status: "completed",
+      });
+      await appendCodexResponseJournalEntry({
+        stateDir,
+        sessionId,
+        requestId: `request-${turnOrdinal}`,
+        response: { id: `response-${turnOrdinal}`, output: turn.output },
+        status: "completed",
+      });
+    }
+
+    const withoutHead = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+    const withHead = await buildCodexEffectiveHistoryView({
+      stateDir,
+      sessionId,
+      headResponseId: "response-3",
+    });
+
+    assert.deepEqual(withHead.turns, withoutHead.turns);
+    assert.deepEqual(withHead.history, withoutHead.history);
+  });
+});
+
+test("effective history defers ambiguous cumulative correspondence", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-ambiguous-cumulative-history";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      turnOrdinal: 1,
+      payload: { input: [{ type: "message", role: "user", content: "same" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{ type: "message", role: "assistant", content: "answer" }],
+      },
+      status: "completed",
+    });
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      turnOrdinal: 2,
+      payload: {
+        input: [
+          { type: "message", role: "user", content: "same" },
+          { type: "message", role: "assistant", content: "answer" },
+          { type: "message", role: "user", content: "same" },
+        ],
+      },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      response: { id: "response-2", output: [] },
+      status: "completed",
+    });
+
+    const view = await buildCodexEffectiveHistoryView({ stateDir, sessionId });
+
+    assert.equal(view.semanticComplete, false);
+    assert.equal(
+      view.reasonCodes.includes("journal_cumulative_correspondence_incomplete"),
+      true,
+    );
   });
 });
 
@@ -1193,6 +1552,44 @@ test("CDH-04 Effective History Builder defers summary-only reasoning and blocks 
     assert.equal(history.deferredItems.length, 1);
     assert.equal(history.deferredItems[0]?.item.type, "reasoning");
     assert.doesNotMatch(JSON.stringify(history.replayableItems), /summary only/);
+  });
+});
+
+test("CDH-04 Effective History Builder keeps completed Codex app tool output observation-only", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-host-tool";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: {
+        input: [
+          { role: "user", content: "continue" },
+          {
+            type: "function_call_output",
+            id: "fco-1",
+            name: "send_message_to_thread",
+            namespace: "codex_app",
+            output: "<codex_delegation>completed</codex_delegation>",
+          },
+        ],
+      },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: { id: "resp-1", output: [] },
+      status: "completed",
+    });
+
+    const history = await buildCodexEffectiveHistory({ stateDir, sessionId });
+
+    assert.equal(history.incomplete, false);
+    assert.equal(history.deferredItems.length, 0);
+    assert.equal(history.observationOnlyItems.length, 1);
+    assert.equal(history.observationOnlyItems[0]?.item.namespace, "codex_app");
   });
 });
 

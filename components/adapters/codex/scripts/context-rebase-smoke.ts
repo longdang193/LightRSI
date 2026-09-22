@@ -2,6 +2,11 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
+  codexProxyBaseUrl,
+  defaultTokenPilotConfigPath,
+  loadTokenPilotCodexConfig,
+} from "../src/config.js";
+import {
   CODEX_PROVIDER_SMOKE_SCENARIOS,
   runCodexRebaseProviderSmoke,
   type CodexProviderSmokeScenario,
@@ -25,8 +30,8 @@ function printHelp(): void {
     "Options:",
     "  --mode=mock|provider       Run offline mock (default) or explicit provider smoke.",
     "  --model=<name>             Provider model; default is gpt-5.4-mini.",
-    "  --base-url=<url>           Provider base URL; defaults to OPENAI_BASE_URL.",
-    "  --credentials-file=<path> Provider env file; defaults to <initial cwd>/.env.",
+    "  --base-url=<url>           Provider base URL; defaults to OPENAI_BASE_URL or canonical Codex proxy config.",
+    "  --credentials-file=<path> Provider env file; defaults to <initial cwd>/.env after canonical tokenpilot.env.",
     "  --continuation-turns=<n>  Provider continuation turns, from 5 to 20.",
     "  --compatibility-scenarios=<list>",
     "                             Extra real-provider scenarios; available: web-search.",
@@ -35,8 +40,8 @@ function printHelp(): void {
     "  --output-dir=<path>        Directory for sanitized evidence JSON.",
     "  --help                     Show this help.",
     "",
-    "Mock mode never reads an API key. Provider mode reads OPENAI_API_KEY only",
-    "from the process environment or the selected local env file. Neither mode",
+    "Mock mode never reads an API key. Provider mode reads OPENAI_* or estimator aliases from",
+    "process environment, canonical tokenpilot.env, or selected local env file. Neither mode",
     "persists raw prompts, headers, response ids, provider error bodies, or",
     "encrypted reasoning payloads in its evidence file.",
   ].join("\n"));
@@ -67,10 +72,25 @@ async function loadProviderEnvFile(path: string): Promise<void> {
     const separator = line.indexOf("=");
     if (separator <= 0) continue;
     const name = line.slice(0, separator).trim();
-    if (name !== "OPENAI_API_KEY" && name !== "OPENAI_BASE_URL") continue;
+    if (!["OPENAI_API_KEY", "OPENAI_BASE_URL", "LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY", "LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL", "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL", "TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY", "TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL", "TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL"].includes(name)) continue;
     if (process.env[name]?.trim()) continue;
     process.env[name] = envValue(line.slice(separator + 1));
   }
+  if (!process.env.OPENAI_API_KEY?.trim()) {
+    process.env.OPENAI_API_KEY = process.env.LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY?.trim()
+      || process.env.TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY?.trim();
+  }
+  if (!process.env.OPENAI_BASE_URL?.trim()) {
+    process.env.OPENAI_BASE_URL = process.env.LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL?.trim()
+      || process.env.TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL?.trim();
+  }
+}
+
+export { loadProviderEnvFile };
+
+export function providerModelFromEnvironment(): string | undefined {
+  return process.env.LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL?.trim()
+    || process.env.TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL?.trim();
 }
 
 function integerOption(name: string): number | undefined {
@@ -101,13 +121,15 @@ async function main(): Promise<void> {
   const mode = optionValue("mode") ?? "mock";
   if (mode === "provider") {
     const initialCwd = process.env.INIT_CWD?.trim() || process.cwd();
+    const config = await loadTokenPilotCodexConfig(defaultTokenPilotConfigPath());
     const envFile = resolve(optionValue("credentials-file") ?? resolve(initialCwd, ".env"));
     await loadProviderEnvFile(envFile);
-    const baseUrl = optionValue("base-url")?.trim() || process.env.OPENAI_BASE_URL?.trim();
-    if (!baseUrl) throw new Error("Provider smoke requires OPENAI_BASE_URL or --base-url");
+    const baseUrl = optionValue("base-url")?.trim()
+      || process.env.OPENAI_BASE_URL?.trim()
+      || codexProxyBaseUrl(config);
     const result = await runCodexRebaseProviderSmoke({
       baseUrl,
-      model: optionValue("model"),
+      model: optionValue("model")?.trim() || providerModelFromEnvironment(),
       outputDir: optionValue("output-dir"),
       continuationTurns: integerOption("continuation-turns"),
       compatibilityScenarios: compatibilityScenariosOption(),
@@ -155,7 +177,9 @@ async function main(): Promise<void> {
   }, null, 2));
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] && /(?:^|[\\/])context-rebase-smoke\.ts$/u.test(process.argv[1])) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

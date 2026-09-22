@@ -67,8 +67,6 @@ export function validateContextMutationProtocolClosure<
   const candidates = new Set(
     params.candidateOperationIds ?? operationIds(plan),
   );
-  const activeTaskIds = new Set(uniqueNonEmpty(params.activeTaskIds));
-  const evictableTaskIds = new Set(uniqueNonEmpty(params.evictableTaskIds));
   const itemsByStableId = new Map<string, typeof snapshot.items>();
   for (const item of snapshot.items) {
     itemsByStableId.set(item.stableId, [
@@ -179,16 +177,6 @@ export function validateContextMutationProtocolClosure<
     }
 
     let reason: string | undefined;
-    const crossesActiveAndEvictableTasks = [...operationTaskIds].some(
-      (taskId) => activeTaskIds.has(taskId),
-    ) && [...operationTaskIds].some(
-      (taskId) => evictableTaskIds.has(taskId),
-    );
-    if (crossesActiveAndEvictableTasks) {
-      reason = "active_evictable_task_overlap";
-    } else if ([...operationTaskIds].some((taskId) => activeTaskIds.has(taskId))) {
-      reason = "active_task_targeted";
-    }
 
     const targetsProtocolItemWithoutCallId = [...targetItemIds].some(
       (targetItemId) => protocolItemsWithoutCallId.has(targetItemId),

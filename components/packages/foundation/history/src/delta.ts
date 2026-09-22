@@ -10,10 +10,12 @@ import type {
   TaskLifecycle,
   TurnAnchor,
 } from "./types.js";
+import { processedTurnWatermark } from "./registry.js";
 
 export type BuildDeltaViewOptions = {
   fromTurnSeqExclusive: number;
   toTurnSeqInclusive?: number;
+  turnSeqs?: readonly number[];
   currentActiveTaskHint?: string;
   inputMode?: DeltaInputMode;
   completedTaskSummaries?: DeltaTaskSummary[];
@@ -31,8 +33,15 @@ function dedupeOrdered(values: string[]): string[] {
   return out;
 }
 
-function isCovered(anchor: TurnAnchor, fromTurnSeqExclusive: number, toTurnSeqInclusive: number): boolean {
-  return anchor.turnSeq > fromTurnSeqExclusive && anchor.turnSeq <= toTurnSeqInclusive;
+function isCovered(
+  anchor: TurnAnchor,
+  fromTurnSeqExclusive: number,
+  toTurnSeqInclusive: number,
+  turnSeqs?: ReadonlySet<number>,
+): boolean {
+  return turnSeqs
+    ? turnSeqs.has(anchor.turnSeq)
+    : anchor.turnSeq > fromTurnSeqExclusive && anchor.turnSeq <= toTurnSeqInclusive;
 }
 
 export function buildDeltaViewFromRawSemanticSnapshot(
@@ -43,9 +52,12 @@ export function buildDeltaViewFromRawSemanticSnapshot(
     options.fromTurnSeqExclusive,
     options.toTurnSeqInclusive ?? snapshot.lastTurnSeq,
   );
+  const selectedTurnSeqs = options.turnSeqs
+    ? new Set(options.turnSeqs.filter((turnSeq) => Number.isInteger(turnSeq) && turnSeq > 0))
+    : undefined;
 
   const messages: DeltaTurnMessage[] = snapshot.messages
-    .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive))
+    .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive, selectedTurnSeqs))
     .map((record) => ({
       anchor: record.anchor,
       role: record.role,
@@ -54,7 +66,7 @@ export function buildDeltaViewFromRawSemanticSnapshot(
     }));
 
   const toolCalls: DeltaToolCall[] = snapshot.toolCalls
-    .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive))
+    .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive, selectedTurnSeqs))
     .map((record) => ({
       anchor: record.anchor,
       toolCallId: record.toolCallId,
@@ -63,7 +75,7 @@ export function buildDeltaViewFromRawSemanticSnapshot(
     }));
 
   const toolResults: DeltaToolResult[] = snapshot.toolResults
-    .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive))
+    .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive, selectedTurnSeqs))
     .map((record) => ({
       anchor: record.anchor,
       toolCallId: record.toolCallId,
@@ -79,22 +91,27 @@ export function buildDeltaViewFromRawSemanticSnapshot(
     ...toolCalls.map((record) => record.anchor.turnAbsId),
     ...toolResults.map((record) => record.anchor.turnAbsId),
   ]);
+  const coveredTurnSeqs = [...new Set([
+    ...messages.map((record) => record.anchor.turnSeq),
+    ...toolCalls.map((record) => record.anchor.turnSeq),
+    ...toolResults.map((record) => record.anchor.turnSeq),
+  ])].sort((left, right) => left - right);
 
   const filesRead = dedupeOrdered([
     ...snapshot.toolCalls
-      .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive))
+      .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive, selectedTurnSeqs))
       .flatMap((record) => record.filesRead ?? []),
     ...snapshot.toolResults
-      .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive))
+      .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive, selectedTurnSeqs))
       .flatMap((record) => record.filesRead ?? []),
   ]);
 
   const filesWritten = dedupeOrdered([
     ...snapshot.toolCalls
-      .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive))
+      .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive, selectedTurnSeqs))
       .flatMap((record) => record.filesWritten ?? []),
     ...snapshot.toolResults
-      .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive))
+      .filter((record) => isCovered(record.anchor, options.fromTurnSeqExclusive, toTurnSeqInclusive, selectedTurnSeqs))
       .flatMap((record) => record.filesWritten ?? []),
   ]);
 
@@ -102,6 +119,7 @@ export function buildDeltaViewFromRawSemanticSnapshot(
     inputMode: options.inputMode ?? "sliding_window",
     fromTurnSeqExclusive: options.fromTurnSeqExclusive,
     toTurnSeqInclusive,
+    coveredTurnSeqs,
     coveredTurnAbsIds,
     messages,
     toolCalls,
@@ -164,9 +182,10 @@ export function deriveCompletedSummaryPlusActiveTurnsWindow(
   toTurnSeqInclusive: number;
   completedTaskSummaries: DeltaTaskSummary[];
 } {
-  const toTurnSeqInclusive = pendingTurnSeqs[Math.max(0, batchTurns - 1)] ?? pendingTurnSeqs.at(-1) ?? registry.lastProcessedTurnSeq;
+  const processedWatermark = processedTurnWatermark(registry);
+  const toTurnSeqInclusive = pendingTurnSeqs[Math.max(0, batchTurns - 1)] ?? pendingTurnSeqs.at(-1) ?? processedWatermark;
   const unresolvedTaskIds = new Set(registryTaskIdsByLifecycle(registry, ["active", "blocked"]));
-  let earliestRelevantTurnSeq = Math.max(1, registry.lastProcessedTurnSeq + 1);
+  let earliestRelevantTurnSeq = Math.max(1, processedWatermark + 1);
   for (const taskId of unresolvedTaskIds) {
     const task = registry.tasks[taskId];
     if (!task) continue;

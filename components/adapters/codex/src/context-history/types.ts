@@ -70,12 +70,14 @@ export type CodexEffectiveHistoryItem = {
 
 export type CodexEffectiveHistory = {
   revision: string;
+  historyFormat?: "response_chain" | "cumulative";
   replayableItems: CodexEffectiveHistoryItem[];
   observationOnlyItems: CodexEffectiveHistoryItem[];
   deferredItems: CodexEffectiveHistoryItem[];
   unresolvedCallIds: string[];
   source: "proxy_journal" | "rollout_bootstrap" | "rollout_proxy_merge" | "empty";
   incomplete: boolean;
+  committedExcludedItemIds?: string[];
 };
 
 export type CodexEffectiveHistoryTurn = {
@@ -90,6 +92,7 @@ export type CodexEffectiveHistoryReasonCode =
   | "journal_malformed_lines"
   | "journal_malformed_stream"
   | "journal_committed_chain_incomplete"
+  | "journal_cumulative_correspondence_incomplete"
   | "journal_history_without_committed_chain"
   | "journal_uncommitted_request"
   | "journal_uncommitted_response"
@@ -108,6 +111,7 @@ export type CodexEffectiveHistoryView = {
   turns: CodexEffectiveHistoryTurn[];
   semanticComplete: boolean;
   reasonCodes: CodexEffectiveHistoryReasonCode[];
+  uncertainTurnSeqs?: number[];
 };
 
 export type CodexRolloutSessionMeta = {

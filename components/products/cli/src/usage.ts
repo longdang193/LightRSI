@@ -15,6 +15,7 @@ export function formatCliUsage(): string {
     "  report",
     "  doctor",
     "  visual",
+    "  clean [--session <id>|--inspect <id>|--status <plan-id>|--cancel <plan-id>|--plan <plan-id> --select <task-id,...>|--plan <plan-id> --release <file|->]",
     "  mode <conservative|normal|aggressive>",
     "  settings details <on|off>",
     "  stabilizer ...",

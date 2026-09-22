@@ -146,18 +146,29 @@ function extractPathHint(value: unknown): string | undefined {
   return undefined;
 }
 
-export function normalizeResponsesInputForUpstream(input: any): void {
-  if (!Array.isArray(input)) return;
-  for (const item of input) {
+export function normalizeResponsesInputForUpstream(input: any): any {
+  if (!Array.isArray(input)) return input;
+  let nextInput = input;
+  for (let index = 0; index < input.length; index += 1) {
+    const item = input[index];
     if (!item || typeof item !== "object") continue;
+    let nextItem = item;
+    let changed = false;
     const type = String(item.type ?? "").toLowerCase();
     if (type === "function_call" && typeof item.arguments !== "string") {
-      item.arguments = stringifyStructuredValue(item.arguments);
+      nextItem = { ...nextItem, arguments: stringifyStructuredValue(item.arguments) };
+      changed = true;
     }
     if (type === "function_call_output" && item.output != null && !Array.isArray(item.output) && typeof item.output !== "string") {
-      item.output = stringifyStructuredValue(item.output);
+      nextItem = { ...nextItem, output: stringifyStructuredValue(item.output) };
+      changed = true;
+    }
+    if (changed) {
+      if (nextInput === input) nextInput = input.slice();
+      nextInput[index] = nextItem;
     }
   }
+  return nextInput;
 }
 
 function payloadKindForItem(item: any): "stdout" | "stderr" | "json" | "blob" {
@@ -772,11 +783,27 @@ export async function applyBeforeCallReductionToPayload(params: {
   let savedChars = 0;
   const changedItems = new Set<number>();
   const visualSegments: CodexReductionVisualSegment[] = [];
+  let nextInput = payload.input;
+  let inputCopied = false;
+  const copiedItems = new Set<number>();
+  const copiedContentArrays = new Set<number>();
+  const copiedBlocks = new Set<string>();
+  const ensureItemCopy = (itemIndex: number): any => {
+    if (!inputCopied) {
+      nextInput = payload.input.slice();
+      inputCopied = true;
+    }
+    if (!copiedItems.has(itemIndex)) {
+      nextInput[itemIndex] = { ...nextInput[itemIndex] };
+      copiedItems.add(itemIndex);
+    }
+    return nextInput[itemIndex];
+  };
   for (const binding of bindings) {
     if (!changedSegmentIds.has(binding.segmentId)) continue;
     const segment = segmentMap.get(binding.segmentId);
     if (!segment) continue;
-    const item = payload.input[binding.itemIndex];
+    const item = nextInput[binding.itemIndex];
     if (!item || typeof item !== "object") continue;
     let before = "";
     const stagedItem = stageItem(binding.itemIndex);
@@ -881,7 +908,7 @@ export async function reduceCodexRequestEnvelope(params: {
     };
   };
   const rawPayload = params.codec.encodeRequest(params.envelope) as any;
-  normalizeResponsesInputForUpstream(rawPayload?.input);
+  rawPayload.input = normalizeResponsesInputForUpstream(rawPayload?.input);
   const summary = await applyBeforeCallReductionToPayload({
     payload: rawPayload,
     sessionId: params.envelope.session.sessionId,

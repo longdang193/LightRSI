@@ -6,6 +6,10 @@ import test from "node:test";
 
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
+  createContextCleanerControlPlane,
+  createContextCleanerControlService,
+  saveContextCleanPlan,
+  type ContextCleanPlan,
   type ContextCleanerControlPlane,
   type ContextCleanAppliedReceipt,
   type ContextCleanPendingReceipt,
@@ -16,6 +20,7 @@ import {
   buildTurnAbsId,
   createEmptySessionTaskRegistry,
   persistSessionTaskRegistry,
+  sessionTaskRegistryPath,
 } from "@lightrsi/history";
 import { sessionStateRoot, writeSessionSnapshot } from "@lightrsi/host-adapter";
 
@@ -65,6 +70,7 @@ function terminalReceipt(
     ...pendingReceipt("scheduled"),
     status,
     fallbackUsed: status === "failed",
+    reasons: [`${status}_by_test`],
   };
 }
 
@@ -91,7 +97,7 @@ function fakeControlPlane(): ContextCleanerControlPlane {
   };
 }
 
-test("Codex cleaner bridge preserves approved targets and control-plane receipts", async () => {
+test("Codex cleaner bridge terminalizes local schedule on cancellation", async () => {
   await withTempState(async (stateDir) => {
   let captured: ExecuteApprovedContextCleanParams | undefined;
   const applied = appliedReceipt();
@@ -118,14 +124,7 @@ test("Codex cleaner bridge preserves approved targets and control-plane receipts
     sessionId: "codex-cleaner-session",
     baseRevision: "revision-before",
     approvedAt: "2026-08-21T00:00:00.000Z",
-    selectedTasks: [{
-      taskId: "task-1",
-      itemIds: ["item-1", "item-2"],
-      itemDigests: {
-        "item-1": "digest-1",
-        "item-2": "digest-2",
-      },
-    }],
+    selectedTaskIds: ["task-1"],
   };
 
   const scheduled = await bridge.executeApprovedClean(request);
@@ -141,15 +140,15 @@ test("Codex cleaner bridge preserves approved targets and control-plane receipts
   });
   assert.strictEqual(await bridge.cancelCleanPlan(request.cleanPlanId), cancelled);
   const stored = await readCodexCleanerSchedule({ stateDir, sessionId: request.sessionId });
-  assert.equal(stored.outcome, "ready");
-  if (stored.outcome === "ready") {
+  assert.equal(stored.outcome, "terminal");
+  if (stored.outcome === "terminal") {
     assert.equal(stored.record.cleanPlanId, request.cleanPlanId);
     assert.equal(stored.record.baseRevision, request.baseRevision);
     assert.deepEqual(stored.record.selectedTaskIds, ["task-1"]);
+    assert.equal(stored.record.receiptStatus, "cancelled");
   }
   });
 });
-
 test("Codex cleaner bridge rejects cross-host approvals before control-plane execution", async () => {
   let executions = 0;
   const bridge = createCodexContextCleanerBridge({
@@ -171,18 +170,79 @@ test("Codex cleaner bridge rejects cross-host approvals before control-plane exe
       sessionId: "codex-cleaner-session",
       baseRevision: "revision-before",
       approvedAt: "2026-08-21T00:00:00.000Z",
-      selectedTasks: [{
-        taskId: "task-1",
-        itemIds: ["item-1"],
-        itemDigests: { "item-1": "digest-1" },
-      }],
+      selectedTaskIds: ["task-1"],
     }),
     /codex_clean_approval_host_mismatch/,
   );
   assert.equal(executions, 0);
 });
+test("Codex cleaner bridge rejects untrusted execution session binding", async () => {
+  let executions = 0;
+  const bridge = createCodexContextCleanerBridge({
+    stateDir: "unused-state-dir",
+    boundSessionId: "bound-session",
+    controlPlane: {
+      ...fakeControlPlane(),
+      async executeApprovedClean() {
+        executions += 1;
+        return pendingReceipt("scheduled");
+      },
+    },
+  });
 
-test("Codex cleaner bridge rejects mutated approval targets", async () => {
+  await assert.rejects(
+    bridge.executeApprovedClean({
+      schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+      cleanPlanId: "clean-plan-1",
+      hostId: "codex",
+      sessionId: "other-session",
+      baseRevision: "revision-before",
+      approvedAt: "2026-08-21T00:00:00.000Z",
+      selectedTaskIds: ["task-1"],
+    }),
+    /codex_clean_approval_session_binding_mismatch/,
+  );
+  assert.equal(executions, 0);
+});
+
+test("Codex cleaner bridge rejects occurrence mutation without canonical session binding", async () => {
+  let executions = 0;
+  const bridge = createCodexContextCleanerBridge({
+    stateDir: "unused-state-dir",
+    controlPlane: {
+      ...fakeControlPlane(),
+      async executeApprovedClean() {
+        executions += 1;
+        return pendingReceipt("scheduled");
+      },
+    },
+  });
+
+  await assert.rejects(
+    bridge.executeApprovedClean({
+      schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+      cleanPlanId: "clean-plan-1",
+      hostId: "codex",
+      sessionId: "codex-cleaner-session",
+      baseRevision: "revision-before",
+      approvedAt: "2026-08-21T00:00:00.000Z",
+      selectedTaskIds: [],
+      occurrenceSelections: [{
+        stableId: "item-1",
+        fingerprint: "fingerprint-1",
+        completionEvidence: ["response-1"],
+        continuingUseful: false,
+        releaseIntent: "release",
+        retainedFindings: [],
+        dependencyDirection: "none",
+      }],
+    }),
+    /codex_clean_approval_session_binding_required/,
+  );
+  assert.equal(executions, 0);
+});
+
+test("Codex cleaner bridge rejects malformed approval task ids", async () => {
   const bridge = createCodexContextCleanerBridge({
     stateDir: "unused-state-dir",
     controlPlane: fakeControlPlane(),
@@ -196,13 +256,9 @@ test("Codex cleaner bridge rejects mutated approval targets", async () => {
       sessionId: "codex-cleaner-session",
       baseRevision: "revision-before",
       approvedAt: "2026-08-21T00:00:00.000Z",
-      selectedTasks: [{
-        taskId: "task-1",
-        itemIds: ["item-1"],
-        itemDigests: { "other-item": "digest-1" },
-      }],
+      selectedTaskIds: [""],
     }),
-    /codex_clean_approval_targets_invalid/,
+    /codex_clean_approval_invalid/,
   );
 });
 
@@ -228,11 +284,7 @@ test("Codex cleaner bridge rejects mismatched control-plane receipts", async () 
     sessionId: "codex-cleaner-session",
     baseRevision: "revision-before",
     approvedAt: "2026-08-21T00:00:00.000Z",
-    selectedTasks: [{
-      taskId: "task-1",
-      itemIds: ["item-1"],
-      itemDigests: { "item-1": "digest-1" },
-    }],
+    selectedTaskIds: ["task-1"],
   };
 
   await assert.rejects(bridge.executeApprovedClean(request), /codex_clean_receipt_mismatch/);
@@ -282,11 +334,7 @@ test("Codex cleaner bridge does not schedule a non-scheduled control-plane recei
       sessionId: "codex-cleaner-session",
       baseRevision: "revision-before",
       approvedAt: "2026-08-21T00:00:00.000Z",
-      selectedTasks: [{
-        taskId: "task-1",
-        itemIds: ["item-1"],
-        itemDigests: { "item-1": "digest-1" },
-      }],
+      selectedTaskIds: ["task-1"],
     });
     assert.equal(receipt.status, "approved");
     assert.equal((await readCodexCleanerSchedule({
@@ -356,17 +404,12 @@ test("Codex cleaner bridge lists persisted sessions and reads canonical effectiv
     assert.equal(snapshot.sessionId, sessionId);
     assert.ok(snapshot.revision);
     assert.ok(snapshot.items.length > 0);
-    assert.equal(snapshot.tokenCountMode, "exact");
-    assert.equal(snapshot.tokenCountMethod, "openai_tokenizer");
+    assert.equal(snapshot.tokenCountMode, "chars_only");
+    assert.equal(snapshot.tokenCountMethod, "utf16_chars");
     assert.ok(snapshot.capturedAt);
     assert.ok(snapshot.items.every((item) => item.stableId && item.fingerprint));
-    assert.ok(snapshot.items.every((item) => item.taskIds?.length === 1));
-    assert.ok(snapshot.items.every((item) => item.taskIds?.[0] === taskId));
-    assert.ok(snapshot.items.every((item) => !item.taskIds?.includes(turnAbsId)));
-    assert.deepEqual(
-      Object.keys(snapshot.itemTokenCounts ?? {}).sort(),
-      snapshot.items.map((item) => item.stableId).sort(),
-    );
+    assert.ok(snapshot.items.every((item) => item.taskIds === undefined));
+    assert.deepEqual(Object.keys(snapshot.itemTokenCounts ?? {}), []);
     assert.equal("adapterMetadata" in snapshot, false);
 
     const repeated = await bridge.readCleanSnapshot(sessionId);
@@ -378,7 +421,6 @@ test("Codex cleaner bridge lists persisted sessions and reads canonical effectiv
     await rm(stateDir, { recursive: true, force: true });
   }
 });
-
 test("Codex cleaner bridge rejects unknown sessions instead of returning an empty snapshot", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cleaner-missing-"));
   try {
@@ -393,6 +435,86 @@ test("Codex cleaner bridge rejects unknown sessions instead of returning an empt
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }
+});
+test("Codex cleaner bridge reads history without a registry file", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-cleaner-missing-registry";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "unassigned work" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{ type: "message", role: "assistant", content: "done" }],
+      },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, {
+      latestResponseId: "response-1",
+      latestModel: "gpt-5.4",
+    });
+
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane: fakeControlPlane(),
+    });
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
+    assert.ok(snapshot.items.length > 0);
+    assert.ok(snapshot.items.every((item) => item.taskIds === undefined));
+    assert.equal(snapshot.historyEvidence?.completeness, "complete");
+  });
+});
+
+test("Codex cleaner accepts exact agent-directed release with corrupt registry and no estimator", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-cleaner-agent-directed";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "obsolete work" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: { id: "response-1", output: [{ type: "message", role: "assistant", content: "done" }] },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, { latestResponseId: "response-1" });
+    await mkdir(join(stateDir, "task-state", sessionId), { recursive: true });
+    await writeFile(sessionTaskRegistryPath(stateDir, sessionId), "{corrupt", "utf8");
+    const controlPlane = createContextCleanerControlPlane({ stateDir });
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane,
+      boundSessionId: sessionId,
+    });
+    const service = createContextCleanerControlService({ stateDir, bridge });
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
+    const target = snapshot.items.find((item) => item.kind === "user");
+    assert.ok(target);
+    const plan = await service.releaseOccurrences(sessionId, [{
+      stableId: target.stableId,
+      fingerprint: target.fingerprint,
+      completionEvidence: ["response-1"],
+      continuingUseful: false,
+      releaseIntent: "release",
+      retainedFindings: ["done"],
+      dependencyDirection: "none",
+    }]);
+    assert.equal(plan.status, "scheduled");
+    assert.deepEqual(plan.selectedTaskIds, []);
+    assert.deepEqual(plan.evidence?.occurrenceSelections?.map((selection) => selection.stableId), [target.stableId]);
+  });
 });
 
 test("Codex cleaner bridge rejects a session whose committed response chain is incomplete", async () => {
@@ -411,6 +533,65 @@ test("Codex cleaner bridge rejects a session whose committed response chain is i
       bridge.readCleanSnapshot(sessionId),
       /codex_clean_snapshot_incomplete/,
     );
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("Codex cleaner bridge protects unresolved active tool calls without blocking clean history", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cleaner-active-tool-"));
+  try {
+    const sessionId = "codex-cleaner-active-tool";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "run the tool" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{
+          type: "function_call",
+          call_id: "call-active",
+          name: "run",
+          arguments: "{}",
+        }],
+      },
+      status: "completed",
+    });
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-2",
+      payload: {
+        previous_response_id: "response-1",
+        input: [{ type: "function_call_output", call_id: "call-active", output: "pending" }],
+      },
+      status: "pending",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, {
+      latestResponseId: "response-1",
+      latestModel: "gpt-5.4",
+    });
+
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane: fakeControlPlane(),
+    });
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
+    assert.equal(snapshot.historyEvidence?.completeness, "partial");
+    assert.deepEqual(snapshot.historyEvidence?.reasonCodes, [
+      "history_replay_incomplete",
+      "history_unresolved_tool_calls",
+      "semantic_source_incomplete",
+      "semantic_tool_closure_incomplete",
+    ]);
+    assert.ok(snapshot.historyEvidence?.protectedItemIds.length);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }
@@ -565,14 +746,15 @@ test("Codex cleaner bridge keeps a cross-turn tool pair on one semantic task", a
     };
     await persistSessionTaskRegistry(stateDir, registry);
 
-    const snapshot = await createCodexContextCleanerBridge({
+    const bridge = createCodexContextCleanerBridge({
       stateDir,
       controlPlane: fakeControlPlane(),
-    }).readCleanSnapshot(sessionId);
+    });
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
     const call = snapshot.items.find((item) => item.kind === "tool_call");
     const output = snapshot.items.find((item) => item.kind === "tool_result");
-    assert.deepEqual(call?.taskIds, [taskId]);
-    assert.deepEqual(output?.taskIds, [taskId]);
+    assert.equal(call?.taskIds, undefined);
+    assert.equal(output?.taskIds, undefined);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

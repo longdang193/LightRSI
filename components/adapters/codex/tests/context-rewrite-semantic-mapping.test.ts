@@ -29,13 +29,14 @@ function view(params: {
   turns: Array<{ turnSeq: number; inputItemIds?: string[]; outputItemIds?: string[] }>;
   semanticComplete?: boolean;
   reasonCodes?: CodexEffectiveHistoryReasonCode[];
+  observationOnlyItems?: CodexEffectiveHistoryItem[];
   deferredItems?: CodexEffectiveHistoryItem[];
 }): CodexEffectiveHistoryView {
   return {
     history: {
       revision: "semantic-revision",
       replayableItems: params.items,
-      observationOnlyItems: [],
+      observationOnlyItems: params.observationOnlyItems ?? [],
       deferredItems: params.deferredItems ?? [],
       unresolvedCallIds: [],
       source: "proxy_journal",
@@ -382,6 +383,25 @@ test("semantic mapping accepts trusted rollout turns with observation-only bound
   assert.doesNotMatch(JSON.stringify(mapped), /turn_context|event_msg|host-turn-7/);
 });
 
+test("semantic mapping excludes verified host tool observations from provider closure", () => {
+  const hostObservation = effective("host-observation", {
+    id: "host-output-1",
+    name: "codex_app",
+    namespace: "codex_app",
+    output: "controller result",
+    type: "function_call_output",
+  });
+  const mapped = buildCodexRawSemanticTurns(view({
+    items: [],
+    observationOnlyItems: [hostObservation],
+    turns: [{ turnSeq: 1, inputItemIds: [hostObservation.stableItemId] }],
+  }));
+  assert.equal(mapped.complete, true);
+  assert.deepEqual(mapped.reasonCodes, []);
+  assert.deepEqual(mapped.turns[0]!.toolCalls, []);
+  assert.deepEqual(mapped.turns[0]!.toolResults, []);
+});
+
 test("semantic mapping fails closed instead of dropping unsupported client tool protocols", () => {
   const mapped = buildCodexRawSemanticTurns(view({
     items: [
@@ -413,6 +433,33 @@ test("semantic mapping fails closed for partial, ambiguous and mismatched tool c
   }));
   assert.equal(partial.complete, false);
   assert.equal(partial.reasonCodes.includes("semantic_tool_closure_incomplete"), true);
+  assert.deepEqual(partial.blockedTurnSeqs, [1]);
+
+  const dirtyWithLaterWork = buildCodexRawSemanticTurns(view({
+    items: [
+      effective("orphan-call", {
+        type: "function_call",
+        call_id: "orphan",
+        name: "read",
+        arguments: "{}",
+      }),
+      effective("later-message", {
+        type: "message",
+        role: "user",
+        content: "unrelated completed work",
+      }),
+    ],
+    turns: [
+      { turnSeq: 1, outputItemIds: ["orphan-call"] },
+      { turnSeq: 2, inputItemIds: ["later-message"] },
+    ],
+  }));
+  assert.equal(dirtyWithLaterWork.complete, false);
+  assert.deepEqual(dirtyWithLaterWork.blockedTurnSeqs, [1]);
+  assert.deepEqual(dirtyWithLaterWork.turns.map((turn) => turn.turnSeq), [1, 2]);
+  assert.deepEqual(dirtyWithLaterWork.turns[1]!.messages.map(({ text }) => text), [
+    "unrelated completed work",
+  ]);
 
   const ambiguous = buildCodexRawSemanticTurns(view({
     items: [

@@ -17,6 +17,7 @@ import {
   transitionContextCleanState,
 } from "../src/index.js";
 import { samplePlan, sampleReceipt, sampleSnapshot } from "./fixtures.js";
+import type { ContextCleanReceipt, ContextCleanScheduledReceipt } from "../src/contracts.js";
 
 async function saveScheduledPlan(stateDir: string): Promise<void> {
   await saveContextCleanPlan({ stateDir, plan: samplePlan() });
@@ -60,11 +61,10 @@ test("execution bridge expands only the frozen scheduled task scope", async () =
     assert.equal(first.outcome, "ready");
     assert.equal(second.outcome, "ready");
     if (first.outcome !== "ready" || second.outcome !== "ready") return;
-    assert.deepEqual(first.execution.selectedTasks, [{
-      taskId: "task-a",
-      itemIds: ["item-a", "item-b"],
-      itemDigests: { "item-a": "digest-a", "item-b": "digest-b" },
-    }]);
+    assert.deepEqual(first.execution.occurrenceSet.occurrences, [
+      { stableId: "item-a", fingerprint: "digest-a" },
+      { stableId: "item-b", fingerprint: "digest-b" },
+    ]);
     assert.equal(first.execution.mutationPlan.sourceModuleId, "cleaner_manual");
     assert.equal(first.execution.mutationPlan.operations.length, 1);
     assert.deepEqual(
@@ -80,6 +80,119 @@ test("execution bridge expands only the frozen scheduled task scope", async () =
       second.execution.mutationPlan.planId,
     );
     assert.equal("adapterMetadata" in first.execution.mutationPlan, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("execution bridge expands an exact agent-selected occurrence without registry task ownership", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-execution-occurrence-"));
+  try {
+    const plan = {
+      ...samplePlan(),
+      tasks: [],
+      occurrenceDigests: { "item-a": "digest-a" },
+    };
+    await saveContextCleanPlan({ stateDir: root, plan });
+    const receipt = {
+      ...sampleReceipt("approved"),
+      selectedTaskIds: ["occurrence:item-a"],
+      evidence: {
+        occurrenceSelections: [{
+          stableId: "item-a",
+          fingerprint: "digest-a",
+          completionEvidence: ["completed"],
+          continuingUseful: false,
+          releaseIntent: "release" as const,
+          retainedFindings: [],
+          nothingReusable: true,
+          dependencyDirection: "none" as const,
+        }],
+      },
+    } as ContextCleanReceipt;
+    await transitionContextCleanState({ stateDir: root, receipt });
+    await transitionContextCleanState({
+      stateDir: root,
+      receipt: { ...receipt, status: "scheduled" } as ContextCleanScheduledReceipt,
+    });
+    const bridge = createContextCleanerHostExecutionBridge({
+      stateDir: root,
+      hostId: "codex",
+      async readExecutionSnapshot() {
+        return {
+          snapshot: sampleSnapshot(),
+          activeTaskIds: [],
+          evictableTaskIds: [],
+        };
+      },
+    });
+
+    const result = await bridge.prepareScheduledClean({
+      cleanPlanId: plan.planId,
+      sessionId: plan.sessionId,
+      baseRevision: plan.baseRevision,
+      selectedTaskIds: ["occurrence:item-a"],
+    });
+    assert.equal(result.outcome, "ready");
+    if (result.outcome !== "ready") return;
+    assert.deepEqual(result.execution.mutationPlan.operations[0]?.targetItemIds, ["item-a"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("execution bridge compiles selected occurrences into one atomic mutation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-execution-atomic-occurrences-"));
+  try {
+    const plan = {
+      ...samplePlan(),
+      tasks: [],
+      occurrenceDigests: { "item-a": "digest-a", "item-b": "digest-b" },
+    };
+    await saveContextCleanPlan({ stateDir: root, plan });
+    const receipt = {
+      ...sampleReceipt("approved"),
+      selectedTaskIds: ["occurrence:item-a", "occurrence:item-b"],
+      evidence: {
+        occurrenceSelections: ["item-a", "item-b"].map((stableId) => ({
+          stableId,
+          fingerprint: `digest-${stableId.slice(-1)}`,
+          completionEvidence: ["completed"],
+          continuingUseful: false,
+          releaseIntent: "release" as const,
+          retainedFindings: [],
+          nothingReusable: true,
+          dependencyDirection: "none" as const,
+        })),
+      },
+    } as ContextCleanReceipt;
+    await transitionContextCleanState({ stateDir: root, receipt });
+    await transitionContextCleanState({
+      stateDir: root,
+      receipt: { ...receipt, status: "scheduled" } as ContextCleanScheduledReceipt,
+    });
+    const bridge = createContextCleanerHostExecutionBridge({
+      stateDir: root,
+      hostId: "codex",
+      async readExecutionSnapshot() {
+        return {
+          snapshot: sampleSnapshot(),
+          activeTaskIds: [],
+          evictableTaskIds: [],
+        };
+      },
+    });
+
+    const result = await bridge.prepareScheduledClean({
+      cleanPlanId: plan.planId,
+      sessionId: plan.sessionId,
+      baseRevision: plan.baseRevision,
+      selectedTaskIds: ["occurrence:item-a", "occurrence:item-b"],
+    });
+    assert.equal(result.outcome, "ready");
+    if (result.outcome !== "ready") return;
+    assert.equal(result.execution.mutationPlan.operations.length, 1);
+    assert.deepEqual(result.execution.mutationPlan.operations[0]?.targetItemIds, ["item-a", "item-b"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -251,7 +364,7 @@ test("approved plans cannot execute until a scheduler records the scheduled stat
   }
 });
 
-test("revision, digest, lifecycle, and task attribution drift preserve the Host request", async () => {
+test("unrelated revision growth is accepted while selected fingerprints remain stable", async () => {
   const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-execution-stale-"));
   try {
     await saveScheduledPlan(root);
@@ -259,6 +372,7 @@ test("revision, digest, lifecycle, and task attribution drift preserve the Host 
       snapshot?: ReturnType<typeof sampleSnapshot>;
       activeTaskIds?: string[];
       evictableTaskIds?: string[];
+      taskIntents?: Record<string, { retentionDecision?: "retain" | "release"; dependencyDirection?: "incoming" | "outgoing" | "none" | "unknown" }>;
     }) => createContextCleanerHostExecutionBridge({
       stateDir: root,
       hostId: "codex",
@@ -267,12 +381,24 @@ test("revision, digest, lifecycle, and task attribution drift preserve the Host 
           snapshot: params.snapshot ?? sampleSnapshot(),
           activeTaskIds: params.activeTaskIds ?? [],
           evictableTaskIds: params.evictableTaskIds ?? ["task-a"],
+          taskIntents: params.taskIntents,
         };
       },
     }).prepareScheduledClean(request());
 
     const revision = await prepareWith({ snapshot: sampleSnapshot("rev-2") });
-    assert.deepEqual(revision.reasons, ["clean_execution_revision_stale"]);
+    assert.equal(revision.outcome, "ready");
+
+    const changedRevisionSnapshot = sampleSnapshot("rev-3");
+    changedRevisionSnapshot.items.push({
+      stableId: "item-new",
+      kind: "user",
+      role: "user",
+      fingerprint: "digest-new",
+      chars: 4,
+    });
+    const appended = await prepareWith({ snapshot: changedRevisionSnapshot });
+    assert.equal(appended.outcome, "ready");
 
     const digestSnapshot = sampleSnapshot();
     digestSnapshot.items[0] = {
@@ -290,6 +416,14 @@ test("revision, digest, lifecycle, and task attribution drift preserve the Host 
     const attribution = await prepareWith({ snapshot: attributionSnapshot });
     assert.deepEqual(attribution.reasons, ["clean_execution_task_attribution_stale"]);
 
+    const sharedSnapshot = sampleSnapshot();
+    sharedSnapshot.items[0] = {
+      ...sharedSnapshot.items[0]!,
+      taskIds: ["task-a", "task-other"],
+    };
+    const shared = await prepareWith({ snapshot: sharedSnapshot });
+    assert.deepEqual(shared.reasons, ["clean_execution_task_attribution_shared"]);
+
     const lifecycle = await prepareWith({
       activeTaskIds: ["task-a"],
       evictableTaskIds: ["task-a"],
@@ -298,6 +432,16 @@ test("revision, digest, lifecycle, and task attribution drift preserve the Host 
 
     const noLongerEvictable = await prepareWith({ evictableTaskIds: [] });
     assert.deepEqual(noLongerEvictable.reasons, ["clean_execution_task_not_evictable"]);
+
+    const retained = await prepareWith({
+      taskIntents: { "task-a": { retentionDecision: "retain" } },
+    });
+    assert.deepEqual(retained.reasons, ["clean_execution_task_retained"]);
+
+    const incoming = await prepareWith({
+      taskIntents: { "task-a": { dependencyDirection: "incoming" } },
+    });
+    assert.deepEqual(incoming.reasons, ["clean_execution_incoming_dependency"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

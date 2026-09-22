@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { appendJsonl } from "@lightrsi/host-adapter";
+import { sameCanonicalValue } from "@lightrsi/cleaner";
 import {
   CODEX_REBASE_EPOCH_SCHEMA,
   isCodexRebaseEpochSchema,
@@ -236,7 +237,7 @@ function canonicalCodexRebaseEpoch(value: unknown): CodexRebaseEpoch | undefined
     || !isNonBlankString(entry.epochId)
     || !isNonBlankString(entry.sessionId)
     || !isNonBlankString(entry.planId)
-    || !isNonBlankString(entry.oldPreviousResponseId)
+    || (entry.oldPreviousResponseId !== undefined && !isNonBlankString(entry.oldPreviousResponseId))
     || !isNonBlankString(entry.oldRevision)
     || !isStatus(entry.status)
     || !isIsoTimestamp(entry.createdAt)
@@ -256,7 +257,10 @@ function canonicalCodexRebaseEpoch(value: unknown): CodexRebaseEpoch | undefined
     epochId: entry.epochId,
     sessionId: entry.sessionId,
     planId: entry.planId,
-    oldPreviousResponseId: entry.oldPreviousResponseId,
+    ...(entry.oldPreviousResponseId !== undefined ? { oldPreviousResponseId: entry.oldPreviousResponseId } : {}),
+    inputFormat: entry.inputFormat === "cumulative" || entry.oldPreviousResponseId === undefined
+      ? "cumulative"
+      : "response_chain",
     ...(entry.newResponseId !== undefined ? { newResponseId: entry.newResponseId } : {}),
     oldRevision: entry.oldRevision,
     ...(entry.newRevision !== undefined ? { newRevision: entry.newRevision } : {}),
@@ -336,7 +340,8 @@ export async function appendPendingCodexRebaseEpoch(params: {
   stateDir: string;
   sessionId: string;
   planId: string;
-  oldPreviousResponseId: string;
+  oldPreviousResponseId?: string;
+  inputFormat?: "cumulative" | "response_chain";
   oldRevision: string;
   epochId?: string;
   accounting?: CodexRebaseAccounting;
@@ -356,18 +361,19 @@ export async function appendPendingCodexRebaseEpoch(params: {
     ) {
       throw new Error(`Codex rebase epoch mismatch: ${epochId}`);
     }
-    if (params.accounting && JSON.stringify(existing.accounting) !== JSON.stringify(params.accounting)) {
+    if (params.accounting && !sameCanonicalValue(existing.accounting, params.accounting)) {
       throw new Error(`Codex rebase epoch accounting mismatch: ${epochId}`);
     }
     return existing;
   }
 
   const createdAt = params.createdAt ?? new Date().toISOString();
+  const inputFormat = params.inputFormat ?? (params.oldPreviousResponseId ? "response_chain" : "cumulative");
   if (!isIsoTimestamp(createdAt)
     || !isNonBlankString(params.sessionId)
     || !isNonBlankString(params.planId)
-    || !isNonBlankString(params.epochId)
-    || !isNonBlankString(params.oldPreviousResponseId)
+    || !isNonBlankString(epochId)
+    || (inputFormat === "response_chain" && !isNonBlankString(params.oldPreviousResponseId))
     || !isNonBlankString(params.oldRevision)) {
     throw new Error("Codex rebase epoch requires valid identity and create time");
   }
@@ -376,7 +382,8 @@ export async function appendPendingCodexRebaseEpoch(params: {
     epochId,
     sessionId: params.sessionId,
     planId: params.planId,
-    oldPreviousResponseId: params.oldPreviousResponseId,
+    ...(params.oldPreviousResponseId ? { oldPreviousResponseId: params.oldPreviousResponseId } : {}),
+    inputFormat,
     oldRevision: params.oldRevision,
     status: "pending",
     accounting: params.accounting,
@@ -414,7 +421,7 @@ async function transitionCodexRebaseEpoch(params: {
     if (params.failureReason !== undefined && params.failureReason !== existing.failureReason) {
       throw new Error(`Codex rebase epoch failure conflict: ${params.epochId}`);
     }
-    if (params.accounting && JSON.stringify(params.accounting) !== JSON.stringify(existing.accounting)) {
+    if (params.accounting && !sameCanonicalValue(params.accounting, existing.accounting)) {
       throw new Error(`Codex rebase epoch accounting conflict: ${params.epochId}`);
     }
     return existing;
@@ -458,6 +465,7 @@ export async function failCodexRebaseEpoch(params: {
   sessionId: string;
   epochId: string;
   failureReason: string;
+  newResponseId?: string;
   accounting?: CodexRebaseAccounting;
   updatedAt?: string;
 }): Promise<CodexRebaseEpoch> {

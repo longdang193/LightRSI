@@ -123,6 +123,7 @@ export async function executeCodexRebaseWithFallback(params: {
   epochId: string;
   originalPayload: JsonObject;
   rebasedPayload: JsonObject;
+  inputFormat?: "response_chain" | "cumulative";
   sendUpstream: CodexUpstreamSender;
   beforeCommit?: (params: {
     response: CodexUpstreamResponse;
@@ -132,6 +133,7 @@ export async function executeCodexRebaseWithFallback(params: {
   epochStore?: CodexRebaseEpochStoreParams;
   cooldownStore?: CodexRebaseCooldownStoreParams;
   capabilityStore?: CodexRebaseCapabilityStoreParams;
+  beforeProviderDispatch?: () => Promise<void>;
   /** Runs after the session lock is acquired and before an epoch is created. */
   executionGuard?: CodexRebaseExecutionGuard;
 }): Promise<CodexRebaseFallbackResult> {
@@ -162,7 +164,7 @@ export async function executeCodexRebaseWithFallback(params: {
     return sendOriginalBypass(undefined, "rewrite_execution_guard_unavailable");
   }
 
-  if (params.capabilityStore && rebaseItems.length > 0) {
+  if (params.inputFormat !== "cumulative" && params.capabilityStore && rebaseItems.length > 0) {
     try {
       const probeMode = params.capabilityStore.probeMode ?? "disabled";
       const compatibilityResult = await resolveCodexProviderReplayCompatibility({
@@ -363,6 +365,35 @@ export async function executeCodexRebaseWithFallback(params: {
     };
   }
 
+  async function returnRecoveryRequired(reason: string): Promise<CodexRebaseFallbackResult> {
+    const newResponseId = rebaseResponseObservation(rebaseResponse!).responseId;
+    cooldown = await safeRecordCooldown(reason);
+    if (params.epochStore) {
+      try {
+        epoch = await failCodexRebaseEpoch({
+          stateDir: params.epochStore.stateDir,
+          sessionId: params.sessionId,
+          epochId: params.epochId,
+          failureReason: "recovery_required",
+          newResponseId,
+          accounting: params.accounting,
+        });
+      } catch {
+        epoch = undefined;
+      }
+    }
+    return {
+      response: rebaseResponse!,
+      outcome: "failed",
+      reason: "recovery_required",
+      newResponseId,
+      rebaseResponse,
+      epoch,
+      cooldown,
+      capability,
+    };
+  }
+
   const rebaseSessionKey = params.epochStore
     ? `${params.epochStore.stateDir}\0${params.sessionId}`
     : undefined;
@@ -424,6 +455,7 @@ export async function executeCodexRebaseWithFallback(params: {
     }
 
     try {
+      if (params.beforeProviderDispatch) await params.beforeProviderDispatch();
       rebaseResponse = await params.sendUpstream(cloneJson(params.rebasedPayload));
       const observation = rebaseResponseObservation(rebaseResponse);
       const newResponseId = observation.completed ? observation.responseId : undefined;
@@ -434,7 +466,7 @@ export async function executeCodexRebaseWithFallback(params: {
             await params.beforeCommit({ response: rebaseResponse, newResponseId });
             journalCommittedAt = new Date().toISOString();
           } catch {
-            return await sendOriginalWithFallbackOutcome("rebase_journal_error");
+            return await returnRecoveryRequired("rebase_journal_error");
           }
         }
         if (params.epochStore) {
@@ -449,7 +481,7 @@ export async function executeCodexRebaseWithFallback(params: {
               accounting: params.accounting,
             });
           } catch {
-            return await sendOriginalWithFallbackOutcome("epoch_store_error");
+            return await returnRecoveryRequired("epoch_store_error");
           }
         }
         if (params.capabilityStore && rebaseItemTypes.length > 0) {

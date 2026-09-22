@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile, open } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile, open } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
 import { execFile, spawn } from "node:child_process";
@@ -36,6 +37,51 @@ export function daemonPaths(config: TokenPilotCodexConfig): {
     pidPath: join(config.stateDir, "tokenpilot-codex.pid"),
     logPath: join(config.stateDir, "tokenpilot-codex.log"),
   };
+}
+
+export async function acquireDaemonRuntimeLock(
+  config: TokenPilotCodexConfig,
+): Promise<() => Promise<void>> {
+  const lockPath = join(config.stateDir, "tokenpilot-codex.runtime.lock");
+  await mkdir(dirname(lockPath), { recursive: true });
+  const token = `${process.pid}:${randomUUID()}`;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = await open(lockPath, "wx");
+      await handle.writeFile(`${token}\n`, "utf8");
+      await handle.close();
+      return async () => {
+        if ((await readFile(lockPath, "utf8").catch(() => "")).trim() === token) {
+          await rm(lockPath, { force: true }).catch(() => undefined);
+        }
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const ownerPid = Number.parseInt(
+        (await readFile(lockPath, "utf8").catch(() => "")).split(/\r?\n/, 1)[0] ?? "",
+        10,
+      );
+      if (!Number.isInteger(ownerPid) || ownerPid <= 0) {
+        throw new Error(`TokenPilot Codex proxy runtime already running; see ${lockPath}`);
+      }
+      if (ownerPid === process.pid || await isLikelyDaemonProcess(ownerPid)) {
+        throw new Error(`TokenPilot Codex proxy runtime already running; see ${lockPath}`);
+      }
+      const staleLockPath = `${lockPath}.stale-${randomUUID()}`;
+      try {
+        await rename(lockPath, staleLockPath);
+        await rm(staleLockPath, { force: true });
+      } catch (claimError) {
+        if ((claimError as NodeJS.ErrnoException).code !== "ENOENT"
+          && (claimError as NodeJS.ErrnoException).code !== "EEXIST") {
+          throw claimError;
+        }
+      }
+    }
+  }
+
+  throw new Error(`TokenPilot Codex proxy runtime lock unavailable: ${lockPath}`);
 }
 
 function isProcessRunning(pid: number): boolean {

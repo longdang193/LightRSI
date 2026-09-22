@@ -74,6 +74,7 @@ export type DeltaView = {
   inputMode?: DeltaInputMode;
   fromTurnSeqExclusive: number;
   toTurnSeqInclusive: number;
+  coveredTurnSeqs?: number[];
   coveredTurnAbsIds: string[];
   messages: DeltaTurnMessage[];
   toolCalls: DeltaToolCall[];
@@ -145,6 +146,18 @@ export type TaskStateSpan = {
   lastEstimatorTurnAbsId: string;
 };
 
+export type TaskDecisionProvenance = {
+  submissionId: string;
+  callerId: string;
+  authorityRef: string;
+  evidenceRevision: string;
+  evidenceRefs: string[];
+  invalidationConditions: string[];
+};
+
+export type TaskRetentionDecision = "retain" | "release";
+export type TaskDependencyDirection = "incoming" | "outgoing" | "none" | "unknown";
+
 export type TaskState = {
   taskId: string;
   title: string;
@@ -155,6 +168,21 @@ export type TaskState = {
   completionEvidence: string[];
   unresolvedQuestions: string[];
   span: TaskStateSpan;
+  decisionProvenance?: TaskDecisionProvenance;
+  retentionDecision?: TaskRetentionDecision;
+  dependencyDirection?: TaskDependencyDirection;
+};
+
+export type AttributionSubmissionRecord = {
+  fingerprint: string;
+  taskIds: string[];
+  registryVersion: number;
+  acceptedAt: string;
+};
+
+export type ProcessedTurnRange = {
+  fromTurnSeqInclusive: number;
+  toTurnSeqInclusive: number;
 };
 
 export type SessionTaskRegistryPatch = {
@@ -166,7 +194,10 @@ export type SessionTaskRegistryPatch = {
   upsertTaskToBlockIds?: Record<string, string[]>;
   upsertBlockToTaskIds?: Record<string, string[]>;
   upsertTurnToTaskIds?: Record<string, string[]>;
+  upsertOccurrenceToTaskIds?: Record<string, string[]>;
+  processedTurnRanges?: ProcessedTurnRange[];
   lastProcessedTurnSeq?: number;
+  attributionSubmissions?: Record<string, AttributionSubmissionRecord>;
 };
 
 export type SessionTaskRegistry = {
@@ -179,7 +210,12 @@ export type SessionTaskRegistry = {
   taskToBlockIds: Record<string, string[]>;
   blockToTaskIds: Record<string, string[]>;
   turnToTaskIds: Record<string, string[]>;
+  /** Exact stable occurrence ownership. Empty arrays mean verified unassigned. */
+  occurrenceToTaskIds?: Record<string, string[]>;
+  /** Verified attribution coverage, including non-contiguous regions. */
+  processedTurnRanges?: ProcessedTurnRange[];
   lastProcessedTurnSeq: number;
+  attributionSubmissions?: Record<string, AttributionSubmissionRecord>;
 };
 
 export type HistoryBlock = {

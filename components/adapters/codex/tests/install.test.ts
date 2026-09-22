@@ -159,13 +159,19 @@ test("installCodexTokenPilot writes provider, MCP, and hooks with expected comma
       "lightrsi-visual",
     ]);
     assert.equal(result.cliBinInstalled, true);
-    assert.equal(result.cliBinPath, join(cliBinDir, "lightrsi"));
+    assert.equal(result.cliBinPath, join(cliBinDir, process.platform === "win32" ? "lightrsi.cmd" : "lightrsi"));
     assert.equal(result.cliBinDir, cliBinDir);
     assert.equal(result.cliBinDirOnPath, false);
-    assert.equal(result.hostCliBinPath, join(cliBinDir, "tokenpilot-codex"));
-    const allowRegularFile = process.platform === "win32";
-    await assertInstalledCliLink(result.cliBinPath, /codex-adapter[\/\\]dist[\/\\]lightrsi\.js$/, allowRegularFile);
-    await assertInstalledCliLink(result.hostCliBinPath!, /codex-adapter[\/\\]dist[\/\\]cli\.js$/, allowRegularFile);
+    assert.equal(result.hostCliBinPath, join(cliBinDir, process.platform === "win32" ? "tokenpilot-codex.cmd" : "tokenpilot-codex"));
+    if (process.platform === "win32") {
+      assert.match(await readFile(result.cliBinPath, "utf8"), /@echo off\r\n/);
+      assert.match(await readFile(result.hostCliBinPath!, "utf8"), /@echo off\r\n/);
+      await assert.rejects(() => lstat(join(cliBinDir, "lightrsi")));
+      await assert.rejects(() => lstat(join(cliBinDir, "tokenpilot-codex")));
+    } else {
+      await assertInstalledCliLink(result.cliBinPath, /codex-adapter[\/\\]dist[\/\\]lightrsi\.js$/, false);
+      await assertInstalledCliLink(result.hostCliBinPath!, /codex-adapter[\/\\]dist[\/\\]cli\.js$/, false);
+    }
     const tokenPilotConfig = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
     assert.equal(tokenPilotConfig.enabled, true);
     assert.equal(tokenPilotConfig.upstreamProvider, "OPENAI");
@@ -368,6 +374,39 @@ test("installCodexTokenPilot preserves the last real upstream when the current p
 
     const codexToml = await readFile(codexConfigPath, "utf8");
     assert.match(codexToml, new RegExp(`base_url = "http://127\\.0\\.0\\.1:${tokenPilotConfig.proxyPort}/v1"`));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("installCodexTokenPilot preserves a distinct local final gateway", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-local-gateway-"));
+  try {
+    const codexConfigPath = join(dir, "config.toml");
+    const hooksConfigPath = join(dir, "hooks.json");
+    const tokenPilotConfigPath = join(dir, "tokenpilot.json");
+
+    await writeFile(codexConfigPath, [
+      "model_provider = \"9router\"",
+      "",
+      "[model_providers.9router]",
+      "name = \"9router\"",
+      "base_url = \"http://127.0.0.1:20128/v1\"",
+      "wire_api = \"responses\"",
+      "requires_openai_auth = true",
+      "",
+    ].join("\n"), "utf8");
+
+    await installCodexTokenPilot({
+      codexConfigPath,
+      hooksConfigPath,
+      tokenPilotConfigPath,
+      probeMcp: false,
+    });
+
+    const tokenPilotConfig = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
+    assert.equal(tokenPilotConfig.upstreamProvider, "9router");
+    assert.equal(tokenPilotConfig.upstream?.baseUrl, "http://127.0.0.1:20128/v1");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

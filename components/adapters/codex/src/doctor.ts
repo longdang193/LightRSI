@@ -15,6 +15,7 @@ import type {
   TokenPilotCodexConfig,
 } from "./config.js";
 import {
+  codexProxyBaseUrl,
   readCodexMcpServerFromToml,
   readCodexProviderFromToml,
   readCodexRootModelProvider,
@@ -23,11 +24,6 @@ import {
   formatCodexRebaseCapabilityStatus,
   readCodexRebaseCapabilityJournal,
 } from "./context-rewrite/rebase-capability.js";
-import {
-  codexEstimatorDiagnostic,
-  resolveCodexTaskStateEstimator,
-  type CodexEstimatorDiagnostic,
-} from "./context-rewrite/estimator-config.js";
 import { readDaemonStatus } from "./daemon.js";
 import { resolveCodexHookCommandForInstall, resolveCodexMcpServerSpecForInstall } from "./install.js";
 
@@ -66,7 +62,6 @@ export type CodexDoctorReport = {
   rebaseCapabilityStatus?: string[];
   rebaseCapabilityTrusted?: boolean;
   rebaseCapabilityIssue?: string;
-  taskStateEstimator?: CodexEstimatorDiagnostic;
 };
 
 export type CodexProviderDiagnostic = {
@@ -98,6 +93,10 @@ function normalizeLocalProxyBaseUrl(value: string | undefined): string | undefin
   const match = /^http:\/\/127\.0\.0\.1:(\d+)\/v1$/i.exec(trimmed);
   if (!match) return undefined;
   return `http://127.0.0.1:${match[1]}/v1`;
+}
+
+function isNineRouterProvider(config: CodexProviderConfig | undefined, providerName?: string): boolean {
+  return [config?.name, providerName].some((value) => value?.trim().toLowerCase() === "9router");
 }
 
 function sanitizeDiagnosticUrl(value: string | undefined): string | undefined {
@@ -156,16 +155,6 @@ async function checkHealth(baseUrl: string): Promise<boolean> {
 }
 
 export function formatCodexDoctorReport(report: CodexDoctorReport): string {
-  const taskStateEstimator = report.taskStateEstimator ?? {
-    status: "disabled" as const,
-    model: null,
-    baseUrlConfigured: false,
-    apiKeyConfigured: false,
-    requestTimeoutMs: 60_000,
-    batchTurns: 5,
-    evictionLookaheadTurns: 3,
-    missingFields: [],
-  };
   const rebaseCapabilityStatus = report.rebaseCapabilityStatus ?? [];
   const rebaseCapabilitySummary = report.rebaseCapabilityTrusted === false
     ? `untrusted (${report.rebaseCapabilityIssue ?? "read or validation error"}); runtime will bypass rebase`
@@ -205,14 +194,6 @@ export function formatCodexDoctorReport(report: CodexDoctorReport): string {
     `- upstream provider: ${report.upstreamProvider ?? "(unset)"}`,
     `- upstream base URL: ${sanitizeDiagnosticUrl(report.upstreamBaseUrl) ?? "(unset)"}`,
     `- upstream loops into local proxy: ${report.upstreamLoopDetected ? "yes" : "no"}`,
-    `- task-state estimator status: ${taskStateEstimator.status}`,
-    `- task-state estimator model: ${taskStateEstimator.model ?? "(unset)"}`,
-    `- task-state estimator base URL configured: ${taskStateEstimator.baseUrlConfigured ? "yes" : "no"}`,
-    `- task-state estimator API key configured: ${taskStateEstimator.apiKeyConfigured ? "yes" : "no"}`,
-    `- task-state estimator request timeout: ${taskStateEstimator.requestTimeoutMs}ms`,
-    `- task-state estimator batch turns: ${taskStateEstimator.batchTurns}`,
-    `- task-state estimator eviction lookahead turns: ${taskStateEstimator.evictionLookaheadTurns}`,
-    `- task-state estimator missing fields: ${taskStateEstimator.missingFields.length > 0 ? taskStateEstimator.missingFields.join(", ") : "(none)"}`,
     `- CDR-05 rebase capability cache: ${rebaseCapabilitySummary}`,
   ];
   const fixes: string[] = [];
@@ -245,11 +226,6 @@ export function formatCodexDoctorReport(report: CodexDoctorReport): string {
     fixes.push("- trust the TokenPilot hooks in Codex, then start a new session so SessionStart can boot the local proxy");
     fixes.push("- if the proxy is still unhealthy after a new session starts, run `tokenpilot-codex start` or `tokenpilot-codex restart`");
   }
-  if (taskStateEstimator.status === "incomplete") {
-    fixes.push(
-      `- configure taskStateEstimator ${taskStateEstimator.missingFields.length > 0 ? taskStateEstimator.missingFields.join(", ") : "settings"}; estimator runtime remains disabled until the configuration is ready`,
-    );
-  }
   if (report.degradedMode) {
     lines.push(
       "",
@@ -272,7 +248,7 @@ export async function inspectCodexDoctor(params: {
   hooksConfigPath: string;
 }): Promise<CodexDoctorReport> {
   const daemon = await readDaemonStatus(params.config);
-  const proxyBaseUrl = `http://127.0.0.1:${params.config.proxyPort}/v1`;
+  const proxyBaseUrl = codexProxyBaseUrl(params.config);
   const providerName = params.config.providerName || "tokenpilot";
   const expectedHookCommand = await resolveCodexHookCommandForInstall();
   const expectedMcpSpec = resolveCodexMcpServerSpecForInstall(params.config.stateDir);
@@ -304,7 +280,11 @@ export async function inspectCodexDoctor(params: {
     : undefined;
   const upstreamBaseUrl = params.config.upstream?.baseUrl
     ?? (providerIntercepted ? undefined : fallbackUpstreamBaseUrl);
-  const upstreamLoopDetected = Boolean(normalizeLocalProxyBaseUrl(upstreamBaseUrl));
+  const normalizedUpstreamBaseUrl = normalizeLocalProxyBaseUrl(upstreamBaseUrl);
+  const normalizedProxyBaseUrl = normalizeLocalProxyBaseUrl(proxyBaseUrl);
+  const upstreamLoopDetected = Boolean(normalizedUpstreamBaseUrl)
+    && !(isNineRouterProvider(params.config.upstream, params.config.upstreamProvider)
+      && normalizedUpstreamBaseUrl !== normalizedProxyBaseUrl);
   const mcpHealth = inspectTokenPilotMcpHealth({
     observed: mcp,
     expected: expectedMcpSpec,
@@ -327,10 +307,6 @@ export async function inspectCodexDoctor(params: {
     && daemon.running
     && proxyHealthy;
   const recoveryMcpHealthy = mcpHealth.healthy;
-  const taskStateEstimator = codexEstimatorDiagnostic(resolveCodexTaskStateEstimator({
-    config: params.config.taskStateEstimator,
-    env: process.env,
-  }));
   return {
     configPath: params.configPath,
     hooksConfigPath: params.hooksConfigPath,
@@ -366,6 +342,5 @@ export async function inspectCodexDoctor(params: {
     rebaseCapabilityStatus,
     rebaseCapabilityTrusted,
     rebaseCapabilityIssue,
-    taskStateEstimator,
   };
 }

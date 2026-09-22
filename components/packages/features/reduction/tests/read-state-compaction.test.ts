@@ -151,6 +151,66 @@ test("runReductionBeforeCall publishes successful legacy mutations even when cha
   assert.equal(result.report[0]?.changed, false);
 });
 
+test("runReductionBeforeCall publishes legacy mutations without mutating input", async () => {
+  const turnCtx: RuntimeTurnContext = {
+    sessionId: "legacy-session",
+    sessionMode: "single",
+    provider: "test",
+    model: "test-model",
+    apiFamily: "other",
+    prompt: "test",
+    budget: { maxInputTokens: 0, reserveOutputTokens: 0 },
+    segments: [buildSegment("segment-1", "read", "/repo/a.ts", "original", "output")],
+  };
+
+  const result = await runReductionBeforeCall({
+    turnCtx,
+    passes: [{ id: "legacy_pass", phase: "before_call", target: "context_segment" }],
+    registry: {
+      legacy_pass: {
+        beforeCall({ turnCtx: current }) {
+          current.segments[0]!.text = "mutated";
+          return { changed: true };
+        },
+      },
+    },
+  });
+
+  assert.equal(result.turnCtx.segments[0]!.text, "mutated");
+  assert.equal(turnCtx.segments[0]!.text, "original");
+  assert.equal(result.report[0]?.changed, true);
+});
+
+test("runReductionBeforeCall ignores immutableInput on custom handlers", async () => {
+  const turnCtx: RuntimeTurnContext = {
+    sessionId: "custom-session",
+    sessionMode: "single",
+    provider: "test",
+    model: "test-model",
+    apiFamily: "other",
+    prompt: "test",
+    budget: { maxInputTokens: 0, reserveOutputTokens: 0 },
+    segments: [buildSegment("segment-1", "read", "/repo/a.ts", "original", "output")],
+  };
+
+  const result = await runReductionBeforeCall({
+    turnCtx,
+    passes: [{ id: "custom_pass", phase: "before_call", target: "context_segment" }],
+    registry: {
+      custom_pass: {
+        immutableInput: true,
+        beforeCall({ turnCtx: current }) {
+          current.segments[0]!.text = "mutated";
+          throw new Error("fixture failure");
+        },
+      },
+    },
+  });
+
+  assert.equal(result.turnCtx.segments[0]!.text, "original");
+  assert.equal(result.report[0]?.skippedReason, "pass_error");
+});
+
 test("runReductionAfterCall restores nested context after pass failure", async () => {
   const turnCtx: RuntimeTurnContext = {
     sessionId: "after-call-failure-session",

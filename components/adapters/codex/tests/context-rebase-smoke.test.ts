@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,6 +8,10 @@ import {
   CODEX_REBASE_SMOKE_EVIDENCE_SCHEMA,
   runCodexRebaseMockSmoke,
 } from "../src/context-rebase-smoke.js";
+import {
+  loadProviderEnvFile,
+  providerModelFromEnvironment,
+} from "../scripts/context-rebase-smoke.ts";
 
 test("CDR-06 offline smoke emits sanitized five-turn, restart, and fallback evidence", async () => {
   const outputDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-smoke-test-"));
@@ -112,5 +116,39 @@ test("CDR-06 offline smoke rejects credential-shaped model labels before executi
     });
   } finally {
     await rm(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("provider smoke loads canonical estimator aliases from tokenpilot env", async () => {
+  const names = [
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY",
+    "LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL",
+    "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL",
+    "TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY",
+    "TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL",
+    "TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL",
+  ] as const;
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-provider-env-test-"));
+  const envFile = join(dir, "tokenpilot.env");
+  try {
+    for (const name of names) delete process.env[name];
+    await writeFile(envFile, [
+      "LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY=custom-key",
+      "LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL=http://127.0.0.1:20128/v1",
+      "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL=combo-high",
+    ].join("\n"), "utf8");
+    await loadProviderEnvFile(envFile);
+    assert.equal(process.env.OPENAI_API_KEY, "custom-key");
+    assert.equal(process.env.OPENAI_BASE_URL, "http://127.0.0.1:20128/v1");
+    assert.equal(providerModelFromEnvironment(), "combo-high");
+  } finally {
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+    await rm(dir, { recursive: true, force: true });
   }
 });

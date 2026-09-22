@@ -1,5 +1,7 @@
 import {
   buildDeltaViewFromRawSemanticSnapshot,
+  highestContiguousProcessedTurnSeq,
+  processedTurnRanges,
   type DeltaInputMode,
   type DeltaTaskSummary,
   type DeltaView,
@@ -184,15 +186,18 @@ function committedHeadView(
   const structurallyIncomplete = params.view.history.incomplete
     || params.view.history.deferredItems.length > 0
     || params.view.history.unresolvedCallIds.length > 0;
-  const unexplainedSemanticIncomplete = !params.view.semanticComplete
-    && !hasExpectedPendingBoundary;
+  const dirtyHistoryReasons = new Set<CodexLifecycleInputReasonCode>([
+    "history_replay_incomplete",
+    "history_deferred_items",
+    "history_unresolved_tool_calls",
+  ]);
+  const unexplainedReasons = remainingReasons.filter((reason) => !dirtyHistoryReasons.has(reason));
   if (
-    remainingReasons.length > 0
-    || structurallyIncomplete
-    || unexplainedSemanticIncomplete
+    unexplainedReasons.length > 0
+    || (!structurallyIncomplete && !params.view.semanticComplete && !hasExpectedPendingBoundary)
   ) {
     return deferred([
-      ...remainingReasons,
+      ...unexplainedReasons,
       ...structuralReasons,
       "lifecycle_semantic_source_incomplete",
     ]);
@@ -223,6 +228,9 @@ function taskIdsForStableItem(params: {
   stableItemId: string;
   turnIdsByStableItemId: ReadonlyMap<string, readonly string[]>;
 }): string[] {
+  if (Object.hasOwn(params.registry.occurrenceToTaskIds ?? {}, params.stableItemId)) {
+    return uniqueStrings(params.registry.occurrenceToTaskIds?.[params.stableItemId] ?? []);
+  }
   return uniqueStrings([
     ...(params.turnIdsByStableItemId.get(params.stableItemId) ?? [])
       .flatMap((turnAbsId) => params.registry.turnToTaskIds[turnAbsId] ?? []),
@@ -286,6 +294,7 @@ export function buildCodexLifecycleBackendRequest(
   }
   return {
     ...params.request,
+    taskPolicy: "lifecycle",
     effectiveHistory: params.view.history,
     taskIdsByItemId,
     activeTaskIds: uniqueStrings(params.registry.activeTaskIds),
@@ -446,6 +455,14 @@ function validSnapshotIdentity(
     );
 }
 
+function semanticReasonsAreScoped(reasonCodes: readonly string[]): boolean {
+  return reasonCodes.every((reason) => (
+    reason === "semantic_source_incomplete"
+    || reason.startsWith("semantic_tool_")
+    || reason.startsWith("semantic_message_")
+  ));
+}
+
 /**
  * Pure Codex adapter projection for the shared lifecycle planner. It performs
  * no filesystem writes, estimator calls, planner calls, tracing, or mutation.
@@ -462,39 +479,49 @@ export function buildCodexLifecycleInput(
   if (!Number.isInteger(params.registry.version) || params.registry.version < 0) {
     return deferred(["lifecycle_registry_version_invalid"]);
   }
-  if (
-    !Number.isInteger(params.registry.lastProcessedTurnSeq)
-    || params.registry.lastProcessedTurnSeq < 0
-  ) {
-    return deferred(["lifecycle_registry_watermark_invalid"]);
-  }
-
   const committed = committedHeadView(params);
   if ("status" in committed) return committed;
   const semantic = buildCodexRawSemanticTurns(committed);
-  if (!semantic.complete) return deferred(semantic.reasonCodes);
+  if (
+    !semantic.complete
+    && (semantic.blockedTurnSeqs.length === 0 || !semanticReasonsAreScoped(semantic.reasonCodes))
+  ) {
+    return deferred(semantic.reasonCodes);
+  }
   if (semantic.turns.some((turn) => turn.sessionId !== params.registry.sessionId)) {
     return deferred(["lifecycle_registry_session_mismatch"]);
   }
 
   const snapshot = rawSnapshot(params.registry.sessionId, semantic.turns);
-  if (params.registry.lastProcessedTurnSeq > snapshot.lastTurnSeq) {
+  const processed = processedTurnRanges(params.registry);
+  const processedWatermark = highestContiguousProcessedTurnSeq(processed);
+  if (processedWatermark > snapshot.lastTurnSeq) {
     return deferred(["lifecycle_registry_ahead_of_history"]);
   }
-  if (params.registry.lastProcessedTurnSeq === snapshot.lastTurnSeq) {
-    return deferred(["lifecycle_no_pending_turns"]);
+  const blocked = new Set(semantic.blockedTurnSeqs);
+  const pendingTurnSeqs = semantic.turns
+    .map((turn) => turn.turnSeq)
+    .filter((turnSeq) => !blocked.has(turnSeq))
+    .filter((turnSeq) => !processed.some((range) => (
+      turnSeq >= range.fromTurnSeqInclusive
+      && turnSeq <= range.toTurnSeqInclusive
+    )))
+    .sort((left, right) => left - right);
+  if (pendingTurnSeqs.length === 0) {
+    return deferred(
+      semantic.complete ? ["lifecycle_no_pending_turns"] : semantic.reasonCodes,
+    );
   }
+  const toTurnSeqInclusive = pendingTurnSeqs.at(-1)!;
   const delta = buildDeltaViewFromRawSemanticSnapshot(snapshot, {
-    fromTurnSeqExclusive: params.registry.lastProcessedTurnSeq,
-    toTurnSeqInclusive: snapshot.lastTurnSeq,
+    fromTurnSeqExclusive: processedWatermark,
+    toTurnSeqInclusive,
+    turnSeqs: pendingTurnSeqs,
     currentActiveTaskHint: params.currentActiveTaskHint,
     inputMode: params.inputMode,
     completedTaskSummaries: params.completedTaskSummaries,
   });
-  const pendingTurnCount = semantic.turns.filter(
-    (turn) => turn.turnSeq > params.registry.lastProcessedTurnSeq
-      && turn.turnSeq <= snapshot.lastTurnSeq,
-  ).length;
+  const pendingTurnCount = pendingTurnSeqs.length;
 
   const backendRequest = buildCodexLifecycleBackendRequest({
     view: committed,

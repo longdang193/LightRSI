@@ -325,12 +325,15 @@ test("Codex GUA-02 fixture API returns deterministic logical target sets", async
   assert.equal(first.result.applied, true);
 });
 
-test("Codex shared backend defers incomplete effective history without mutating the request", async () => {
+test("Codex shared backend applies selected replayable items despite unrelated incomplete history", async () => {
   const request = requestFor([
     message("old-user", "user", "old request"),
     message("active-user", "user", "keep current work"),
   ]);
   request.effectiveHistory.incomplete = true;
+  request.effectiveHistory.deferredItems = [message("deferred-unrelated", "user", "unrelated deferred history")];
+  delete request.payload.previous_response_id;
+  request.currentInput = request.effectiveHistory.replayableItems.map((entry) => entry.item);
   const snapshot = await codexSharedContextRewriteBackend.readSnapshot({ sessionId: SESSION_ID, request });
   const oldItem = snapshot.items.find((item) => item.stableId === "old-user")!;
   const plan = planFor({
@@ -339,9 +342,10 @@ test("Codex shared backend defers incomplete effective history without mutating 
     fingerprints: { "old-user": oldItem.fingerprint },
   });
   const applied = await codexSharedContextRewriteBackend.apply({ snapshot, plan, request });
-  assert.equal(applied.result.applied, false);
-  assert.equal(applied.result.changed, false);
-  assert.deepEqual(applied.result.deferredOperationIds, ["codex-shared-op-1"]);
-  assert.equal(applied.request, request);
-  assert.deepEqual(applied.request.payload as JsonObject, request.payload);
+  assert.equal(applied.result.applied, true);
+  assert.equal(applied.result.changed, true);
+  assert.deepEqual(applied.result.deferredOperationIds, []);
+  assert.notEqual(applied.request, request);
+  assert.doesNotMatch(JSON.stringify(applied.request.payload.input), /old request/);
+  assert.match(JSON.stringify(applied.request.payload.input), /keep current work/);
 });

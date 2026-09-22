@@ -43,6 +43,8 @@ const DEFAULT_LOCK_TIMEOUT_MS = 30_000;
 const DEFAULT_LOCK_RETRY_MS = 10;
 const LOCK_REMOVE_MAX_RETRIES = 5;
 const LOCK_REMOVE_RETRY_MS = 20;
+const JOURNAL_RENAME_MAX_RETRIES = 6;
+const JOURNAL_RENAME_RETRY_MS = 50;
 const FATAL_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 function errorCode(error: unknown): string | undefined {
@@ -68,6 +70,19 @@ async function removeLockPath(path: string): Promise<void> {
     maxRetries: LOCK_REMOVE_MAX_RETRIES,
     retryDelay: LOCK_REMOVE_RETRY_MS,
   });
+}
+
+async function renameJournalWithRetry(path: string, quarantinePath: string): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(path, quarantinePath);
+      return;
+    } catch (error) {
+      if (!isTransientWindowsLockError(error) || attempt >= JOURNAL_RENAME_MAX_RETRIES) throw error;
+      // ponytail: bounded Windows file-lock retry; persistent locks remain fail-closed.
+      await wait(JOURNAL_RENAME_RETRY_MS * (attempt + 1));
+    }
+  }
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -487,7 +502,7 @@ export async function quarantineOversizedCodexContextHistoryJournalLocked(
   const path = codexContextHistoryJournalPath(stateDir, sessionId);
   const quarantinePath = `${path}.oversized-${Date.now()}-${randomUUID()}.jsonl`;
   try {
-    await rename(path, quarantinePath);
+    await renameJournalWithRetry(path, quarantinePath);
     return quarantinePath;
   } catch (error) {
     if (errorCode(error) === "ENOENT") return undefined;

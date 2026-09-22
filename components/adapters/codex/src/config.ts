@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { userHomeDirectory } from "@lightrsi/host-adapter";
 import { dirname, join, resolve } from "node:path";
+import { loadEnvFile } from "node:process";
 import type { TaskStateEstimatorApiConfig } from "@lightrsi/eviction";
 import type { CodexContextRewriteConfig, CodexMutationPlan } from "./context-rewrite/types.js";
 
@@ -74,6 +75,10 @@ export function defaultTokenPilotConfigPath(): string {
 
 export function defaultStateDir(configPath = defaultTokenPilotConfigPath()): string {
   return join(dirname(configPath), "tokenpilot-state", "tokenpilot");
+}
+
+export function codexProxyBaseUrl(config: Pick<TokenPilotCodexConfig, "proxyPort">): string {
+  return `http://127.0.0.1:${config.proxyPort}/v1`;
 }
 
 export function defaultHooksConfigPath(): string {
@@ -254,6 +259,8 @@ export function normalizeTokenPilotCodexConfig(
 }
 
 export async function loadTokenPilotCodexConfig(configPath = defaultTokenPilotConfigPath()): Promise<TokenPilotCodexConfig> {
+  const envPath = join(dirname(configPath), "tokenpilot.env");
+  if (existsSync(envPath)) loadEnvFile(envPath);
   if (!existsSync(configPath)) {
     return normalizeTokenPilotCodexConfig({}, { configPath });
   }

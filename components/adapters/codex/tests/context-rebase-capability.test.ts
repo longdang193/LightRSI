@@ -296,6 +296,41 @@ test("CDR-05 unknown compatibility bypasses before opening an epoch", async () =
   });
 });
 
+test("CDR-05 cumulative filtering does not invoke replay capability checks", async () => {
+  await withTempState(async (stateDir) => {
+    const originalPayload = {
+      model: "gpt-5.4-mini",
+      input: [{ role: "user", content: "current" }],
+    };
+    const rebasedPayload = {
+      ...originalPayload,
+      input: [{ role: "user", content: "retained" }],
+    };
+    const sentPayloads: JsonObject[] = [];
+    const result = await executeCodexRebaseWithFallback({
+      sessionId: "codex-session-cumulative",
+      planId: "plan-cumulative",
+      epochId: "epoch-cumulative",
+      originalPayload,
+      rebasedPayload,
+      inputFormat: "cumulative",
+      capabilityStore: capabilityStore(stateDir, undefined, {
+        probeMode: "disabled",
+        acceptedEvidence: ["real_provider"],
+        evidenceSource: "real_provider",
+      }),
+      async sendUpstream(payload) {
+        sentPayloads.push(payload);
+        return { status: 200, headers: {}, text: JSON.stringify({ id: "resp-cumulative", output: [] }) };
+      },
+    });
+
+    assert.equal(result.outcome, "committed");
+    assert.deepEqual(sentPayloads, [rebasedPayload]);
+    assert.equal(result.newResponseId, "resp-cumulative");
+  });
+});
+
 test("CDR-05 mock capability evidence is ignored unless the harness explicitly accepts it", async () => {
   await withTempState(async (stateDir) => {
     await appendCapability({

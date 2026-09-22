@@ -9,10 +9,13 @@ import type {
   CodexRebaseEpoch,
   CodexRebaseRequestResult,
 } from "../context-rewrite/types.js";
+import { sameCanonicalValue } from "@lightrsi/cleaner";
 
 export type CodexCleanerAppliedReceiptInput = {
   execution: ContextCleanPreparedExecution;
+  executionRevision?: string;
   epoch: CodexRebaseEpoch;
+  claimId?: string;
 };
 
 export type CodexCleanerAppliedReceiptBuildResult =
@@ -78,7 +81,7 @@ export function buildCodexCleanerAppliedReceipt(
   if (epoch.status !== "committed"
     || epoch.sessionId !== execution.sessionId
     || epoch.planId !== execution.mutationPlan.planId
-    || epoch.oldRevision !== execution.baseRevision
+    || epoch.oldRevision !== (params.executionRevision?.trim() || execution.baseRevision)
     || !epoch.newResponseId?.trim()
     || !epoch.newRevision?.trim()
     || !epoch.accounting
@@ -103,6 +106,8 @@ export function buildCodexCleanerAppliedReceipt(
       appliedSavedTokens,
       appliedSavedChars: epoch.accounting.actuallyRemovedChars,
       evidence: {
+        ...(execution.scheduledReceipt.evidence ?? {}),
+        ...(params.claimId ? { claimId: params.claimId } : {}),
         previousRevision: epoch.oldRevision,
         nextRevision: epoch.newRevision,
         operationIds,
@@ -118,9 +123,11 @@ export function buildCodexCleanerAppliedReceipt(
 /** Validates that a just-prepared rewrite fully matches the committed epoch. */
 export function buildCodexCleanerAppliedReceiptFromRewrite(params: {
   execution: ContextCleanPreparedExecution;
+  executionRevision?: string;
   rewriteResult: ContextRewriteResult<CodexSharedBackendDetails>;
   rebaseRequest: CodexRebaseRequestResult;
   epoch: CodexRebaseEpoch;
+  claimId?: string;
 }): CodexCleanerAppliedReceiptBuildResult {
   const base = buildCodexCleanerAppliedReceipt(params);
   if (!base.receipt) return base;
@@ -145,7 +152,7 @@ export function buildCodexCleanerAppliedReceiptFromRewrite(params: {
     || !sameStringSet(rewriteResult.appliedOperationIds, operationIds)
     || !sameStringSet(rewriteResult.removedItemIds, itemIds)
     || rewriteResult.savedChars !== epoch.accounting?.actuallyRemovedChars
-    || JSON.stringify(rewriteResult.details.accounting) !== JSON.stringify(rebaseRequest.accounting)
+    || !sameCanonicalValue(rewriteResult.details.accounting, rebaseRequest.accounting)
     || !accountingMatches) {
     return { reasons: ["cleaner_receipt_rewrite_evidence_invalid"] };
   }

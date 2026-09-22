@@ -16,6 +16,7 @@ import {
   saveActiveContextMutationPlan,
   markContextMutationPlanApplied,
   markContextMutationPlanFailed,
+  withContextMutationPlanSessionLock,
 } from "@lightrsi/host-adapter";
 import {
   prepareObservedBeforeCall,
@@ -36,7 +37,11 @@ import {
   buildClaudeHistoryBlocks,
   type ClaudeEvictionApplySummary,
 } from "./eviction.js";
-import { loadSessionTaskRegistry, persistSessionTaskRegistry } from "@lightrsi/history";
+import {
+  loadSessionTaskRegistry,
+  persistSessionTaskRegistry,
+  processedTurnWatermark,
+} from "@lightrsi/history";
 import { claudeContextRewriteBackend, relocateContextMutationPlan } from "./context-rewrite/backend.js";
 import { applyArchivePlan } from "./context-rewrite/archive.js";
 import { saveLatestClaudeSnapshot } from "./context-rewrite/snapshot-store.js";
@@ -442,7 +447,7 @@ export async function startClaudeCodeGatewayRuntime(params: {
             const plannerResult = await planLifecycleEviction({
               registry: prep.registry,
               delta: prep.delta,
-              pendingTurnCount: prep.turnSeq - prep.registry.lastProcessedTurnSeq,
+              pendingTurnCount: prep.turnSeq - processedTurnWatermark(prep.registry),
               estimator: lifecycleEstimator,
               historyBlocks: buildClaudeHistoryBlocks(
                 sessionId,
@@ -468,8 +473,14 @@ export async function startClaudeCodeGatewayRuntime(params: {
             let registryCommitted = !plannerResult.registryUpdateRequired;
             if (plannerResult.registryUpdateRequired) {
               try {
-                await (params.dependencies?.persistTaskRegistry ?? persistSessionTaskRegistry)(config.stateDir, plannerResult.registry, {
-                  expectedVersion: plannerResult.expectedRegistryVersion,
+                await withContextMutationPlanSessionLock({
+                  stateDir: config.stateDir,
+                  sessionId,
+                  run: () => (params.dependencies?.persistTaskRegistry ?? persistSessionTaskRegistry)(
+                    config.stateDir,
+                    plannerResult.registry,
+                    { expectedVersion: plannerResult.expectedRegistryVersion },
+                  ),
                 });
                 registryCommitted = true;
               } catch (error) {

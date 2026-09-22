@@ -60,12 +60,53 @@ test("normalizeResponsesInputForUpstream preserves structured output blocks", ()
     },
   ];
 
-  normalizeResponsesInputForUpstream(input);
+  const normalized = normalizeResponsesInputForUpstream(input);
 
-  assert.equal(input[0].arguments, "{\"command\":\"git status\"}");
-  assert.equal(input[1].output, outputBlocks);
+  assert.deepEqual(input[0].arguments, { command: "git status" });
+  assert.deepEqual(input[1].output, outputBlocks);
   assert.deepEqual(input[1].tool_result.headers, nestedHeaders);
-  assert.equal(input[2].output, "{\"stdout\":\"ok\"}");
+  assert.deepEqual(input[2].output, { stdout: "ok" });
+  assert.equal(normalized?.[0]?.arguments, "{\"command\":\"git status\"}");
+  assert.equal(normalized?.[1]?.output, outputBlocks);
+  assert.equal(normalized?.[2]?.output, "{\"stdout\":\"ok\"}");
+});
+
+test("reduction does not mutate nested provider input while applying replacements", async () => {
+  const config = normalizeTokenPilotCodexConfig({
+    reduction: {
+      triggerMinChars: 1,
+      maxToolChars: 400,
+      passes: {
+        readStateCompaction: false,
+        toolPayloadTrim: true,
+        htmlSlimming: false,
+        execOutputTruncation: false,
+        agentsStartupOptimization: false,
+      },
+    },
+  });
+  const codec = createCodexResponsesPayloadCodec();
+  const block = { type: "output_text", text: `HEAD\n${"line\n".repeat(600)}` };
+  const sourcePayload: any = {
+    model: "tokenpilot/gpt-5.4-mini",
+    stream: false,
+    input: [
+      { role: "user", content: "Keep this" },
+      { role: "tool", type: "function_call_output", content: [block] },
+    ],
+  };
+  const originalInput = sourcePayload.input;
+  const originalBlock = sourcePayload.input[1].content[0];
+  const originalText = originalBlock.text;
+
+  const envelope = codec.decodeRequest(sourcePayload);
+  const reduced = await reduceCodexRequestEnvelope({ envelope, codec, config });
+
+  assert.ok(reduced.summary.changedBlocks > 0);
+  assert.equal(sourcePayload.input, originalInput);
+  assert.equal(sourcePayload.input[1].content[0], originalBlock);
+  assert.equal(sourcePayload.input[1].content[0].text, originalText);
+  assert.notEqual(reduced.envelope.rawPayload, sourcePayload);
 });
 
 test("applyBeforeCallReductionToPayload skips below-threshold payloads", async () => {

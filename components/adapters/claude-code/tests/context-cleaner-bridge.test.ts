@@ -58,6 +58,7 @@ function appliedReceipt(): ContextCleanAppliedReceipt {
   return {
     ...pendingReceipt("scheduled"),
     status: "applied",
+    fallbackUsed: false,
     appliedSavedTokens: null,
     appliedSavedChars: 10,
     evidence: {
@@ -77,14 +78,7 @@ function approval(): ExecuteApprovedContextCleanParams {
     sessionId: SESSION,
     baseRevision: "revision-before",
     approvedAt: "2026-08-21T00:00:00.000Z",
-    selectedTasks: [{
-      taskId: "task-1",
-      itemIds: ["item-1", "item-2"],
-      itemDigests: {
-        "item-1": "digest-1",
-        "item-2": "digest-2",
-      },
-    }],
+    selectedTaskIds: ["task-1"],
   };
 }
 
@@ -212,13 +206,9 @@ test("Claude cleaner bridge rejects cross-host or mutated approvals before execu
   await assert.rejects(
     bridge.executeApprovedClean({
       ...approval(),
-      selectedTasks: [{
-        taskId: "task-1",
-        itemIds: ["item-1"],
-        itemDigests: { "other-item": "digest-1" },
-      }],
+      selectedTaskIds: [""],
     }),
-    /claude_clean_approval_targets_invalid/,
+    /claude_clean_approval_invalid/,
   );
   assert.equal(executions, 0);
 });
@@ -293,7 +283,7 @@ test("Claude cleaner session catalog sorts valid state and isolates malformed re
   }
 });
 
-test("Claude cleaner bridge rejects malformed approval shapes and duplicate target scope", async () => {
+test("Claude cleaner bridge rejects malformed approval task ids", async () => {
   let executions = 0;
   const bridge = createClaudeCodeContextCleanerBridge({
     stateDir: "unused-state-dir",
@@ -308,30 +298,9 @@ test("Claude cleaner bridge rejects malformed approval shapes and duplicate targ
   const cases: Array<[string, ExecuteApprovedContextCleanParams, RegExp]> = [
     ["schema", { ...approval(), schemaVersion: 999 as 1 }, /approval_schema_mismatch/],
     ["timestamp", { ...approval(), approvedAt: "2026-08-21" }, /approval_invalid/],
-    ["selectedTasks", { ...approval(), selectedTasks: null as never }, /approval_invalid/],
-    ["digests", {
-      ...approval(),
-      selectedTasks: [{ taskId: "task-1", itemIds: ["item-1"], itemDigests: null as never }],
-    }, /approval_targets_invalid/],
-    ["duplicate task", {
-      ...approval(),
-      selectedTasks: [approval().selectedTasks[0]!, approval().selectedTasks[0]!],
-    }, /approval_invalid/],
-    ["duplicate item", {
-      ...approval(),
-      selectedTasks: [
-        { taskId: "task-1", itemIds: ["item-1"], itemDigests: { "item-1": "digest-1" } },
-        { taskId: "task-2", itemIds: ["item-1"], itemDigests: { "item-1": "digest-1" } },
-      ],
-    }, /approval_targets_invalid/],
-    ["extra digest", {
-      ...approval(),
-      selectedTasks: [{
-        taskId: "task-1",
-        itemIds: ["item-1"],
-        itemDigests: { "item-1": "digest-1", extra: "digest-extra" },
-      }],
-    }, /approval_targets_invalid/],
+    ["selectedTaskIds", { ...approval(), selectedTaskIds: null as never }, /approval_invalid/],
+    ["duplicate task", { ...approval(), selectedTaskIds: ["task-1", "task-1"] }, /approval_invalid/],
+    ["blank task", { ...approval(), selectedTaskIds: [""] }, /approval_invalid/],
   ];
 
   for (const [label, request, pattern] of cases) {

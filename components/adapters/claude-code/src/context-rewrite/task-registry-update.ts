@@ -4,6 +4,8 @@ import {
 } from "@lightrsi/eviction";
 import {
   applySessionTaskRegistryPatch,
+  mergeProcessedTurnRanges,
+  turnSeqsToRanges,
   type DeltaView,
   type SessionTaskRegistry,
 } from "@lightrsi/history";
@@ -50,7 +52,15 @@ export async function updateRegistryFromDelta(params: {
     // future turns do not repeatedly pay to re-estimate the same observations.
     return {
       registry: applySessionTaskRegistryPatch(registry, {
-        lastProcessedTurnSeq: delta.toTurnSeqInclusive,
+        processedTurnRanges: mergeProcessedTurnRanges(
+          registry,
+          delta.coveredTurnSeqs === undefined
+            ? [{
+                fromTurnSeqInclusive: delta.fromTurnSeqExclusive + 1,
+                toTurnSeqInclusive: delta.toTurnSeqInclusive,
+              }]
+            : turnSeqsToRanges(delta.coveredTurnSeqs),
+        ),
       }),
       changed: false,
       processed: true,
@@ -62,6 +72,7 @@ export async function updateRegistryFromDelta(params: {
     registry,
     updates: output.taskUpdates,
     coveredTurnAbsIds: delta.coveredTurnAbsIds,
+    coveredTurnSeqs: delta.coveredTurnSeqs,
     toTurnSeqInclusive: delta.toTurnSeqInclusive,
   });
   const nextRegistry = applySessionTaskRegistryPatch(registry, patch);

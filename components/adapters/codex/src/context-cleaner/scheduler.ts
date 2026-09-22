@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { appendJsonl } from "@lightrsi/host-adapter";
+import { sameCanonicalValue, type ContextCleanOccurrenceSelection } from "@lightrsi/cleaner";
 
 import {
   acquireCodexRebaseSessionLock,
@@ -17,6 +18,7 @@ type CodexCleanerScheduleIdentity = {
   cleanPlanId: string;
   baseRevision: string;
   selectedTaskIds: string[];
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
   scheduledAt: string;
   updatedAt: string;
 };
@@ -107,7 +109,8 @@ function sameIdentity(
     && left.cleanPlanId === right.cleanPlanId
     && left.baseRevision === right.baseRevision
     && left.scheduledAt === right.scheduledAt
-    && sameStringSet(left.selectedTaskIds, right.selectedTaskIds);
+    && sameStringSet(left.selectedTaskIds, right.selectedTaskIds)
+    && sameCanonicalValue(left.occurrenceSelections ?? [], right.occurrenceSelections ?? []);
 }
 
 function canonicalRecord(value: unknown): CodexCleanerScheduleRecord | undefined {
@@ -118,7 +121,14 @@ function canonicalRecord(value: unknown): CodexCleanerScheduleRecord | undefined
     || !nonBlankString(record.sessionId)
     || !nonBlankString(record.cleanPlanId)
     || !nonBlankString(record.baseRevision)
-    || !uniqueNonBlankStrings(record.selectedTaskIds)
+    || !Array.isArray(record.selectedTaskIds)
+    || !record.selectedTaskIds.every(nonBlankString)
+    || new Set(record.selectedTaskIds).size !== record.selectedTaskIds.length
+    || (!Array.isArray(record.occurrenceSelections) && record.selectedTaskIds.length === 0)
+    || (record.occurrenceSelections !== undefined
+      && (!Array.isArray(record.occurrenceSelections)
+        || record.occurrenceSelections.length === 0
+        || record.occurrenceSelections.some((selection) => !selection || typeof selection !== "object")))
     || !canonicalTimestamp(record.scheduledAt)
     || !canonicalTimestamp(record.updatedAt)) {
     return undefined;
@@ -130,6 +140,7 @@ function canonicalRecord(value: unknown): CodexCleanerScheduleRecord | undefined
     cleanPlanId: record.cleanPlanId,
     baseRevision: record.baseRevision,
     selectedTaskIds: [...record.selectedTaskIds],
+    ...(record.occurrenceSelections ? { occurrenceSelections: record.occurrenceSelections as ContextCleanOccurrenceSelection[] } : {}),
     scheduledAt: record.scheduledAt,
     updatedAt: record.updatedAt,
   };
@@ -168,7 +179,7 @@ function validTransition(
   if (!previous) return next.status === "scheduled";
   if (!sameIdentity(previous, next)) return false;
   if (previous.status === "scheduled") return true;
-  return JSON.stringify(previous) === JSON.stringify(next);
+  return sameCanonicalValue(previous, next);
 }
 
 function collapseLatest(
@@ -277,19 +288,40 @@ export async function readCodexCleanerSchedule(params: {
   return { outcome: "bypassed", reasons: ["cleaner_schedule_pending_conflict"] };
 }
 
+export async function readCodexCleanerScheduleHistory(params: {
+  stateDir: string;
+  sessionId: string;
+}): Promise<{
+  records: CodexCleanerScheduleRecord[];
+  reasons: string[];
+}> {
+  if (!params.stateDir.trim() || !params.sessionId.trim()) {
+    return { records: [], reasons: ["cleaner_schedule_request_invalid"] };
+  }
+  const journal = await readScheduleJournal(params.stateDir, params.sessionId);
+  const reasons = journalFailureReasons(journal);
+  return {
+    records: reasons ? [] : journal.records,
+    reasons: reasons ?? [],
+  };
+}
+
 function validScheduleParams(params: {
   stateDir: string;
   sessionId: string;
   cleanPlanId: string;
   baseRevision: string;
   selectedTaskIds: string[];
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
   scheduledAt: string;
 }): boolean {
+  const noTaskSelection = params.selectedTaskIds.length === 0;
   return nonBlankString(params.stateDir)
     && nonBlankString(params.sessionId)
     && nonBlankString(params.cleanPlanId)
     && nonBlankString(params.baseRevision)
-    && uniqueNonBlankStrings(params.selectedTaskIds)
+    && (uniqueNonBlankStrings(params.selectedTaskIds)
+      || (noTaskSelection && (params.occurrenceSelections?.length ?? 0) > 0))
     && canonicalTimestamp(params.scheduledAt);
 }
 
@@ -299,11 +331,15 @@ export async function scheduleCodexCleanerPlan(params: {
   cleanPlanId: string;
   baseRevision: string;
   selectedTaskIds: string[];
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
   scheduledAt?: string;
 }): Promise<CodexCleanerScheduleWriteResult> {
   const scheduledAt = params.scheduledAt ?? new Date().toISOString();
   const normalized = { ...params, scheduledAt };
   if (!validScheduleParams(normalized)) {
+    return { outcome: "bypassed", reasons: ["cleaner_schedule_request_invalid"] };
+  }
+  if (params.selectedTaskIds.length === 0 && (params.occurrenceSelections?.length ?? 0) === 0) {
     return { outcome: "bypassed", reasons: ["cleaner_schedule_request_invalid"] };
   }
   const record: CodexCleanerScheduledRecord = {
@@ -313,6 +349,7 @@ export async function scheduleCodexCleanerPlan(params: {
     cleanPlanId: params.cleanPlanId,
     baseRevision: params.baseRevision,
     selectedTaskIds: [...params.selectedTaskIds],
+    ...(params.occurrenceSelections ? { occurrenceSelections: params.occurrenceSelections.map((selection) => ({ ...selection })) } : {}),
     status: "scheduled",
     scheduledAt,
     updatedAt: scheduledAt,

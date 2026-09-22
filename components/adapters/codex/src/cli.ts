@@ -1,19 +1,17 @@
 #!/usr/bin/env node
 import {
+  codexProxyBaseUrl,
   defaultTokenPilotConfigPath,
   loadTokenPilotCodexConfig,
 } from "./config.js";
 import {
+  acquireDaemonRuntimeLock,
   readDaemonStatus,
   startDaemon,
   stopDaemon,
 } from "./daemon.js";
 import { createConsoleLogger } from "./logger.js";
 import { startCodexResponsesProxy } from "./proxy-runtime.js";
-import {
-  codexEstimatorStatusView,
-  resolveCodexTaskStateEstimator,
-} from "./context-rewrite/estimator-config.js";
 
 function usage(): string {
   return [
@@ -39,12 +37,18 @@ async function main() {
   }
 
   if (command === "serve") {
+    const releaseRuntimeLock = await acquireDaemonRuntimeLock(config);
     const logger = createConsoleLogger(config.logLevel === "debug");
-    await startCodexResponsesProxy({
-      config,
-      logger,
-      codexConfigPath: process.env.CODEX_CONFIG_PATH,
-    });
+    try {
+      await startCodexResponsesProxy({
+        config,
+        logger,
+        codexConfigPath: process.env.CODEX_CONFIG_PATH,
+      });
+    } catch (error) {
+      await releaseRuntimeLock();
+      throw error;
+    }
     await new Promise(() => undefined);
     return;
   }
@@ -78,20 +82,15 @@ async function main() {
 
   if (command === "status") {
     const daemon = await readDaemonStatus(config);
-    const taskStateEstimator = codexEstimatorStatusView(resolveCodexTaskStateEstimator({
-      config: config.taskStateEstimator,
-      env: process.env,
-    }));
     console.log(JSON.stringify({
       enabled: config.enabled,
       stateDir: config.stateDir,
-      proxyBaseUrl: `http://127.0.0.1:${config.proxyPort}/v1`,
+      proxyBaseUrl: codexProxyBaseUrl(config),
       daemon,
       upstreamProvider: config.upstreamProvider,
       modules: config.modules,
       reduction: config.reduction,
       proxyMode: config.proxyMode,
-      taskStateEstimator,
     }, null, 2));
     return;
   }

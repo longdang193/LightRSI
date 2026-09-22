@@ -167,9 +167,9 @@ export async function runReductionBeforeCall(
   const { turnCtx, passes, registry, frozenSegmentIds } = params;
   let currentCtx: RuntimeTurnContext = {
     ...turnCtx,
-    segments: turnCtx.segments
-      .filter((segment) => !frozenSegmentIds?.has(segment.id))
-      .map((segment) => ({ ...segment })),
+    segments: frozenSegmentIds?.size
+      ? turnCtx.segments.filter((segment) => !frozenSegmentIds.has(segment.id))
+      : turnCtx.segments,
   };
   const report: ReductionReportEntry[] = [];
 

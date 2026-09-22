@@ -20,7 +20,6 @@ import {
   buildCodexLifecycleInput,
   codexSharedContextRewriteBackend,
 } from "../src/context-rewrite/index.js";
-import { resolveCodexTaskStateEstimator } from "../src/context-rewrite/estimator-config.js";
 
 const SESSION_ID = "codex-lifecycle-input-session";
 
@@ -57,34 +56,6 @@ function sourceView(params: {
     reasonCodes: params.reasonCodes ?? [],
   };
 }
-
-test("estimator environment uses LightRSI, LightMem2, then TokenPilot precedence", () => {
-  const result = resolveCodexTaskStateEstimator({
-    env: {
-      LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL: "https://lightrsi.example",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://lightmem2.example",
-      TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL: "https://tokenpilot.example",
-      LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL: "lightrsi-model",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "lightmem2-model",
-      TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL: "tokenpilot-model",
-    },
-  });
-
-  assert.equal(result.config.baseUrl, "https://lightrsi.example");
-  assert.equal(result.config.model, "lightrsi-model");
-});
-
-test("estimator environment falls back through compatibility prefixes", () => {
-  const result = resolveCodexTaskStateEstimator({
-    env: {
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_BASE_URL: "https://lightmem2.example",
-      LIGHTMEM2_TASK_STATE_ESTIMATOR_MODEL: "lightmem2-model",
-    },
-  });
-
-  assert.equal(result.config.baseUrl, "https://lightmem2.example");
-  assert.equal(result.config.model, "lightmem2-model");
-});
 
 function pendingRequest(overrides: Partial<CodexRequestJournalEntry> = {}): CodexRequestJournalEntry {
   return {
@@ -270,6 +241,33 @@ test("lifecycle input never masks unrelated history incompleteness behind the ex
   assert.equal(result.status, "deferred");
   assert.ok(result.reasonCodes.includes("journal_malformed_stream"));
   assert.ok(result.reasonCodes.includes("lifecycle_semantic_source_incomplete"));
+});
+
+test("lifecycle input fails closed on unscoped duplicate attribution beside a blocked turn", () => {
+  const view = sourceView({
+    items: [
+      effective("shared", { type: "message", role: "user", content: "shared" }),
+      effective("invalid-call", { type: "function_call", name: "read_file", arguments: "{}" }),
+      effective("later", { type: "message", role: "user", content: "later" }),
+    ],
+    turns: [
+      { turnSeq: 1, inputItemIds: ["shared"] },
+      { turnSeq: 2, inputItemIds: ["shared"], outputItemIds: ["invalid-call"] },
+      { turnSeq: 3, inputItemIds: ["later"] },
+    ],
+  });
+  const result = buildCodexLifecycleInput({
+    view,
+    registry: createEmptySessionTaskRegistry(SESSION_ID),
+    backendRequest: {
+      sessionId: SESSION_ID,
+      payload: { input: [] },
+      effectiveHistory: view.history,
+    },
+  });
+
+  assert.equal(result.status, "deferred");
+  assert.ok(result.reasonCodes.includes("semantic_item_attribution_ambiguous"));
 });
 
 test("lifecycle input defers partial and ambiguous tool closure", () => {
@@ -732,4 +730,100 @@ test("lifecycle input rejects invalid snapshot identity and remains deterministi
     buildCodexLifecycleInput(structuredClone(params)),
     buildCodexLifecycleInput(structuredClone(params)),
   );
+});
+
+test("lifecycle input keeps unrelated verified work usable after a dirty turn", () => {
+  const view = sourceView({
+    items: [
+      effective("orphan-call", {
+        type: "function_call",
+        call_id: "orphan",
+        name: "read",
+        arguments: "{}",
+      }),
+      effective("later-message", {
+        type: "message",
+        role: "user",
+        content: "unrelated completed work",
+      }),
+    ],
+    turns: [
+      { turnSeq: 1, outputItemIds: ["orphan-call"] },
+      { turnSeq: 2, inputItemIds: ["later-message"] },
+    ],
+    semanticComplete: false,
+    historyIncomplete: true,
+    unresolvedCallIds: ["orphan"],
+    reasonCodes: ["history_unresolved_tool_calls"],
+  });
+  const registry = {
+    ...createEmptySessionTaskRegistry(SESSION_ID),
+    lastProcessedTurnSeq: 1,
+    processedTurnRanges: [{ fromTurnSeqInclusive: 1, toTurnSeqInclusive: 1 }],
+  };
+
+  const result = buildCodexLifecycleInput({
+    view,
+    registry,
+    backendRequest: {
+      sessionId: SESSION_ID,
+      payload: { input: [{ role: "user", content: "unrelated completed work" }] },
+      effectiveHistory: view.history,
+    },
+  });
+
+  assert.equal(result.status, "ready");
+  if (result.status !== "ready") return;
+  assert.equal(result.pendingTurnCount, 1);
+  assert.equal(result.delta.fromTurnSeqExclusive, 1);
+  assert.equal(result.delta.toTurnSeqInclusive, 2);
+  assert.deepEqual(result.delta.coveredTurnSeqs, [2]);
+  assert.deepEqual(result.delta.coveredTurnAbsIds, [`${SESSION_ID}:t2`]);
+});
+
+test("lifecycle input reprocesses a delayed result without repeating later coverage", () => {
+  const view = sourceView({
+    items: [
+      effective("call", {
+        type: "function_call",
+        call_id: "delayed",
+        name: "read",
+        arguments: "{}",
+      }),
+      effective("result", {
+        type: "function_call_output",
+        call_id: "delayed",
+        output: "resolved",
+      }),
+      effective("later-message", {
+        type: "message",
+        role: "user",
+        content: "later work already attributed",
+      }),
+    ],
+    turns: [
+      { turnSeq: 1, outputItemIds: ["call", "result"] },
+      { turnSeq: 2, inputItemIds: ["later-message"] },
+    ],
+  });
+  const registry = {
+    ...createEmptySessionTaskRegistry(SESSION_ID),
+    processedTurnRanges: [{ fromTurnSeqInclusive: 2, toTurnSeqInclusive: 2 }],
+  };
+
+  const result = buildCodexLifecycleInput({
+    view,
+    registry,
+    backendRequest: {
+      sessionId: SESSION_ID,
+      payload: { input: [{ role: "user", content: "later work already attributed" }] },
+      effectiveHistory: view.history,
+    },
+  });
+
+  assert.equal(result.status, "ready");
+  if (result.status !== "ready") return;
+  assert.equal(result.pendingTurnCount, 1);
+  assert.deepEqual(result.delta.coveredTurnSeqs, [1]);
+  assert.deepEqual(result.delta.coveredTurnAbsIds, [`${SESSION_ID}:t1`]);
 });

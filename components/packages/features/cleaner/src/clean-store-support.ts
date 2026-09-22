@@ -4,8 +4,13 @@ import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
+  CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION,
   CONTEXT_CLEAN_SCHEMA_VERSION,
   CONTEXT_CLEAN_STORE_SCHEMA_VERSION,
+  type ContextCleanAttributionStatus,
+  type ContextCleanDispatchState,
+  type ContextCleanExecutionClaim,
+  type ContextCleanOccurrenceSelection,
   type ContextCleanPlan,
   type ContextCleanPlanRecord,
   type ContextCleanReceipt,
@@ -15,6 +20,11 @@ import {
 export type ContextCleanStoredReceipt = {
   storeSchemaVersion: typeof CONTEXT_CLEAN_STORE_SCHEMA_VERSION;
   receipt: ContextCleanReceipt;
+};
+
+export type ContextCleanStoredExecutionClaim = {
+  storeSchemaVersion: typeof CONTEXT_CLEAN_STORE_SCHEMA_VERSION;
+  claim: import("./contracts.js").ContextCleanExecutionClaim;
 };
 
 export type ContextCleanTransactionIntent = {
@@ -121,7 +131,17 @@ function optionalUniqueStrings(value: unknown): value is string[] | undefined {
 const STATUSES = new Set<ContextCleanStatus>([
   "analyzed", "approved", "scheduled", "applied", "stale", "cancelled", "failed",
 ]);
+
+const DISPATCH_STATES = new Set<ContextCleanDispatchState>([
+  "dispatch_not_started",
+  "dispatch_started",
+  "host_committed",
+  "recovery_required",
+]);
 const COUNT_MODES = new Set(["exact", "estimated", "chars_only"]);
+const ATTRIBUTION_STATUSES = new Set<ContextCleanAttributionStatus>([
+  "disabled", "waiting", "failing", "empty", "available",
+]);
 
 function parseTask(value: unknown): ContextCleanPlan["tasks"][number] | undefined {
   if (!isRecord(value) || !isNonBlankString(value.taskId)
@@ -159,16 +179,38 @@ export function parseContextCleanPlan(value: unknown): ContextCleanPlan | undefi
     || !nullableCount(value.unassignedTokens) || !finiteNonNegative(value.unassignedChars)
     || !COUNT_MODES.has(String(value.tokenCountMode)) || !isNonBlankString(value.tokenCountMethod)
     || !Array.isArray(value.tasks) || !isIsoTimestamp(value.createdAt)) return undefined;
+  if (value.analysisRevision !== undefined && !isNonBlankString(value.analysisRevision)) return undefined;
   if (value.model !== undefined && !isNonBlankString(value.model)) return undefined;
   if (value.contextWindowTokens !== undefined && !finiteNonNegative(value.contextWindowTokens)) return undefined;
+  if (value.attributionStatus !== undefined && !ATTRIBUTION_STATUSES.has(value.attributionStatus as ContextCleanAttributionStatus)) return undefined;
+  if (value.occurrenceDigests !== undefined
+    && (!isRecord(value.occurrenceDigests)
+      || Object.entries(value.occurrenceDigests).some(([id, digest]) => !isNonBlankString(id) || !isNonBlankString(digest)))) return undefined;
+  if (value.occurrenceSizes !== undefined
+    && (!isRecord(value.occurrenceSizes)
+      || Object.entries(value.occurrenceSizes).some(([id, size]) => !isNonBlankString(id)
+        || !isRecord(size)
+        || !finiteNonNegative(size.chars)
+        || !nullableCount(size.tokens)))) return undefined;
   const tasks = value.tasks.map(parseTask);
   if (tasks.some((task) => task === undefined)) return undefined;
   if (new Set(tasks.map((task) => task!.taskId)).size !== tasks.length) return undefined;
   return {
     schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION, planId: value.planId, hostId: value.hostId,
     sessionId: value.sessionId, baseRevision: value.baseRevision,
+    ...(value.analysisRevision !== undefined ? { analysisRevision: value.analysisRevision } : {}),
     ...(value.model !== undefined ? { model: value.model } : {}),
     ...(value.contextWindowTokens !== undefined ? { contextWindowTokens: value.contextWindowTokens } : {}),
+    ...(value.attributionStatus !== undefined ? { attributionStatus: value.attributionStatus as ContextCleanAttributionStatus } : {}),
+    ...(value.occurrenceDigests !== undefined
+      ? { occurrenceDigests: Object.fromEntries(Object.entries(value.occurrenceDigests).map(([id, digest]) => [id, digest as string])) }
+      : {}),
+    ...(value.occurrenceSizes !== undefined
+      ? { occurrenceSizes: Object.fromEntries(Object.entries(value.occurrenceSizes).map(([id, size]) => [id, {
+        chars: (size as Record<string, unknown>).chars as number,
+        tokens: (size as Record<string, unknown>).tokens as number | null,
+      }])) }
+      : {}),
     usedTokens: value.usedTokens, usedChars: value.usedChars,
     protectedTokens: value.protectedTokens, protectedChars: value.protectedChars,
     unassignedTokens: value.unassignedTokens, unassignedChars: value.unassignedChars,
@@ -178,18 +220,71 @@ export function parseContextCleanPlan(value: unknown): ContextCleanPlan | undefi
   };
 }
 
+export function contextCleanExecutionClaimFilePath(stateDir: string, planId: string): string {
+  return join(stateDir, "context-cleaner", "claims", `${fileKey(planId)}.json`);
+}
+
+export function parseContextCleanExecutionClaim(
+  value: unknown,
+): ContextCleanExecutionClaim | undefined {
+  if (!isRecord(value) || value.schemaVersion !== CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION
+    || !isNonBlankString(value.claimId) || !isNonBlankString(value.planId)
+    || !isNonBlankString(value.hostId) || !isNonBlankString(value.sessionId)
+    || !Array.isArray(value.selectedTaskIds)
+    || !value.selectedTaskIds.every(isNonBlankString)
+    || new Set(value.selectedTaskIds).size !== value.selectedTaskIds.length
+    || (!value.occurrenceSelections && value.selectedTaskIds.length === 0)
+    || !isNonBlankString(value.mutationPlanId)
+    || !isNonBlankString(value.analysisRevision) || !isNonBlankString(value.executionRevision)
+    || !isNonBlankString(value.ownerToken) || !isIsoTimestamp(value.claimedAt)
+    || !DISPATCH_STATES.has(value.dispatchState as ContextCleanDispatchState)) return undefined;
+  return {
+    schemaVersion: CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION,
+    claimId: value.claimId,
+    planId: value.planId,
+    hostId: value.hostId,
+    sessionId: value.sessionId,
+     selectedTaskIds: [...value.selectedTaskIds],
+     ...(value.occurrenceSelections ? { occurrenceSelections: value.occurrenceSelections as ContextCleanOccurrenceSelection[] } : {}),
+    mutationPlanId: value.mutationPlanId,
+    analysisRevision: value.analysisRevision,
+    executionRevision: value.executionRevision,
+    ownerToken: value.ownerToken,
+    claimedAt: value.claimedAt,
+    dispatchState: value.dispatchState as ContextCleanDispatchState,
+  };
+}
+
 function parseEvidence(value: unknown, applied: boolean): ContextCleanReceipt["evidence"] | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) return undefined;
   for (const field of ["operationIds", "itemIds", "eventIds", "archiveRefs"] as const) {
     if (!optionalUniqueStrings(value[field])) return undefined;
   }
-  for (const field of ["previousRevision", "nextRevision", "providerResponseId"] as const) {
+  for (const field of ["claimId", "previousRevision", "nextRevision", "providerResponseId"] as const) {
     if (value[field] !== undefined && !isNonBlankString(value[field])) return undefined;
+  }
+  if (value.occurrenceSelections !== undefined) {
+    if (!Array.isArray(value.occurrenceSelections)
+      || value.occurrenceSelections.some((selection) => {
+        if (!isRecord(selection)
+          || !isNonBlankString(selection.stableId)
+          || !isNonBlankString(selection.fingerprint)
+          || selection.continuingUseful !== false
+          || selection.releaseIntent !== "release"
+          || !["none", "outgoing"].includes(String(selection.dependencyDirection))
+          || !uniqueStrings(selection.completionEvidence)
+          || selection.completionEvidence.length === 0
+          || !uniqueStrings(selection.retainedFindings)
+          || (selection.retainedFindings.length > 0) === Boolean(selection.nothingReusable)
+          || (selection.nothingReusable !== undefined && typeof selection.nothingReusable !== "boolean")) return true;
+        return false;
+      })) return undefined;
   }
   if (applied && (!isNonBlankString(value.previousRevision) || !isNonBlankString(value.nextRevision)
     || !uniqueStrings(value.operationIds) || !uniqueStrings(value.itemIds))) return undefined;
   return {
+    ...(value.claimId ? { claimId: value.claimId as string } : {}),
     ...(value.previousRevision ? { previousRevision: value.previousRevision as string } : {}),
     ...(value.nextRevision ? { nextRevision: value.nextRevision as string } : {}),
     ...(value.operationIds ? { operationIds: [...value.operationIds as string[]] } : {}),
@@ -197,6 +292,9 @@ function parseEvidence(value: unknown, applied: boolean): ContextCleanReceipt["e
     ...(value.eventIds ? { eventIds: [...value.eventIds as string[]] } : {}),
     ...(value.archiveRefs ? { archiveRefs: [...value.archiveRefs as string[]] } : {}),
     ...(value.providerResponseId ? { providerResponseId: value.providerResponseId as string } : {}),
+    ...(value.occurrenceSelections
+      ? { occurrenceSelections: value.occurrenceSelections as ContextCleanOccurrenceSelection[] }
+      : {}),
   };
 }
 
@@ -216,7 +314,6 @@ export function parseContextCleanReceipt(value: unknown): ContextCleanReceipt | 
     if (!hasAppliedTokens || !hasAppliedChars || !nullableCount(value.appliedSavedTokens)
       || !finiteNonNegative(value.appliedSavedChars) || value.fallbackUsed) return undefined;
   } else if (hasAppliedTokens || hasAppliedChars) return undefined;
-  if (["analyzed", "approved", "scheduled"].includes(status) && value.fallbackUsed) return undefined;
   const evidence = parseEvidence(value.evidence, applied);
   if (value.evidence !== undefined && evidence === undefined) return undefined;
   if (applied && evidence === undefined) return undefined;
@@ -248,6 +345,14 @@ export function parseContextCleanStoredReceipt(value: unknown): ContextCleanStor
   return receipt ? { storeSchemaVersion: CONTEXT_CLEAN_STORE_SCHEMA_VERSION, receipt } : undefined;
 }
 
+export function parseContextCleanStoredExecutionClaim(
+  value: unknown,
+): ContextCleanStoredExecutionClaim | undefined {
+  if (!isRecord(value) || value.storeSchemaVersion !== CONTEXT_CLEAN_STORE_SCHEMA_VERSION) return undefined;
+  const claim = parseContextCleanExecutionClaim(value.claim);
+  return claim ? { storeSchemaVersion: CONTEXT_CLEAN_STORE_SCHEMA_VERSION, claim } : undefined;
+}
+
 export async function readStoredJson(path: string): Promise<
   { kind: "ok"; value: unknown } | { kind: "missing" } | { kind: "unreadable" }
 > {
@@ -257,5 +362,12 @@ export async function readStoredJson(path: string): Promise<
 }
 
 export function sameCanonicalValue(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  const canonicalize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (!isRecord(value)) return value;
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]),
+    );
+  };
+  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
 }

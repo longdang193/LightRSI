@@ -36,6 +36,33 @@ function createEnvelope() {
   });
 }
 
+function createNoOpEnvelope() {
+  return codec.decodeRequest({
+    model: "tokenpilot/gpt-5.4-mini",
+    stream: true,
+    input: [{ role: "user", content: "short request" }],
+  });
+}
+
+function createNestedEnvelope() {
+  return codec.decodeRequest({
+    model: "tokenpilot/gpt-5.4-mini",
+    stream: true,
+    input: [{ role: "user", content: "request" }, {
+      role: "tool",
+      type: "function_call_output",
+      content: [{ type: "output_text", text: `HEAD\n${"line\n".repeat(180)}` }],
+    }],
+  });
+}
+
+const noOpConfig = normalizeTokenPilotCodexConfig({
+  reduction: {
+    ...config.reduction,
+    triggerMinChars: Number.MAX_SAFE_INTEGER,
+  },
+});
+
 function percentile(values: number[], percentage: number): number {
   const sorted = [...values].sort((a, b) => a - b);
   if (sorted.length === 0) return 0;
@@ -57,20 +84,26 @@ function digest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
 }
 
-async function run(concurrency: number): Promise<Record<string, unknown>> {
+async function run(
+  scenario: string,
+  concurrency: number,
+  createRequest: () => ReturnType<typeof createEnvelope>,
+  scenarioConfig: typeof config,
+): Promise<Record<string, unknown>> {
   for (let index = 0; index < warmupRuns; index += 1) {
     await Promise.all(Array.from({ length: concurrency }, () => reduceCodexRequestEnvelope({
-      envelope: createEnvelope(),
+      envelope: createRequest(),
       codec,
-      config,
+      config: scenarioConfig,
     })));
   }
 
   const requestSamples: number[] = [];
   const retainedHeapSamples: number[] = [];
   let outputBytes = 0;
-  let changedBlocks = 0;
   let changedItems = 0;
+  let changedBlocks = 0;
+  let savedChars = 0;
   const digests: string[] = [];
   const beforeGc = process.memoryUsage().heapUsed;
   for (let sample = 0; sample < sampleRuns; sample += 1) {
@@ -78,8 +111,11 @@ async function run(concurrency: number): Promise<Record<string, unknown>> {
     const before = process.memoryUsage().heapUsed;
     const results = await Promise.all(Array.from({ length: concurrency }, async () => {
       const startedAt = performance.now();
-      const envelope = createEnvelope();
-      const result = await reduceCodexRequestEnvelope({ envelope, codec, config });
+      const result = await reduceCodexRequestEnvelope({
+        envelope: createRequest(),
+        codec,
+        config: scenarioConfig,
+      });
       requestSamples.push(performance.now() - startedAt);
       return result;
     }));
@@ -88,17 +124,15 @@ async function run(concurrency: number): Promise<Record<string, unknown>> {
     outputBytes += results.reduce((total, result) => (
       total + Buffer.byteLength(JSON.stringify(result.envelope.rawPayload ?? result.envelope), "utf8")
     ), 0);
-    changedBlocks += results.reduce((total, result) => total + result.summary.changedBlocks, 0);
     changedItems += results.reduce((total, result) => total + result.summary.changedItems, 0);
+    changedBlocks += results.reduce((total, result) => total + result.summary.changedBlocks, 0);
+    savedChars += results.reduce((total, result) => total + result.summary.savedChars, 0);
     digests.push(...results.map((result) => digest(result.envelope.rawPayload ?? result.envelope)));
   }
 
-  const noOpConfig = normalizeTokenPilotCodexConfig({
-    ...config,
-    reduction: { ...config.reduction, triggerMinChars: Number.MAX_SAFE_INTEGER },
-  });
   let noOpReferencePreserved = 0;
-  for (let index = 0; index < Math.max(3, concurrency); index += 1) {
+  const noOpReferenceSamples = Math.max(3, concurrency);
+  for (let index = 0; index < noOpReferenceSamples; index += 1) {
     const envelope = createEnvelope();
     const result = await reduceCodexRequestEnvelope({ envelope, codec, config: noOpConfig });
     if (result.envelope === envelope) noOpReferencePreserved += 1;
@@ -109,18 +143,25 @@ async function run(concurrency: number): Promise<Record<string, unknown>> {
   explicitGc?.();
   const afterGc = process.memoryUsage().heapUsed;
   return {
+    scenario,
     concurrency,
     warmupRuns,
     sampleRuns,
+    elapsedMs: Number((requestSamples.reduce((sum, value) => sum + value, 0) / concurrency).toFixed(2)),
+    perRequestMs: Number((percentile(requestSamples, 50)).toFixed(2)),
     p50RequestMs: Number(percentile(requestSamples, 50).toFixed(3)),
     p95RequestMs: Number(percentile(requestSamples, 95).toFixed(3)),
     outputBytes,
     semanticPayloadDigest: digest(digests),
+    reductionChangedItems: changedItems,
+    reductionChangedBlocks: changedBlocks,
+    reductionSavedChars: savedChars,
     changedItems,
     changedBlocks,
     noOpReferencePreserved,
-    noOpReferenceSamples: Math.max(3, concurrency),
+    noOpReferenceSamples,
     allocationProxyBytes: Math.max(0, afterGc - beforeGc),
+    heapDeltaBytes: Math.max(0, afterGc - beforeGc),
     gc: {
       explicitGcAvailable,
       traceGcRequested: process.execArgv.includes("--trace-gc"),
@@ -134,8 +175,15 @@ async function run(concurrency: number): Promise<Record<string, unknown>> {
 }
 
 async function main(): Promise<void> {
-  for (const concurrency of concurrencyLevels) {
-    console.log(JSON.stringify(await run(concurrency)));
+  const scenarios = [
+    ["long-history", createEnvelope, config],
+    ["below-threshold", createNoOpEnvelope, noOpConfig],
+    ["nested-block", createNestedEnvelope, config],
+  ] as const;
+  for (const [scenario, createRequest, scenarioConfig] of scenarios) {
+    for (const concurrency of concurrencyLevels) {
+      console.log(JSON.stringify(await run(scenario, concurrency, createRequest, scenarioConfig)));
+    }
   }
 }
 

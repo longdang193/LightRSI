@@ -21,6 +21,14 @@ function bypassed(reason: string): ContextCleanStoreWriteResult<ContextCleanRece
   return { outcome: "bypassed", bypassed: true, reasons: [reason] };
 }
 
+function sameTargets(left: ContextCleanReceipt, right: ContextCleanReceipt): boolean {
+  return sameCanonicalValue(left.selectedTaskIds, right.selectedTaskIds)
+    && sameCanonicalValue(
+      left.evidence?.occurrenceSelections ?? [],
+      right.evidence?.occurrenceSelections ?? [],
+    );
+}
+
 export async function readContextCleanReceipt(params: {
   stateDir: string;
   planId: string;
@@ -81,19 +89,26 @@ export async function saveContextCleanReceiptUnlocked(params: {
     const selectionCanBeApproved = current.value.status === "analyzed" && receipt.status === "approved";
     if (current.value.hostId !== receipt.hostId || current.value.sessionId !== receipt.sessionId
       || (!selectionCanBeApproved
-        && !sameCanonicalValue(current.value.selectedTaskIds, receipt.selectedTaskIds))) {
+        && !sameTargets(current.value, receipt))) {
       return { outcome: "conflict", value: current.value, bypassed: true,
         reasons: ["clean_receipt_identity_conflict"] };
     }
   }
   const tasksById = new Map(planRead.value.plan.tasks.map((task) => [task.taskId, task]));
+  const occurrenceStableIds = Object.keys(planRead.value.plan.occurrenceDigests ?? {});
+  const legacyOccurrencePrefix = ["occurrence", ":"].join("");
   if (receipt.status === "analyzed" && receipt.selectedTaskIds.length > 0) {
     return bypassed("clean_receipt_analyzed_selection_not_empty");
   }
-  if (receipt.selectedTaskIds.some((taskId) => !tasksById.has(taskId))) {
+  if (receipt.selectedTaskIds.some((taskId) => (
+    !tasksById.has(taskId)
+    && !occurrenceStableIds.includes(taskId)
+    && !(taskId.startsWith(legacyOccurrencePrefix)
+      && occurrenceStableIds.includes(taskId.slice(legacyOccurrencePrefix.length)))
+  ))) {
     return bypassed("clean_receipt_selected_task_unknown");
   }
-  if (receipt.selectedTaskIds.some((taskId) => !tasksById.get(taskId)?.selectable)) {
+  if (receipt.selectedTaskIds.some((taskId) => tasksById.has(taskId) && !tasksById.get(taskId)?.selectable)) {
     return bypassed("clean_receipt_selected_task_not_selectable");
   }
   if (receipt.deferredTaskIds.some((taskId) => !tasksById.has(taskId))) {

@@ -39,16 +39,16 @@ Command:
 pnpm --dir components/adapters/codex test
 ```
 
-The focused estimator-driven acceptance test verifies:
+The focused acceptance test verifies:
 
 - Ten successful requests pass through two distinct Codex proxy runtime lifetimes using one isolated state directory and one response-chain session.
-- A fake estimator consumes the real canonical delta and automatically drives `registry -> shared lifecycle planner -> ContextMutationPlan -> rebase`; the test does not inject `contextRewrite.mutationPlan`.
-- The task registry persists across restart (`version 0 -> 1 -> 2`) and the estimator observes the expected base versions (`0`, then `1`).
+- Stale estimator configuration is inert: the configured estimator receives zero requests across both proxy lifetimes.
+- The request path does not load task-registry eligibility; exact occurrence release remains independent of missing or corrupt task state.
 - Each lifetime first commits four setup turns containing one evictable and one retained tool pair. The shared oracle scores the planner-triggering request from each phase, identified by its current-user subject marker.
 - Both captured stateless rebase requests remove `previous_response_id` and `EVICT_ME_<uuid>`, preserve `KEEP_ME_<uuid>` and the current turn, and retain complete Responses `function_call` / `function_call_output` closure.
 - No fallback request succeeds in either phase.
 
-Codex status: **PASS** for non-streaming estimator-driven mock-upstream acceptance across proxy restart. Streaming, fallback, cooldown, epoch recovery, journal ordering, malformed closure, and provider-compatibility scenarios stay covered by the adapter's dedicated tests.
+Codex status: **PASS** for non-streaming occurrence-safe mock-upstream acceptance across proxy restart. Streaming, fallback, cooldown, epoch recovery, journal ordering, malformed closure, and provider-compatibility scenarios stay covered by the adapter's dedicated tests.
 
 Unlike a full-history gateway request, a Codex native continuation carries old history implicitly through `previous_response_id`. Consequently the shared oracle is used here for sentinel, closure, and fallback safety on the two planner-triggering requests; raw request-byte savings are not claimed by this test.
 

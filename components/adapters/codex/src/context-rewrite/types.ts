@@ -70,7 +70,8 @@ export type CodexRebaseEpoch = {
   epochId: string;
   sessionId: string;
   planId: string;
-  oldPreviousResponseId: string;
+  oldPreviousResponseId?: string;
+  inputFormat?: "cumulative" | "response_chain";
   newResponseId?: string;
   oldRevision: string;
   newRevision?: string;
@@ -115,7 +116,8 @@ export type CodexProviderContinuationResult = {
 
 export type CodexRebaseEpochStoreParams = {
   stateDir: string;
-  oldPreviousResponseId: string;
+  oldPreviousResponseId?: string;
+  inputFormat?: "cumulative" | "response_chain";
   oldRevision: string;
   newRevision?: string;
 };

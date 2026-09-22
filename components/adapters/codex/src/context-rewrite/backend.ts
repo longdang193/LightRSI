@@ -32,14 +32,17 @@ export type CodexSharedBackendRequest = {
   taskIdsByItemId?: Record<string, string[]>;
   activeTaskIds?: string[];
   evictableTaskIds?: string[];
+  taskPolicy?: "lifecycle" | "manual";
 };
 
 export type CodexSharedBackendMetadata = {
   effectiveHistory: CodexEffectiveHistory;
   currentInput: unknown;
+  inputFormat?: "response_chain" | "cumulative";
   replayableItemIds: string[];
   activeTaskIds: string[];
   evictableTaskIds: string[];
+  taskPolicy: "lifecycle" | "manual";
 };
 
 export type CodexSharedBackendDetails = {
@@ -138,9 +141,16 @@ export function buildCodexContextSnapshot(
     adapterMetadata: {
       effectiveHistory: history,
       currentInput,
+      inputFormat: typeof request.payload.previous_response_id === "string"
+        && request.payload.previous_response_id.trim()
+        ? "response_chain"
+        : Array.isArray(currentInput) && currentInput.length > 0
+          ? "cumulative"
+          : "response_chain",
       replayableItemIds: history.replayableItems.map((entry) => entry.stableItemId),
       activeTaskIds: normalizedStrings(request.activeTaskIds),
-      evictableTaskIds: normalizedStrings(request.evictableTaskIds),
+    evictableTaskIds: normalizedStrings(request.evictableTaskIds),
+    taskPolicy: request.taskPolicy ?? "lifecycle",
     },
   };
 }
@@ -231,7 +241,11 @@ export const codexSharedContextRewriteBackend: CodexSharedContextRewriteBackend 
       reasons.push(`operation:${operationId || "<empty>"}:${reason}`);
     };
 
-    if (metadata.effectiveHistory.incomplete) {
+    const inputFormat = metadata.inputFormat;
+    if ((inputFormat === "response_chain" && metadata.effectiveHistory.deferredItems.length > 0)
+      || (metadata.effectiveHistory.incomplete
+        && metadata.effectiveHistory.replayableItems.length === 0
+        && metadata.effectiveHistory.observationOnlyItems.length === 0)) {
       for (const operationId of [...candidates]) {
         defer(operationId, "effective_history_incomplete");
       }
@@ -259,6 +273,16 @@ export const codexSharedContextRewriteBackend: CodexSharedContextRewriteBackend 
       for (const itemId of operation.targetItemIds) claimedItemIds.add(itemId);
     }
 
+    if (metadata.taskPolicy === "lifecycle") {
+      for (const operation of plan.operations) {
+        if (!candidates.has(operation.id)) continue;
+        const operationTaskIds = new Set(normalizedStrings(operation.taskIds));
+        if ([...operationTaskIds].some((taskId) => metadata.activeTaskIds.includes(taskId))) {
+          defer(operation.id, "active_task_targeted");
+        }
+      }
+    }
+
     const closure = validateContextMutationProtocolClosure({
       snapshot,
       plan,
@@ -277,6 +301,7 @@ export const codexSharedContextRewriteBackend: CodexSharedContextRewriteBackend 
         baseRevision: snapshot.revision,
         effectiveHistory: metadata.effectiveHistory,
         currentInput: metadata.currentInput,
+        inputFormat: metadata.inputFormat,
         mutationPlan: codexMutationPlanFor(plan, candidates),
       });
       if (!codexValidation.valid) {

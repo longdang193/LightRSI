@@ -106,7 +106,6 @@ export const agentsStartupOptimizationPass: ImmutableReductionPassHandler = {
     const modifiedSegmentIds: string[] = [];
     let segmentCheckedCount = 0;
     let agentsSegmentFound = false;
-
     // Find segments that contain an injected agent instruction file.
     const nextSegments = [...turnCtx.segments];
     for (let i = 0; i < turnCtx.segments.length; i += 1) {
@@ -148,7 +147,6 @@ export const agentsStartupOptimizationPass: ImmutableReductionPassHandler = {
         totalSavedChars += savedChars;
         modifiedSegmentCount++;
         modifiedSegmentIds.push(segment.id);
-
         nextSegments[i] = {
           ...segment,
           text: newContent,

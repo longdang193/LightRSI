@@ -11,6 +11,7 @@ function delta(): DeltaView {
   return {
     fromTurnSeqExclusive: 0,
     toTurnSeqInclusive: 1,
+    coveredTurnSeqs: [1],
     coveredTurnAbsIds: [`${SESSION}:t1`],
     messages: [],
     toolCalls: [],
@@ -79,4 +80,46 @@ test("no-ops when the estimator returns no updates", async () => {
   });
   assert.equal(result.changed, false);
   assert.equal(result.note, "no_updates");
+});
+
+test("no-op processing records non-contiguous coverage instead of scalar-only progress", async () => {
+  const registry = createEmptySessionTaskRegistry(SESSION);
+  const result = await updateRegistryFromDelta({
+    registry,
+    delta: {
+      ...delta(),
+      toTurnSeqInclusive: 3,
+      coveredTurnSeqs: [1, 3],
+      coveredTurnAbsIds: [`${SESSION}:t1`, `${SESSION}:t3`],
+    },
+    estimator: fakeEstimator({ baseVersion: registry.version, taskUpdates: [] }),
+  });
+
+  assert.deepEqual(result.registry.processedTurnRanges, [
+    { fromTurnSeqInclusive: 1, toTurnSeqInclusive: 1 },
+    { fromTurnSeqInclusive: 3, toTurnSeqInclusive: 3 },
+  ]);
+  assert.equal(result.registry.lastProcessedTurnSeq, 1);
+});
+
+test("no-op processing merges coverage with existing ranges", async () => {
+  const registry = createEmptySessionTaskRegistry(SESSION);
+  registry.processedTurnRanges = [{ fromTurnSeqInclusive: 2, toTurnSeqInclusive: 2 }];
+
+  const result = await updateRegistryFromDelta({
+    registry,
+    delta: {
+      ...delta(),
+      fromTurnSeqExclusive: 2,
+      toTurnSeqInclusive: 3,
+      coveredTurnSeqs: [3],
+      coveredTurnAbsIds: [`${SESSION}:t3`],
+    },
+    estimator: fakeEstimator({ baseVersion: registry.version, taskUpdates: [] }),
+  });
+
+  assert.deepEqual(result.registry.processedTurnRanges, [
+    { fromTurnSeqInclusive: 2, toTurnSeqInclusive: 3 },
+  ]);
+  assert.equal(result.registry.lastProcessedTurnSeq, 0);
 });

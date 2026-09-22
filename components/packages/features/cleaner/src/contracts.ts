@@ -3,9 +3,21 @@ import type {
   ModelContextRewriteMode,
   ModelContextSnapshot,
 } from "@lightrsi/host-adapter";
+import type { TaskDependencyDirection, TaskRetentionDecision } from "@lightrsi/history";
 
 export const CONTEXT_CLEAN_SCHEMA_VERSION = 1 as const;
 export const CONTEXT_CLEAN_STORE_SCHEMA_VERSION = 1 as const;
+export const CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION = 1 as const;
+
+export const CONTEXT_CLEAN_LOCK_ORDER = [
+  "session_mutation_reservation",
+  "plan_lock",
+  "claim_persistence",
+  "final_validation",
+  "provider_dispatch",
+  "host_commit_evidence",
+  "receipt_finalization",
+] as const;
 
 export type ContextCleanTokenCountMode = "exact" | "estimated" | "chars_only";
 
@@ -18,6 +30,13 @@ export type ContextCleanLifecycleState =
 
 export type ContextCleanRecommendation = "clean" | "keep" | "protected";
 
+export type ContextCleanAttributionStatus =
+  | "disabled"
+  | "waiting"
+  | "failing"
+  | "empty"
+  | "available";
+
 export type ContextCleanStatus =
   | "analyzed"
   | "approved"
@@ -26,6 +45,28 @@ export type ContextCleanStatus =
   | "stale"
   | "cancelled"
   | "failed";
+
+export type ContextCleanDispatchState =
+  | "dispatch_not_started"
+  | "dispatch_started"
+  | "host_committed"
+  | "recovery_required";
+
+export type ContextCleanExecutionClaim = {
+  schemaVersion: typeof CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION;
+  claimId: string;
+  planId: string;
+  hostId: string;
+  sessionId: string;
+  selectedTaskIds: string[];
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
+  mutationPlanId: string;
+  analysisRevision: string;
+  executionRevision: string;
+  ownerToken: string;
+  claimedAt: string;
+  dispatchState: ContextCleanDispatchState;
+};
 
 export const TERMINAL_CONTEXT_CLEAN_STATUSES = [
   "applied",
@@ -79,6 +120,8 @@ export type ContextCleanTaskBreakdown = {
   recommendation: ContextCleanRecommendation;
   reasonCodes: string[];
   selectable: boolean;
+  retentionDecision?: TaskRetentionDecision;
+  dependencyDirection?: TaskDependencyDirection;
 };
 
 export type ContextCleanPlan = {
@@ -87,6 +130,8 @@ export type ContextCleanPlan = {
   hostId: string;
   sessionId: string;
   baseRevision: string;
+  /** New plans pin this explicitly; schema-v1 reads fall back to baseRevision. */
+  analysisRevision?: string;
   model?: string;
   contextWindowTokens?: number;
   usedTokens: number | null;
@@ -99,11 +144,17 @@ export type ContextCleanPlan = {
   unassignedChars: number;
   tokenCountMode: ContextCleanTokenCountMode;
   tokenCountMethod: string;
+  attributionStatus?: ContextCleanAttributionStatus;
+  /** Host occurrence fingerprints available for one-off agent selection. */
+  occurrenceDigests?: Record<string, string>;
+  /** Stable occurrence sizes used for release accounting without task ownership. */
+  occurrenceSizes?: Record<string, { chars: number; tokens: number | null }>;
   tasks: ContextCleanTaskBreakdown[];
   createdAt: string;
 };
 
 export type ContextCleanEvidence = {
+  claimId?: string;
   previousRevision?: string;
   nextRevision?: string;
   operationIds?: string[];
@@ -111,6 +162,19 @@ export type ContextCleanEvidence = {
   eventIds?: string[];
   archiveRefs?: string[];
   providerResponseId?: string;
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
+};
+
+export type ContextCleanHistoryEvidence = {
+  completeness: "complete" | "partial";
+  protectedItemIds: string[];
+  reasonCodes: string[];
+  verifiedItemIds?: string[];
+  uncertainItemIds?: string[];
+  unresolvedBoundaries?: string[];
+  unlocalizable?: boolean;
+  revision?: string;
+  provenance?: string;
 };
 
 type ContextCleanReceiptBase = {
@@ -133,7 +197,7 @@ export type ContextCleanPendingReceipt = ContextCleanReceiptBase & {
   appliedSavedTokens?: never;
   appliedSavedChars?: never;
   evidence?: ContextCleanEvidence;
-  fallbackUsed: false;
+  fallbackUsed: boolean;
 };
 
 export type ContextCleanScheduledReceipt = Omit<
@@ -203,6 +267,7 @@ export type ContextCleanSnapshot = ModelContextSnapshot & {
   tokenCountMode: ContextCleanTokenCountMode;
   tokenCountMethod: string;
   itemTokenCounts?: Record<string, number>;
+  historyEvidence?: ContextCleanHistoryEvidence;
 };
 
 export type ContextCleanerSession = {
@@ -215,6 +280,21 @@ export type ApprovedContextCleanTask = Pick<
   "taskId" | "itemIds" | "itemDigests"
 >;
 
+export type ContextCleanApprovedOccurrence = {
+  stableId: string;
+  fingerprint: string;
+};
+
+export type ContextCleanOccurrenceSet = {
+  hostId: string;
+  sessionId: string;
+  baseRevision: string;
+  occurrences: ContextCleanApprovedOccurrence[];
+  releaseEvidence: ContextCleanOccurrenceSelection[];
+  provenance: "agent" | "legacy_task";
+  sourceTaskIds: string[];
+};
+
 export type ExecuteApprovedContextCleanParams = {
   schemaVersion: typeof CONTEXT_CLEAN_SCHEMA_VERSION;
   cleanPlanId: string;
@@ -222,8 +302,20 @@ export type ExecuteApprovedContextCleanParams = {
   sessionId: string;
   baseRevision: string;
   approvedAt: string;
-  /** Exact task targets shown to and approved by the user. */
-  selectedTasks: ApprovedContextCleanTask[];
+  /** Task IDs only; item targets and digests come from the immutable plan. */
+  selectedTaskIds: string[];
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
+};
+
+export type ContextCleanOccurrenceSelection = {
+  stableId: string;
+  fingerprint: string;
+  completionEvidence: string[];
+  continuingUseful: boolean;
+  releaseIntent: "release";
+  retainedFindings: string[];
+  nothingReusable?: boolean;
+  dependencyDirection: "none" | "outgoing";
 };
 
 /**
@@ -236,6 +328,7 @@ export type ContextCleanExecutionRequest = {
   sessionId: string;
   baseRevision: string;
   selectedTaskIds: string[];
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
 };
 
 /** Canonical, Host-neutral state used to validate a scheduled clean. */
@@ -243,6 +336,11 @@ export type ContextCleanExecutionSnapshot = {
   snapshot: ModelContextSnapshot;
   activeTaskIds: readonly string[];
   evictableTaskIds: readonly string[];
+  committedExcludedItemIds?: readonly string[];
+  taskIntents?: Readonly<Record<string, {
+    retentionDecision?: TaskRetentionDecision;
+    dependencyDirection?: TaskDependencyDirection;
+  }>>;
 };
 
 export type ContextCleanPreparedExecution = {
@@ -250,7 +348,7 @@ export type ContextCleanPreparedExecution = {
   hostId: string;
   sessionId: string;
   baseRevision: string;
-  selectedTasks: ApprovedContextCleanTask[];
+  occurrenceSet: ContextCleanOccurrenceSet;
   mutationPlan: ContextMutationPlan;
   scheduledReceipt: ContextCleanScheduledReceipt;
 };
@@ -308,6 +406,26 @@ export type ContextCleanerControlPlane = Pick<
   ContextCleanerHostBridge,
   "executeApprovedClean" | "readCleanReceipt" | "cancelCleanPlan"
 >;
+
+export type FinalizeContextCleanScheduleParams = {
+  cleanPlanId: string;
+  hostId: string;
+  sessionId: string;
+  baseRevision: string;
+  selectedTaskIds: string[];
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
+  scheduledAt: string;
+  evidence?: ContextCleanEvidence;
+};
+
+export interface ContextCleanerSchedulingControlPlane extends ContextCleanerControlPlane {
+  approveCleanSelection(
+    params: ExecuteApprovedContextCleanParams,
+  ): Promise<ContextCleanReceipt>;
+  finalizeCleanSchedule(
+    params: FinalizeContextCleanScheduleParams,
+  ): Promise<ContextCleanReceipt>;
+}
 
 /**
  * Shared scheduled-plan consumer used inside a Host's existing request lock.

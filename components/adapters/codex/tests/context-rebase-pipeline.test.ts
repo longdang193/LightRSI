@@ -18,6 +18,11 @@ import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
 import {
   acquireCodexRebaseSessionLock,
   appendPendingCodexRebaseEpoch,
+  appendCodexRebaseCapability,
+  CODEX_REBASE_API_VERSION,
+  CODEX_REBASE_ITEM_SCHEMA_VERSION,
+  CODEX_REBASE_WIRE_MODE,
+  codexRebaseEndpointIdentity,
   readCodexRebaseCapabilityJournal,
   readLatestCodexRebaseEpoch,
 } from "../src/context-rewrite/index.js";
@@ -470,6 +475,102 @@ test("CDR-06 proxy pipeline rebases a non-stream request from effective history"
     const serializedLifecycle = JSON.stringify(lifecycleEvents);
     assert.doesNotMatch(serializedLifecycle, /OLD_SENTINEL_PIPELINE|CURRENT_SENTINEL_PIPELINE/);
     assert.doesNotMatch(serializedLifecycle, /responseId|previousResponseId|promptCacheKey|encrypted_content/);
+  } finally {
+    await runtime?.close();
+    await upstream.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("CDR-06 proxy pipeline applies cumulative pruning without a response-chain id", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-cumulative-rebase-pipeline-"));
+  const upstream = await startSequencedResponsesUpstream();
+  let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  try {
+    const sessionId = "codex-session-cumulative-rebase-pipeline";
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir,
+      proxyPort: await reserveFetchPort(),
+      upstreamProvider: "OpenAI",
+      upstream: {
+        baseUrl: upstream.baseUrl,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      modules: {
+        stabilizer: false,
+        reduction: false,
+      },
+      contextRewrite: {
+        enabled: true,
+        providerCompatibilityProbe: "real_provider",
+        mode: "response_chain_rebase",
+        failureMode: "bypass",
+        retryOriginalRequest: true,
+        cooldownMs: 300_000,
+        mutationPlan: { operations: [] },
+      },
+    } as any);
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+    });
+
+    const first = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "CUMULATIVE_EVICT" }],
+      }),
+    });
+    assert.equal(first.status, 200);
+    const firstBody = await first.json() as JsonObject;
+    const firstOutput = Array.isArray(firstBody.output) ? firstBody.output[0] : undefined;
+    assert.ok(firstOutput && typeof firstOutput === "object" && !Array.isArray(firstOutput));
+
+    const history = await buildCodexEffectiveHistory({ stateDir, sessionId });
+    const evictedItem = history.replayableItems.find(
+      (entry) => JSON.stringify(entry.item).includes("CUMULATIVE_EVICT"),
+    );
+    assert.ok(evictedItem);
+    await appendCodexRebaseCapability({
+      stateDir,
+      provider: "OpenAI",
+      model: "gpt-5.4-mini",
+      wireMode: CODEX_REBASE_WIRE_MODE,
+      apiVersion: CODEX_REBASE_API_VERSION,
+      endpointId: codexRebaseEndpointIdentity(upstream.baseUrl),
+      itemType: "message",
+      itemSchemaVersion: CODEX_REBASE_ITEM_SCHEMA_VERSION,
+      status: "verified_unsupported",
+      evidence: "real_provider",
+      reason: "fixture_replay_gate",
+    });
+    (config as any).contextRewrite.mutationPlan = {
+      operations: [{ type: "evict", stableItemId: evictedItem.stableItemId }],
+    };
+
+    const second = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [
+          { role: "user", content: "CUMULATIVE_EVICT" },
+          firstOutput,
+          { role: "user", content: "CUMULATIVE_KEEP" },
+        ],
+      }),
+    });
+    assert.equal(second.status, 200);
+    assert.equal(upstream.requests.length, 2);
+    assert.doesNotMatch(inputText(upstream.requests[1]), /CUMULATIVE_EVICT/);
+    assert.match(inputText(upstream.requests[1]), /CUMULATIVE_KEEP/);
   } finally {
     await runtime?.close();
     await upstream.close();

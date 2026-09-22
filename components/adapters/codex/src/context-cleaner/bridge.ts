@@ -1,24 +1,34 @@
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
+  sameCanonicalValue,
   type ContextCleanerControlPlane,
+  type ContextCleanerSchedulingControlPlane,
   type ContextCleanerHostBridge,
+  type ContextCleanHistoryEvidence,
   type ContextCleanReceipt,
+  type ContextCleanSnapshot,
   type ExecuteApprovedContextCleanParams,
 } from "@lightrsi/cleaner";
-import { loadSessionTaskRegistry } from "@lightrsi/history";
+import {
+  createEmptySessionTaskRegistry,
+  type SessionTaskRegistry,
+} from "@lightrsi/history";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
-  countTextWithPreciseTokens,
   type ModelContextSnapshot,
 } from "@lightrsi/host-adapter";
 
 import { buildCodexEffectiveHistoryView, parseCodexRollout } from "../context-history/index.js";
+import { buildCodexRawSemanticTurns } from "../context-rewrite/semantic-mapping.js";
 import { codexSharedContextRewriteBackend } from "../context-rewrite/backend.js";
 import { buildCodexLifecycleBackendRequest } from "../context-rewrite/lifecycle-input.js";
 import {
   loadCodexSessionSnapshot,
 } from "../session-state.js";
-import { scheduleCodexCleanerPlan } from "./scheduler.js";
+import {
+  appendCodexCleanerTerminal,
+  scheduleCodexCleanerPlan,
+} from "./scheduler.js";
 import { listCodexCleanerSessions } from "./session-catalog.js";
 
 const CODEX_HOST_ID = "codex";
@@ -82,33 +92,38 @@ function validateApprovedRequest(request: ExecuteApprovedContextCleanParams): st
   if (request.hostId !== CODEX_HOST_ID) {
     throw new Error("codex_clean_approval_host_mismatch");
   }
+  const occurrenceIds = (request.occurrenceSelections ?? [])
+    .map((selection) => selection.stableId);
+  if ((request.occurrenceSelections ?? []).some((selection) => (
+    !selection.stableId.trim()
+    || !selection.fingerprint.trim()
+    || !Array.isArray(selection.completionEvidence)
+    || !Array.isArray(selection.retainedFindings)
+    || (selection.nothingReusable !== undefined && typeof selection.nothingReusable !== "boolean")
+    || typeof selection.continuingUseful !== "boolean"
+    || selection.releaseIntent !== "release"
+    || !["none", "outgoing"].includes(selection.dependencyDirection)
+  ))) {
+    throw new Error("codex_clean_approval_invalid");
+  }
   if (!request.cleanPlanId.trim()
     || !request.sessionId.trim()
     || !request.baseRevision.trim()
     || !canonicalTimestamp(request.approvedAt)
-    || request.selectedTasks.length === 0) {
+    || (request.selectedTaskIds.length === 0 && occurrenceIds.length === 0)) {
     throw new Error("codex_clean_approval_invalid");
   }
-  const taskIds = normalizedUniqueStrings(request.selectedTasks.map((task) => task.taskId));
-  if (!taskIds) throw new Error("codex_clean_approval_invalid");
-  const claimedItemIds = new Set<string>();
-  for (const task of request.selectedTasks) {
-    const itemIds = normalizedUniqueStrings(task.itemIds);
-    if (!itemIds
-      || itemIds.length === 0
-      || Object.keys(task.itemDigests).length !== itemIds.length) {
-      throw new Error("codex_clean_approval_targets_invalid");
-    }
-    for (const itemId of itemIds) {
-      if (claimedItemIds.has(itemId)
-        || typeof task.itemDigests[itemId] !== "string"
-        || !task.itemDigests[itemId]!.trim()) {
-        throw new Error("codex_clean_approval_targets_invalid");
-      }
-      claimedItemIds.add(itemId);
-    }
-  }
-  return taskIds;
+  const taskIds = normalizedUniqueStrings(request.selectedTaskIds);
+  if (request.selectedTaskIds.length > 0 && !taskIds) throw new Error("codex_clean_approval_invalid");
+  if (new Set(occurrenceIds).size !== occurrenceIds.length) throw new Error("codex_clean_approval_invalid");
+  return taskIds ?? [];
+}
+
+function isSchedulingControlPlane(
+  controlPlane: ContextCleanerControlPlane,
+): controlPlane is ContextCleanerSchedulingControlPlane {
+  return typeof (controlPlane as Partial<ContextCleanerSchedulingControlPlane>).approveCleanSelection === "function"
+    && typeof (controlPlane as Partial<ContextCleanerSchedulingControlPlane>).finalizeCleanSchedule === "function";
 }
 
 function validateReceipt(params: {
@@ -116,6 +131,7 @@ function validateReceipt(params: {
   planId: string;
   sessionId?: string;
   selectedTaskIds?: string[];
+  occurrenceSelections?: ExecuteApprovedContextCleanParams["occurrenceSelections"];
 }): ContextCleanReceipt {
   const { receipt } = params;
   const selectedTaskIds = normalizedUniqueStrings(receipt.selectedTaskIds);
@@ -124,7 +140,7 @@ function validateReceipt(params: {
     || receipt.planId !== params.planId
     || (params.sessionId !== undefined && receipt.sessionId !== params.sessionId)
     || !canonicalTimestamp(receipt.updatedAt)
-    || !selectedTaskIds
+    || selectedTaskIds === undefined
     || !validReceiptState(receipt)) {
     throw new Error("codex_clean_receipt_mismatch");
   }
@@ -135,6 +151,13 @@ function validateReceipt(params: {
       || expected.some((taskId, index) => taskId !== actual[index])) {
       throw new Error("codex_clean_receipt_mismatch");
     }
+  }
+  if (params.occurrenceSelections !== undefined
+    && !sameCanonicalValue(
+      params.occurrenceSelections,
+      receipt.evidence?.occurrenceSelections ?? [],
+    )) {
+    throw new Error("codex_clean_receipt_mismatch");
   }
   return receipt;
 }
@@ -162,10 +185,138 @@ function validPersistableSnapshot(
   return true;
 }
 
+function scopedHistoryEvidence(params: {
+  view: Awaited<ReturnType<typeof buildCodexEffectiveHistoryView>>;
+  semanticReasonCodes: readonly string[];
+  blockedTurnSeqs: readonly number[];
+}): ContextCleanHistoryEvidence | undefined {
+  const { view, semanticReasonCodes, blockedTurnSeqs } = params;
+  if (blockedTurnSeqs.length === 0) return undefined;
+  const hasScopedUnresolvedTool = semanticReasonCodes.includes("history_unresolved_tool_calls");
+  const unscoped = semanticReasonCodes.some((reason) => (
+    reason !== "semantic_source_incomplete"
+    && !reason.startsWith("semantic_tool_")
+    && !reason.startsWith("semantic_message_")
+    && reason !== "history_unresolved_tool_calls"
+    && !(reason === "history_replay_incomplete" && hasScopedUnresolvedTool)
+  ));
+  if (unscoped) return undefined;
+
+  const itemIdsByTurnSeq = new Map<number, string[]>();
+  for (const turn of view.turns) {
+    itemIdsByTurnSeq.set(turn.turnSeq, [
+      ...turn.inputItemIds,
+      ...turn.outputItemIds,
+    ]);
+  }
+  const protectedItemIds = [...new Set(
+    blockedTurnSeqs.flatMap((turnSeq) => itemIdsByTurnSeq.get(turnSeq) ?? []),
+  )].sort();
+  if (protectedItemIds.length === 0) return undefined;
+  return {
+    completeness: "partial",
+    protectedItemIds,
+    reasonCodes: [...new Set(semanticReasonCodes)].sort(),
+  };
+}
+
+function assessHistoryEvidence(
+  view: Awaited<ReturnType<typeof buildCodexEffectiveHistoryView>>,
+): {
+  semantic: ReturnType<typeof buildCodexRawSemanticTurns>;
+  historyEvidence: ContextCleanHistoryEvidence | undefined;
+} {
+  const semantic = buildCodexRawSemanticTurns(view);
+  const complete = semantic.complete
+    && !view.history.incomplete
+    && view.reasonCodes.length === 0
+    && view.history.deferredItems.length === 0
+    && view.history.unresolvedCallIds.length === 0;
+  return {
+    semantic,
+    historyEvidence: complete
+      ? { completeness: "complete", protectedItemIds: [], reasonCodes: [] }
+      : scopedHistoryEvidence({
+          view,
+          semanticReasonCodes: semantic.reasonCodes,
+          blockedTurnSeqs: semantic.blockedTurnSeqs,
+        }),
+  };
+}
+
 export function createCodexContextCleanerBridge(params: {
   stateDir: string;
   controlPlane: ContextCleanerControlPlane;
+  boundSessionId?: string;
 }): ContextCleanerHostBridge {
+  async function readCleanSnapshotWithRegistry(
+    sessionId: string,
+    registry: SessionTaskRegistry,
+  ): Promise<ContextCleanSnapshot> {
+    const session = await loadCodexSessionSnapshot(params.stateDir, sessionId);
+    if (!session) throw new Error("codex_clean_session_not_found");
+    const view = await buildCodexEffectiveHistoryView({
+      stateDir: params.stateDir,
+      sessionId,
+      headResponseId: session.latestResponseId,
+      async rolloutViewBootstrap() {
+        if (!session.transcriptPath) return null;
+        return (await parseCodexRollout(session.transcriptPath))?.view ?? null;
+      },
+    });
+    const { historyEvidence } = assessHistoryEvidence(view);
+    if (!historyEvidence) {
+      throw new Error(`codex_clean_snapshot_incomplete:${view.reasonCodes.join(",") || "unknown"}`);
+    }
+    const model = session.latestModel?.trim() || undefined;
+    const backendRequest = buildCodexLifecycleBackendRequest({
+      view,
+      registry,
+      request: {
+        sessionId,
+        payload: {
+          ...(model ? { model } : {}),
+          ...(session.latestResponseId
+            ? { previous_response_id: session.latestResponseId }
+            : {}),
+          input: [],
+        },
+        effectiveHistory: view.history,
+        currentInput: [],
+      },
+    });
+    const backendSnapshot = await codexSharedContextRewriteBackend.readSnapshot({
+      sessionId,
+      request: backendRequest,
+    });
+    const sourceItems = [
+      ...view.history.replayableItems,
+      ...view.history.observationOnlyItems,
+      ...view.history.deferredItems,
+    ];
+    const sourceItemsById = new Map(
+      sourceItems.map((item) => [item.stableItemId, item] as const),
+    );
+    const { adapterMetadata: _adapterMetadata, ...persistableSnapshot } = backendSnapshot;
+    if (!validPersistableSnapshot(persistableSnapshot, sessionId, view.history.revision)
+      || sourceItemsById.size !== sourceItems.length
+      || sourceItems.length !== persistableSnapshot.items.length
+      || persistableSnapshot.items.some((item) => !sourceItemsById.has(item.stableId))) {
+      throw new Error("codex_clean_snapshot_invalid");
+    }
+    if (Number.isNaN(Date.parse(session.updatedAt))) {
+      throw new Error("codex_clean_snapshot_timestamp_invalid");
+    }
+    return {
+      ...persistableSnapshot,
+      capturedAt: session.updatedAt,
+      ...(model ? { model } : {}),
+      tokenCountMode: "chars_only",
+      tokenCountMethod: "utf16_chars",
+      historyEvidence,
+    };
+  }
+
   return {
     hostId: CODEX_HOST_ID,
     rewriteMode: "response_chain_rebase",
@@ -173,95 +324,60 @@ export function createCodexContextCleanerBridge(params: {
       return listCodexCleanerSessions(params.stateDir);
     },
     async readCleanSnapshot(sessionId) {
-      const session = await loadCodexSessionSnapshot(params.stateDir, sessionId);
-      if (!session) throw new Error("codex_clean_session_not_found");
-      const view = await buildCodexEffectiveHistoryView({
-        stateDir: params.stateDir,
-        sessionId,
-        headResponseId: session.latestResponseId,
-        async rolloutViewBootstrap() {
-          if (!session.transcriptPath) return null;
-          return (await parseCodexRollout(session.transcriptPath))?.view ?? null;
-        },
-      });
-      if (view.history.incomplete
-        || !view.semanticComplete
-        || view.reasonCodes.length > 0
-        || view.history.deferredItems.length > 0
-        || view.history.unresolvedCallIds.length > 0) {
-        throw new Error("codex_clean_snapshot_incomplete");
-      }
-      const registry = await loadSessionTaskRegistry(params.stateDir, sessionId);
-      if (registry.sessionId !== sessionId) {
-        throw new Error("codex_clean_registry_session_mismatch");
-      }
-      const model = session.latestModel?.trim() || undefined;
-      const backendRequest = buildCodexLifecycleBackendRequest({
-        view,
-        registry,
-        request: {
-          sessionId,
-          payload: {
-            ...(model ? { model } : {}),
-            ...(session.latestResponseId
-              ? { previous_response_id: session.latestResponseId }
-              : {}),
-            input: [],
-          },
-          effectiveHistory: view.history,
-          currentInput: [],
-        },
-      });
-      const backendSnapshot = await codexSharedContextRewriteBackend.readSnapshot({
-        sessionId,
-        request: backendRequest,
-      });
-      const sourceItems = [
-        ...view.history.replayableItems,
-        ...view.history.observationOnlyItems,
-        ...view.history.deferredItems,
-      ];
-      const sourceItemsById = new Map(
-        sourceItems.map((item) => [item.stableItemId, item] as const),
-      );
-      const { adapterMetadata: _adapterMetadata, ...persistableSnapshot } = backendSnapshot;
-      if (!validPersistableSnapshot(persistableSnapshot, sessionId, view.history.revision)
-        || sourceItemsById.size !== sourceItems.length
-        || sourceItems.length !== persistableSnapshot.items.length
-        || persistableSnapshot.items.some((item) => !sourceItemsById.has(item.stableId))) {
-        throw new Error("codex_clean_snapshot_invalid");
-      }
-      if (Number.isNaN(Date.parse(session.updatedAt))) {
-        throw new Error("codex_clean_snapshot_timestamp_invalid");
-      }
-      const counts = model
-        ? persistableSnapshot.items.map((item) => {
-            const sourceItem = sourceItemsById.get(item.stableId)!;
-            return [
-              item.stableId,
-              countTextWithPreciseTokens(model, JSON.stringify(sourceItem.item)),
-            ] as const;
-          })
-        : [];
-      const exact = counts.length > 0 && counts.every(([, count]) => count.mode === "openai_tokens");
-      return {
-        ...persistableSnapshot,
-        capturedAt: session.updatedAt,
-        ...(model ? { model } : {}),
-        tokenCountMode: exact ? "exact" : "chars_only",
-        tokenCountMethod: exact ? "openai_tokenizer" : "utf16_chars",
-        ...(exact
-          ? { itemTokenCounts: Object.fromEntries(counts.map(([itemId, count]) => [itemId, count.count])) }
-          : {}),
-      };
+      return readCleanSnapshotWithRegistry(sessionId, createEmptySessionTaskRegistry(sessionId));
     },
     async executeApprovedClean(request) {
+      if ((request.occurrenceSelections?.length ?? 0) > 0 && !params.boundSessionId) {
+        throw new Error("codex_clean_approval_session_binding_required");
+      }
+      if (params.boundSessionId && params.boundSessionId !== request.sessionId) {
+        throw new Error("codex_clean_approval_session_binding_mismatch");
+      }
       const selectedTaskIds = validateApprovedRequest(request);
+      if (isSchedulingControlPlane(params.controlPlane)) {
+        const approved = validateReceipt({
+          receipt: await params.controlPlane.approveCleanSelection(request),
+          planId: request.cleanPlanId,
+          sessionId: request.sessionId,
+          selectedTaskIds,
+          occurrenceSelections: request.occurrenceSelections,
+        });
+        if (approved.status !== "approved") return approved;
+        const scheduled = await scheduleCodexCleanerPlan({
+          stateDir: params.stateDir,
+          sessionId: request.sessionId,
+          cleanPlanId: request.cleanPlanId,
+          baseRevision: request.baseRevision,
+          selectedTaskIds,
+          occurrenceSelections: request.occurrenceSelections,
+          scheduledAt: approved.updatedAt,
+        });
+        if (scheduled.outcome !== "stored" && scheduled.outcome !== "unchanged") {
+          throw new Error(`codex_clean_schedule_failed:${scheduled.reasons.join(",")}`);
+        }
+        return validateReceipt({
+          receipt: await params.controlPlane.finalizeCleanSchedule({
+            cleanPlanId: request.cleanPlanId,
+            hostId: request.hostId,
+            sessionId: request.sessionId,
+            baseRevision: request.baseRevision,
+            selectedTaskIds,
+            occurrenceSelections: request.occurrenceSelections,
+            scheduledAt: approved.updatedAt,
+            evidence: approved.evidence,
+          }),
+          planId: request.cleanPlanId,
+          sessionId: request.sessionId,
+          selectedTaskIds,
+          occurrenceSelections: request.occurrenceSelections,
+        });
+      }
       const receipt = validateReceipt({
         receipt: await params.controlPlane.executeApprovedClean(request),
         planId: request.cleanPlanId,
         sessionId: request.sessionId,
         selectedTaskIds,
+        occurrenceSelections: request.occurrenceSelections,
       });
       if (receipt.status === "scheduled") {
         const scheduled = await scheduleCodexCleanerPlan({
@@ -270,6 +386,7 @@ export function createCodexContextCleanerBridge(params: {
           cleanPlanId: request.cleanPlanId,
           baseRevision: request.baseRevision,
           selectedTaskIds,
+          occurrenceSelections: request.occurrenceSelections,
           scheduledAt: receipt.updatedAt,
         });
         if (scheduled.outcome !== "stored" && scheduled.outcome !== "unchanged") {
@@ -285,10 +402,24 @@ export function createCodexContextCleanerBridge(params: {
     },
     async cancelCleanPlan(planId) {
       if (!planId.trim()) throw new Error("codex_clean_plan_id_invalid");
-      return validateReceipt({
+      const receipt = validateReceipt({
         receipt: await params.controlPlane.cancelCleanPlan(planId),
         planId,
       });
+      if (receipt.status === "stale" || receipt.status === "cancelled" || receipt.status === "failed") {
+        const terminal = await appendCodexCleanerTerminal({
+          stateDir: params.stateDir,
+          sessionId: receipt.sessionId,
+          cleanPlanId: receipt.planId,
+          receiptStatus: receipt.status,
+          reasons: receipt.reasons,
+          updatedAt: receipt.updatedAt,
+        });
+        if (!["transitioned", "unchanged", "missing"].includes(terminal.outcome)) {
+          throw new Error(`codex_clean_schedule_terminal_failed:${terminal.reasons.join(",")}`);
+        }
+      }
+      return receipt;
     },
   };
 }

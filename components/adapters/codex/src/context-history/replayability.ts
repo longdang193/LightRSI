@@ -145,6 +145,7 @@ export type CodexReplayabilityReason =
   | "default_replayable"
   | "tool_closure_required"
   | "tool_call_id_missing"
+  | "host_tool_observation"
   | "exact_payload_required"
   | "exact_payload_missing"
   | "program_payload_required"
@@ -242,6 +243,13 @@ export function codexReplayabilityForItem(item: JsonObject): CodexItemReplayabil
   }
   if (type === "turn_context") {
     return { mode: "observation_only", reason: "turn_context_instruction" };
+  }
+  if (type === "function_call_output"
+    && nonBlankString(item.id)
+    && nonBlankString(item.name)
+    && String(item.namespace ?? "").toLowerCase() === "codex_app"
+    && typeof item.output === "string") {
+    return { mode: "observation_only", reason: "host_tool_observation" };
   }
   if (REPLAY_PAIR_TYPES.has(type)) {
     return nonBlankString(item.call_id)

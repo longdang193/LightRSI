@@ -13,6 +13,7 @@ import {
   type TokenPilotMcpServerSpec,
 } from "../../../products/mcp/src/index.js";
 import {
+  codexProxyBaseUrl,
   defaultCodexConfigPath,
   defaultHooksConfigPath,
   defaultTokenPilotConfigPath,
@@ -209,8 +210,15 @@ function normalizeLocalProxyBaseUrl(value: string | undefined): string | undefin
   return `http://127.0.0.1:${match[1]}/v1`;
 }
 
-function isLoopbackProxyProvider(provider: CodexProviderConfig | undefined): boolean {
-  return Boolean(normalizeLocalProxyBaseUrl(provider?.baseUrl));
+function isLoopbackProxyProvider(
+  provider: CodexProviderConfig | undefined,
+  proxyBaseUrl: string,
+): boolean {
+  const normalizedProviderBaseUrl = normalizeLocalProxyBaseUrl(provider?.baseUrl);
+  const normalizedProxyBaseUrl = normalizeLocalProxyBaseUrl(proxyBaseUrl);
+  if (!normalizedProviderBaseUrl) return false;
+  if (normalizedProviderBaseUrl === normalizedProxyBaseUrl) return true;
+  return provider?.name?.trim().toLowerCase() !== "9router";
 }
 
 function sameProviderEndpoint(left: CodexProviderConfig | undefined, right: CodexProviderConfig | undefined): boolean {
@@ -480,13 +488,13 @@ export async function installCodexTokenPilot(params?: {
   tokenPilotConfig.upstreamProvider = providerName;
   if (
     upstreamProvider?.baseUrl
-    && !isLoopbackProxyProvider(upstreamProvider)
+    && !isLoopbackProxyProvider(upstreamProvider, previousProxyBaseUrl)
     && !sameProviderEndpoint(upstreamProvider, tokenPilotConfig.upstream)
   ) {
     tokenPilotConfig.upstream = upstreamProvider;
   }
   await writeTokenPilotCodexConfig(tokenPilotConfig, tokenPilotConfigPath);
-  const baseUrl = `http://127.0.0.1:${tokenPilotConfig.proxyPort}/v1`;
+  const baseUrl = codexProxyBaseUrl(tokenPilotConfig);
   const mcpServer = resolveCodexMcpServerSpecForInstall(tokenPilotConfig.stateDir);
   const mcpProbeServer = resolveCodexMcpServerSpecForProbe(tokenPilotConfig.stateDir);
 

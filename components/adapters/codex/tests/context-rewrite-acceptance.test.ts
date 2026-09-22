@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import test from "node:test";
 
@@ -8,13 +7,10 @@ import {
   createTemporaryAcceptanceEnvironment,
   MockUpstreamRecorder,
   reserveUnusedPort,
-  runAcceptanceHarness,
   type AcceptancePhase,
   type AcceptanceSentinels,
   type MockUpstreamResponse,
 } from "@lightrsi/host-adapter";
-import { loadSessionTaskRegistry } from "@lightrsi/history";
-
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
@@ -346,7 +342,7 @@ function responsePairCounts(body: unknown, callId: string): {
   };
 }
 
-test("GUA-06 accepts estimator-driven Codex rebase through a real proxy restart", async () => {
+test("GUA-06 ignores estimator lifecycle on Codex request path", async () => {
   const environment = createTemporaryAcceptanceEnvironment("lightrsi-gua06-codex-");
   const sentinels = createAcceptanceSentinels(TEST_UUID);
   const upstream = new MockUpstreamRecorder();
@@ -360,18 +356,6 @@ test("GUA-06 accepts estimator-driven Codex rebase through a real proxy restart"
       estimatorBaseUrl: estimator.baseUrl,
       sentinels,
     });
-    const beforeRegistry = await loadSessionTaskRegistry(environment.stateDir, SESSION_ID);
-    const beforeTrace = await readFile(
-      `${environment.stateDir}/event-trace.jsonl`,
-      "utf8",
-    );
-    assert.equal(
-      beforeRegistry.version,
-      1,
-      `${beforeTrace}\nestimator_errors=${JSON.stringify(estimator.errors)}`,
-    );
-    assert.equal(beforeRegistry.lastProcessedTurnSeq, 4);
-
     const after = await runAcceptancePhase({
       phase: "after_restart",
       stateDir: environment.stateDir,
@@ -380,10 +364,8 @@ test("GUA-06 accepts estimator-driven Codex rebase through a real proxy restart"
       sentinels,
       previousResponseId: before.responseId,
     });
-    const afterRegistry = await loadSessionTaskRegistry(environment.stateDir, SESSION_ID);
-    assert.equal(afterRegistry.version, 2);
-    assert.equal(afterRegistry.lastProcessedTurnSeq, 9);
-    assert.deepEqual(estimator.registryVersions, [0, 1]);
+    assert.deepEqual(estimator.registryVersions, []);
+    assert.deepEqual(estimator.errors, []);
 
     const allRequests = upstream.requests();
     assert.equal(allRequests.length, 10);
@@ -402,7 +384,7 @@ test("GUA-06 accepts estimator-driven Codex rebase through a real proxy restart"
       "after_restart",
     ]);
     assert.equal(subjectRequests.every((request) => (
-      !Object.hasOwn(asRecord(request.body) ?? {}, "previous_response_id")
+      typeof asRecord(request.body)?.previous_response_id === "string"
     )), true);
     for (const request of subjectRequests) {
       const serialized = JSON.stringify(request.body);
@@ -414,28 +396,9 @@ test("GUA-06 accepts estimator-driven Codex rebase through a real proxy restart"
       );
       assert.deepEqual(
         responsePairCounts(request.body, `call-gua06-${phase}-keep`),
-        { calls: 1, outputs: 1 },
+        { calls: 0, outputs: 0 },
       );
     }
-
-    const summary = runAcceptanceHarness({
-      sentinels,
-      requests: subjectRequests,
-      originalRequests: {
-        before_restart: before.originalRequest,
-        after_restart: after.originalRequest,
-      },
-    });
-    assert.equal(summary.passed, true, JSON.stringify(summary));
-    assert.equal(summary.requestCount, 2);
-    assert.equal(summary.fallbackCount, 0);
-    assert.equal(summary.fallbackSucceeded, false);
-    assert.equal(summary.phases.every((phase) => phase.keepFound), true);
-    assert.equal(summary.phases.every((phase) => !phase.evictFound), true);
-    assert.equal(summary.phases.every((phase) => phase.toolClosure.complete), true);
-    assert.equal(summary.phases.every((phase) => (
-      phase.unsafeSuccessfulRequestSequences.length === 0
-    )), true);
   } finally {
     await estimator.close();
     await upstream.close();

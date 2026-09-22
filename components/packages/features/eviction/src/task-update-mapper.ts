@@ -1,3 +1,12 @@
+import {
+  highestContiguousProcessedTurnSeq,
+  mergeProcessedTurnRanges,
+  processedTurnRanges,
+  sortTurnAbsIds,
+  taskIdsByLifecycle,
+  turnSeqFromAbsId,
+  turnSeqsToRanges,
+} from "@lightrsi/history";
 import type {
   SessionTaskRegistry,
   SessionTaskRegistryPatch,
@@ -35,12 +44,6 @@ function titleFromTaskId(taskId: string): string {
   return taskId.replace(/[-_]+/g, " ").trim() || taskId;
 }
 
-function lifecycleBucketIds(tasks: Record<string, TaskState>, lifecycle: TaskLifecycle): string[] {
-  return Object.values(tasks)
-    .filter((task) => task.lifecycle === lifecycle)
-    .map((task) => task.taskId);
-}
-
 function hasCompletionEvidence(task: Pick<TaskState, "completionEvidence"> | undefined): boolean {
   return (task?.completionEvidence?.length ?? 0) > 0;
 }
@@ -62,11 +65,13 @@ export function mapTaskUpdatesToRegistryPatch(params: {
   registry: SessionTaskRegistry;
   updates: SemanticTaskUpdate[];
   coveredTurnAbsIds: string[];
+  coveredTurnSeqs?: number[];
   toTurnSeqInclusive: number;
 }): MapTaskUpdatesResult {
-  const { registry, updates, toTurnSeqInclusive } = params;
+  const { registry, updates, coveredTurnAbsIds, toTurnSeqInclusive } = params;
   const upsertTasks: Record<string, TaskState> = {};
   const upsertTurnToTaskIds: Record<string, string[]> = {};
+  const upsertOccurrenceToTaskIds: Record<string, string[]> = {};
   const transitions: TaskStateTransition[] = [];
   const rejectedUpdates: RejectedTaskUpdate[] = [];
 
@@ -81,13 +86,13 @@ export function mapTaskUpdatesToRegistryPatch(params: {
     if (!taskId || !objective) continue;
     if (covered.length === 0 && !previous) continue;
 
-    const supportingTurnAbsIds = uniqueStrings([
+    const supportingTurnAbsIds = sortTurnAbsIds([
       ...(previous?.span.supportingTurnAbsIds ?? []),
       ...covered,
     ]);
     if (supportingTurnAbsIds.length === 0) continue;
 
-    const firstTurnAbsId = previous?.span.firstTurnAbsId ?? supportingTurnAbsIds[0]!;
+    const firstTurnAbsId = supportingTurnAbsIds[0]!;
     const lastTurnAbsId = supportingTurnAbsIds[supportingTurnAbsIds.length - 1]!;
     const mergedCompletionEvidence = uniqueStrings([
       ...(previous?.completionEvidence ?? []),
@@ -150,6 +155,27 @@ export function mapTaskUpdatesToRegistryPatch(params: {
         : previous?.evictableReason
           ? { evictableReason: previous.evictableReason }
           : {}),
+      ...(update.decisionProvenance
+        ? {
+            decisionProvenance: {
+              ...update.decisionProvenance,
+              evidenceRefs: [...update.decisionProvenance.evidenceRefs],
+              invalidationConditions: [...update.decisionProvenance.invalidationConditions],
+            },
+          }
+        : previous?.decisionProvenance
+          ? { decisionProvenance: previous.decisionProvenance }
+          : {}),
+      ...(update.retentionDecision
+        ? { retentionDecision: update.retentionDecision }
+        : previous?.retentionDecision
+          ? { retentionDecision: previous.retentionDecision }
+          : {}),
+      ...(update.dependencyDirection
+        ? { dependencyDirection: update.dependencyDirection }
+        : previous?.dependencyDirection
+          ? { dependencyDirection: previous.dependencyDirection }
+          : {}),
       completionEvidence: mergedCompletionEvidence,
       unresolvedQuestions: mergedUnresolvedQuestions,
       span: {
@@ -163,9 +189,14 @@ export function mapTaskUpdatesToRegistryPatch(params: {
       },
     };
     upsertTasks[taskId] = task;
-    for (const turnAbsId of covered) {
-      const existing = upsertTurnToTaskIds[turnAbsId] ?? registry.turnToTaskIds[turnAbsId] ?? [];
-      upsertTurnToTaskIds[turnAbsId] = uniqueStrings([...existing, taskId]);
+    for (const occurrenceRef of uniqueStrings(update.coveredOccurrenceRefs ?? [])) {
+      upsertOccurrenceToTaskIds[occurrenceRef] = [taskId];
+    }
+    if (update.coveredOccurrenceRefs === undefined) {
+      for (const turnAbsId of covered) {
+        const existing = upsertTurnToTaskIds[turnAbsId] ?? registry.turnToTaskIds[turnAbsId] ?? [];
+        upsertTurnToTaskIds[turnAbsId] = uniqueStrings([...existing, taskId]);
+      }
     }
     transitions.push({
       taskId,
@@ -179,14 +210,32 @@ export function mapTaskUpdatesToRegistryPatch(params: {
   }
 
   const nextTasks = { ...registry.tasks, ...upsertTasks };
+  const coveredTurnSeqs = params.coveredTurnSeqs
+    ?? coveredTurnAbsIds
+      .map(turnSeqFromAbsId)
+      .filter((turnSeq): turnSeq is number => turnSeq !== undefined);
+  const coveredRanges = params.coveredTurnSeqs === undefined
+    ? [{
+        fromTurnSeqInclusive: highestContiguousProcessedTurnSeq(processedTurnRanges(registry)) + 1,
+        toTurnSeqInclusive,
+      }]
+    : turnSeqsToRanges(coveredTurnSeqs);
+  const processedRanges = mergeProcessedTurnRanges(
+    registry,
+    coveredRanges,
+  );
   return {
     patch: {
       upsertTasks,
       upsertTurnToTaskIds,
-      activeTaskIds: lifecycleBucketIds(nextTasks, "active"),
-      completedTaskIds: lifecycleBucketIds(nextTasks, "completed"),
-      evictableTaskIds: lifecycleBucketIds(nextTasks, "evictable"),
-      lastProcessedTurnSeq: toTurnSeqInclusive,
+      ...(Object.keys(upsertOccurrenceToTaskIds).length > 0
+        ? { upsertOccurrenceToTaskIds }
+        : {}),
+      activeTaskIds: taskIdsByLifecycle(nextTasks, "active"),
+      completedTaskIds: taskIdsByLifecycle(nextTasks, "completed"),
+      evictableTaskIds: taskIdsByLifecycle(nextTasks, "evictable"),
+      processedTurnRanges: processedRanges,
+      lastProcessedTurnSeq: highestContiguousProcessedTurnSeq(processedRanges),
     },
     transitions,
     rejectedUpdates,

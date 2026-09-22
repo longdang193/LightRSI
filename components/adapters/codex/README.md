@@ -129,34 +129,15 @@ Expected first-run shape:
 
 Once installed, Codex can use the real internal recovery tool named `memory_fault_recover` through the registered MCP server. Recovery hints in trimmed payloads are no longer just protocol text.
 
-### Task-state estimator bridge (PR-B)
+### Context Cleaner ownership
 
-The task-state estimator bridge is default-disabled. A conservative `~/.codex/tokenpilot.json` example is:
-
-```json
-{
-  "taskStateEstimator": {
-    "enabled": false,
-    "baseUrl": "https://estimator.example/v1",
-    "model": "estimator-model",
-    "requestTimeoutMs": 60000,
-    "batchTurns": 5,
-    "evictionLookaheadTurns": 3,
-    "inputMode": "sliding_window",
-    "lifecycleMode": "coupled",
-    "evidenceMode": "three_state"
-  },
-  "contextRewrite": {
-    "enabled": false
-  }
-}
-```
-
-Keep API keys out of checked-in configuration. The resolver accepts `LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY` from the environment, with `TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY` as a compatibility fallback. The same prefixes support `ENABLED`, `BASE_URL`, `MODEL`, `TIMEOUT_MS`, `BATCH_TURNS`, `EVICTION_LOOKAHEAD_TURNS`, `INPUT_MODE`, `LIFECYCLE_MODE`, and `EVIDENCE_MODE`; explicit JSON fields take precedence over environment values.
-
-If the bridge is enabled without `baseUrl`, `apiKey`, or `model`, diagnostics report `incomplete` and fail closed. Status and doctor output expose only safe configuration state and numeric parameters, never the API key or an Authorization header.
-
-Automatic lifecycle eviction remains default-disabled. To opt in, set both `taskStateEstimator.enabled` and `contextRewrite.enabled` to `true`; the production proxy then derives the canonical delta, invokes the estimator and shared lifecycle planner, validates the resulting mutation plan, and attempts a response-chain rebase with original-request fallback. `contextRewrite.mutationPlan` remains a test/smoke override and is ignored whenever estimator-driven lifecycle planning is enabled.
+Exact agent-directed occurrence release is the only live Cleaner mutation
+workflow. Old `taskStateEstimator` settings and estimator environment variables
+remain inert compatibility input; they do not trigger estimator calls,
+task-registry eligibility, recommendations, or lifecycle planning. Historical
+task records remain readable only for committed exclusion replay and safe
+settlement. New releases require exact occurrence IDs and fingerprints bound to
+the canonical Codex session.
 
 ### Offline context-rebase smoke
 
@@ -194,7 +175,7 @@ pnpm --dir components/adapters/codex run smoke:context-rebase:codex -- \
 
 Additional scenarios are observational by default. If the provider omits the requested item or the isolated probe fails, the sanitized v3 artifact is still written with `status: not-observed` and a categorical `reason`; the core rebase gate remains authoritative. To make every selected additional scenario a hard gate, add `--strict-compatibility-scenarios`.
 
-Provider mode reads `OPENAI_API_KEY` and `OPENAI_BASE_URL` from the process environment or `<initial cwd>/.env`; `--credentials-file` can select another ignored env file. There is no CLI argument for the key. The mode first verifies exact encrypted-reasoning and function-call/output replay, then compares a control chain with a five-turn rebase chain and restarts the proxy before turn three. It writes a v3 artifact only if the Responses endpoint, capability v2 journal, rebase commit ordering, sentinel checks, exact payload digest, tool closure, response links, restart mapping, and provider usage gates all pass. In strict mode, the optional web-search scenario also requires a real `web_search_call` output to survive the stateless rebase and receive `real-pass` journal evidence. The scenario runs as a separate three-request probe so hosted-tool output cannot distort the core five-turn usage comparison. The compatibility matrix is derived from the journal for every catalogued item; items not emitted by the selected provider/model remain `not-observed`.
+Provider mode reads `OPENAI_API_KEY` and `OPENAI_BASE_URL` from the process environment or `<initial cwd>/.env`; `--credentials-file` can select another ignored env file. There is no CLI argument for the key. The mode first verifies exact encrypted-reasoning and function-call/output replay, then compares a control chain with a five-turn rebase chain and restarts the proxy before turn three. It writes a v3 artifact only if the Responses endpoint, capability v2 journal or committed selected-payload evidence, rebase commit ordering, sentinel checks, exact payload digest, tool closure, response links, restart mapping, and provider usage gates all pass. In strict mode, the optional web-search scenario also requires a real `web_search_call` output to survive the stateless rebase and receive `real-pass` journal evidence. The scenario runs as a separate three-request probe so hosted-tool output cannot distort the core five-turn usage comparison. The compatibility matrix is derived from journal and committed selected-payload evidence for every catalogued item; items not emitted by the selected provider/model remain `not-observed`.
 
 Evidence contains only safe endpoint/model labels, an endpoint digest, booleans, counts, item types, payload length/digest, and provider usage totals. It never contains the API key, raw prompts, response IDs, encrypted payloads, headers, or raw provider error bodies. Authentication and unrelated schema failures are not retried; only 429 and 5xx receive two bounded retries. If a provider explicitly rejects `previous_response_id`, the proxy retries once with journal-derived stateless history, forces `store: false`, requests encrypted reasoning state, and caches the transport decision by provider/model/endpoint. Later turns use stateless replay directly while preserving every supported response output item. A 2xx response that omits explicitly requested encrypted reasoning receives at most two transport-level repair retries. Journal parent links always follow the client request (including an explicit root), never an inconsistent provider echo. Reused provider response IDs remain ordered journal occurrences, so a restart does not collapse a valid logical chain.
 

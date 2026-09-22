@@ -279,6 +279,9 @@ importers:
       '@lightrsi/history':
         specifier: workspace:*
         version: link:../../packages/foundation/history
+      '@lightrsi/host-adapter':
+        specifier: workspace:*
+        version: link:../../packages/foundation/host-adapter
       '@lightrsi/kernel':
         specifier: workspace:*
         version: link:../../packages/foundation/kernel

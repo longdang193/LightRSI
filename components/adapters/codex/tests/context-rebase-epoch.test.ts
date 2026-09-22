@@ -31,6 +31,22 @@ async function withTempState(
   }
 }
 
+test("cumulative rebase epochs keep response-chain identity absent", async () => {
+  await withTempState(async (stateDir) => {
+    const epoch = await appendPendingCodexRebaseEpoch({
+      stateDir,
+      sessionId: "codex-session-cumulative",
+      planId: "plan-cumulative",
+      oldRevision: "revision-a",
+      inputFormat: "cumulative",
+    });
+    assert.equal(epoch.inputFormat, "cumulative");
+    assert.equal("oldPreviousResponseId" in epoch, false);
+    const journal = await readCodexRebaseEpochJournal(stateDir, "codex-session-cumulative");
+    assert.equal(JSON.stringify(journal.entries[0]).includes("undefined"), false);
+  });
+});
+
 test("CDR-03 Rebase Epoch writes pending records and commits only with a response id", async () => {
   await withTempState(async (stateDir) => {
     const pending = await appendPendingCodexRebaseEpoch({
@@ -391,7 +407,7 @@ test("CDR-03 Rebase Epoch integrates with fallback commit and rollback outcomes"
   });
 });
 
-test("CDR-03 Rebase Epoch falls back when response journaling fails before commit", async () => {
+test("CDR-03 Rebase Epoch preserves accepted response when journaling fails after dispatch", async () => {
   await withTempState(async (stateDir) => {
     const sentPayloads: JsonObject[] = [];
     const result = await executeCodexRebaseWithFallback({
@@ -411,18 +427,18 @@ test("CDR-03 Rebase Epoch falls back when response journaling fails before commi
       },
       async sendUpstream(payload) {
         sentPayloads.push(payload);
-        return sentPayloads.length === 1
-          ? { status: 200, headers: {}, text: JSON.stringify({ id: "resp-rebased", output: [] }) }
-          : { status: 200, headers: {}, text: JSON.stringify({ id: "resp-original", output: [] }) };
+        return { status: 200, headers: {}, text: JSON.stringify({ id: "resp-rebased", output: [] }) };
       },
     });
 
-    assert.equal(result.outcome, "bypassed");
-    assert.equal(result.cooldown?.reason, "rebase_journal_error");
-    assert.equal(result.epoch?.status, "rolled_back");
-    assert.equal(result.epoch?.failureReason, "rebase_journal_error");
-    assert.equal(sentPayloads.length, 2);
-    assert.equal(sentPayloads[1]?.previous_response_id, "resp-old");
+    assert.equal(result.outcome, "failed");
+    assert.equal(result.reason, "recovery_required");
+    assert.equal(result.response.text, JSON.stringify({ id: "resp-rebased", output: [] }));
+    assert.equal(result.newResponseId, "resp-rebased");
+    assert.equal(result.epoch?.status, "failed");
+    assert.equal(result.epoch?.failureReason, "recovery_required");
+    assert.equal(result.epoch?.newResponseId, "resp-rebased");
+    assert.equal(sentPayloads.length, 1);
   });
 });
 
@@ -780,7 +796,7 @@ test("CDR-03 Rebase Epoch bypasses rebase when pending epoch cannot be written",
   });
 });
 
-test("CDR-03 Rebase Epoch falls back when committed epoch cannot be persisted", async () => {
+test("CDR-03 Rebase Epoch preserves accepted response when commit cannot be persisted", async () => {
   await withTempState(async (stateDir) => {
     const sentPayloads: JsonObject[] = [];
     const journalPath = codexRebaseEpochJournalPath(stateDir, "codex-session-commit-store-error");
@@ -799,18 +815,17 @@ test("CDR-03 Rebase Epoch falls back when committed epoch cannot be persisted", 
       },
       async sendUpstream(payload) {
         sentPayloads.push(payload);
-        if (sentPayloads.length === 1) {
-          await rm(journalPath, { force: true });
-          await mkdir(journalPath);
-          return { status: 200, headers: {}, text: JSON.stringify({ id: "resp-rebased", output: [] }) };
-        }
-        return { status: 200, headers: {}, text: JSON.stringify({ id: "resp-original", output: [] }) };
+        await rm(journalPath, { force: true });
+        await mkdir(journalPath);
+        return { status: 200, headers: {}, text: JSON.stringify({ id: "resp-rebased", output: [] }) };
       },
     });
 
-    assert.equal(result.outcome, "bypassed");
+    assert.equal(result.outcome, "failed");
+    assert.equal(result.reason, "recovery_required");
     assert.equal(result.cooldown?.reason, "epoch_store_error");
-    assert.equal(sentPayloads.length, 2);
-    assert.deepEqual(sentPayloads[1], { previous_response_id: "resp-old", input: [{ role: "user", content: "current" }] });
+    assert.equal(result.newResponseId, "resp-rebased");
+    assert.equal(result.response.text, JSON.stringify({ id: "resp-rebased", output: [] }));
+    assert.equal(sentPayloads.length, 1);
   });
 });

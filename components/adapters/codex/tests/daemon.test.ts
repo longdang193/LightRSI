@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { reserveUnusedPort } from "@lightrsi/host-adapter";
-import { daemonPaths, readDaemonStatus, startDaemon, stopDaemon } from "../src/daemon.js";
+import {
+  acquireDaemonRuntimeLock,
+  daemonPaths,
+  readDaemonStatus,
+  startDaemon,
+  stopDaemon,
+} from "../src/daemon.js";
 import { normalizeTokenPilotCodexConfig, writeTokenPilotCodexConfig } from "../src/config.js";
 
 async function waitForHealth(port: number): Promise<void> {
@@ -101,6 +107,75 @@ test("startDaemon serializes concurrent starts", async () => {
     assert.equal(results.every((result) => result.running), true);
     assert.equal(results[0].pid, results[1].pid);
     await stopDaemon(config);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("foreground runtime lock rejects a second live owner", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-runtime-lock-"));
+  try {
+    const config = normalizeTokenPilotCodexConfig({
+      proxyPort: await reserveUnusedPort(),
+      stateDir: join(dir, "state"),
+    });
+    const release = await acquireDaemonRuntimeLock(config);
+
+    await assert.rejects(
+      () => acquireDaemonRuntimeLock(config),
+      /TokenPilot Codex proxy runtime already running/,
+    );
+
+    await release();
+    const releaseAfterOwnerExit = await acquireDaemonRuntimeLock(config);
+    await releaseAfterOwnerExit();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("foreground runtime lock keeps one owner when reclaiming a stale lock", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-runtime-stale-lock-"));
+  try {
+    const config = normalizeTokenPilotCodexConfig({
+      proxyPort: await reserveUnusedPort(),
+      stateDir: join(dir, "state"),
+    });
+    const lockPath = join(config.stateDir, "tokenpilot-codex.runtime.lock");
+    await mkdir(config.stateDir, { recursive: true });
+    await writeFile(lockPath, "2147483647:stale\n", "utf8");
+
+    const results = await Promise.allSettled([
+      acquireDaemonRuntimeLock(config),
+      acquireDaemonRuntimeLock(config),
+    ]);
+
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+    const owner = results.find((result): result is PromiseFulfilledResult<() => Promise<void>> => (
+      result.status === "fulfilled"
+    ));
+    await owner?.value();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("foreground runtime lock fails closed while owner metadata is incomplete", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-runtime-empty-lock-"));
+  try {
+    const config = normalizeTokenPilotCodexConfig({
+      proxyPort: await reserveUnusedPort(),
+      stateDir: join(dir, "state"),
+    });
+    const lockPath = join(config.stateDir, "tokenpilot-codex.runtime.lock");
+    await mkdir(config.stateDir, { recursive: true });
+    await writeFile(lockPath, "", "utf8");
+
+    await assert.rejects(
+      () => acquireDaemonRuntimeLock(config),
+      /TokenPilot Codex proxy runtime already running/,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
