@@ -513,6 +513,7 @@ function summarizeTaskDoc(text: string, cfg: PayloadBlockConfig): string {
 }
 
 function looksLikeExplicitRangeIntent(text: string, hint: ToolPayloadHint | undefined): boolean {
+  if (hint?.readWindow && (hint.readWindow.offset != null || hint.readWindow.limit != null)) return true;
   const path = hint?.path?.trim().toLowerCase() ?? "";
   if (CODE_RANGE_HINT_RE.test(path)) return true;
   const sample = text.slice(0, 400).toLowerCase();
@@ -616,12 +617,21 @@ function summarizeCodeLike(
 
 function looksLikeControlledCodeRead(text: string, hint: ToolPayloadHint | undefined): boolean {
   const lines = text.split("\n");
-  if (lines.length < 4 || lines.length > 160) return false;
-  if (text.length > 9_000) return false;
-
   const toolName = hint?.toolName?.trim().toLowerCase();
   const path = hint?.path?.trim().toLowerCase();
   const pathLooksCode = path != null && /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|swift|rb|php|cs|cpp|c|h|hpp|scala)$/i.test(path);
+  const hasExplicitReadWindow = hint?.readWindow && (hint.readWindow.offset != null || hint.readWindow.limit != null);
+
+  if (
+    hasExplicitReadWindow
+    && (pathLooksCode || toolName === "read" || toolName === "file_read")
+    && text.length <= 9_000
+  ) {
+    return true;
+  }
+
+  if (lines.length < 4 || lines.length > 160) return false;
+  if (text.length > 9_000) return false;
 
   let numbered = 0;
   let codeish = 0;

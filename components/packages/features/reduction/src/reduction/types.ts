@@ -46,8 +46,8 @@ export type ReductionBeforeCallContext = {
 };
 
 export type ReductionRequestState = {
-  segmentIndex?: Map<string, ContextSegment>;
-  readStateClassifications?: Map<string, ReadStateClassification>;
+  segmentIndex?: ReadonlyMap<string, DeepReadonly<ContextSegment>>;
+  readStateClassifications?: ReadonlyMap<string, DeepReadonly<ReadStateClassification>>;
 };
 
 export type ReductionBeforeCallOutcome = {

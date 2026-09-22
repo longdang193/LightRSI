@@ -221,6 +221,178 @@ test("runReductionBeforeCall ignores immutableInput on custom handlers", async (
   assert.equal(result.report[0]?.skippedReason, "pass_error");
 });
 
+test("runReductionBeforeCall isolates request-state segment aliases on failure", async () => {
+  const turnCtx: RuntimeTurnContext = {
+    sessionId: "request-state-alias-session",
+    sessionMode: "single",
+    provider: "test",
+    model: "test-model",
+    apiFamily: "other",
+    prompt: "test",
+    budget: { maxInputTokens: 0, reserveOutputTokens: 0 },
+    segments: [buildSegment("segment-1", "read", "/repo/a.ts", "original", "output")],
+  };
+
+  const result = await runReductionBeforeCall({
+    turnCtx,
+    passes: [
+      { id: "alias_throwing_pass", phase: "before_call", target: "context_segment" },
+      { id: "alias_observer_pass", phase: "before_call", target: "context_segment" },
+    ],
+    registry: {
+      alias_throwing_pass: {
+        beforeCall({ requestState }) {
+          const segment = requestState?.segmentIndex?.get("segment-1") as any;
+          segment.text = "leaked";
+          throw new Error("fixture failure");
+        },
+      },
+      alias_observer_pass: {
+        beforeCall({ turnCtx: current }) {
+          assert.equal(current.segments[0]?.text, "original");
+          return { changed: false };
+        },
+      },
+    },
+  });
+
+  assert.equal(result.turnCtx.segments[0]?.text, "original");
+  assert.equal(turnCtx.segments[0]?.text, "original");
+  assert.equal(result.report[0]?.skippedReason, "pass_error");
+});
+
+test("runReductionBeforeCall keeps accepted state isolated after a prior publication", async () => {
+  const turnCtx: RuntimeTurnContext = {
+    sessionId: "request-state-publication-session",
+    sessionMode: "single",
+    provider: "test",
+    model: "test-model",
+    apiFamily: "other",
+    prompt: "test",
+    budget: { maxInputTokens: 0, reserveOutputTokens: 0 },
+    segments: [buildSegment("segment-1", "read", "/repo/a.ts", "original", "output")],
+  };
+
+  const result = await runReductionBeforeCall({
+    turnCtx,
+    passes: [
+      { id: "publishing_pass", phase: "before_call", target: "context_segment" },
+      { id: "published_alias_throwing_pass", phase: "before_call", target: "context_segment" },
+      { id: "published_alias_observer_pass", phase: "before_call", target: "context_segment" },
+    ],
+    registry: {
+      publishing_pass: {
+        beforeCall({ turnCtx: current }) {
+          current.segments[0]!.text = "published";
+          return { changed: true };
+        },
+      },
+      published_alias_throwing_pass: {
+        beforeCall({ requestState }) {
+          const segment = requestState?.segmentIndex?.get("segment-1") as any;
+          segment.text = "leaked";
+          throw new Error("fixture failure");
+        },
+      },
+      published_alias_observer_pass: {
+        beforeCall({ turnCtx: current }) {
+          assert.equal(current.segments[0]?.text, "published");
+          return { changed: false };
+        },
+      },
+    },
+  });
+
+  assert.equal(result.turnCtx.segments[0]?.text, "published");
+  assert.equal(result.report[1]?.skippedReason, "pass_error");
+});
+
+test("runReductionBeforeCall does not import classifications from another execution", async () => {
+  const turnCtx: RuntimeTurnContext = {
+    sessionId: "request-state-fresh-session",
+    sessionMode: "single",
+    provider: "test",
+    model: "test-model",
+    apiFamily: "other",
+    prompt: "test",
+    budget: { maxInputTokens: 0, reserveOutputTokens: 0 },
+    segments: [buildSegment("segment-1", "read", "/repo/a.ts", "original", "output")],
+  };
+  const requestState: any = {
+    readStateClassifications: new Map([["stale", { state: "stale" }]]),
+  };
+
+  await runReductionBeforeCall({
+    turnCtx,
+    requestState,
+    passes: [{ id: "fresh_state_probe", phase: "before_call", target: "context_segment" }],
+    registry: {
+      fresh_state_probe: {
+        beforeCall({ requestState: current }) {
+          assert.equal(current?.readStateClassifications?.has("stale"), false);
+          return { changed: false };
+        },
+      },
+    },
+  });
+});
+
+test("runReductionBeforeCall invalidates classifications after a changed-false structural pass", async () => {
+  const readSegments = [
+    buildSegment("read-1-output", "read", "/repo/a.ts", "const a = 1;", "output"),
+    buildSegment("read-2-output", "read", "/repo/a.ts", "const b = 2;", "output"),
+  ];
+  const turnCtx: RuntimeTurnContext = {
+    sessionId: "classification-invalidation-session",
+    sessionMode: "single",
+    provider: "test",
+    model: "test-model",
+    apiFamily: "other",
+    prompt: "test",
+    budget: { maxInputTokens: 0, reserveOutputTokens: 0 },
+    segments: readSegments,
+    metadata: {
+      policy: {
+        decisions: {
+          reduction: {
+            instructions: [{ strategy: "read_state_compaction", segmentIds: readSegments.map((segment) => segment.id) }],
+          },
+        },
+      },
+    },
+  };
+
+  await runReductionBeforeCall({
+    turnCtx,
+    passes: [
+      { id: "read_state_compaction", phase: "before_call", target: "context_segment" },
+      { id: "structural_changed_false_pass", phase: "before_call", target: "context_segment" },
+      { id: "classification_probe", phase: "before_call", target: "context_segment" },
+    ],
+    registry: {
+      structural_changed_false_pass: {
+        beforeCall({ turnCtx: current }) {
+          return {
+            changed: false,
+            turnCtx: {
+              ...current,
+              segments: current.segments.map((segment, index) => index === 0
+                ? { ...segment, metadata: { ...segment.metadata, toolName: "edit" } }
+                : segment),
+            },
+          };
+        },
+      },
+      classification_probe: {
+        beforeCall({ requestState: current }) {
+          assert.equal(current?.readStateClassifications?.size ?? 0, 0);
+          return { changed: false };
+        },
+      },
+    },
+  });
+});
+
 test("runReductionAfterCall restores nested context after pass failure", async () => {
   const turnCtx: RuntimeTurnContext = {
     sessionId: "after-call-failure-session",

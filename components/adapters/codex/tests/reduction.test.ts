@@ -481,6 +481,63 @@ export function saveConfig(file: string, text: string) {
   }
 });
 
+test("applyBeforeCallReductionToPayload preserves explicit bounded rereads", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-bounded-reread-"));
+  try {
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir: join(dir, "state"),
+      reduction: {
+        triggerMinChars: 256,
+        maxToolChars: 400,
+        passes: {
+          readStateCompaction: false,
+          toolPayloadTrim: true,
+          htmlSlimming: false,
+          execOutputTruncation: false,
+          agentsStartupOptimization: false,
+        },
+      },
+    });
+    const codePayload = `
+export function loadConfig(file: string) {
+  return file.trim();
+}
+
+export function saveConfig(file: string, text: string) {
+  return text + file;
+}
+`.repeat(30);
+
+    const firstPayload: any = {
+      model: "tokenpilot/gpt-5.4-mini",
+      input: [
+        { type: "function_call", call_id: "call_full_read", name: "Read", arguments: JSON.stringify({ path: "/repo/src/app.ts" }) },
+        { role: "tool", type: "function_call_output", call_id: "call_full_read", output: codePayload },
+      ],
+    };
+    await applyBeforeCallReductionToPayload({ payload: firstPayload, sessionId: "sess-bounded-reread", config });
+    assert.match(String(firstPayload.input[1]?.output ?? ""), /\[code outlined lines=/);
+
+    const boundedPayload: any = {
+      model: "tokenpilot/gpt-5.4-mini",
+      input: [
+        {
+          type: "function_call",
+          call_id: "call_bounded_read",
+          name: "Read",
+          arguments: JSON.stringify({ path: "/repo/src/app.ts", offset: 0, limit: 20 }),
+        },
+        { role: "tool", type: "function_call_output", call_id: "call_bounded_read", output: codePayload },
+      ],
+    };
+    await applyBeforeCallReductionToPayload({ payload: boundedPayload, sessionId: "sess-bounded-reread", config });
+
+    assert.equal(boundedPayload.input[1]?.output, codePayload);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("applyBeforeCallReductionToPayload keeps case-sensitive read resources distinct", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-case-sensitive-read-"));
   try {

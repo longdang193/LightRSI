@@ -83,6 +83,19 @@ test("classifyToolPayloadContentWithHint uses read path extension as code hint",
   assert.equal(result.contentType, "code_like");
 });
 
+test("reduceToolPayloadText preserves an explicit bounded code read", () => {
+  const payload = Array.from({ length: 60 }, (_, index) => `const value${index} = ${index};`).join("\n");
+  const result = reduceToolPayloadText(payload, "stdout", defaultCfg, {
+    toolName: "read",
+    path: "/repo/src/app.ts",
+    payloadKind: "stdout",
+    readWindow: { offset: 0, limit: 20 },
+  });
+
+  assert.equal(result.changed, false);
+  assert.equal(result.text, payload);
+});
+
 test("classifyToolPayloadContentWithHint detects readme documents", () => {
   const result = classifyToolPayloadContentWithHint(`
 # LightRSI
