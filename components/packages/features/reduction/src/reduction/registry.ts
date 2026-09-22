@@ -15,21 +15,26 @@ import type {
   ReductionPassHandler,
 } from "./types.js";
 
+const immutable = (handler: ReductionPassHandler): ReductionPassHandler => ({
+  ...handler,
+  immutableInput: true,
+});
+
 const BUILTIN_PASSES: Record<BuiltinReductionPassId, ReductionPassHandler> = {
-  read_state_compaction: readStateCompactionPass,
-  tool_payload_trim: toolPayloadTrimPass,
-  html_slimming: htmlSlimmingPass,
-  format_slimming: formatSlimmingPass,
-  exec_output_truncation: execOutputTruncationPass,
-  format_cleaning: formatCleaningPass,
-  path_truncation: pathTruncationPass,
-  image_downsample: imageDownsamplePass,
-  line_number_strip: lineNumberStripPass,
-  agents_startup_optimization: agentsStartupOptimizationPass,
+  read_state_compaction: immutable(readStateCompactionPass),
+  tool_payload_trim: immutable(toolPayloadTrimPass),
+  html_slimming: immutable(htmlSlimmingPass),
+  format_slimming: immutable(formatSlimmingPass),
+  exec_output_truncation: immutable(execOutputTruncationPass),
+  format_cleaning: immutable(formatCleaningPass),
+  path_truncation: immutable(pathTruncationPass),
+  image_downsample: immutable(imageDownsamplePass),
+  line_number_strip: immutable(lineNumberStripPass),
+  agents_startup_optimization: immutable(agentsStartupOptimizationPass),
 };
 
 // Passes that need both beforeCall and afterCall handlers
-export const execOutputTruncationBeforeCallPass = execOutputTruncationBeforeCall;
+export const execOutputTruncationBeforeCallPass = immutable(execOutputTruncationBeforeCall);
 
 export function resolveReductionPass(
   id: ReductionPassId,

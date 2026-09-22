@@ -60,6 +60,7 @@ export type ReductionAfterCallOutcome = {
 };
 
 export type ReductionPassHandler = {
+  immutableInput?: boolean;
   beforeCall?(
     ctx: ReductionBeforeCallContext,
   ): Promise<ReductionBeforeCallOutcome> | ReductionBeforeCallOutcome;

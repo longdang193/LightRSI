@@ -105,6 +105,7 @@ export const agentsStartupOptimizationPass: ReductionPassHandler = {
     const modifiedSegmentIds: string[] = [];
     let segmentCheckedCount = 0;
     let agentsSegmentFound = false;
+    let nextSegments: typeof turnCtx.segments | undefined;
 
     // Find segments that contain an injected agent instruction file.
     for (let i = 0; i < turnCtx.segments.length; i += 1) {
@@ -146,8 +147,8 @@ export const agentsStartupOptimizationPass: ReductionPassHandler = {
         totalSavedChars += savedChars;
         modifiedSegmentCount++;
         modifiedSegmentIds.push(segment.id);
-
-        turnCtx.segments[i] = {
+        nextSegments ??= turnCtx.segments.slice();
+        nextSegments[i] = {
           ...segment,
           text: newContent,
         };
@@ -171,6 +172,10 @@ export const agentsStartupOptimizationPass: ReductionPassHandler = {
 
     return {
       changed: true,
+      turnCtx: {
+        ...turnCtx,
+        segments: nextSegments ?? turnCtx.segments,
+      },
       note: `agents_startup_optimization: modified ${modifiedSegmentCount} segments, prevented redundant read instructions (~${totalSavedChars} chars)`,
       touchedSegmentIds: modifiedSegmentIds,
       metadata: {
