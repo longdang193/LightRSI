@@ -1,6 +1,7 @@
 import {
   codexProgramCallerId,
   codexReplayPairRef,
+  codexStripForwardingMetadata,
 } from "../context-history/replayability.js";
 import { sameCanonicalValue } from "@lightrsi/cleaner";
 import type { TaskStateEstimatorOutput } from "@lightrsi/eviction";
@@ -117,7 +118,7 @@ function normalizedCurrentInput(currentInput: unknown): JsonObject[] {
   return Array.isArray(currentInput)
     ? currentInput.filter((item): item is JsonObject => Boolean(
         item && typeof item === "object" && !Array.isArray(item),
-      )).map((item) => cloneJson(item))
+      )).map((item) => codexStripForwardingMetadata(cloneJson(item)))
     : [];
 }
 

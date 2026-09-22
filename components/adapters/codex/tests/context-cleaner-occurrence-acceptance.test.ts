@@ -128,28 +128,41 @@ test("normal Cleaner entrypoint releases exact occurrences cumulatively", async 
       allowMockFixtureEvidence: true,
     });
 
-    let previousResponseId: string | undefined;
+    let cumulativeInput: JsonObject[] = [];
     const send = async (content: string) => {
+      const input = [...cumulativeInput, { role: "user", content }];
       const response = await fetch(`${runtime!.baseUrl}/responses`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           model: "gpt-5.4-mini",
           stream: false,
-          ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
           metadata: { tokenpilotSessionId: sessionId },
-          input: [{ role: "user", content }],
+          input,
         }),
       });
       assert.equal(response.status, 200);
-      previousResponseId = (await response.json() as { id: string }).id;
+      const responseBody = await response.json() as JsonObject;
+      cumulativeInput = [
+        ...input,
+        ...(Array.isArray(responseBody.output)
+          ? responseBody.output.filter((item): item is JsonObject => (
+              Boolean(item) && typeof item === "object" && !Array.isArray(item)
+            ))
+          : []),
+      ];
     };
 
     await send("RETAINED_SENTINEL");
     await send("DUPLICATE_OCCURRENCE_CONTENT_A");
     await send("OCCURRENCE_CONTENT_B");
+    await send("NOISY_UNRELATED_HISTORY");
     const controlPlane = createContextCleanerControlPlane({ stateDir });
-    const bridge = createCodexContextCleanerBridge({ stateDir, controlPlane });
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane,
+      boundSessionId: sessionId,
+    });
     const cleaner = createContextCleanerControlService({ stateDir, bridge });
 
     const firstSnapshot = await cleaner.inspect(sessionId);
@@ -167,7 +180,7 @@ test("normal Cleaner entrypoint releases exact occurrences cumulatively", async 
 
     const secondSnapshot = await cleaner.inspect(sessionId);
     const secondRelease = await cleaner.releaseOccurrences(sessionId, [
-      releaseSelection(secondSnapshot, 1),
+      releaseSelection(secondSnapshot, 2),
     ]);
     assert.equal(secondRelease.status, "scheduled");
     await send("CURRENT_AFTER_B");
@@ -216,9 +229,28 @@ test("normal Cleaner entrypoint releases exact occurrences cumulatively", async 
         : [],
       [firstRelease.evidence?.occurrenceSelections?.[0]?.stableId],
     );
-    assert.equal(upstream.requests.length, 8);
+    assert.equal(upstream.requests.length, 9);
     const persisted = await readContextCleanReceipt({ stateDir, planId: firstRelease.planId });
     assert.equal(persisted.value?.status, "applied");
+
+    await runtime.close();
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
+    });
+    await send("AFTER_PROXY_RESTART");
+    const afterRestart = forwardedText(upstream.requests.at(-1));
+    assert.equal(
+      afterRestart.split("DUPLICATE_OCCURRENCE_CONTENT_A").length - 1,
+      1,
+    );
+    assert.doesNotMatch(afterRestart, /OCCURRENCE_CONTENT_B/);
+    assert.match(afterRestart, /AFTER_PROXY_RESTART/);
+    assert.equal(
+      upstream.requests.slice(0, -1).every((request) => request.previous_response_id === undefined),
+      true,
+    );
   } finally {
     await runtime?.close();
     await upstream.close();

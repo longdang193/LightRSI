@@ -16,7 +16,7 @@ import {
   type ContextCleanOccurrenceSelection,
 } from "@lightrsi/cleaner";
 import { createHash } from "node:crypto";
-import { createEmptySessionTaskRegistry, loadSessionTaskRegistry } from "@lightrsi/history";
+import { loadSessionTaskRegistry } from "@lightrsi/history";
 import type {
   ContextRewriteResult,
   ModelContextSnapshot,
@@ -101,38 +101,25 @@ export async function readCodexCleanerCommittedMutationPlan(params: {
     stateDir: params.stateDir,
     sessionId: params.sessionId,
   });
-  if (history.reasons.length > 0) return undefined;
+  if (history.reasons.length > 0) {
+    throw new Error("cleaner_runtime_committed_exclusions_unavailable");
+  }
+  const committedRecords = history.records.filter((record) => record.status === "committed");
+  if (committedRecords.length === 0) return undefined;
   const itemIds: string[] = [];
   let baseRevision: string | undefined;
-  for (const record of history.records) {
-    if (record.status !== "committed") continue;
+  for (const record of committedRecords) {
     const receipt = await readContextCleanReceipt({
       stateDir: params.stateDir,
       planId: record.cleanPlanId,
     });
-    let ids = receipt.value?.status === "applied"
-      ? receipt.value.evidence.itemIds
-      : undefined;
-    if (!ids || ids.length === 0 || new Set(ids).size !== ids.length) {
-      const plan = await readContextCleanPlan({
-        stateDir: params.stateDir,
-        planId: record.cleanPlanId,
-      });
-      if (plan.value) {
-        const legacyPrefix = ["occurrence", ":"].join("");
-        const occurrenceIds = (record.occurrenceSelections ?? []).map((selection) => selection.stableId);
-        ids = [
-          ...plan.value.plan.tasks
-            .filter((task) => record.selectedTaskIds.includes(task.taskId))
-            .flatMap((task) => task.itemIds),
-          ...record.selectedTaskIds
-            .filter((taskId) => taskId.startsWith(legacyPrefix))
-            .map((taskId) => taskId.slice(legacyPrefix.length)),
-          ...occurrenceIds,
-        ];
-      }
+    if (receipt.bypassed || receipt.value?.status !== "applied") {
+      throw new Error("cleaner_runtime_committed_exclusions_unavailable");
     }
-    if (!ids || ids.length === 0 || new Set(ids).size !== ids.length) continue;
+    const ids = receipt.value.evidence.itemIds;
+    if (ids.length === 0 || new Set(ids).size !== ids.length) {
+      throw new Error("cleaner_runtime_committed_exclusions_unavailable");
+    }
     baseRevision ??= record.baseRevision;
     for (const itemId of ids) if (!itemIds.includes(itemId)) itemIds.push(itemId);
   }
@@ -152,6 +139,15 @@ function executionClaimId(
     .digest("hex")}`;
 }
 
+function legacyExecutionClaimId(
+  schedule: Pick<CodexCleanerScheduledRecord, "cleanPlanId" | "selectedTaskIds">,
+  mutationPlanId: string,
+): string {
+  return `codex-clean-claim-v1-${createHash("sha256")
+    .update(JSON.stringify([schedule.cleanPlanId, mutationPlanId, schedule.selectedTaskIds]))
+    .digest("hex")}`;
+}
+
 export async function ensureCodexCleanerExecutionClaim(params: {
   stateDir: string;
   schedule: CodexCleanerScheduledRecord;
@@ -162,13 +158,14 @@ export async function ensureCodexCleanerExecutionClaim(params: {
   ownerToken?: string;
 }): Promise<{ claim?: ContextCleanExecutionClaim; reasons: string[] }> {
   const expectedClaimId = executionClaimId(params.schedule, params.mutationPlanId);
+  const historicalClaimId = legacyExecutionClaimId(params.schedule, params.mutationPlanId);
   const existing = await readContextCleanExecutionClaim({
     stateDir: params.stateDir,
     planId: params.schedule.cleanPlanId,
   });
   if (existing.bypassed) return { reasons: existing.reasons };
   if (existing.value) {
-    if (existing.value.claimId !== expectedClaimId
+    if (![expectedClaimId, historicalClaimId].includes(existing.value.claimId)
       || existing.value.mutationPlanId !== params.mutationPlanId
       || params.ownerToken === undefined
       || existing.value.ownerToken !== params.ownerToken) {
@@ -289,31 +286,43 @@ async function executionContext(params: {
   view: CodexEffectiveHistoryView;
   backendRequest: CodexLifecycleBackendRequestBase;
   committedMutationPlan?: CodexMutationPlan;
+  useLegacyTaskContext: boolean;
 }): Promise<{
   backendRequest: CodexSharedBackendRequest;
   snapshot: ModelContextSnapshot<CodexSharedBackendMetadata>;
-  taskIntents: Record<string, {
+  taskIntents?: Record<string, {
     retentionDecision?: "retain" | "release";
     dependencyDirection?: "incoming" | "outgoing" | "none" | "unknown";
   }>;
 }> {
-  let registry;
-  try {
-    registry = await loadSessionTaskRegistry(params.stateDir, params.sessionId);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    registry = createEmptySessionTaskRegistry(params.sessionId);
-  }
-  if (registry.sessionId !== params.sessionId) {
-    throw new Error("cleaner_runtime_registry_session_mismatch");
-  }
   const view = applyCodexCleanerCommittedExclusions(params.view, params.committedMutationPlan);
-  const backendRequest = buildCodexLifecycleBackendRequest({
-    view,
-    registry,
-    request: params.backendRequest,
-  });
-  backendRequest.taskPolicy = "manual";
+  let backendRequest: CodexSharedBackendRequest;
+  let taskIntents: Record<string, {
+    retentionDecision?: "retain" | "release";
+    dependencyDirection?: "incoming" | "outgoing" | "none" | "unknown";
+  }> | undefined;
+  if (params.useLegacyTaskContext) {
+    const registry = await loadSessionTaskRegistry(params.stateDir, params.sessionId);
+    if (registry.sessionId !== params.sessionId) {
+      throw new Error("cleaner_runtime_registry_session_mismatch");
+    }
+    backendRequest = buildCodexLifecycleBackendRequest({
+      view,
+      registry,
+      request: params.backendRequest,
+    });
+    backendRequest.taskPolicy = "manual";
+    taskIntents = Object.fromEntries(Object.entries(registry.tasks).map(([taskId, task]) => [taskId, {
+      ...(task.retentionDecision ? { retentionDecision: task.retentionDecision } : {}),
+      ...(task.dependencyDirection ? { dependencyDirection: task.dependencyDirection } : {}),
+    }]));
+  } else {
+    backendRequest = {
+      ...params.backendRequest,
+      effectiveHistory: view.history,
+      taskPolicy: "manual",
+    };
+  }
   const snapshot = await codexSharedContextRewriteBackend.readSnapshot({
     sessionId: params.sessionId,
     request: backendRequest,
@@ -321,10 +330,7 @@ async function executionContext(params: {
   return {
     backendRequest,
     snapshot,
-    taskIntents: Object.fromEntries(Object.entries(registry.tasks).map(([taskId, task]) => [taskId, {
-      ...(task.retentionDecision ? { retentionDecision: task.retentionDecision } : {}),
-      ...(task.dependencyDirection ? { dependencyDirection: task.dependencyDirection } : {}),
-    }])),
+    ...(taskIntents ? { taskIntents } : {}),
   };
 }
 
@@ -333,7 +339,7 @@ function executionBridge(params: {
   sessionId: string;
   backendRequest: CodexSharedBackendRequest;
   snapshot: ModelContextSnapshot<CodexSharedBackendMetadata>;
-  taskIntents: Record<string, {
+  taskIntents?: Record<string, {
     retentionDecision?: "retain" | "release";
     dependencyDirection?: "incoming" | "outgoing" | "none" | "unknown";
   }>;
@@ -347,7 +353,8 @@ function executionBridge(params: {
         snapshot: canonicalSnapshot,
         activeTaskIds: params.backendRequest.activeTaskIds ?? [],
         evictableTaskIds: params.backendRequest.evictableTaskIds ?? [],
-        taskIntents: params.taskIntents,
+        committedExcludedItemIds: params.snapshot.adapterMetadata?.effectiveHistory.committedExcludedItemIds ?? [],
+        ...(params.taskIntents ? { taskIntents: params.taskIntents } : {}),
       };
     },
   });
@@ -478,17 +485,6 @@ export async function finalizeCodexCleanerAppliedReceipt(params: {
   prepared: CodexCleanerPreparedRebase;
   epoch: CodexRebaseEpoch;
 }): Promise<CodexCleanerAppliedReceiptFinalization> {
-  const built = buildCodexCleanerAppliedReceiptFromRewrite({
-    execution: params.prepared.execution,
-    executionRevision: params.prepared.rebaseRequest.oldRevision,
-    rewriteResult: params.prepared.rewriteResult,
-    rebaseRequest: params.prepared.rebaseRequest,
-    epoch: params.epoch,
-    claimId: executionClaimId(params.prepared.schedule, params.prepared.execution.mutationPlan.planId),
-  });
-  if (!built.receipt) {
-    return { outcome: "reserved", reasonCodes: built.reasons };
-  }
   const claim = await ensureCodexCleanerExecutionClaim({
     stateDir: params.stateDir,
     schedule: params.prepared.schedule,
@@ -496,6 +492,17 @@ export async function finalizeCodexCleanerAppliedReceipt(params: {
     ownerToken: params.prepared.ownerToken,
   });
   if (!claim.claim) return { outcome: "reserved", reasonCodes: claim.reasons };
+  const built = buildCodexCleanerAppliedReceiptFromRewrite({
+    execution: params.prepared.execution,
+    executionRevision: params.prepared.rebaseRequest.oldRevision,
+    rewriteResult: params.prepared.rewriteResult,
+    rebaseRequest: params.prepared.rebaseRequest,
+    epoch: params.epoch,
+    claimId: claim.claim.claimId,
+  });
+  if (!built.receipt) {
+    return { outcome: "reserved", reasonCodes: built.reasons };
+  }
   const committedClaim = await saveContextCleanExecutionClaim({
     stateDir: params.stateDir,
     claim: { ...claim.claim, dispatchState: "host_committed" },
@@ -533,7 +540,7 @@ export async function finalizeCodexCleanerAppliedReceipt(params: {
   const cleared = await clearContextCleanExecutionClaim({
     stateDir: params.stateDir,
     planId: params.prepared.execution.cleanPlanId,
-    claimId: executionClaimId(params.prepared.schedule, params.prepared.execution.mutationPlan.planId),
+    claimId: claim.claim.claimId,
     ownerToken: params.prepared.ownerToken,
   });
   if (cleared.bypassed) {
@@ -662,10 +669,20 @@ async function recoverCodexCleanerCommittedEpoch(params: {
       ? { outcome: "reserved", reasonCodes: ["cleaner_runtime_committed_epoch_missing"] }
       : { outcome: "none", reasonCodes: [] };
   }
+  const storedClaim = await readContextCleanExecutionClaim({
+    stateDir: params.stateDir,
+    planId: execution.cleanPlanId,
+  });
+  if (storedClaim.bypassed) {
+    return { outcome: "reserved", reasonCodes: storedClaim.reasons };
+  }
+  const claimId = storedClaim.value?.mutationPlanId === execution.mutationPlan.planId
+    ? storedClaim.value.claimId
+    : executionClaimId(params.schedule, execution.mutationPlan.planId);
   const built = buildCodexCleanerAppliedReceipt({
     execution,
     epoch: matchingEpoch,
-    claimId: executionClaimId(params.schedule, execution.mutationPlan.planId),
+    claimId,
   });
   if (!built.receipt) return { outcome: "reserved", reasonCodes: built.reasons };
   if (receipt.status === "applied") {
@@ -755,7 +772,6 @@ export async function prepareCodexCleanerRebase(params: {
   now?: string;
 }): Promise<CodexCleanerRuntimeResult> {
   const now = params.now ?? new Date().toISOString();
-  const committedMutationPlan = await readCodexCleanerCommittedMutationPlan(params);
   const initial = await readCodexCleanerSchedule(params);
   if (initial.outcome === "missing") return { outcome: "absent", reasonCodes: [] };
   if (initial.outcome === "bypassed") {
@@ -836,7 +852,12 @@ export async function prepareCodexCleanerRebase(params: {
         }
         let context;
         try {
-          context = await executionContext({ ...params, committedMutationPlan });
+          const committedMutationPlan = await readCodexCleanerCommittedMutationPlan(params);
+          context = await executionContext({
+            ...params,
+            committedMutationPlan,
+            useLegacyTaskContext: (currentSchedule.record.occurrenceSelections?.length ?? 0) === 0,
+          });
         } catch {
           decision = {
             outcome: "reserved",
@@ -1024,6 +1045,7 @@ export async function revalidateCodexCleanerPreparedRebase(params: {
     current = await executionContext({
       ...params,
       committedMutationPlan: await readCodexCleanerCommittedMutationPlan(params),
+      useLegacyTaskContext: (schedule.record.occurrenceSelections?.length ?? 0) === 0,
     });
   } catch {
     return {
