@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-A modular runtime for recursive improvement in long-running LLM agents
+  <strong>Reliable, agent-directed context management for long-running coding agents.</strong>
 </p>
 
 <p align="center">
@@ -14,22 +14,95 @@ A modular runtime for recursive improvement in long-running LLM agents
   <img src="https://img.shields.io/badge/License-MIT-brightgreen" alt="license">
 </p>
 
+<span id='fork'/>
+
+## 🌿 About This Fork
+
+An independently maintained [LightRSI](https://github.com/zjunlp/LightRSI) fork focused on reliable, cache-aware context management for long-running coding agents. It keeps the upstream LightRSI and TokenPilot foundation while adding agent-authorized occurrence release, provider-compatible forwarding, durable session recovery, Windows lifecycle hardening, and runtime observability.
+
+This is **not** a drop-in superset. It carries intentional product and architecture differences from upstream.
+
+| Area | Original LightRSI | This fork | Practical benefit |
+| :-- | :-- | :-- | :-- |
+| Context Cleaner | Task-oriented analysis and approval | Agent-authorized release of exact context occurrences with deterministic validation and durable recovery | Removes obsolete context without adding another semantic decision-maker |
+| Context lifecycle | Estimator- and task-state-based management | Session-scoped occurrence release with explicit ownership and safety checks | Less hidden state and fewer competing decisions |
+| Codex transport | Local Responses proxy and host integration | Transparent provider forwarding, legacy payload normalization, cache-breakpoint retry, nested cache-field handling, and cache telemetry | Fewer provider-specific failures without changing configured provider identity |
+| Long-session continuity | Shared runtime and adapter lifecycle behavior | Request/response journaling, replayable effective history, applied receipts, daemon ownership checks, and Windows watchdog recovery | Better restart recovery and diagnosis |
+| Claude Code | Host-facing Cleaner control surface | Gateway-first routing, shared CLI observability, MCP recovery, and session-start gateway recovery | Explicit capability boundary for local integration |
+| Validation | Upstream test suite | Targeted coverage for forwarding, journals, replay, cache telemetry, watchdogs, Cleaner execution, and adapter recovery | Regression risk stays visible while the fork evolves |
+
+Upstream attribution remains with [zjunlp/LightRSI](https://github.com/zjunlp/LightRSI); this fork is independently maintained and does not imply upstream endorsement.
+
+### Why keep this fork?
+
+- **Reliability over feature count:** prioritize stable forwarding, recovery, and replay paths used by real long-running sessions.
+- **Operational visibility:** expose `status`, `doctor`, `report`, cache audits, and browser visuals instead of hiding behavior inside adapter hooks.
+- **Host fit:** preserve each provider's wire payload and configured identity while adding local optimization around it.
+
+<span id='context-cleaner'/>
+
+## 🧹 Agent-Directed Context Cleaner
+
+Long-running coding agents accumulate completed investigations, obsolete tool output, and intermediate context that no longer contributes to the current task.
+
+This fork replaces Codex's live task-first Cleaner workflow with agent-directed, session-scoped occurrence pruning.
+
+- **One decision owner:** the active agent selects what is no longer useful; Cleaner does not independently estimate task completion or select context for removal.
+- **Exact release:** each operation targets explicitly identified occurrences rather than broad task-level deletion.
+- **Deterministic safety:** fingerprints, protected items, retained findings, affected tool relationships, and execution evidence constrain removal.
+- **Durable continuation:** lifecycle and dispatch state, journals, claims, epochs, and receipts support consistent application and recovery.
+
+TokenPilot optimizes how context is carried. Context Cleaner executes an agent's explicit decision to release context.
+
+<span id='engineering-contributions'/>
+
+## 🛠️ Engineering Contributions
+
+| Contribution | Engineering significance |
+| :-- | :-- |
+| Redesigned Context Cleaner around exact, agent-authorized occurrence releases | Architecture, state management, safety |
+| Hardened Codex provider forwarding and runtime compatibility | API integration, protocol handling |
+| Implemented durable history and recovery mechanisms | Reliability, transaction semantics |
+| Strengthened Windows runtime and daemon lifecycle | Cross-platform systems engineering |
+| Added cache telemetry and reproducible A/B benchmarks | Performance analysis and observability |
+
+Implementation map: [`components/packages/features/cleaner`](./components/packages/features/cleaner), [`components/adapters/codex`](./components/adapters/codex), [`components/adapters/claude-code`](./components/adapters/claude-code), [`components/packages/features/stabilizer`](./components/packages/features/stabilizer), [`components/packages/features/reduction`](./components/packages/features/reduction), [`components/packages/foundation/host-adapter`](./components/packages/foundation/host-adapter), and [`components/adapters/codex/tests`](./components/adapters/codex/tests).
+
 <p align="center">
+  <em>Inherited upstream TokenPilot research results:</em><br>
   <strong><span style="font-size:1.35em;">95.7% fewer input tokens</span></strong>
 &nbsp;&nbsp;|&nbsp;&nbsp;
-  <strong><span style="font-size:1.35em;">87.0% lower cost</span></strong>
-  <br>
+  <strong><span style="font-size:1.35em;">87.0% lower cost</span></strong><br>
   <span>vs. Vanilla OpenClaw on Claw-Eval continuous mode</span>
 </p>
 
 <p align="center">
   <strong><span style="font-size:1.35em;">67.4% fewer input tokens</span></strong>
 &nbsp;&nbsp;|&nbsp;&nbsp;
-  <strong><span style="font-size:1.35em;">61.5% lower cost</span></strong>
-  <br>
+  <strong><span style="font-size:1.35em;">61.5% lower cost</span></strong><br>
   <span>vs. Vanilla OpenClaw on PinchBench continuous mode</span>
 </p>
 
+Fork-specific performance claims should use the reproducible scripts under [`components/adapters/codex/scripts`](./components/adapters/codex/scripts) and [`components/packages/features/stabilizer/scripts`](./components/packages/features/stabilizer/scripts).
+
+<span id='fork-validation'/>
+
+## 🧪 Fork Validation and Performance
+
+This fork includes targeted regression tests and reproducible benchmarks for
+Codex forwarding, occurrence release, session continuation, recovery, and cache
+behavior.
+
+Cleaner validation covers cumulative continuation, repeated releases, retained
+context, and proxy restart. Performance measurements capture forwarded payload
+size, provider-reported usage when available, and request timing.
+
+Initial live Cleaner A/B runs do not establish consistent provider-token or
+latency savings. Those results guide further optimization; they do not support
+a fork-specific cost-reduction claim yet.
+
+See the benchmark scripts under [`components/adapters/codex/scripts`](./components/adapters/codex/scripts)
+and the recorded results under [`docs/superpowers/plans`](./docs/superpowers/plans).
 
 ---
 
@@ -42,11 +115,16 @@ LightRSI separates reusable improvement capabilities from shared runtime infrast
 | Component | What It Does | How It Works | Effect |
 | :-- | :-- | :-- | :-- |
 | `TokenPilot` | Keeps long-running agent sessions smaller, cheaper, and easier to sustain | Stabilizes the reusable prompt prefix, trims oversized tool output before it poisons later turns, and limits how much old context is carried forward as sessions grow | Better cache reuse, lower token usage, lower cost, and less context bloat in shared sessions |
+| `Context Cleaner` | Releases explicitly selected obsolete context from long-running sessions | Inspects exact occurrences, validates relationships and safety evidence, then commits durable releases | Agent-controlled context reduction without hidden task-level deletion decisions |
 
 <span id='contents'/>
 
 ## 📑 Table of Contents
 
+* <a href='#fork'>🌿 About This Fork</a>
+* <a href='#context-cleaner'>🧹 Agent-Directed Context Cleaner</a>
+* <a href='#engineering-contributions'>🛠️ Engineering Contributions</a>
+* <a href='#fork-validation'>🧪 Fork Validation and Performance</a>
 * <a href='#news'>📢 News</a>
 * <a href='#installation'>🔧 Installation</a>
 * <a href='#quickstart'>⚡ Quick Start</a>
@@ -76,7 +154,7 @@ LightRSI separates reusable improvement capabilities from shared runtime infrast
 Clone the repository and build the shared packages. Use Node.js `22.19.0` or newer:
 
 ```bash
-git clone https://github.com/zjunlp/LightRSI.git
+git clone https://github.com/longdang193/LightRSI.git
 cd LightRSI
 corepack enable
 pnpm install
@@ -262,6 +340,21 @@ Expected first-run shape:
 - `lightrsi codex status` shows `stabilizer` and `reduction` enabled
 - after a few turns, `lightrsi codex report` no longer says `No TokenPilot session stats yet.`
 
+### Context Cleaner
+
+Codex supports agent-directed occurrence release. Inspect a session, release exact
+occurrences with approved evidence, then check or cancel the operation:
+
+```bash
+lightrsi codex clean --inspect <session-id>
+lightrsi codex clean --session <session-id> --release <occurrence-evidence.json>
+lightrsi codex clean --status <plan-id>
+lightrsi codex clean --cancel <plan-id>
+```
+
+The active agent owns the release decision. LightRSI validates and records the
+selection, then applies committed exclusions during later continuation.
+
 Install starts the local proxy immediately. If doctor still reports `proxy healthy: no`, use the manual fallback:
 
 ```bash
@@ -355,7 +448,7 @@ LightRSI/
 ├── components/
 │   ├── packages/
 │   │   ├── foundation/           # contracts, runtime, host, history, artifact, product infrastructure
-│   │   └── features/             # stabilizer, reduction, eviction, and memory
+│   │   └── features/             # cleaner, stabilizer, reduction, eviction, and memory
 │   ├── presets/
 │   │   └── tokenpilot/           # Stabilizer + Reduction + Eviction composition contract
 │   ├── adapters/
@@ -513,7 +606,7 @@ Useful Claude Code controls:
 
 ## 📁 Experimental Results
 
-The tables below summarize the current LightRSI runtime path, implemented today through the TokenPilot component, on **PinchBench** and **Claw-Eval**.
+The following tables reproduce results reported by the original LightRSI/TokenPilot project on **PinchBench** and **Claw-Eval**. They are inherited research results, not fork-specific measurements.
 
 `Isolated` mode evaluates each task in a fresh session, focusing on single-task behavior without cross-task history carryover. `Continuous` mode evaluates longer-running shared-session workflows, where context accumulation and cache reuse matter much more.
 
@@ -597,7 +690,7 @@ Claw-Eval abbreviations: Wkfl=Workflow, Ops=Ops, Fin=Finance, Off=Office QA, Com
 
 ## 📄 Citation
 
-Please cite our paper if you use LightRSI in your work.
+Please cite the original authors' papers when using the underlying LightRSI and TokenPilot research.
 
 ```bibtex
 @article{xu2026tokenpilot,
@@ -625,20 +718,20 @@ We welcome bug fixes, host adapter improvements, onboarding fixes, tests, and do
 
 <span id='contributors'/>
 
-## 🎉Contributors
+## 🎉 Original Contributors
 
 <a href="https://github.com/zjunlp/LightRSI/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=zjunlp/LightRSI" />
 </a>
 
-We thank all the contributors to this project, more contributors are welcome!
+These credits refer to original LightRSI contributors. See the [fork history](https://github.com/longdang193/LightRSI/commits/main) for fork-specific maintenance and contributions.
 
 <span id='related-works'/>
 
 ## 📚 Related Works
 
 ### LightMem Series
-This repository belongs to ZJUNLP LightMem series, focusing on solving context bloat, excessive token consumption and low cache utilization for long-running LLM agents:
+This fork originates from ZJUNLP's LightRSI project and the broader LightMem research series, which address context bloat, excessive token consumption, and low cache utilization for long-running LLM agents:
 - [LightMem](https://github.com/zjunlp/LightMem) — A lightweight and efficient memory management framework designed for Large Language Models and AI Agents
 - [LightMem-Ego](https://github.com/zjunlp/LightMem-Ego) — A lightweight streaming multimodal memory system for everyday-life assistance
 ### Other Related Projects
