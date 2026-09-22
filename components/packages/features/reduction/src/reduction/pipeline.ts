@@ -1,6 +1,8 @@
 import type { RuntimeTurnContext, RuntimeTurnResult } from "@lightrsi/kernel";
 import { resolveReductionPass, execOutputTruncationBeforeCallPass } from "./registry.js";
+import type { ReadStateClassification } from "./read-state-compaction.js";
 import type {
+  DeepReadonly,
   ReductionMetadata,
   ReductionModuleConfig,
   ReductionPhase,
@@ -153,6 +155,37 @@ const publishTurnContext = (target: RuntimeTurnContext, source: RuntimeTurnConte
   Object.assign(target, source);
 };
 
+const EVENT_PRESERVING_BUILTINS = new Set([
+  "read_state_compaction",
+  "tool_payload_trim",
+  "exec_output_truncation",
+]);
+
+const buildSegmentIndex = (turnCtx: RuntimeTurnContext): ReadonlyMap<string, DeepReadonly<RuntimeTurnContext["segments"][number]>> =>
+  new Map(turnCtx.segments.map((segment) => [segment.id, segment]));
+
+const cloneReadStateClassifications = (
+  classifications: ReadonlyMap<string, DeepReadonly<ReadStateClassification>> | undefined,
+): ReadonlyMap<string, DeepReadonly<ReadStateClassification>> | undefined =>
+  classifications
+    ? new Map([...classifications].map(([id, classification]) => [id, structuredClone(classification)] as const))
+    : undefined;
+
+const buildPrivateRequestState = (
+  turnCtx: RuntimeTurnContext,
+  acceptedState: ReductionRequestState,
+): ReductionRequestState => ({
+  segmentIndex: buildSegmentIndex(turnCtx),
+  readStateClassifications: cloneReadStateClassifications(acceptedState.readStateClassifications),
+});
+
+const canReuseReadStateClassifications = (
+  spec: ReductionPassSpec,
+  registry: ReductionPassRegistry | undefined,
+): boolean =>
+  !Object.prototype.hasOwnProperty.call(registry ?? {}, spec.id)
+  && EVENT_PRESERVING_BUILTINS.has(spec.id);
+
 export function readReductionMetadata(metadata?: Record<string, unknown>): ReductionMetadata {
   const raw = metadata?.reduction;
   if (!raw || typeof raw !== "object") return {};
@@ -175,7 +208,8 @@ export async function runReductionBeforeCall(
       : turnCtx.segments,
   };
   const report: ReductionReportEntry[] = [];
-  requestState.segmentIndex = new Map(currentCtx.segments.map((segment) => [segment.id, segment]));
+  requestState.segmentIndex = buildSegmentIndex(currentCtx);
+  requestState.readStateClassifications = undefined;
 
   for (const rawSpec of passes) {
     const spec = clonePass(rawSpec);
@@ -214,13 +248,16 @@ export async function runReductionBeforeCall(
     const beforeChars = totalSegmentChars(currentCtx);
     const immutableInput = handler.immutableInput === true;
     const workingCtx = immutableInput ? currentCtx : cloneTurnContext(currentCtx);
+    const handlerRequestState = immutableInput
+      ? requestState
+      : buildPrivateRequestState(workingCtx, requestState);
     const startedAt = Date.now();
     let outcome: Awaited<ReturnType<NonNullable<ReductionPassHandler["beforeCall"]>>>;
     try {
       outcome = await handler.beforeCall({
         turnCtx: workingCtx,
         spec,
-        requestState,
+        requestState: handlerRequestState,
       });
     } catch (error) {
       report.push({
@@ -279,7 +316,10 @@ export async function runReductionBeforeCall(
       durationMs: Date.now() - startedAt,
       touchedSegmentIds: outcome.touchedSegmentIds,
     });
-    requestState.segmentIndex = new Map(currentCtx.segments.map((segment) => [segment.id, segment]));
+    requestState.segmentIndex = buildSegmentIndex(currentCtx);
+    if (!canReuseReadStateClassifications(spec, registry)) {
+      requestState.readStateClassifications = undefined;
+    }
   }
 
   return { turnCtx: currentCtx, report };

@@ -137,6 +137,8 @@ const reduceSegment = (
       : typeof toolPayload?.path === "string"
         ? toolPayload.path as string
         : undefined;
+  const readWindow =
+    asObject(meta?.readWindow) ?? asObject(toolPayload?.readWindow);
 
   return reduceToolPayloadText(
     segment.text,
@@ -147,6 +149,12 @@ const reduceSegment = (
       fieldName,
       path,
       payloadKind,
+      readWindow: readWindow
+        ? {
+            ...(typeof readWindow.offset === "number" ? { offset: readWindow.offset } : {}),
+            ...(typeof readWindow.limit === "number" ? { limit: readWindow.limit } : {}),
+          }
+        : undefined,
       readState: readStateBySegmentId.get(segment.id),
     },
     {

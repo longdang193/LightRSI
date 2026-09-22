@@ -22,6 +22,7 @@ export type ToolPayloadHint = {
   fieldName?: string;
   path?: string;
   payloadKind?: "stdout" | "stderr" | "json" | "blob";
+  readWindow?: { offset?: number; limit?: number };
   readState?: "fresh" | "superseded" | "stale";
 };
 
