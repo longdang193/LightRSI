@@ -1,15 +1,9 @@
 import { createHash } from "node:crypto";
 
 import {
-  createEmptySessionTaskRegistry,
-  loadSessionTaskRegistry,
-  type SessionTaskRegistry,
-} from "@lightrsi/history";
-import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
   type ContextCleanPendingReceipt,
   type ContextCleanPlan,
-  type ContextCleanAttributionStatus,
   type ContextCleanReceipt,
   type ContextCleanOccurrenceSelection,
   type ContextCleanerHostBridge,
@@ -24,19 +18,6 @@ import {
   transitionContextCleanSchedule,
   transitionContextCleanState,
 } from "./clean-state-coordinator.js";
-import { buildContextCleanBreakdown } from "./token-accounting.js";
-import { analyzeContextCleanRecommendations, type ContextCleanRecommendationProvider } from "./recommendation.js";
-
-export type AnalyzeContextCleanSessionParams = {
-  stateDir: string;
-  bridge: ContextCleanerHostBridge;
-  sessionId: string;
-  contextWindowTokens?: number;
-  provider?: ContextCleanRecommendationProvider;
-  loadRegistry?: (stateDir: string, sessionId: string) => Promise<SessionTaskRegistry>;
-  now?: () => string;
-};
-
 function error(operation: string, reasons: string[]): never {
   throw new Error(`${operation}:${reasons.join(",") || "unknown"}`);
 }
@@ -177,74 +158,6 @@ export async function prepareContextCleanOccurrenceRelease(params: {
   });
   if (receipt.bypassed) error("clean_analysis_receipt_store_failed", receipt.reasons);
   return plan;
-}
-
-export async function analyzeContextCleanSession(params: AnalyzeContextCleanSessionParams): Promise<{
-  plan: ContextCleanPlan;
-  receipt: ContextCleanPendingReceipt;
-  fallbackUsed: boolean;
-  reasons: string[];
-}> {
-  const sessionId = params.sessionId.trim();
-  if (!params.stateDir.trim() || !sessionId) throw new Error("clean_analysis_identity_invalid");
-  const snapshot = await params.bridge.readTaskAwareCleanSnapshot?.(sessionId)
-    ?? await params.bridge.readCleanSnapshot(sessionId);
-  let registry: SessionTaskRegistry;
-  let registryLoadFailed = false;
-  try {
-    registry = await (params.loadRegistry ?? loadSessionTaskRegistry)(params.stateDir, sessionId);
-  } catch {
-    registry = createEmptySessionTaskRegistry(sessionId);
-    registryLoadFailed = true;
-  }
-  if (registry.sessionId !== sessionId) throw new Error("clean_analysis_registry_identity_mismatch");
-  const attributionStatus: ContextCleanAttributionStatus = registryLoadFailed
-    ? "failing"
-    : await params.bridge.readAttributionStatus?.(sessionId)
-      ?? (Object.keys(registry.tasks).length > 0 ? "available" : "empty");
-  const breakdown = buildContextCleanBreakdown({
-    snapshot,
-    registry,
-    model: snapshot.model,
-    itemTokenCounts: snapshot.itemTokenCounts,
-  });
-  const recommendation = await analyzeContextCleanRecommendations({ tasks: breakdown.tasks, provider: params.provider });
-  const fallbackUsed = recommendation.fallbackUsed;
-  const reasons = [...recommendation.reasons];
-  const base: Omit<ContextCleanPlan, "planId"> = {
-    schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
-    hostId: params.bridge.hostId,
-    sessionId,
-    baseRevision: snapshot.revision,
-    analysisRevision: snapshot.revision,
-    ...(snapshot.model ? { model: snapshot.model } : {}),
-    ...(params.contextWindowTokens !== undefined ? { contextWindowTokens: params.contextWindowTokens } : {}),
-    usedTokens: breakdown.usedTokens,
-    usedChars: breakdown.usedChars,
-    protectedTokens: breakdown.protectedTokens,
-    protectedChars: breakdown.protectedChars,
-    unassignedTokens: breakdown.unassignedTokens,
-    unassignedChars: breakdown.unassignedChars,
-    tokenCountMode: breakdown.tokenCountMode,
-    tokenCountMethod: breakdown.tokenCountMethod,
-    attributionStatus,
-    occurrenceDigests: Object.fromEntries(snapshot.items.map((item) => [item.stableId, item.fingerprint])),
-    occurrenceSizes: Object.fromEntries(snapshot.items.map((item) => [item.stableId, {
-      chars: item.chars,
-      tokens: snapshot.itemTokenCounts?.[item.stableId] ?? null,
-    }])),
-    tasks: recommendation.tasks,
-    createdAt: snapshot.capturedAt,
-  };
-  const plan: ContextCleanPlan = { ...base, planId: planId(base, fallbackUsed, reasons) };
-  const saved = await saveContextCleanPlan({ stateDir: params.stateDir, plan });
-  if (saved.bypassed) error("clean_analysis_plan_store_failed", saved.reasons);
-  const receipt = await transitionContextCleanState({
-    stateDir: params.stateDir,
-    receipt: analyzedReceipt(plan, fallbackUsed, reasons),
-  });
-  if (receipt.bypassed) error("clean_analysis_receipt_store_failed", receipt.reasons);
-  return { plan, receipt: analyzedReceipt(plan, fallbackUsed, reasons), fallbackUsed, reasons };
 }
 
 export async function approveContextCleanSelection(params: {

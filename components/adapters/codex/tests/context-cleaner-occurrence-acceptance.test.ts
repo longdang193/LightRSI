@@ -105,6 +105,8 @@ test("normal Cleaner entrypoint releases exact occurrences cumulatively", async 
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-occurrence-acceptance-"));
   const upstream = await startUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  const originalFetch = globalThis.fetch;
+  let estimatorCalls = 0;
   try {
     const sessionId = "codex-occurrence-acceptance-session";
     const config = normalizeTokenPilotCodexConfig({
@@ -117,11 +119,27 @@ test("normal Cleaner entrypoint releases exact occurrences cumulatively", async 
         requiresOpenAIAuth: false,
       },
       modules: { stabilizer: false, reduction: false },
+      taskStateEstimator: {
+        enabled: true,
+        baseUrl: "https://estimator.invalid/v1",
+        apiKey: "legacy-config",
+        model: "legacy-model",
+      },
       contextRewrite: {
         enabled: true,
         providerCompatibilityProbe: "mock_fixture",
       },
     } as any);
+    globalThis.fetch = async (input, init) => {
+      if (String(input).includes("estimator.invalid")) {
+        estimatorCalls += 1;
+        return new Response(JSON.stringify({ choices: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return originalFetch(input, init);
+    };
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
@@ -154,6 +172,7 @@ test("normal Cleaner entrypoint releases exact occurrences cumulatively", async 
     };
 
     await send("RETAINED_SENTINEL");
+    assert.equal(estimatorCalls, 0);
     await send("DUPLICATE_OCCURRENCE_CONTENT_A");
     await send("OCCURRENCE_CONTENT_B");
     await send("NOISY_UNRELATED_HISTORY");
@@ -252,6 +271,7 @@ test("normal Cleaner entrypoint releases exact occurrences cumulatively", async 
       true,
     );
   } finally {
+    globalThis.fetch = originalFetch;
     await runtime?.close();
     await upstream.close();
     await rm(stateDir, { recursive: true, force: true });

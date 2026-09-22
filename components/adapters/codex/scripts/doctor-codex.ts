@@ -57,7 +57,6 @@ async function main() {
     },
     daemon,
     modules: config.modules,
-    taskStateEstimator: doctor.taskStateEstimator,
   }, null, 2));
 }
 

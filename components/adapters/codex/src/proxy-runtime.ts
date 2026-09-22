@@ -98,12 +98,7 @@ import {
   executeCodexProviderContinuationWithReplay,
   executeCodexRebaseWithFallback,
   failPendingCodexRebaseEpochsAfterRestart,
-  type CodexLifecyclePreparedPlan,
   resolveCodexProviderContinuationCompatibility,
-  resolveCodexTaskStateEstimator,
-  revalidateCodexLifecyclePreparedPlan,
-  runCodexLifecyclePlanner,
-  withCodexRebaseEstimatorAccounting,
   withCodexRebaseReplayAccountingInput,
 } from "./context-rewrite/index.js";
 import type {
@@ -253,19 +248,6 @@ function codexSharedLifecyclePlan(plan: ContextMutationPlan): CodexLifecyclePlan
       0,
     ),
   };
-}
-
-function allLifecycleOperationsApplied(
-  plan: CodexLifecyclePlan,
-  appliedOperationIds: readonly string[],
-  deferredOperationIds: readonly string[],
-): boolean {
-  const expected = [...new Set(plan.operationIds ?? [])];
-  const applied = [...new Set(appliedOperationIds)];
-  return expected.length > 0
-    && deferredOperationIds.length === 0
-    && applied.length === expected.length
-    && expected.every((operationId) => applied.includes(operationId));
 }
 
 function codexValidationReasonCodes(error: unknown): string[] {
@@ -656,10 +638,6 @@ export async function startCodexResponsesProxy(params: {
   await mkdir(config.stateDir, { recursive: true });
   const upstream = await resolveUpstreamProvider(config, params.codexConfigPath ?? defaultCodexConfigPath());
   const upstreamProviderName = upstream.name ?? config.upstreamProvider ?? "OpenAI";
-  const estimatorResolution = resolveCodexTaskStateEstimator({
-    config: config.taskStateEstimator,
-  });
-  const lifecyclePlanningConfigured = estimatorResolution.config.enabled;
   const epochRecoveryBySession = new Map<string, Promise<void>>();
   const pendingOptionalTasks = new Set<Promise<void>>();
 
@@ -865,7 +843,6 @@ export async function startCodexResponsesProxy(params: {
 
       let rebaseRequest: CodexRebaseRequestResult | undefined;
       let rebasePlanId: string | undefined;
-      let lifecyclePreparedPlan: CodexLifecyclePreparedPlan | undefined;
       let cleanerPreparedRebase: CodexCleanerPreparedRebase | undefined;
       let continuationReplayRequest: CodexRebaseRequestResult | undefined;
       let rebaseAccounting = rebaseRequest?.accounting;
@@ -879,7 +856,7 @@ export async function startCodexResponsesProxy(params: {
         stateDir: config.stateDir,
         sessionId,
       });
-      const mutationPlan = manualCleanerReserved || lifecyclePlanningConfigured
+      const mutationPlan = manualCleanerReserved
         ? undefined
         : committedCleanerMutationPlan ?? activeMutationPlan(config);
       let effectiveHistoryViewPromise: ReturnType<typeof buildCodexEffectiveHistoryView> | undefined;
@@ -1010,142 +987,6 @@ export async function startCodexResponsesProxy(params: {
             });
             await emitContextRewriteStage("context_rewrite_bypassed", {
               reasonCodes: ["cleaner_runtime_failed"],
-              fallbackUsed: true,
-            });
-          }
-        }
-      } else if (lifecyclePlanningConfigured) {
-        if (!requestJournalEntry) {
-          await emitContextRewriteStage("context_rewrite_failed", {
-            reasonCodes: ["request_journal_unavailable"],
-            errorCategory: "history_journal_write_failed",
-            fallbackUsed: true,
-          });
-          await emitContextRewriteStage("context_rewrite_bypassed", {
-            reasonCodes: ["fallback_original_request"],
-            fallbackUsed: true,
-          });
-        } else if (!config.contextRewrite.retryOriginalRequest
-          || config.contextRewrite.mode !== "response_chain_rebase"
-          || config.contextRewrite.failureMode !== "bypass") {
-          await emitContextRewriteStage("context_rewrite_bypassed", {
-            reasonCodes: ["rewrite_configuration_unsupported"],
-            fallbackUsed: true,
-          });
-        } else if (!estimatorResolution.estimator) {
-          await emitContextRewriteStage("context_rewrite_bypassed", {
-            reasonCodes: ["estimator_missing"],
-            fallbackUsed: true,
-          });
-        } else {
-          try {
-            const effectiveHistoryView = await effectiveHistoryViewForHead();
-            const lifecycleResult = await runCodexLifecyclePlanner({
-              stateDir: config.stateDir,
-              sessionId,
-              view: effectiveHistoryView,
-              backendRequest: {
-                sessionId,
-                payload: originalPayload,
-                effectiveHistory: effectiveHistoryView.history,
-                currentInput: originalPayload.input,
-              },
-              estimator: estimatorResolution.estimator,
-              config: {
-                enabled: true,
-                batchTurns: estimatorResolution.config.batchTurns,
-                evictionEnabled: false,
-                evictionPolicy: "model_scored",
-                evictionMinBlockChars: 256,
-              },
-              createdAt: new Date().toISOString(),
-              expectedCurrentRequest: requestJournalEntry,
-              inputMode: estimatorResolution.config.inputMode,
-              sourcePresetId: "tokenpilot",
-            });
-            await appendTrace(config.stateDir, {
-              stage: "context_rewrite_lifecycle_planner_completed",
-              sessionId,
-              model,
-              status: lifecycleResult.status,
-              reasonCodes: lifecycleResult.reasonCodes,
-              attemptedEstimator: lifecycleResult.attemptedEstimator,
-              registryPersisted: lifecycleResult.registryPersisted,
-              registryChanged: lifecycleResult.registryChanged,
-              registryVersionBefore: lifecycleResult.registryVersionBefore ?? null,
-              registryVersionAfter: lifecycleResult.registryVersionAfter ?? null,
-              pendingTurnCount: lifecycleResult.pendingTurnCount ?? null,
-              historyWatermark: lifecycleResult.historyWatermark ?? null,
-              estimatorUsage: lifecycleResult.estimatorUsage ?? null,
-            });
-            if (lifecycleResult.preparedPlan) {
-              activeLifecyclePlan = codexSharedLifecyclePlan(lifecycleResult.preparedPlan.plan);
-              await emitContextRewriteStage("context_rewrite_planned");
-              const applied = await codexSharedContextRewriteBackend.apply({
-                snapshot: lifecycleResult.preparedPlan.snapshot,
-                plan: lifecycleResult.preparedPlan.plan,
-                request: lifecycleResult.preparedPlan.backendRequest,
-              });
-              const details = applied.result.details;
-              if (
-                applied.result.applied
-                && details?.rebasePrepared
-                && allLifecycleOperationsApplied(
-                  activeLifecyclePlan,
-                  applied.result.appliedOperationIds,
-                  applied.result.deferredOperationIds,
-                )
-              ) {
-                const accounting = withCodexRebaseEstimatorAccounting(
-                  details.accounting,
-                  lifecycleResult.estimatorUsage,
-                );
-                lifecyclePreparedPlan = lifecycleResult.preparedPlan;
-                rebaseRequest = {
-                  payload: applied.request.payload,
-                  oldRevision: applied.result.previousRevision,
-                  rebaseRevision: applied.result.nextRevision,
-                  accounting,
-                };
-                rebasePlanId = lifecycleResult.preparedPlan.plan.planId;
-                activeLifecyclePlan = {
-                  ...activeLifecyclePlan,
-                  previousRevision: rebaseRequest.oldRevision,
-                  nextRevision: rebaseRequest.rebaseRevision,
-                  estimatedSavedChars: rebaseRequest.accounting.plannedSavedChars,
-                  savedChars: rebaseRequest.accounting.actuallyRemovedChars,
-                };
-              } else {
-                lifecyclePreparedPlan = undefined;
-                await emitContextRewriteStage("context_rewrite_deferred", {
-                  reasonCodes: ["lifecycle_runner_plan_invalid"],
-                  deferredOperationIds: activeLifecyclePlan.operationIds,
-                });
-              }
-            } else {
-              lifecyclePreparedPlan = undefined;
-              activeLifecyclePlan = undefined;
-              await emitContextRewriteStage(
-                lifecycleResult.status === "bypassed"
-                  ? "context_rewrite_bypassed"
-                  : "context_rewrite_deferred",
-                {
-                  reasonCodes: lifecycleResult.reasonCodes,
-                  ...(lifecycleResult.status === "bypassed" ? { fallbackUsed: true } : {}),
-                },
-              );
-            }
-          } catch (err) {
-            lifecyclePreparedPlan = undefined;
-            activeLifecyclePlan = undefined;
-            await appendTrace(config.stateDir, {
-              stage: "context_rewrite_lifecycle_planning_failed",
-              sessionId,
-              model,
-              reason: err instanceof Error ? err.message : String(err),
-            });
-            await emitContextRewriteStage("context_rewrite_bypassed", {
-              reasonCodes: ["lifecycle_runner_failed"],
               fallbackUsed: true,
             });
           }
@@ -1824,34 +1665,6 @@ export async function startCodexResponsesProxy(params: {
                       stateDir: config.stateDir,
                       sessionId,
                       prepared: cleanerPreparedRebase,
-                      view: currentView,
-                      backendRequest: {
-                        sessionId,
-                        payload: originalPayload,
-                        effectiveHistory: currentView.history,
-                        currentInput: originalPayload.input,
-                      },
-                    });
-                    return {
-                      allowed: handoff.valid,
-                      reason: handoff.reasonCodes[0],
-                    };
-                  }
-                : lifecyclePreparedPlan
-                ? async () => {
-                    let currentView;
-                    try {
-                      currentView = await buildEffectiveHistoryViewForHead();
-                    } catch {
-                      return {
-                        allowed: false,
-                        reason: "lifecycle_execution_snapshot_changed",
-                      };
-                    }
-                    const handoff = await revalidateCodexLifecyclePreparedPlan({
-                      stateDir: config.stateDir,
-                      sessionId,
-                      preparedPlan: lifecyclePreparedPlan,
                       view: currentView,
                       backendRequest: {
                         sessionId,

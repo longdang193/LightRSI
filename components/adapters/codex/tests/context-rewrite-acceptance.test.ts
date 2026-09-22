@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import test from "node:test";
 
@@ -12,8 +11,6 @@ import {
   type AcceptanceSentinels,
   type MockUpstreamResponse,
 } from "@lightrsi/host-adapter";
-import { loadSessionTaskRegistry } from "@lightrsi/history";
-
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
@@ -345,7 +342,7 @@ function responsePairCounts(body: unknown, callId: string): {
   };
 }
 
-test("GUA-06 observes estimator lifecycle without automatic Codex rebase", async () => {
+test("GUA-06 ignores estimator lifecycle on Codex request path", async () => {
   const environment = createTemporaryAcceptanceEnvironment("lightrsi-gua06-codex-");
   const sentinels = createAcceptanceSentinels(TEST_UUID);
   const upstream = new MockUpstreamRecorder();
@@ -359,18 +356,6 @@ test("GUA-06 observes estimator lifecycle without automatic Codex rebase", async
       estimatorBaseUrl: estimator.baseUrl,
       sentinels,
     });
-    const beforeRegistry = await loadSessionTaskRegistry(environment.stateDir, SESSION_ID);
-    const beforeTrace = await readFile(
-      `${environment.stateDir}/event-trace.jsonl`,
-      "utf8",
-    );
-    assert.equal(
-      beforeRegistry.version,
-      1,
-      `${beforeTrace}\nestimator_errors=${JSON.stringify(estimator.errors)}`,
-    );
-    assert.equal(beforeRegistry.lastProcessedTurnSeq, 4);
-
     const after = await runAcceptancePhase({
       phase: "after_restart",
       stateDir: environment.stateDir,
@@ -379,10 +364,8 @@ test("GUA-06 observes estimator lifecycle without automatic Codex rebase", async
       sentinels,
       previousResponseId: before.responseId,
     });
-    const afterRegistry = await loadSessionTaskRegistry(environment.stateDir, SESSION_ID);
-    assert.equal(afterRegistry.version, 2);
-    assert.equal(afterRegistry.lastProcessedTurnSeq, 9);
-    assert.deepEqual(estimator.registryVersions, [0, 1]);
+    assert.deepEqual(estimator.registryVersions, []);
+    assert.deepEqual(estimator.errors, []);
 
     const allRequests = upstream.requests();
     assert.equal(allRequests.length, 10);

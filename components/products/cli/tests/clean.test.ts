@@ -5,8 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { handleCleanCommand } from "../src/clean.js";
-import { createCodexCleanRecommendationProvider } from "../src/hosts/cleaner.js";
-import type { JsonModelApiConfig, JsonModelClient } from "@lightrsi/runtime-core";
 
 const plan = {
   planId: "plan-1",
@@ -34,18 +32,58 @@ const receipt = {
   reasons: [],
 };
 
-test("clean CLI analyzes and approves only selected task IDs", async () => {
-  const calls: string[] = [];
+test("clean CLI rejects retired task-first workflows", async () => {
   const backend = {
-    async analyze() { calls.push("analyze"); return plan; },
-    async readPlan() { calls.push("read-plan"); return plan; },
-    async approve(_planId: string, selectedTaskIds: string[]) { calls.push(selectedTaskIds.join(",")); return receipt; },
+    async analyze() { return plan; },
+    async readPlan() { return plan; },
+    async approve() { return receipt; },
+    async readReceipt() { return receipt; },
+    async cancel() { return { ...receipt, status: "cancelled" }; },
+    async submitAttribution() { return { status: "accepted" }; },
+  };
+  await assert.rejects(
+    handleCleanCommand({ args: ["--plan", "plan-1", "--select", "task-1"], backend }),
+    /clean_task_first_workflow_retired/,
+  );
+  await assert.rejects(
+    handleCleanCommand({ args: ["--submit-attribution", "-"], backend }),
+    /clean_task_first_workflow_retired/,
+  );
+});
+
+test("clean CLI renders canonical occurrence receipt evidence", async () => {
+  const backend = {
+    async approveOccurrences() {
+      return {
+        ...receipt,
+        selectedTaskIds: [],
+        occurrenceSelections: [{ stableId: "item-1", fingerprint: "digest-1" }],
+      };
+    },
     async readReceipt() { return receipt; },
     async cancel() { return { ...receipt, status: "cancelled" }; },
   };
-  assert.match((await handleCleanCommand({ args: ["--session", "session-1"], backend })).text, /plan-1/);
-  assert.match((await handleCleanCommand({ args: ["--plan", "plan-1", "--select", "task-1"], backend })).text, /scheduled/);
-  assert.deepEqual(calls, ["analyze", "read-plan", "task-1"]);
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-receipt-"));
+  try {
+    const path = join(dir, "occurrences.json");
+    await writeFile(path, JSON.stringify([{
+      stableId: "item-1",
+      fingerprint: "digest-1",
+      completionEvidence: ["completed"],
+      continuingUseful: false,
+      releaseIntent: "release",
+      retainedFindings: [],
+      dependencyDirection: "none",
+    }]), "utf8");
+    const result = await handleCleanCommand({
+      args: ["--plan", "plan-1", "--release", path],
+      backend,
+    });
+    assert.match(result.text, /Selected occurrences: item-1/);
+    assert.doesNotMatch(result.text, /Selected: \(none\)/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("clean CLI inspects stable occurrences without task selection", async () => {
@@ -110,117 +148,6 @@ test("clean CLI releases exact occurrence evidence through the shared service", 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-});
-
-test("clean CLI renders attribution status", async () => {
-  const backend = {
-    async analyze() { return plan; },
-    async readPlan() { return plan; },
-    async approve() { return receipt; },
-    async readReceipt() { return receipt; },
-    async cancel() { return { ...receipt, status: "cancelled" }; },
-  };
-
-  assert.match((await handleCleanCommand({ args: ["--session", "session-1"], backend })).text, /Attribution: waiting/);
-});
-
-test("clean CLI canonicalizes session aliases before analysis", async () => {
-  let analyzedSessionId = "";
-  const backend = {
-    async analyze(sessionId: string) { analyzedSessionId = sessionId; return plan; },
-    async readPlan() { return plan; },
-    async approve() { return receipt; },
-    async readReceipt() { return receipt; },
-    async cancel() { return { ...receipt, status: "cancelled" }; },
-  };
-
-  await handleCleanCommand({
-    args: ["--session", "codex-host-session-1"],
-    backend,
-    resolveSessionId: async () => "codex-synth-session-1",
-  });
-
-  assert.equal(analyzedSessionId, "codex-synth-session-1");
-});
-
-test("clean CLI submits attribution JSON through backend contract", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-submit-"));
-  try {
-    const path = join(dir, "submission.json");
-    await writeFile(path, JSON.stringify({ submissionId: "submission-1" }), "utf8");
-    let received = "";
-    const backend = {
-      async analyze() { return plan; },
-      async readPlan() { return plan; },
-      async approve() { return receipt; },
-      async readReceipt() { return receipt; },
-      async cancel() { return { ...receipt, status: "cancelled" }; },
-      async submitAttribution(request: { submissionId: string }) {
-        received = request.submissionId;
-        return { submissionId: request.submissionId, status: "accepted" as const, registryVersion: 1, taskIds: [] };
-      },
-    };
-    const result = await handleCleanCommand({ args: ["--submit-attribution", path], backend });
-    assert.match(result.text, /submission-1/);
-    assert.equal(received, "submission-1");
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("Codex Cleaner uses ready estimator config for recommendations", async () => {
-  let clientConfig: JsonModelApiConfig | undefined;
-  const client: JsonModelClient = {
-    async request() {
-      return {
-        text: JSON.stringify({
-          tasks: [{
-            taskId: "task-1",
-            label: "done",
-            description: "completed",
-            summary: "completed task",
-            recommendation: "clean",
-            reasonCodes: ["completed"],
-            confidence: 0.9,
-          }],
-        }),
-      };
-    },
-  };
-  const provider = createCodexCleanRecommendationProvider({
-    enabled: true,
-    baseUrl: "http://127.0.0.1:20128/v1",
-    apiKey: "test-key",
-    model: "combo-high",
-  }, (config) => {
-    clientConfig = config;
-    return client;
-  });
-
-  assert.ok(provider);
-  const result = await provider.recommend({
-    tasks: [{
-      taskId: "task-1",
-      digest: "digest",
-      label: "done",
-      description: "completed",
-      summary: "completed task",
-      lifecycleState: "completed",
-      tokenCount: 10,
-      charCount: 40,
-      tokenPercent: 100,
-      selectable: true,
-      evidence: {},
-    }],
-  });
-
-  assert.equal(JSON.parse(String(result.output)).tasks[0].taskId, "task-1");
-  assert.deepEqual(clientConfig, {
-    baseUrl: "http://127.0.0.1:20128/v1",
-    apiKey: "test-key",
-    model: "combo-high",
-    requestTimeoutMs: 60_000,
-  });
 });
 
 test("clean CLI releases exact occurrences without exposing an internal plan id", async () => {
