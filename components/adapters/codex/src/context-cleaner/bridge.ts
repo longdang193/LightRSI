@@ -42,7 +42,10 @@ import { buildCodexLifecycleBackendRequest } from "../context-rewrite/lifecycle-
 import {
   loadCodexSessionSnapshot,
 } from "../session-state.js";
-import { scheduleCodexCleanerPlan } from "./scheduler.js";
+import {
+  appendCodexCleanerTerminal,
+  scheduleCodexCleanerPlan,
+} from "./scheduler.js";
 import { listCodexCleanerSessions } from "./session-catalog.js";
 
 const CODEX_HOST_ID = "codex";
@@ -632,10 +635,24 @@ export function createCodexContextCleanerBridge(params: {
     },
     async cancelCleanPlan(planId) {
       if (!planId.trim()) throw new Error("codex_clean_plan_id_invalid");
-      return validateReceipt({
+      const receipt = validateReceipt({
         receipt: await params.controlPlane.cancelCleanPlan(planId),
         planId,
       });
+      if (receipt.status === "stale" || receipt.status === "cancelled" || receipt.status === "failed") {
+        const terminal = await appendCodexCleanerTerminal({
+          stateDir: params.stateDir,
+          sessionId: receipt.sessionId,
+          cleanPlanId: receipt.planId,
+          receiptStatus: receipt.status,
+          reasons: receipt.reasons,
+          updatedAt: receipt.updatedAt,
+        });
+        if (!["transitioned", "unchanged", "missing"].includes(terminal.outcome)) {
+          throw new Error(`codex_clean_schedule_terminal_failed:${terminal.reasons.join(",")}`);
+        }
+      }
+      return receipt;
     },
   };
 }

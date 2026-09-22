@@ -474,6 +474,8 @@ function canAttemptCodexRebase(params: {
   config: TokenPilotCodexConfig;
   payload: JsonObject;
   requestEntry?: CodexRequestJournalEntry;
+  mutationPlan?: CodexMutationPlan;
+  committedCleanerPlan?: boolean;
 }): boolean {
   return Boolean(
     params.config.contextRewrite.enabled
@@ -481,7 +483,7 @@ function canAttemptCodexRebase(params: {
     && params.config.contextRewrite.failureMode === "bypass"
     && params.config.contextRewrite.retryOriginalRequest
     && params.requestEntry
-    && activeMutationPlan(params.config),
+    && (params.mutationPlan?.operations.length || params.committedCleanerPlan),
   );
 }
 
@@ -1175,12 +1177,21 @@ export async function startCodexResponsesProxy(params: {
           });
         }
       }
-      if (canAttemptCodexRebase({ config, payload: originalPayload, requestEntry: requestJournalEntry })
+      if (canAttemptCodexRebase({
+        config,
+        payload: originalPayload,
+        requestEntry: requestJournalEntry,
+        mutationPlan,
+        committedCleanerPlan: Boolean(committedCleanerMutationPlan),
+      })
         && mutationPlan
         && requestJournalEntry) {
         const planId = activeLifecyclePlan?.planId ?? codexMutationPlanId(mutationPlan);
         try {
           const effectiveHistory = await effectiveHistoryForHead();
+          const replayPlan = committedCleanerMutationPlan
+            ? { baseRevision: effectiveHistory.revision, operations: [] }
+            : mutationPlan;
           rebaseRequest = buildCodexRebaseRequest({
             sessionId,
             planId,
@@ -1190,7 +1201,7 @@ export async function startCodexResponsesProxy(params: {
             originalPayload,
             effectiveHistory,
             currentInput: originalPayload.input,
-            mutationPlan,
+            mutationPlan: replayPlan,
           });
           rebasePlanId = planId;
           activeLifecyclePlan = {

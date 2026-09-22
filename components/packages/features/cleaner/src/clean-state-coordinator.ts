@@ -274,6 +274,7 @@ export async function cancelContextCleanState(params: {
           reasons: ["cancelled_by_user"],
           updatedAt: params.now,
           fallbackUsed: false,
+          ...(current.value?.evidence ? { evidence: current.value.evidence } : {}),
         };
         const result = await transitionContextCleanStateUnlocked({ stateDir: params.stateDir, receipt });
         if (result.bypassed) return { outcome: "bypassed", bypassed: true, reasons: result.reasons };
