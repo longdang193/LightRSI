@@ -49,6 +49,7 @@ export type ArchiveContentParams = {
   originalText: string;
   workspaceDir?: string;
   archiveDir?: string;
+  archivePath?: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -180,7 +181,12 @@ export async function archiveContent(params: ArchiveContentParams): Promise<Arch
     contentSha256: artifactRef.slice(ARTIFACT_REF_PREFIX.length),
     metadata: params.metadata,
   };
-  const primary = buildArchiveLocation(params);
+  const primary = params.archivePath
+    ? {
+        archivePath: params.archivePath,
+        archiveDir: params.archiveDir ?? dirname(params.archivePath),
+      }
+    : buildArchiveLocation(params);
   const writeDirs = archiveDirWriteTargets(primary.archiveDir);
   const fileName = primary.archivePath.slice(primary.archiveDir.length + 1);
   const payload = `${JSON.stringify(entry, null, 2)}\n`;

@@ -20,6 +20,11 @@ type SegmentBinding = {
   toolName?: string;
 };
 
+type ReadWindow = {
+  offset?: number;
+  limit?: number;
+};
+
 type ReductionInstruction = {
   strategy: string;
   segmentIds: string[];
@@ -146,6 +151,17 @@ function extractPathHint(value: unknown): string | undefined {
   return undefined;
 }
 
+function extractReadWindow(value: unknown): ReadWindow | undefined {
+  const record = asRecord(value);
+  const offset = typeof record.offset === "number" && Number.isFinite(record.offset) && record.offset >= 0
+    ? Math.floor(record.offset)
+    : undefined;
+  const limit = typeof record.limit === "number" && Number.isFinite(record.limit) && record.limit > 0
+    ? Math.floor(record.limit)
+    : undefined;
+  return offset == null && limit == null ? undefined : { offset, limit };
+}
+
 export function normalizeResponsesInputForUpstream(input: any): any {
   if (!Array.isArray(input)) return input;
   let nextInput = input;
@@ -246,6 +262,7 @@ function segmentForText(params: {
   latestUserQuery: string;
   path?: string;
   toolName?: string;
+  readWindow?: ReadWindow;
 }): ContextSegment {
   const isToolLike =
     String(params.item?.role ?? "").toLowerCase() === "tool"
@@ -266,7 +283,8 @@ function segmentForText(params: {
       fieldName: params.field,
       latestUserQuery: params.latestUserQuery,
       precedingUserQuery: params.latestUserQuery,
-      ...(params.path ? { path: params.path } : {}),
+       ...(params.path ? { path: params.path } : {}),
+       ...(params.readWindow ? { readWindow: params.readWindow } : {}),
       ...(isToolLike
         ? {
             role: "tool",
@@ -278,6 +296,7 @@ function segmentForText(params: {
               toolName,
               fieldName: params.field,
               ...(params.path ? { path: params.path } : {}),
+              ...(params.readWindow ? { readWindow: params.readWindow } : {}),
             },
             reduction: {
               target: "tool_payload",
@@ -319,7 +338,7 @@ function buildTurnContext(
   const bindings: SegmentBinding[] = [];
   const frozenSegmentIds = new Set<string>();
   let currentUserQuery = "";
-  const toolCallHints = new Map<string, { toolName?: string; path?: string }>();
+  const toolCallHints = new Map<string, { toolName?: string; path?: string; readWindow?: ReadWindow }>();
   let inputItems = 0;
   let toolLikeItems = 0;
   const latestUserIndex = Array.isArray(payload?.input)
@@ -339,6 +358,7 @@ function buildTurnContext(
           toolCallHints.set(callId, {
             toolName: typeof item.name === "string" ? item.name : undefined,
             path: extractPathHint(parseStructuredObject(item.arguments)),
+            readWindow: extractReadWindow(parseStructuredObject(item.arguments)),
           });
         }
       }
@@ -359,8 +379,9 @@ function buildTurnContext(
           item,
           field: "output",
           latestUserQuery: currentUserQuery,
-          path: callHint?.path,
-          toolName: callHint?.toolName,
+           path: callHint?.path,
+           toolName: callHint?.toolName,
+           readWindow: callHint?.readWindow,
         }));
         addBinding({
           segmentId: id,
@@ -378,8 +399,9 @@ function buildTurnContext(
           item,
           field: "content",
           latestUserQuery: currentUserQuery,
-          path: callHint?.path,
-          toolName: callHint?.toolName,
+           path: callHint?.path,
+           toolName: callHint?.toolName,
+           readWindow: callHint?.readWindow,
         }));
         addBinding({
           segmentId: id,
@@ -403,6 +425,7 @@ function buildTurnContext(
             latestUserQuery: currentUserQuery,
             path: callHint?.path,
             toolName: callHint?.toolName,
+            readWindow: callHint?.readWindow,
           }));
           addBinding({
             segmentId: id,
@@ -429,6 +452,7 @@ function buildTurnContext(
             latestUserQuery: currentUserQuery,
             path: callHint?.path,
             toolName: callHint?.toolName,
+            readWindow: callHint?.readWindow,
           }));
           addBinding({
             segmentId: id,

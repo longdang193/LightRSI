@@ -236,6 +236,21 @@ test("reduceToolPayloadText losslessly minifies unsafe numbers and duplicate key
   assert.equal(result.changed, true);
 });
 
+test("reduceToolPayloadText falls back to parsed JSON summary after lexical budget", () => {
+  const cfg = structuredClone(defaultCfg);
+  cfg.json.maxChars = 80;
+  const payload = JSON.stringify(Array.from({ length: 20 }, (_value, index) => ({
+    id: index,
+    message: `value-${index}-${"x".repeat(20)}`,
+  })), null, 2);
+
+  const result = reduceToolPayloadText(payload, "json", cfg);
+
+  assert.equal(result.route, "json_array");
+  assert.equal(result.changed, true);
+  assert.match(result.text, /"reduced": "json_array"/);
+});
+
 test("reduceToolPayloadText keeps late fatal log evidence after warning flood", () => {
   const payload = [
     ...Array.from({ length: 40 }, (_value, index) => `WARN progress ${index}`),
@@ -270,7 +285,8 @@ test("reduceToolPayloadText preserves deleted and renamed diff identity", () => 
 
   assert.match(result.text, /old\.ts -> new\.ts/);
   assert.match(result.text, /removed\.ts \(deleted\)/);
-  assert.match(result.text, /recoverable=true/);
+  assert.match(result.text, /lossy=true/);
+  assert.match(result.text, /recovery=archive_required/);
 });
 
 test("reduceToolPayloadText counts Windows search files and columns", () => {

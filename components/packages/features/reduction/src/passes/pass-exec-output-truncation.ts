@@ -5,6 +5,7 @@ import {
   buildArchiveLocation,
   buildRecoveryHint,
 } from "@lightrsi/artifact-store";
+import { isRecoveryExemptSegment } from "../reduction/recovery-exemptions.js";
 
 // =============================================================================
 // Per-Tool Threshold Configuration
@@ -163,6 +164,9 @@ const truncateExecOutput = async (
   config: ExecOutputTruncationConfig,
   workspaceDir?: string,
 ): Promise<TruncationResult> => {
+  if (isRecoveryExemptSegment(segment)) {
+    return { text: segment.text, changed: false };
+  }
   const meta = asObject(segment.metadata);
   const toolName = normalizeToolName(meta) ?? "exec";
   const dataKey = extractDataKey(meta) ?? "unknown";
@@ -214,6 +218,7 @@ const truncateExecOutput = async (
     originalText: fullText,
     workspaceDir,
     archiveDir: config.archiveDir,
+    archivePath,
     metadata: {
       threshold,
     },
