@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { performance } from "node:perf_hooks";
@@ -48,6 +49,7 @@ type UpstreamRequest = {
   providerUsage: ProviderUsage | null;
   providerLatencyMs: number | null;
   providerHeadersLatencyMs: number | null;
+  outputItemTypes: string[];
 };
 
 type ProviderUsage = {
@@ -67,6 +69,9 @@ type LiveOptions = {
 type TurnResult = {
   label: string;
   inputBytes: number;
+  inputItemCount: number;
+  historyPreparationMs: number;
+  serializationMs: number;
   timing: BenchmarkTimingSnapshot;
 };
 
@@ -83,10 +88,13 @@ type RunResult = {
   failure?: string;
 };
 
-type ProviderShape = {
+export type ProviderShape = {
   inputBytes: number;
+  inputFingerprint: string;
   userItemCount: number;
   replayableItemCount: number;
+  inputTypeCounts: Record<string, number>;
+  outputItemTypes: string[];
   providerLatencyMs: number | null;
   providerHeadersLatencyMs: number | null;
 };
@@ -163,7 +171,7 @@ async function startUpstream(): Promise<{
       response: { id: responseId, status: "completed" },
     })}data: [DONE]\n\n`);
     const finishedAt = performance.now();
-    requests.push({ body, inputBytes, startedAt, headersAt, firstChunkAt, finishedAt, providerUsage: null, providerLatencyMs: finishedAt - startedAt, providerHeadersLatencyMs: headersAt - startedAt });
+    requests.push({ body, inputBytes, startedAt, headersAt, firstChunkAt, finishedAt, providerUsage: null, providerLatencyMs: finishedAt - startedAt, providerHeadersLatencyMs: headersAt - startedAt, outputItemTypes: ["message"] });
   });
   const port = await reserveUnusedPort();
   await new Promise<void>((resolve, reject) => {
@@ -212,6 +220,7 @@ async function consumeProviderResponse(response: Response, request: UpstreamRequ
   }
   const decoder = new TextDecoder();
   let buffer = "";
+  const outputTypes = new Map<number, string>();
   while (true) {
     const next = await reader.read();
     if (next.done) break;
@@ -222,6 +231,12 @@ async function consumeProviderResponse(response: Response, request: UpstreamRequ
       if (!line.startsWith("data: ")) continue;
       try {
         const event = JSON.parse(line.slice(6)) as JsonObject;
+        if ((event.type === "response.output_item.added" || event.type === "response.output_item.done")
+          && typeof event.output_index === "number"
+          && event.item && typeof event.item === "object"
+          && typeof (event.item as JsonObject).type === "string") {
+          outputTypes.set(event.output_index, (event.item as JsonObject).type as string);
+        }
         if (typeof event.type === "string" && /output_text|content_part/iu.test(event.type) && !request.firstChunkAt) {
           request.firstChunkAt = performance.now();
         }
@@ -233,6 +248,9 @@ async function consumeProviderResponse(response: Response, request: UpstreamRequ
   }
   request.finishedAt = performance.now();
   request.providerLatencyMs = request.finishedAt - request.startedAt;
+  request.outputItemTypes = [...outputTypes.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, type]) => type);
 }
 
 function captureLiveProvider(baseUrl: string): {
@@ -258,6 +276,7 @@ function captureLiveProvider(baseUrl: string): {
       providerUsage: null,
       providerLatencyMs: null,
       providerHeadersLatencyMs: null,
+      outputItemTypes: [],
     };
     const response = await originalFetch(input, init);
     request.headersAt = performance.now();
@@ -316,11 +335,33 @@ function providerShape(request: UpstreamRequest): ProviderShape {
     : [];
   return {
     inputBytes: request.inputBytes,
+    inputFingerprint: createHash("sha256").update(JSON.stringify(input ?? request.body)).digest("hex"),
     userItemCount: items.filter((item) => item.role === "user").length,
     replayableItemCount: items.filter((item) => typeof item.type === "string").length,
+    inputTypeCounts: items.reduce<Record<string, number>>((counts, item) => {
+      if (typeof item.type === "string") counts[item.type] = (counts[item.type] ?? 0) + 1;
+      return counts;
+    }, {}),
+    outputItemTypes: request.outputItemTypes,
     providerLatencyMs: request.providerLatencyMs,
     providerHeadersLatencyMs: request.providerHeadersLatencyMs,
   };
+}
+
+export function providerShapesComparableBeforeRelease(
+  baselineLabels: readonly string[],
+  baselineShapes: readonly ProviderShape[] | null,
+  cleanerLabels: readonly string[],
+  cleanerShapes: readonly ProviderShape[] | null,
+): boolean {
+  if (!baselineShapes || !cleanerShapes) return true;
+  const baselineBoundary = baselineLabels.indexOf("after_release_a");
+  const cleanerBoundary = cleanerLabels.indexOf("after_release_a");
+  if (baselineBoundary < 0 || cleanerBoundary < 0 || baselineBoundary !== cleanerBoundary) return false;
+  for (let index = 0; index < baselineBoundary; index += 1) {
+    if (baselineShapes[index]?.inputFingerprint !== cleanerShapes[index]?.inputFingerprint) return false;
+  }
+  return true;
 }
 
 function assertMarker(text: string, marker: string, expected: boolean, label: string): void {
@@ -340,19 +381,24 @@ async function sendTurn(params: {
   durableCompletion?: () => Promise<void>;
 }): Promise<{ history: JsonObject[]; result: TurnResult }> {
   const timing = createBenchmarkTiming();
-  const input = [...params.history, { role: "user", content: params.content }];
   timing.mark("handlerStart");
+  const preparationStartedAt = performance.now();
+  const input = [...params.history, { role: "user", content: params.content }];
+  const historyPreparationMs = performance.now() - preparationStartedAt;
   timing.mark("bodyComplete");
+  const serializationStartedAt = performance.now();
+  const requestBody = JSON.stringify({
+    model: params.model,
+    stream: true,
+    metadata: { tokenpilotSessionId: params.sessionId },
+    input,
+  });
+  const serializationMs = performance.now() - serializationStartedAt;
   timing.mark("dispatchStart");
   const response = await fetch(`${params.runtime.baseUrl}/responses`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      model: params.model,
-      stream: true,
-      metadata: { tokenpilotSessionId: params.sessionId },
-      input,
-    }),
+    body: requestBody,
   });
   assert.equal(response.status, 200);
   timing.mark("upstreamHeaders");
@@ -414,6 +460,9 @@ async function sendTurn(params: {
     result: {
       label: params.label,
       inputBytes: Buffer.byteLength(JSON.stringify(input), "utf8"),
+      inputItemCount: input.length,
+      historyPreparationMs,
+      serializationMs,
       timing: timing.snapshot("streamed"),
     },
   };
@@ -617,10 +666,16 @@ function percentile(values: number[], rank: number): number | null {
 
 function summarize(runs: RunResult[]) {
   const values = runs.flatMap((run) => run.turns.map((turn) => turn.timing.durationsMs.handlerToFinish ?? 0));
+  const historyPreparation = runs.flatMap((run) => run.turns.map((turn) => turn.historyPreparationMs));
+  const serialization = runs.flatMap((run) => run.turns.map((turn) => turn.serializationMs));
   return {
     samples: values.length,
     p50HandlerToFinishMs: percentile(values, 0.5),
     p95HandlerToFinishMs: percentile(values, 0.95),
+    p50HistoryPreparationMs: percentile(historyPreparation, 0.5),
+    p95HistoryPreparationMs: percentile(historyPreparation, 0.95),
+    p50SerializationMs: percentile(serialization, 0.5),
+    p95SerializationMs: percentile(serialization, 0.95),
     incompleteRequests: runs.flatMap((run) => run.turns).filter((turn) => !turn.timing.complete).length,
     totalInputBytes: runs.reduce((total, run) => total + run.localInputBytes.reduce((sum, bytes) => sum + bytes, 0), 0),
   };
@@ -641,6 +696,12 @@ function pairedDifferences(runs: RunResult[]) {
       return {
         fixture: run.fixture,
         repetition: run.repetition,
+        measurementComparable: providerShapesComparableBeforeRelease(
+          baseline.turns.map((turn) => turn.label),
+          baseline.providerShape,
+          run.turns.map((turn) => turn.label),
+          run.providerShape,
+        ),
         turns: run.turns.map((turn) => {
           const baselineTurn = baselineTurns.get(turn.label);
           const cleanerMs = turn.timing.durationsMs.handlerToFinish;
@@ -653,7 +714,14 @@ function pairedDifferences(runs: RunResult[]) {
             inputBytesDelta: baselineTurn ? turn.inputBytes - baselineTurn.inputBytes : null,
           };
         }),
-        providerUsage: run.providerUsage && baseline.providerUsage
+        providerUsage: run.providerUsage
+          && baseline.providerUsage
+          && providerShapesComparableBeforeRelease(
+            baseline.turns.map((turn) => turn.label),
+            baseline.providerShape,
+            run.turns.map((turn) => turn.label),
+            run.providerShape,
+          )
           ? {
             inputTokensDelta: usageDelta(run.providerUsage, baseline.providerUsage, "inputTokens"),
             outputTokensDelta: usageDelta(run.providerUsage, baseline.providerUsage, "outputTokens"),
@@ -731,6 +799,7 @@ async function main(): Promise<void> {
       }
     }
   }
+  const differences = pairedDifferences(runs);
   const report = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -742,7 +811,14 @@ async function main(): Promise<void> {
     provider: liveOptions ? { host: new URL(liveOptions.baseUrl).hostname, model: liveOptions.model } : null,
     usage: mode === "live" ? "provider_response_usage_when_present" : "provider_usage_unavailable_for_mock_upstream",
     runs,
-    pairedDifferences: pairedDifferences(runs),
+    pairedDifferences: differences,
+    measurementComparability: {
+      pairs: differences.length,
+      comparablePairs: differences.filter((difference) => difference.measurementComparable).length,
+      incomparablePairs: differences
+        .filter((difference) => !difference.measurementComparable)
+        .map((difference) => `${difference.fixture}:${difference.repetition}`),
+    },
     summaryByArm: {
       baseline: summarize(runs.filter((run) => run.arm === "baseline")),
       cleaner: summarize(runs.filter((run) => run.arm === "cleaner")),

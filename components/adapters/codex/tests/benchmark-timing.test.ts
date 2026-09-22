@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createBenchmarkTiming } from "../src/benchmark-timing.js";
-import { userInputText } from "../scripts/benchmark-context-cleaner.js";
+import {
+  providerShapesComparableBeforeRelease,
+  userInputText,
+  type ProviderShape,
+} from "../scripts/benchmark-context-cleaner.js";
 
 test("summarizes flat request phases without summing overlaps", () => {
   let now = 100;
@@ -67,5 +71,38 @@ test("benchmark occurrence oracle ignores assistant echoes", () => {
       },
     } as never),
     '"RELEASE_A_short_noisy"',
+  );
+});
+
+test("benchmark rejects A/B pairs that diverge before Cleaner release", () => {
+  const shape = (inputFingerprint: string): ProviderShape => ({
+    inputBytes: 1,
+    inputFingerprint,
+    userItemCount: 1,
+    replayableItemCount: 1,
+    inputTypeCounts: {},
+    outputItemTypes: [],
+    providerLatencyMs: null,
+    providerHeadersLatencyMs: null,
+  });
+  const labels = ["retained", "release_a", "release_b", "after_release_a"];
+
+  assert.equal(
+    providerShapesComparableBeforeRelease(
+      labels,
+      [shape("same-1"), shape("same-2"), shape("same-3"), shape("cleaner")],
+      labels,
+      [shape("same-1"), shape("same-2"), shape("different"), shape("cleaner")],
+    ),
+    false,
+  );
+  assert.equal(
+    providerShapesComparableBeforeRelease(
+      labels,
+      [shape("same-1"), shape("same-2"), shape("same-3"), shape("baseline")],
+      labels,
+      [shape("same-1"), shape("same-2"), shape("same-3"), shape("cleaner")],
+    ),
+    true,
   );
 });
