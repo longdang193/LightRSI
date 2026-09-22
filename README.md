@@ -18,26 +18,29 @@
 
 ## 🌿 About This Fork
 
-An independently maintained [LightRSI](https://github.com/zjunlp/LightRSI) fork focused on reliable, cache-aware context management for long-running coding agents. It keeps the upstream LightRSI and TokenPilot foundation while adding agent-authorized occurrence release, provider-compatible forwarding, durable session recovery, Windows lifecycle hardening, and runtime observability.
+This independently maintained fork builds on [LightRSI](https://github.com/zjunlp/LightRSI) and its TokenPilot foundation, with a focus on dependable context management for long-running coding sessions. Codex gets agent-directed release of exact context occurrences; shared runtime work adds provider-compatible forwarding, durable recovery, Windows hardening, and measurable diagnostics.
 
 This is **not** a drop-in superset. It carries intentional product and architecture differences from upstream.
 
-| Area | Original LightRSI | This fork | Practical benefit |
+> **In short:** TokenPilot keeps useful context small. Context Cleaner lets the
+> agent release specific old messages and tool outputs when they are no longer useful.
+
+| Area | Original LightRSI | This fork | Why it matters |
 | :-- | :-- | :-- | :-- |
-| Context Cleaner | Task-oriented analysis and approval | Agent-authorized release of exact context occurrences with deterministic validation and durable recovery | Removes obsolete context without adding another semantic decision-maker |
-| Context lifecycle | Estimator- and task-state-based management | Session-scoped occurrence release with explicit ownership and safety checks | Less hidden state and fewer competing decisions |
-| Codex transport | Local Responses proxy and host integration | Transparent provider forwarding, legacy payload normalization, cache-breakpoint retry, nested cache-field handling, and cache telemetry | Fewer provider-specific failures without changing configured provider identity |
-| Long-session continuity | Shared runtime and adapter lifecycle behavior | Request/response journaling, replayable effective history, applied receipts, daemon ownership checks, and Windows watchdog recovery | Better restart recovery and diagnosis |
-| Claude Code | Host-facing Cleaner control surface | Gateway-first routing, shared CLI observability, MCP recovery, and session-start gateway recovery | Explicit capability boundary for local integration |
-| Validation | Upstream test suite | Targeted coverage for forwarding, journals, replay, cache telemetry, watchdogs, Cleaner execution, and adapter recovery | Regression risk stays visible while the fork evolves |
+| Context Cleaner | Groups context by task and asks for approval | Lets the agent release specific messages or tool outputs, then checks them before removal | Less obsolete context without hidden deletion decisions |
+| Context lifecycle | Estimator and task-state management | Session-scoped releases with clear ownership and safety checks | Easier to understand and recover |
+| Codex transport | Local Responses proxy | Preserves provider requests, handles older payloads, retries cache compatibility issues, and records cache usage | Fewer provider-specific failures |
+| Long sessions | Shared runtime lifecycle behavior | Journals requests and responses, replays history, and recovers the daemon after restart | Better continuity and diagnosis |
+| Claude Code | Host-facing Cleaner surface | Gateway routing, shared status/report/doctor commands, MCP recovery, and session-start recovery | Clearer local integration boundaries |
+| Validation | Upstream test suite | Targeted tests for forwarding, replay, cache usage, watchdogs, Cleaner execution, and recovery | Changes stay measurable and reviewable |
 
 Upstream attribution remains with [zjunlp/LightRSI](https://github.com/zjunlp/LightRSI); this fork is independently maintained and does not imply upstream endorsement.
 
-### Why keep this fork?
+### Why use this fork?
 
-- **Reliability over feature count:** prioritize stable forwarding, recovery, and replay paths used by real long-running sessions.
-- **Operational visibility:** expose `status`, `doctor`, `report`, cache audits, and browser visuals instead of hiding behavior inside adapter hooks.
-- **Host fit:** preserve each provider's wire payload and configured identity while adding local optimization around it.
+- **Reliable long sessions:** keep forwarding, history, and restart recovery predictable.
+- **Easy to inspect:** use `status`, `doctor`, `report`, cache audits, and browser visuals to see what the runtime is doing.
+- **Provider-friendly:** preserve each provider's request format and configured identity while adding local optimization.
 
 <span id='context-cleaner'/>
 
@@ -46,6 +49,8 @@ Upstream attribution remains with [zjunlp/LightRSI](https://github.com/zjunlp/Li
 Long-running coding agents accumulate completed investigations, obsolete tool output, and intermediate context that no longer contributes to the current task.
 
 This fork replaces Codex's live task-first Cleaner workflow with agent-directed, session-scoped occurrence pruning.
+
+Here, an **occurrence** means one specific message, tool result, or related context item.
 
 - **One decision owner:** the active agent selects what is no longer useful; Cleaner does not independently estimate task completion or select context for removal.
 - **Exact release:** each operation targets explicitly identified occurrences rather than broad task-level deletion.
@@ -56,20 +61,38 @@ TokenPilot optimizes how context is carried. Context Cleaner executes an agent's
 
 <span id='engineering-contributions'/>
 
-## 🛠️ Engineering Contributions
+## 🛠️ What Changed in This Fork
 
-| Contribution | Engineering significance |
-| :-- | :-- |
-| Redesigned Context Cleaner around exact, agent-authorized occurrence releases | Architecture, state management, safety |
-| Hardened Codex provider forwarding and runtime compatibility | API integration, protocol handling |
-| Implemented durable history and recovery mechanisms | Reliability, transaction semantics |
-| Strengthened Windows runtime and daemon lifecycle | Cross-platform systems engineering |
-| Added cache telemetry and reproducible A/B benchmarks | Performance analysis and observability |
+| What changed | Problem solved | Practical impact |
+| :-- | :-- | :-- |
+| Redesigned Codex Context Cleaner around agent-authorized occurrence release | Competing task-estimation and selection owners | Exact context release with deterministic safety checks |
+| Hardened provider forwarding and Responses compatibility | Provider routes and payload variations | More reliable interoperability |
+| Implemented durable session history and recovery | Runtime interruptions and continuation | Committed context decisions survive restart |
+| Strengthened Windows daemon and runtime lifecycle | Manual recovery after install or restart | Safer, lower-touch daily operation |
+| Built cache telemetry and reproducible A/B benchmarks | Unknown token, latency, and cache behavior | Evidence-based optimization |
 
-Implementation map: [`components/packages/features/cleaner`](./components/packages/features/cleaner), [`components/adapters/codex`](./components/adapters/codex), [`components/adapters/claude-code`](./components/adapters/claude-code), [`components/packages/features/stabilizer`](./components/packages/features/stabilizer), [`components/packages/features/reduction`](./components/packages/features/reduction), [`components/packages/foundation/host-adapter`](./components/packages/foundation/host-adapter), and [`components/adapters/codex/tests`](./components/adapters/codex/tests).
+Evidence: [`components/packages/features/cleaner`](./components/packages/features/cleaner), [`components/adapters/codex`](./components/adapters/codex), [`components/adapters/codex/tests`](./components/adapters/codex/tests), [`components/adapters/codex/scripts/benchmark-context-cleaner.ts`](./components/adapters/codex/scripts/benchmark-context-cleaner.ts), and [`docs/superpowers/plans/2026-09-22-context-cleaner-benchmark-plan.md`](./docs/superpowers/plans/2026-09-22-context-cleaner-benchmark-plan.md).
+
+<span id='fork-validation'/>
+
+## 🧪 How We Validate It
+
+This fork includes targeted regression tests and reproducible benchmarks for
+Codex forwarding, occurrence release, session continuation, recovery, and cache
+behavior.
+
+Cleaner validation covers cumulative continuation, repeated releases, retained
+context, and proxy restart. Performance measurements capture forwarded payload
+size, provider-reported usage when available, and request timing.
+
+Initial live Cleaner A/B runs do not establish consistent provider-token or
+latency savings. Those results guide further optimization; they do not support
+a fork-specific cost-reduction claim yet.
+
+The following results are inherited from upstream TokenPilot research, not
+measurements of this fork:
 
 <p align="center">
-  <em>Inherited upstream TokenPilot research results:</em><br>
   <strong><span style="font-size:1.35em;">95.7% fewer input tokens</span></strong>
 &nbsp;&nbsp;|&nbsp;&nbsp;
   <strong><span style="font-size:1.35em;">87.0% lower cost</span></strong><br>
@@ -84,22 +107,6 @@ Implementation map: [`components/packages/features/cleaner`](./components/packag
 </p>
 
 Fork-specific performance claims should use the reproducible scripts under [`components/adapters/codex/scripts`](./components/adapters/codex/scripts) and [`components/packages/features/stabilizer/scripts`](./components/packages/features/stabilizer/scripts).
-
-<span id='fork-validation'/>
-
-## 🧪 Fork Validation and Performance
-
-This fork includes targeted regression tests and reproducible benchmarks for
-Codex forwarding, occurrence release, session continuation, recovery, and cache
-behavior.
-
-Cleaner validation covers cumulative continuation, repeated releases, retained
-context, and proxy restart. Performance measurements capture forwarded payload
-size, provider-reported usage when available, and request timing.
-
-Initial live Cleaner A/B runs do not establish consistent provider-token or
-latency savings. Those results guide further optimization; they do not support
-a fork-specific cost-reduction claim yet.
 
 See the benchmark scripts under [`components/adapters/codex/scripts`](./components/adapters/codex/scripts)
 and the recorded results under [`docs/superpowers/plans`](./docs/superpowers/plans).
@@ -123,8 +130,8 @@ LightRSI separates reusable improvement capabilities from shared runtime infrast
 
 * <a href='#fork'>🌿 About This Fork</a>
 * <a href='#context-cleaner'>🧹 Agent-Directed Context Cleaner</a>
-* <a href='#engineering-contributions'>🛠️ Engineering Contributions</a>
-* <a href='#fork-validation'>🧪 Fork Validation and Performance</a>
+* <a href='#engineering-contributions'>🛠️ What Changed in This Fork</a>
+* <a href='#fork-validation'>🧪 How We Validate It</a>
 * <a href='#news'>📢 News</a>
 * <a href='#installation'>🔧 Installation</a>
 * <a href='#quickstart'>⚡ Quick Start</a>
@@ -354,6 +361,10 @@ lightrsi codex clean --cancel <plan-id>
 
 The active agent owns the release decision. LightRSI validates and records the
 selection, then applies committed exclusions during later continuation.
+
+The release file contains exact occurrence IDs, fingerprints, completion
+evidence, and retained findings generated during inspection. Releases must target
+the trusted active Codex session.
 
 Install starts the local proxy immediately. If doctor still reports `proxy healthy: no`, use the manual fallback:
 
