@@ -372,6 +372,7 @@ export type ContextCleanExecutionSnapshot = {
   snapshot: ModelContextSnapshot;
   activeTaskIds: readonly string[];
   evictableTaskIds: readonly string[];
+  committedExcludedItemIds?: readonly string[];
   taskIntents?: Readonly<Record<string, {
     retentionDecision?: TaskRetentionDecision;
     dependencyDirection?: TaskDependencyDirection;

@@ -563,6 +563,9 @@ export function createCodexContextCleanerBridge(params: {
       });
     },
     async executeApprovedClean(request) {
+      if ((request.occurrenceSelections?.length ?? 0) > 0 && !params.boundSessionId) {
+        throw new Error("codex_clean_approval_session_binding_required");
+      }
       if (params.boundSessionId && params.boundSessionId !== request.sessionId) {
         throw new Error("codex_clean_approval_session_binding_mismatch");
       }

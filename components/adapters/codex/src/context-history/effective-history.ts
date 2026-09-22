@@ -1,6 +1,11 @@
 import { buildTurnAbsId } from "@lightrsi/history";
 import { readCodexContextHistoryJournalRecoveringTail } from "./journal-append.js";
-import { codexReplayabilityForItem, codexReplayPairRef } from "./replayability.js";
+import {
+  codexReplayabilityForItem,
+  codexReplayPairRef,
+  codexForwardingMetadata,
+  codexStripForwardingMetadata,
+} from "./replayability.js";
 import { cloneJson, hashJson } from "./shared.js";
 import type {
   CodexContextHistoryJournalEntry,
@@ -109,6 +114,10 @@ function modelVisibleInputItems(turn: CommittedTurn): JsonObject[] {
     ?? turn.request.entry.inputItems;
 }
 
+function originalInputItems(turn: CommittedTurn): JsonObject[] {
+  return turn.request.entry.inputItems;
+}
+
 function cumulativeItemKey(item: JsonObject): string {
   const type = typeof item.type === "string"
     ? item.type
@@ -128,7 +137,12 @@ function cumulativeItemsMatchPrefix(
   previousOutputItems: JsonObject[],
 ): boolean {
   const inputKeys = inputItems.map(cumulativeItemKey);
-  if (new Set(inputKeys).size !== inputKeys.length) return false;
+  if (new Set(inputKeys).size !== inputKeys.length) {
+    const forwardingIds = inputItems.map((item) => codexForwardingMetadata(item)?.stableIdentity);
+    if (forwardingIds.some((value) => !value) || new Set(forwardingIds).size !== forwardingIds.length) {
+      return false;
+    }
+  }
   return [previousInputItems, [...previousInputItems, ...previousOutputItems]].some((expectedPrefix) => {
     if (inputItems.length <= expectedPrefix.length) return false;
     const prefixKeys = expectedPrefix.map(cumulativeItemKey);
@@ -175,8 +189,8 @@ function buildCumulativeCommittedChain(params: {
       return { used: true, chain: [], complete: false };
     }
     if (!cumulativeItemsMatchPrefix(
-      modelVisibleInputItems(current),
-      modelVisibleInputItems(previous),
+      originalInputItems(current),
+      originalInputItems(previous),
       previous.response.entry.outputItems,
     )) {
       return { used: true, chain: [], complete: false };
@@ -313,15 +327,15 @@ function buildCumulativeOccurrenceIdentities(params: {
   let previousOutputIdentities: string[] = [];
 
   for (const turn of params.chain) {
-    const inputItems = modelVisibleInputItems(turn);
+    const sourceInputItems = originalInputItems(turn);
     const previousSequence = [...previousInputItems, ...previousOutputItems];
     const previousIdentities = [...previousInputIdentities, ...previousOutputIdentities];
-    const reusesFullPrefix = inputItems.length > previousSequence.length
-      && inputItems.slice(0, previousSequence.length).every((item, index) => (
+    const reusesFullPrefix = sourceInputItems.length > previousSequence.length
+      && sourceInputItems.slice(0, previousSequence.length).every((item, index) => (
         cumulativeItemKey(item) === cumulativeItemKey(previousSequence[index]!)
       ));
-    const reusesInputPrefix = inputItems.length > previousInputItems.length
-      && inputItems.slice(0, previousInputItems.length).every((item, index) => (
+    const reusesInputPrefix = sourceInputItems.length > previousInputItems.length
+      && sourceInputItems.slice(0, previousInputItems.length).every((item, index) => (
         cumulativeItemKey(item) === cumulativeItemKey(previousInputItems[index]!)
       ));
     const reusedPrefixLength = reusesFullPrefix
@@ -329,7 +343,7 @@ function buildCumulativeOccurrenceIdentities(params: {
       : reusesInputPrefix
         ? previousInputItems.length
         : 0;
-    const inputIdentities = inputItems.map((item, itemOrdinal) => {
+    const inputIdentities = sourceInputItems.map((item, itemOrdinal) => {
       const identity = itemOrdinal < reusedPrefixLength
         ? previousIdentities[itemOrdinal]!
         : itemIdentity({
@@ -347,8 +361,25 @@ function buildCumulativeOccurrenceIdentities(params: {
       ), identity);
       return identity;
     });
+    const visibleInputItems = modelVisibleInputItems(turn);
+    let sourceCursor = -1;
+    visibleInputItems.forEach((item, itemOrdinal) => {
+      const sourceIndex = sourceInputItems.findIndex((sourceItem, index) => (
+        index > sourceCursor
+        && cumulativeItemKey(sourceItem) === cumulativeItemKey(item)
+      ));
+      if (sourceIndex >= 0) {
+        sourceCursor = sourceIndex;
+        identities.set(cumulativeOccurrenceKey(
+          turn.request.entry.turnOrdinal,
+          "input",
+          itemOrdinal,
+        ),
+        inputIdentities[sourceIndex]!);
+      }
+    });
     const outputIdentities = turn.response.entry.outputItems.map((item, itemOrdinal) => {
-      const cumulativePosition = inputIdentities.length + itemOrdinal;
+      const cumulativePosition = sourceInputItems.length + itemOrdinal;
       const identity = itemIdentity({
         item,
         sessionId: params.sessionId,
@@ -364,7 +395,7 @@ function buildCumulativeOccurrenceIdentities(params: {
       ), identity);
       return identity;
     });
-    previousInputItems = inputItems;
+    previousInputItems = sourceInputItems;
     previousInputIdentities = inputIdentities;
     previousOutputItems = turn.response.entry.outputItems;
     previousOutputIdentities = outputIdentities;
@@ -374,7 +405,7 @@ function buildCumulativeOccurrenceIdentities(params: {
 }
 
 function turnAttributionKey(item: JsonObject): string {
-  const normalized = cloneJson(item);
+  const normalized = cloneJson(codexStripForwardingMetadata(item));
   delete normalized.id;
   if (!["program_output", "tool_search_call", "tool_search_output"].includes(
     String(normalized.type ?? "").toLowerCase(),

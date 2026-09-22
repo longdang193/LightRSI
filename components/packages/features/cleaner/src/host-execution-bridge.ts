@@ -102,6 +102,8 @@ function validExecutionSnapshot(value: ContextCleanExecutionSnapshot): boolean {
     || !uniqueNonBlankStringArray([...value.evictableTaskIds])) return false;
   const activeTaskIds = new Set(value.activeTaskIds);
   if (value.evictableTaskIds.some((taskId) => activeTaskIds.has(taskId))) return false;
+  if (value.committedExcludedItemIds !== undefined
+    && !uniqueNonBlankStringArray([...value.committedExcludedItemIds])) return false;
   if (value.taskIntents !== undefined && typeof value.taskIntents !== "object") return false;
 
   const stableIds = new Set<string>();
@@ -169,18 +171,19 @@ function buildMutationPlan(params: {
   );
   const operationTaskIds = params.occurrenceSet.sourceTaskIds.length > 0
     ? params.occurrenceSet.sourceTaskIds
-    : targetItemIds;
+    : undefined;
+  const operationScopeIdentity = operationTaskIds ?? targetItemIds;
   const operations: ContextMutationOperation[] = [{
     id: digestId("ctxcleanop", {
       cleanPlanId: params.record.plan.planId,
-      taskIds: operationTaskIds,
+      taskIds: operationScopeIdentity,
       targetItemIds,
       targetItemFingerprints,
     }),
     type: "remove",
     targetItemIds,
     targetItemFingerprints,
-    taskIds: operationTaskIds,
+    ...(operationTaskIds ? { taskIds: operationTaskIds } : {}),
     rationale: "user_approved_context_clean",
     estimatedSavedChars: 0,
   }];
@@ -385,9 +388,11 @@ async function prepareScheduledClean(params: {
       .map((selection) => [selection.stableId, selection]),
   );
   const approvedOccurrenceIds = new Set(occurrenceSet.occurrences.map((occurrence) => occurrence.stableId));
+  const committedExcludedItemIds = new Set(current.committedExcludedItemIds ?? []);
   const finalRetainedFindingReferences = current.snapshot.items
     .map((item) => item.stableId)
-    .filter((stableId) => !approvedOccurrenceIds.has(stableId));
+    .filter((stableId) => !approvedOccurrenceIds.has(stableId)
+      && !committedExcludedItemIds.has(stableId));
   for (const occurrence of occurrenceSet.occurrences) {
     const planTask = stored.record.plan.tasks.find((candidate) => candidate.itemIds.includes(occurrence.stableId));
     const safety = evaluateContextCleanOccurrence({
