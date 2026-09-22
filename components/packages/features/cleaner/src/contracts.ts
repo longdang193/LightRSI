@@ -60,6 +60,7 @@ export type ContextCleanExecutionClaim = {
   hostId: string;
   sessionId: string;
   selectedTaskIds: string[];
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
   mutationPlanId: string;
   analysisRevision: string;
   executionRevision: string;
@@ -363,6 +364,7 @@ export type ContextCleanExecutionRequest = {
   sessionId: string;
   baseRevision: string;
   selectedTaskIds: string[];
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
 };
 
 /** Canonical, Host-neutral state used to validate a scheduled clean. */
@@ -450,6 +452,7 @@ export type FinalizeContextCleanScheduleParams = {
   sessionId: string;
   baseRevision: string;
   selectedTaskIds: string[];
+  occurrenceSelections?: ContextCleanOccurrenceSelection[];
   scheduledAt: string;
   evidence?: ContextCleanEvidence;
 };

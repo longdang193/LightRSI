@@ -35,6 +35,10 @@ export interface ContextCleanerControlService {
   ): Promise<ContextCleanAttributionSubmissionResult>;
 }
 
+function canonicalSelections(selections: readonly ContextCleanOccurrenceSelection[]): ContextCleanOccurrenceSelection[] {
+  return selections.map((selection) => ({ ...selection })).sort((left, right) => left.stableId.localeCompare(right.stableId));
+}
+
 export function createContextCleanerControlPlane(params: {
   stateDir: string;
   now?: () => string;
@@ -103,26 +107,13 @@ export function createContextCleanerControlService(params: {
       return params.bridge.executeApprovedClean(request);
     },
     async releaseOccurrences(sessionId, selections) {
+      const canonical = canonicalSelections(selections);
       const plan = await prepareContextCleanOccurrenceRelease({
         stateDir: params.stateDir,
         bridge: params.bridge,
         sessionId,
-        selections,
+        selections: canonical,
       });
-      return params.bridge.executeApprovedClean({
-        schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
-        cleanPlanId: plan.planId,
-        hostId: plan.hostId,
-        sessionId: plan.sessionId,
-        baseRevision: plan.baseRevision,
-        approvedAt: params.now?.() ?? new Date().toISOString(),
-        selectedTaskIds: selections.map((selection) => "occurrence:" + selection.stableId),
-        occurrenceSelections: selections.map((selection) => ({ ...selection })),
-      });
-    },
-    async approveOccurrences(planId, selections) {
-      const plan = await this.readPlan(planId);
-      if (!plan) throw new Error("clean_plan_missing");
       return params.bridge.executeApprovedClean({
         schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
         cleanPlanId: plan.planId,
@@ -131,7 +122,22 @@ export function createContextCleanerControlService(params: {
         baseRevision: plan.baseRevision,
         approvedAt: params.now?.() ?? new Date().toISOString(),
         selectedTaskIds: [],
-        occurrenceSelections: selections.map((selection) => ({ ...selection })),
+        occurrenceSelections: canonical,
+      });
+    },
+    async approveOccurrences(planId, selections) {
+      const plan = await this.readPlan(planId);
+      if (!plan) throw new Error("clean_plan_missing");
+      const canonical = canonicalSelections(selections);
+      return params.bridge.executeApprovedClean({
+        schemaVersion: CONTEXT_CLEAN_SCHEMA_VERSION,
+        cleanPlanId: plan.planId,
+        hostId: plan.hostId,
+        sessionId: plan.sessionId,
+        baseRevision: plan.baseRevision,
+        approvedAt: params.now?.() ?? new Date().toISOString(),
+        selectedTaskIds: [],
+        occurrenceSelections: canonical,
       });
     },
     async readReceipt(planId) {

@@ -86,7 +86,7 @@ test("occurrence approval persists frozen evidence, including explicit nothingRe
       },
     });
     assert.equal(receipt.status, "approved");
-    assert.deepEqual(receipt.selectedTaskIds, ["item-a"]);
+    assert.deepEqual(receipt.selectedTaskIds, []);
     assert.equal(receipt.estimatedSavedChars, 120);
     const stored = await readContextCleanReceipt({ stateDir, planId: analyzed.plan.planId });
     assert.deepEqual(stored.value?.evidence?.occurrenceSelections, receipt.evidence?.occurrenceSelections);
@@ -123,7 +123,7 @@ test("occurrence approval persists frozen evidence, including explicit nothingRe
 test("direct occurrence release creates internal evidence without task analysis", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-cleaner-direct-release-"));
   try {
-    let executionRequest: { cleanPlanId: string; selectedTaskIds: string[] } | undefined;
+    let executionRequest: { cleanPlanId: string; selectedTaskIds: string[]; occurrenceSelections?: unknown[] } | undefined;
     const bridge = {
       hostId: "codex" as const,
       rewriteMode: "response_chain_rebase" as const,
@@ -137,7 +137,7 @@ test("direct occurrence release creates internal evidence without task analysis"
           tokenCountMethod: "fixture",
         };
       },
-      async executeApprovedClean(request: { cleanPlanId: string; selectedTaskIds: string[] }) {
+      async executeApprovedClean(request: { cleanPlanId: string; selectedTaskIds: string[]; occurrenceSelections?: unknown[] }) {
         executionRequest = request;
         return {
           ...({
@@ -163,7 +163,12 @@ test("direct occurrence release creates internal evidence without task analysis"
     }]);
     assert.equal(receipt.status, "approved");
     assert.ok(executionRequest?.cleanPlanId);
-    assert.deepEqual(executionRequest?.selectedTaskIds, ["occurrence:item-a"]);
+    assert.deepEqual(executionRequest?.selectedTaskIds, []);
+    assert.deepEqual(executionRequest?.occurrenceSelections, [{
+      stableId: "item-a", fingerprint: "digest-a", completionEvidence: ["completed"],
+      continuingUseful: false, releaseIntent: "release", retainedFindings: [],
+      nothingReusable: true, dependencyDirection: "none",
+    }]);
     const plan = await service.readPlan(executionRequest!.cleanPlanId);
     assert.deepEqual(plan?.tasks, []);
     assert.equal(plan?.occurrenceDigests?.["item-a"], "digest-a");

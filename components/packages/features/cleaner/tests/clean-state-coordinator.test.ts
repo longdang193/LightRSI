@@ -15,6 +15,7 @@ import {
   recoverContextCleanState,
   saveContextCleanPlan,
   transitionContextCleanState,
+  type ContextCleanPendingReceipt,
 } from "../src/index.js";
 import { approveContextCleanSelection, finalizeContextCleanSchedule } from "../src/orchestrator.js";
 import { saveContextCleanReceipt } from "../src/clean-receipt-store.js";
@@ -210,6 +211,47 @@ test("schedule retry replays later outcome without changing receipt", async () =
     });
     assert.equal(approved.status, "approved");
     assert.deepEqual(retry, first);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("cancellation preserves approved occurrence evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lightrsi-clean-cancel-occurrence-"));
+  try {
+    const plan = samplePlan();
+    await saveContextCleanPlan({ stateDir: root, plan });
+    const occurrenceSelection = {
+      stableId: "item-a",
+      fingerprint: "digest-a",
+      completionEvidence: ["completed"],
+      continuingUseful: false,
+      releaseIntent: "release" as const,
+      retainedFindings: [],
+      nothingReusable: true,
+      dependencyDirection: "none" as const,
+    };
+    const approved: ContextCleanPendingReceipt = {
+      ...(sampleReceipt("approved") as ContextCleanPendingReceipt),
+      selectedTaskIds: [],
+      evidence: { occurrenceSelections: [occurrenceSelection] },
+    };
+    await transitionContextCleanState({ stateDir: root, receipt: approved });
+    await transitionContextCleanState({
+      stateDir: root,
+      receipt: {
+        ...approved,
+        status: "scheduled",
+        updatedAt: "2026-08-20T00:01:00.000Z",
+      },
+    });
+
+    const cancelled = await cancelContextCleanPlan({
+      stateDir: root,
+      planId: plan.planId,
+      now: "2026-08-20T00:02:00.000Z",
+    });
+
+    assert.equal(cancelled.status, "cancelled");
+    assert.deepEqual(cancelled.evidence?.occurrenceSelections, [occurrenceSelection]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

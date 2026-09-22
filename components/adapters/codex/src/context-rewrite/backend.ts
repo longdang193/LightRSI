@@ -32,6 +32,7 @@ export type CodexSharedBackendRequest = {
   taskIdsByItemId?: Record<string, string[]>;
   activeTaskIds?: string[];
   evictableTaskIds?: string[];
+  taskPolicy?: "lifecycle" | "manual";
 };
 
 export type CodexSharedBackendMetadata = {
@@ -41,6 +42,7 @@ export type CodexSharedBackendMetadata = {
   replayableItemIds: string[];
   activeTaskIds: string[];
   evictableTaskIds: string[];
+  taskPolicy: "lifecycle" | "manual";
 };
 
 export type CodexSharedBackendDetails = {
@@ -147,7 +149,8 @@ export function buildCodexContextSnapshot(
           : "response_chain",
       replayableItemIds: history.replayableItems.map((entry) => entry.stableItemId),
       activeTaskIds: normalizedStrings(request.activeTaskIds),
-      evictableTaskIds: normalizedStrings(request.evictableTaskIds),
+    evictableTaskIds: normalizedStrings(request.evictableTaskIds),
+    taskPolicy: request.taskPolicy ?? "lifecycle",
     },
   };
 }
@@ -268,6 +271,16 @@ export const codexSharedContextRewriteBackend: CodexSharedContextRewriteBackend 
         continue;
       }
       for (const itemId of operation.targetItemIds) claimedItemIds.add(itemId);
+    }
+
+    if (metadata.taskPolicy === "lifecycle") {
+      for (const operation of plan.operations) {
+        if (!candidates.has(operation.id)) continue;
+        const operationTaskIds = new Set(normalizedStrings(operation.taskIds));
+        if ([...operationTaskIds].some((taskId) => metadata.activeTaskIds.includes(taskId))) {
+          defer(operation.id, "active_task_targeted");
+        }
+      }
     }
 
     const closure = validateContextMutationProtocolClosure({

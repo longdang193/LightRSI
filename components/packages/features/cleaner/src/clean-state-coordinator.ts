@@ -43,6 +43,14 @@ function sameApprovalFacts(left: ContextCleanReceipt, right: ContextCleanReceipt
   return sameCanonicalValue(leftFacts, rightFacts);
 }
 
+function sameTargets(left: ContextCleanReceipt, right: ContextCleanReceipt): boolean {
+  return sameCanonicalValue(left.selectedTaskIds, right.selectedTaskIds)
+    && sameCanonicalValue(
+      left.evidence?.occurrenceSelections ?? [],
+      right.evidence?.occurrenceSelections ?? [],
+    );
+}
+
 async function abortIntent(stateDir: string, planId: string): Promise<void> {
   await unlink(contextCleanTransactionFilePath(stateDir, planId)).catch(() => undefined);
 }
@@ -159,7 +167,7 @@ export async function transitionContextCleanApproval(params: {
             || current.value.status === "applied")
             && (current.value.status === "approved"
               ? sameApprovalFacts(current.value, params.receipt)
-              : sameStrings(current.value.selectedTaskIds, params.receipt.selectedTaskIds))) {
+              : sameTargets(current.value, params.receipt))) {
             return { outcome: "unchanged", value: current.value, bypassed: false, reasons: [] };
           }
           if (current.value.status === "approved") {
@@ -208,7 +216,7 @@ export async function transitionContextCleanSchedule(params: {
         if (current.bypassed) return { outcome: "bypassed", bypassed: true, reasons: current.reasons };
         if (current.value && current.value.status !== "approved") {
           if ((current.value.status === "scheduled" || current.value.status === "applied")
-            && sameStrings(current.value.selectedTaskIds, params.receipt.selectedTaskIds)) {
+            && sameTargets(current.value, params.receipt)) {
             return { outcome: "unchanged", value: current.value, bypassed: false, reasons: [] };
           }
           return { outcome: "conflict", value: current.value, bypassed: true,
@@ -266,6 +274,7 @@ export async function cancelContextCleanState(params: {
           reasons: ["cancelled_by_user"],
           updatedAt: params.now,
           fallbackUsed: false,
+          ...(current.value?.evidence ? { evidence: current.value.evidence } : {}),
         };
         const result = await transitionContextCleanStateUnlocked({ stateDir: params.stateDir, receipt });
         if (result.bypassed) return { outcome: "bypassed", bypassed: true, reasons: result.reasons };

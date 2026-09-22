@@ -118,6 +118,7 @@ function terminalReceipt(
     ...pendingReceipt("scheduled"),
     status,
     fallbackUsed: status === "failed",
+    reasons: [`${status}_by_test`],
   };
 }
 
@@ -196,7 +197,7 @@ test("real Codex cleaner composition schedules approved plans", async () => {
   });
 });
 
-test("Codex cleaner bridge preserves approved targets and control-plane receipts", async () => {
+test("Codex cleaner bridge terminalizes local schedule on cancellation", async () => {
   await withTempState(async (stateDir) => {
   let captured: ExecuteApprovedContextCleanParams | undefined;
   const applied = appliedReceipt();
@@ -239,11 +240,12 @@ test("Codex cleaner bridge preserves approved targets and control-plane receipts
   });
   assert.strictEqual(await bridge.cancelCleanPlan(request.cleanPlanId), cancelled);
   const stored = await readCodexCleanerSchedule({ stateDir, sessionId: request.sessionId });
-  assert.equal(stored.outcome, "ready");
-  if (stored.outcome === "ready") {
+  assert.equal(stored.outcome, "terminal");
+  if (stored.outcome === "terminal") {
     assert.equal(stored.record.cleanPlanId, request.cleanPlanId);
     assert.equal(stored.record.baseRevision, request.baseRevision);
     assert.deepEqual(stored.record.selectedTaskIds, ["task-1"]);
+    assert.equal(stored.record.receiptStatus, "cancelled");
   }
   });
 });
@@ -580,7 +582,8 @@ test("Codex cleaner accepts exact agent-directed release without registry or est
       dependencyDirection: "none",
     }]);
     assert.equal(receipt.status, "scheduled");
-    assert.deepEqual(receipt.selectedTaskIds, [target.stableId]);
+    assert.deepEqual(receipt.selectedTaskIds, []);
+    assert.deepEqual(receipt.evidence?.occurrenceSelections?.map((selection) => selection.stableId), [target.stableId]);
   });
 });
 

@@ -178,10 +178,12 @@ function buildForwardedInput(params: {
   inputFormat?: "response_chain" | "cumulative";
 }): ForwardedInputResult {
   const currentInput = normalizedCurrentInput(params.currentInput);
+  const committedExcluded = new Set(params.effectiveHistory.committedExcludedItemIds ?? []);
   if (params.inputFormat !== "cumulative") {
     const currentInputKeys = new Set(currentInput.map(stableInputKey));
     const retainedHistory = params.effectiveHistory.replayableItems
-      .filter((entry) => !params.evicted.has(entry.stableItemId))
+      .filter((entry) => !params.evicted.has(entry.stableItemId)
+        && !committedExcluded.has(entry.stableItemId))
       .map((entry) => stripServerOwnedResponsesFields(entry.item))
       .filter((item) => !currentInputKeys.has(stableInputKey(item)));
     return { items: [...retainedHistory, ...currentInput], reasons: [] };
@@ -189,11 +191,15 @@ function buildForwardedInput(params: {
 
   const removedIndexes = new Set<number>();
   const reasons: string[] = [];
+  const excluded = new Set([
+    ...params.evicted,
+    ...committedExcluded,
+  ]);
   const correspondence = cumulativeCorrespondence({
     historyItems: params.effectiveHistory.replayableItems,
     currentInput,
   });
-  for (const stableItemId of params.evicted) {
+  for (const stableItemId of excluded) {
     const historyEntry = params.effectiveHistory.replayableItems.find(
       (entry) => entry.stableItemId === stableItemId,
     );
@@ -205,6 +211,7 @@ function buildForwardedInput(params: {
     }
     const key = stableInputKey(historyEntry.item);
     const currentHasKey = currentInput.some((item) => stableInputKey(item) === key);
+    if (committedExcluded.has(stableItemId) && !currentHasKey) continue;
     reasons.push(currentHasKey
       ? `cumulative_occurrence_ambiguous:${key}`
       : `mutation_target_missing_in_current_input:${stableItemId}`);

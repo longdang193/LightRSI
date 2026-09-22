@@ -1,6 +1,7 @@
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
   CONTEXT_CLEAN_ATTRIBUTION_SUBMISSION_SCHEMA_VERSION,
+  sameCanonicalValue,
   type ContextCleanAttributionSubmission,
   type ContextCleanAttributionSubmissionResult,
   type ContextCleanerControlPlane,
@@ -41,7 +42,10 @@ import { buildCodexLifecycleBackendRequest } from "../context-rewrite/lifecycle-
 import {
   loadCodexSessionSnapshot,
 } from "../session-state.js";
-import { scheduleCodexCleanerPlan } from "./scheduler.js";
+import {
+  appendCodexCleanerTerminal,
+  scheduleCodexCleanerPlan,
+} from "./scheduler.js";
 import { listCodexCleanerSessions } from "./session-catalog.js";
 
 const CODEX_HOST_ID = "codex";
@@ -153,9 +157,10 @@ function validateApprovedRequest(request: ExecuteApprovedContextCleanParams): st
     || (request.selectedTaskIds.length === 0 && occurrenceIds.length === 0)) {
     throw new Error("codex_clean_approval_invalid");
   }
-  const taskIds = normalizedUniqueStrings([...request.selectedTaskIds, ...occurrenceIds]);
-  if (!taskIds) throw new Error("codex_clean_approval_invalid");
-  return taskIds;
+  const taskIds = normalizedUniqueStrings(request.selectedTaskIds);
+  if (request.selectedTaskIds.length > 0 && !taskIds) throw new Error("codex_clean_approval_invalid");
+  if (new Set(occurrenceIds).size !== occurrenceIds.length) throw new Error("codex_clean_approval_invalid");
+  return taskIds ?? [];
 }
 
 function isSchedulingControlPlane(
@@ -170,6 +175,7 @@ function validateReceipt(params: {
   planId: string;
   sessionId?: string;
   selectedTaskIds?: string[];
+  occurrenceSelections?: ExecuteApprovedContextCleanParams["occurrenceSelections"];
 }): ContextCleanReceipt {
   const { receipt } = params;
   const selectedTaskIds = normalizedUniqueStrings(receipt.selectedTaskIds);
@@ -178,7 +184,7 @@ function validateReceipt(params: {
     || receipt.planId !== params.planId
     || (params.sessionId !== undefined && receipt.sessionId !== params.sessionId)
     || !canonicalTimestamp(receipt.updatedAt)
-    || !selectedTaskIds
+    || selectedTaskIds === undefined
     || !validReceiptState(receipt)) {
     throw new Error("codex_clean_receipt_mismatch");
   }
@@ -189,6 +195,13 @@ function validateReceipt(params: {
       || expected.some((taskId, index) => taskId !== actual[index])) {
       throw new Error("codex_clean_receipt_mismatch");
     }
+  }
+  if (params.occurrenceSelections !== undefined
+    && !sameCanonicalValue(
+      params.occurrenceSelections,
+      receipt.evidence?.occurrenceSelections ?? [],
+    )) {
+    throw new Error("codex_clean_receipt_mismatch");
   }
   return receipt;
 }
@@ -553,9 +566,6 @@ export function createCodexContextCleanerBridge(params: {
       if (params.boundSessionId && params.boundSessionId !== request.sessionId) {
         throw new Error("codex_clean_approval_session_binding_mismatch");
       }
-      if (!params.boundSessionId && request.selectedTaskIds.some((id) => id.startsWith("occurrence:"))) {
-        throw new Error("codex_clean_approval_session_binding_untrusted");
-      }
       const selectedTaskIds = validateApprovedRequest(request);
       if (isSchedulingControlPlane(params.controlPlane)) {
         const approved = validateReceipt({
@@ -563,6 +573,7 @@ export function createCodexContextCleanerBridge(params: {
           planId: request.cleanPlanId,
           sessionId: request.sessionId,
           selectedTaskIds,
+          occurrenceSelections: request.occurrenceSelections,
         });
         if (approved.status !== "approved") return approved;
         const scheduled = await scheduleCodexCleanerPlan({
@@ -571,6 +582,7 @@ export function createCodexContextCleanerBridge(params: {
           cleanPlanId: request.cleanPlanId,
           baseRevision: request.baseRevision,
           selectedTaskIds,
+          occurrenceSelections: request.occurrenceSelections,
           scheduledAt: approved.updatedAt,
         });
         if (scheduled.outcome !== "stored" && scheduled.outcome !== "unchanged") {
@@ -583,12 +595,14 @@ export function createCodexContextCleanerBridge(params: {
             sessionId: request.sessionId,
             baseRevision: request.baseRevision,
             selectedTaskIds,
+            occurrenceSelections: request.occurrenceSelections,
             scheduledAt: approved.updatedAt,
             evidence: approved.evidence,
           }),
           planId: request.cleanPlanId,
           sessionId: request.sessionId,
           selectedTaskIds,
+          occurrenceSelections: request.occurrenceSelections,
         });
       }
       const receipt = validateReceipt({
@@ -596,6 +610,7 @@ export function createCodexContextCleanerBridge(params: {
         planId: request.cleanPlanId,
         sessionId: request.sessionId,
         selectedTaskIds,
+        occurrenceSelections: request.occurrenceSelections,
       });
       if (receipt.status === "scheduled") {
         const scheduled = await scheduleCodexCleanerPlan({
@@ -604,6 +619,7 @@ export function createCodexContextCleanerBridge(params: {
           cleanPlanId: request.cleanPlanId,
           baseRevision: request.baseRevision,
           selectedTaskIds,
+          occurrenceSelections: request.occurrenceSelections,
           scheduledAt: receipt.updatedAt,
         });
         if (scheduled.outcome !== "stored" && scheduled.outcome !== "unchanged") {
@@ -619,10 +635,24 @@ export function createCodexContextCleanerBridge(params: {
     },
     async cancelCleanPlan(planId) {
       if (!planId.trim()) throw new Error("codex_clean_plan_id_invalid");
-      return validateReceipt({
+      const receipt = validateReceipt({
         receipt: await params.controlPlane.cancelCleanPlan(planId),
         planId,
       });
+      if (receipt.status === "stale" || receipt.status === "cancelled" || receipt.status === "failed") {
+        const terminal = await appendCodexCleanerTerminal({
+          stateDir: params.stateDir,
+          sessionId: receipt.sessionId,
+          cleanPlanId: receipt.planId,
+          receiptStatus: receipt.status,
+          reasons: receipt.reasons,
+          updatedAt: receipt.updatedAt,
+        });
+        if (!["transitioned", "unchanged", "missing"].includes(terminal.outcome)) {
+          throw new Error(`codex_clean_schedule_terminal_failed:${terminal.reasons.join(",")}`);
+        }
+      }
+      return receipt;
     },
   };
 }

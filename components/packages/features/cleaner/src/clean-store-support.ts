@@ -230,7 +230,11 @@ export function parseContextCleanExecutionClaim(
   if (!isRecord(value) || value.schemaVersion !== CONTEXT_CLEAN_EXECUTION_CLAIM_SCHEMA_VERSION
     || !isNonBlankString(value.claimId) || !isNonBlankString(value.planId)
     || !isNonBlankString(value.hostId) || !isNonBlankString(value.sessionId)
-    || !uniqueStrings(value.selectedTaskIds) || !isNonBlankString(value.mutationPlanId)
+    || !Array.isArray(value.selectedTaskIds)
+    || !value.selectedTaskIds.every(isNonBlankString)
+    || new Set(value.selectedTaskIds).size !== value.selectedTaskIds.length
+    || (!value.occurrenceSelections && value.selectedTaskIds.length === 0)
+    || !isNonBlankString(value.mutationPlanId)
     || !isNonBlankString(value.analysisRevision) || !isNonBlankString(value.executionRevision)
     || !isNonBlankString(value.ownerToken) || !isIsoTimestamp(value.claimedAt)
     || !DISPATCH_STATES.has(value.dispatchState as ContextCleanDispatchState)) return undefined;
@@ -240,7 +244,8 @@ export function parseContextCleanExecutionClaim(
     planId: value.planId,
     hostId: value.hostId,
     sessionId: value.sessionId,
-    selectedTaskIds: [...value.selectedTaskIds],
+     selectedTaskIds: [...value.selectedTaskIds],
+     ...(value.occurrenceSelections ? { occurrenceSelections: value.occurrenceSelections as ContextCleanOccurrenceSelection[] } : {}),
     mutationPlanId: value.mutationPlanId,
     analysisRevision: value.analysisRevision,
     executionRevision: value.executionRevision,

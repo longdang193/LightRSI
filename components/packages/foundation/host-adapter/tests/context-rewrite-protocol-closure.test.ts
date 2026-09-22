@@ -180,7 +180,7 @@ test("defers tasks with orphaned or duplicate protocol items", () => {
   ]);
 });
 
-test("defers an operation spanning active and evictable tasks", () => {
+test("structural closure does not apply lifecycle task eligibility", () => {
   const validation = validateContextMutationProtocolClosure({
     snapshot: snapshot([
       item("active", "user", { taskIds: ["active-task"] }),
@@ -195,11 +195,9 @@ test("defers an operation spanning active and evictable tasks", () => {
     evictableTaskIds: ["evictable-task"],
   });
 
-  assert.deepEqual(validation.applicableOperationIds, []);
-  assert.deepEqual(validation.deferredOperationIds, ["remove-mixed"]);
-  assert.deepEqual(validation.reasons, [
-    "operation:remove-mixed:active_evictable_task_overlap",
-  ]);
+  assert.deepEqual(validation.applicableOperationIds, ["remove-mixed"]);
+  assert.deepEqual(validation.deferredOperationIds, []);
+  assert.deepEqual(validation.reasons, []);
 });
 
 test("defers targeted protocol items without a call id", () => {
@@ -243,7 +241,7 @@ test("validates only candidates that survived structural revalidation", () => {
   });
 });
 
-test("defers active-only task targets", () => {
+test("structural closure allows active-only task targets", () => {
   const validation = validateContextMutationProtocolClosure({
     snapshot: snapshot([
       item("active-message", "assistant", { taskIds: ["active-task"] }),
@@ -253,14 +251,12 @@ test("defers active-only task targets", () => {
     evictableTaskIds: [],
   });
 
-  assert.deepEqual(validation.applicableOperationIds, []);
-  assert.deepEqual(validation.deferredOperationIds, ["remove-active"]);
-  assert.deepEqual(validation.reasons, [
-    "operation:remove-active:active_task_targeted",
-  ]);
+  assert.deepEqual(validation.applicableOperationIds, ["remove-active"]);
+  assert.deepEqual(validation.deferredOperationIds, []);
+  assert.deepEqual(validation.reasons, []);
 });
 
-test("Cleaner structural closure can ignore lifecycle task policy", () => {
+test("structural closure keeps active task metadata out of protocol policy", () => {
   const validation = validateContextMutationProtocolClosure({
     snapshot: snapshot([
       item("active-message", "assistant", { taskIds: ["active-task"] }),
@@ -268,7 +264,6 @@ test("Cleaner structural closure can ignore lifecycle task policy", () => {
     plan: plan([remove("remove-active", ["active-message"], ["active-task"])]),
     activeTaskIds: ["active-task"],
     evictableTaskIds: [],
-    enforceTaskPolicy: false,
   });
 
   assert.deepEqual(validation, {
