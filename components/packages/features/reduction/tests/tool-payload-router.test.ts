@@ -221,6 +221,74 @@ test("reduceToolPayloadText groups search results by file", () => {
   assert.match(result.text, /\[search results reduced\]/);
 });
 
+test("reduceToolPayloadText losslessly minifies unsafe numbers and duplicate keys", () => {
+  const cfg = structuredClone(defaultCfg);
+  cfg.json.maxChars = 500;
+  const payload = `{
+    "value": 9007199254740993,
+    "value": "duplicate stays",
+    "message": "${"keep ".repeat(24)}"
+  }`;
+
+  const result = reduceToolPayloadText(payload, "json", cfg);
+
+  assert.equal(result.text, `{"value":9007199254740993,"value":"duplicate stays","message":"${"keep ".repeat(24)}"}`);
+  assert.equal(result.changed, true);
+});
+
+test("reduceToolPayloadText keeps late fatal log evidence after warning flood", () => {
+  const payload = [
+    ...Array.from({ length: 40 }, (_value, index) => `WARN progress ${index}`),
+    "FATAL deployment failed after timeout",
+    "    at deploy (/app/deploy.js:99:4)",
+  ].join("\n");
+
+  const result = reduceToolPayloadText(payload, "stderr", defaultCfg);
+
+  assert.match(result.text, /FATAL deployment failed after timeout/);
+});
+
+test("reduceToolPayloadText preserves deleted and renamed diff identity", () => {
+  const payload = [
+    "diff --git a/old.ts b/new.ts",
+    "similarity index 95%",
+    "rename from old.ts",
+    "rename to new.ts",
+    "diff --git a/removed.ts b/removed.ts",
+    "deleted file mode 100644",
+    "--- a/removed.ts",
+    "+++ /dev/null",
+    "@@ -1,3 +0,0 @@",
+    "-removed line",
+    "-another removed line",
+  ].join("\n").repeat(5);
+
+  const result = reduceToolPayloadText(payload, "stdout", defaultCfg, {
+    toolName: "git_diff",
+    payloadKind: "stdout",
+  });
+
+  assert.match(result.text, /old\.ts -> new\.ts/);
+  assert.match(result.text, /removed\.ts \(deleted\)/);
+  assert.match(result.text, /recoverable=true/);
+});
+
+test("reduceToolPayloadText counts Windows search files and columns", () => {
+  const payload = [
+    "C:\\repo\\src\\app.ts:10:4: first match",
+    "C:\\repo\\src\\app.ts:20: second match",
+    "D:\\repo\\src\\other.ts:3:1: warning match",
+  ].join("\n").repeat(4);
+
+  const result = reduceToolPayloadText(payload, "stdout", defaultCfg);
+
+  assert.match(result.text, /C:\\repo\\src\\app\.ts/);
+  assert.match(result.text, /10:4:/);
+  assert.match(result.text, /total_files=2/);
+  assert.match(result.text, /displayed_matches=/);
+  assert.match(result.text, /omitted_matches=/);
+});
+
 test("reduceToolPayloadText keeps important log lines", () => {
   const payload = [
     "npm test",

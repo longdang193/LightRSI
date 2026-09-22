@@ -1,5 +1,5 @@
 import type { ContextSegment } from "@lightrsi/kernel";
-import type { ReductionPassHandler } from "../reduction/types.js";
+import type { DeepReadonly, ImmutableReductionPassHandler } from "../reduction/types.js";
 
 type HtmlSlimmingOptions = {
   enabled?: boolean;
@@ -67,22 +67,23 @@ const sanitizeHtml = (text: string, whitelist: Set<string>): string => {
 };
 
 const reduceSegments = (
-  segments: ContextSegment[],
+  segments: ReadonlyArray<DeepReadonly<ContextSegment>>,
   whitelist: Set<string>,
 ): { segments: ContextSegment[]; touchedSegmentIds: string[] } => {
   const touched: string[] = [];
   const next = segments.map((segment) => {
-    if (!isHtmlSegment(segment.text)) return segment;
+    if (!isHtmlSegment(segment.text)) return { ...segment } as ContextSegment;
     const trimmed = segment.text;
     const sanitized = sanitizeHtml(trimmed, whitelist);
-    if (sanitized === trimmed) return segment;
+    if (sanitized === trimmed) return { ...segment } as ContextSegment;
     touched.push(segment.id);
     return { ...segment, text: sanitized };
   });
   return { segments: next, touchedSegmentIds: touched };
 };
 
-export const htmlSlimmingPass: ReductionPassHandler = {
+export const htmlSlimmingPass: ImmutableReductionPassHandler = {
+  immutableInput: true,
   beforeCall({ turnCtx, spec }) {
     const options = resolveOptions(spec.options);
     if (!options.enabled) {

@@ -1,4 +1,4 @@
-import type { ReductionPassHandler } from "../reduction/types.js";
+import type { ImmutableReductionPassHandler } from "../reduction/types.js";
 import {
   stripEmptyLines,
   stripHtmlComments,
@@ -61,7 +61,8 @@ const applyFormatCleaning = (
   };
 };
 
-export const formatCleaningPass: ReductionPassHandler = {
+export const formatCleaningPass: ImmutableReductionPassHandler = {
+  immutableInput: true,
   afterCall({ currentResult, spec, turnCtx }) {
     // Check if policy provided instructions for this strategy
     const policy = asObject(turnCtx.metadata?.policy);

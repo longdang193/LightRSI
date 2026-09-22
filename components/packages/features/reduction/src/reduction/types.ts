@@ -30,6 +30,14 @@ export type ReductionPassSpec = {
   options?: Record<string, unknown>;
 };
 
+export type DeepReadonly<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends readonly (infer Item)[]
+    ? ReadonlyArray<DeepReadonly<Item>>
+    : T extends object
+      ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
+      : T;
+
 export type ReductionBeforeCallContext = {
   turnCtx: RuntimeTurnContext;
   spec: ReductionPassSpec;
@@ -51,6 +59,18 @@ export type ReductionAfterCallContext = {
   spec: ReductionPassSpec;
 };
 
+export type ImmutableReductionBeforeCallContext = {
+  turnCtx: DeepReadonly<RuntimeTurnContext>;
+  spec: DeepReadonly<ReductionPassSpec>;
+};
+
+export type ImmutableReductionAfterCallContext = {
+  turnCtx: DeepReadonly<RuntimeTurnContext>;
+  originalResult: DeepReadonly<RuntimeTurnResult>;
+  currentResult: DeepReadonly<RuntimeTurnResult>;
+  spec: DeepReadonly<ReductionPassSpec>;
+};
+
 export type ReductionAfterCallOutcome = {
   changed: boolean;
   result?: RuntimeTurnResult;
@@ -66,6 +86,16 @@ export type ReductionPassHandler = {
   ): Promise<ReductionBeforeCallOutcome> | ReductionBeforeCallOutcome;
   afterCall?(
     ctx: ReductionAfterCallContext,
+  ): Promise<ReductionAfterCallOutcome> | ReductionAfterCallOutcome;
+};
+
+export type ImmutableReductionPassHandler = Omit<ReductionPassHandler, "immutableInput" | "beforeCall" | "afterCall"> & {
+  immutableInput: true;
+  beforeCall?(
+    ctx: ImmutableReductionBeforeCallContext,
+  ): Promise<ReductionBeforeCallOutcome> | ReductionBeforeCallOutcome;
+  afterCall?(
+    ctx: ImmutableReductionAfterCallContext,
   ): Promise<ReductionAfterCallOutcome> | ReductionAfterCallOutcome;
 };
 

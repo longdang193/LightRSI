@@ -1,5 +1,5 @@
 import type { ContextSegment, RuntimeTurnContext } from "@lightrsi/kernel";
-import type { ReductionPassHandler } from "../reduction/types.js";
+import type { DeepReadonly, ImmutableReductionPassHandler } from "../reduction/types.js";
 import {
   archiveContent,
   buildArchiveLocation,
@@ -118,10 +118,10 @@ const normalizePayloadKind = (value: unknown): ToolPayloadKind | undefined => {
 };
 
 const reduceSegment = (
-  segment: ContextSegment,
+  segment: DeepReadonly<ContextSegment>,
   cfg: ToolPayloadTrimConfig,
   payloadKind: ToolPayloadKind,
-  turnCtx: RuntimeTurnContext,
+  turnCtx: DeepReadonly<RuntimeTurnContext>,
   readStateBySegmentId: Map<string, "fresh" | "superseded" | "stale">,
   previouslyReadPaths: Set<string>,
 ) => {
@@ -168,7 +168,7 @@ const reduceSegment = (
 const asObject = (value: unknown): Record<string, unknown> | undefined =>
   !value || typeof value !== "object" || Array.isArray(value) ? undefined : value as Record<string, unknown>;
 
-const extractDataKey = (segment: ContextSegment): string => {
+const extractDataKey = (segment: DeepReadonly<ContextSegment>): string => {
   const meta = asObject(segment.metadata);
   const toolPayload = asObject(meta?.toolPayload);
   const candidates = [
@@ -187,7 +187,7 @@ const extractDataKey = (segment: ContextSegment): string => {
   return `segment:${segment.id}`;
 };
 
-const extractToolName = (segment: ContextSegment): string => {
+const extractToolName = (segment: DeepReadonly<ContextSegment>): string => {
   const meta = asObject(segment.metadata);
   const toolPayload = asObject(meta?.toolPayload);
   const candidates = [
@@ -229,7 +229,8 @@ const isRecoveryExemptSegment = (segment: ContextSegment): boolean => {
   return isRecoveryText(segment.text);
 };
 
-export const toolPayloadTrimPass: ReductionPassHandler = {
+export const toolPayloadTrimPass: ImmutableReductionPassHandler = {
+  immutableInput: true,
   async beforeCall({ turnCtx, spec }) {
     const cfg = resolveConfig(spec.options);
 

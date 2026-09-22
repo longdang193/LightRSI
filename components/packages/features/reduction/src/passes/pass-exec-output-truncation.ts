@@ -1,7 +1,8 @@
 import type { ContextSegment, RuntimeTurnContext } from "@lightrsi/kernel";
-import type { ReductionPassHandler } from "../reduction/types.js";
+import type { DeepReadonly, ImmutableReductionPassHandler } from "../reduction/types.js";
 import {
   archiveContent,
+  buildArchiveLocation,
   buildRecoveryHint,
 } from "@lightrsi/artifact-store";
 
@@ -157,7 +158,7 @@ type TruncationResult = {
 };
 
 const truncateExecOutput = async (
-  segment: ContextSegment,
+  segment: DeepReadonly<ContextSegment>,
   sessionId: string,
   config: ExecOutputTruncationConfig,
   workspaceDir?: string,
@@ -176,18 +177,11 @@ const truncateExecOutput = async (
     return { text: segment.text, changed: false };
   }
 
-  const { archivePath } = await archiveContent({
+  const { archivePath } = buildArchiveLocation({
     sessionId,
     segmentId: segment.id,
-    sourcePass: "exec_output_truncation",
-    toolName,
-    dataKey,
-    originalText: segment.text,
     workspaceDir,
     archiveDir: config.archiveDir,
-    metadata: {
-      threshold,
-    },
   });
 
   const fullText = segment.text;
@@ -207,6 +201,24 @@ const truncateExecOutput = async (
     config.tailPreviewSize,
   );
 
+  if (truncatedStub.length >= fullText.length) {
+    return { text: fullText, changed: false };
+  }
+
+  await archiveContent({
+    sessionId,
+    segmentId: segment.id,
+    sourcePass: "exec_output_truncation",
+    toolName,
+    dataKey,
+    originalText: fullText,
+    workspaceDir,
+    archiveDir: config.archiveDir,
+    metadata: {
+      threshold,
+    },
+  });
+
   return {
     text: truncatedStub,
     changed: true,
@@ -219,7 +231,8 @@ const truncateExecOutput = async (
 // Pass Handler
 // =============================================================================
 
-export const execOutputTruncationPass: ReductionPassHandler = {
+export const execOutputTruncationPass: ImmutableReductionPassHandler = {
+  immutableInput: true,
   afterCall({ turnCtx, currentResult, spec }) {
     const config = resolveConfig(spec.options);
 
@@ -283,7 +296,7 @@ export const execOutputTruncationPass: ReductionPassHandler = {
 
 // Also support beforeCall for segment truncation
 const updateSegments = async (
-  turnCtx: RuntimeTurnContext,
+  turnCtx: DeepReadonly<RuntimeTurnContext>,
   config: ExecOutputTruncationConfig,
   segmentIds: Set<string>,
 ): Promise<{
@@ -304,7 +317,7 @@ const updateSegments = async (
 
   for (const segment of turnCtx.segments) {
     if (!segmentIds.has(segment.id)) {
-      nextSegments.push(segment);
+      nextSegments.push(segment as unknown as ContextSegment);
       continue;
     }
 
@@ -334,12 +347,14 @@ const updateSegments = async (
         },
       });
     } else {
-      nextSegments.push(segment);
+      nextSegments.push(segment as unknown as ContextSegment);
     }
   }
 
   return {
-    turnCtx: touchedSegmentIds.length === 0 ? turnCtx : { ...turnCtx, segments: nextSegments },
+    turnCtx: touchedSegmentIds.length === 0
+      ? turnCtx as unknown as RuntimeTurnContext
+      : { ...turnCtx, segments: nextSegments } as RuntimeTurnContext,
     touchedSegmentIds,
     archivePaths,
     totalSavedChars,
@@ -347,7 +362,8 @@ const updateSegments = async (
 };
 
 // Add beforeCall handler for segment truncation
-export const execOutputTruncationBeforeCall: ReductionPassHandler = {
+export const execOutputTruncationBeforeCall: ImmutableReductionPassHandler = {
+  immutableInput: true,
   async beforeCall({ turnCtx, spec }) {
     const config = resolveConfig(spec.options);
 

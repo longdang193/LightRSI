@@ -14,7 +14,7 @@ import { loadCodexSessionSnapshot } from "./session-state.js";
 type SegmentBinding = {
   segmentId: string;
   itemIndex: number;
-  field: "content" | "arguments" | "output";
+  field: "content" | "output";
   blockIndex?: number;
   blockKey?: "text" | "content";
   toolName?: string;
@@ -369,25 +369,6 @@ function buildTurnContext(
           toolName: callHint?.toolName ?? (typeof item?.name === "string" ? item.name : undefined),
         });
       }
-      if (typeof item.arguments === "string") {
-        const id = `input-${itemIndex}-arguments`;
-        segments.push(segmentForText({
-          id,
-          text: item.arguments,
-          source: "responses.input.arguments",
-          item,
-          field: "arguments",
-          latestUserQuery: currentUserQuery,
-          path: callHint?.path,
-          toolName: callHint?.toolName,
-        }));
-        addBinding({
-          segmentId: id,
-          itemIndex,
-          field: "arguments",
-          toolName: callHint?.toolName ?? (typeof item?.name === "string" ? item.name : undefined),
-        });
-      }
       if (typeof item.content === "string") {
         const id = `input-${itemIndex}-content`;
         segments.push(segmentForText({
@@ -427,6 +408,32 @@ function buildTurnContext(
             segmentId: id,
             itemIndex,
             field: "content",
+            blockIndex,
+            blockKey,
+            toolName: callHint?.toolName ?? (typeof item?.name === "string" ? item.name : undefined),
+          });
+        });
+      }
+      if (Array.isArray(item.output)) {
+        item.output.forEach((block: any, blockIndex: number) => {
+          if (!block || typeof block !== "object") return;
+          const blockKey = typeof block.text === "string" ? "text" : typeof block.content === "string" ? "content" : undefined;
+          if (!blockKey) return;
+          const id = `input-${itemIndex}-output-${blockIndex}-${blockKey}`;
+          segments.push(segmentForText({
+            id,
+            text: block[blockKey],
+            source: `responses.input.output.${blockKey}`,
+            item,
+            field: "output",
+            latestUserQuery: currentUserQuery,
+            path: callHint?.path,
+            toolName: callHint?.toolName,
+          }));
+          addBinding({
+            segmentId: id,
+            itemIndex,
+            field: "output",
             blockIndex,
             blockKey,
             toolName: callHint?.toolName ?? (typeof item?.name === "string" ? item.name : undefined),
@@ -739,6 +746,39 @@ export async function applyBeforeCallReductionToPayload(params: {
     };
   }
   const segmentMap = new Map(reducedCtx.segments.map((segment) => [segment.id, segment]));
+  const stagedItems = new Map<number, any>();
+  const stagedArrays = new Map<string, any[]>();
+  const stagedBlocks = new Map<string, any>();
+  const stageItem = (itemIndex: number): any => {
+    const existing = stagedItems.get(itemIndex);
+    if (existing) return existing;
+    const next = { ...payload.input[itemIndex] };
+    stagedItems.set(itemIndex, next);
+    return next;
+  };
+  const stageArray = (itemIndex: number, field: "content" | "output"): any[] | undefined => {
+    const key = `${itemIndex}:${field}`;
+    const existing = stagedArrays.get(key);
+    if (existing) return existing;
+    const source = payload.input[itemIndex]?.[field];
+    if (!Array.isArray(source)) return undefined;
+    const next = source.slice();
+    stageItem(itemIndex)[field] = next;
+    stagedArrays.set(key, next);
+    return next;
+  };
+  const stageBlock = (itemIndex: number, field: "content" | "output", blockIndex: number): any => {
+    const key = `${itemIndex}:${field}:${blockIndex}`;
+    const existing = stagedBlocks.get(key);
+    if (existing) return existing;
+    const blocks = stageArray(itemIndex, field);
+    const source = blocks?.[blockIndex];
+    if (!source || typeof source !== "object") return undefined;
+    const next = { ...source };
+    blocks![blockIndex] = next;
+    stagedBlocks.set(key, next);
+    return next;
+  };
   let changedBlocks = 0;
   let savedChars = 0;
   const changedItems = new Set<number>();
@@ -766,30 +806,19 @@ export async function applyBeforeCallReductionToPayload(params: {
     const item = nextInput[binding.itemIndex];
     if (!item || typeof item !== "object") continue;
     let before = "";
-    if (binding.field === "output" || binding.field === "arguments") {
+    const stagedItem = stageItem(binding.itemIndex);
+    if (binding.blockIndex === undefined) {
       if (typeof item[binding.field] !== "string" || item[binding.field] === segment.text) continue;
       before = item[binding.field];
-      ensureItemCopy(binding.itemIndex)[binding.field] = segment.text;
-    } else if (binding.blockIndex === undefined) {
-      if (typeof item.content !== "string" || item.content === segment.text) continue;
-      before = item.content;
-      ensureItemCopy(binding.itemIndex).content = segment.text;
+      stagedItem[binding.field] = segment.text;
     } else {
-      const block = Array.isArray(item.content) ? item.content[binding.blockIndex] : null;
-      if (!block || typeof block !== "object" || !binding.blockKey) continue;
-      if (typeof block[binding.blockKey] !== "string" || block[binding.blockKey] === segment.text) continue;
-      before = block[binding.blockKey];
-      const nextItem = ensureItemCopy(binding.itemIndex);
-      if (!copiedContentArrays.has(binding.itemIndex)) {
-        nextItem.content = nextItem.content.slice();
-        copiedContentArrays.add(binding.itemIndex);
-      }
-      const blockKey = `${binding.itemIndex}:${binding.blockIndex}`;
-      if (!copiedBlocks.has(blockKey)) {
-        nextItem.content[binding.blockIndex] = { ...nextItem.content[binding.blockIndex] };
-        copiedBlocks.add(blockKey);
-      }
-      nextItem.content[binding.blockIndex][binding.blockKey] = segment.text;
+      if (!binding.blockKey) continue;
+      const sourceBlock = item[binding.field]?.[binding.blockIndex];
+      if (typeof sourceBlock?.[binding.blockKey] !== "string" || sourceBlock[binding.blockKey] === segment.text) continue;
+      const block = stageBlock(binding.itemIndex, binding.field, binding.blockIndex);
+      if (!block || typeof block !== "object") continue;
+      before = sourceBlock[binding.blockKey];
+      block[binding.blockKey] = segment.text;
     }
     changedBlocks += 1;
     changedItems.add(binding.itemIndex);
@@ -808,7 +837,12 @@ export async function applyBeforeCallReductionToPayload(params: {
       report: report.filter((entry) => entry.changed && entry.touchedSegmentIds?.includes(binding.segmentId)),
     });
   }
-    if (changedBlocks > 0) payload.input = nextInput;
+  if (changedItems.size > 0) {
+    const stagedInput = payload.input.slice();
+    for (const [itemIndex, item] of stagedItems) stagedInput[itemIndex] = item;
+    payload.input = stagedInput;
+    if (payload.input !== stagedInput) throw new Error("codex reduction input publication rejected");
+  }
     return {
       changedItems: changedItems.size,
       changedBlocks,

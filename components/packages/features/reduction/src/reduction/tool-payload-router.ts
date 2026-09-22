@@ -63,15 +63,21 @@ function scaleBlockConfig(
 type SearchMatch = {
   file: string;
   lineNumber: number;
+  columnNumber?: number;
   content: string;
   score: number;
 };
 
 type DiffFileSummary = {
   file: string;
+  oldFile?: string;
+  newFile?: string;
+  status?: string;
   additions: number;
   deletions: number;
   hunks: number;
+  hunkHeaders: string[];
+  metadata: string[];
   preview: string[];
 };
 
@@ -86,10 +92,10 @@ type CodeOutlineEntry = {
   docLine?: string;
 };
 
-const SEARCH_LINE_RE = /^(.+?):(\d+)(?::|-)(.*)$/;
 const LOG_IMPORTANCE_RE = /\b(error|warn(?:ing)?|failed|exception|traceback|panic|fatal|denied|timeout)\b/i;
 const STACK_TRACE_RE = /^\s*(at\s+\S+\s+\(|Traceback \(most recent call last\):|Caused by:|File ".*", line \d+)/;
 const DIFF_FILE_RE = /^\+\+\+ b\/(.+)$/;
+const DIFF_GIT_RE = /^diff --git a\/(.+) b\/(.+)$/;
 const DIFF_HUNK_RE = /^@@/;
 const DIFF_CHANGE_RE = /^[+-][^+-]/;
 const CODE_IMPORT_RE = /^\s*(import\s.+|from\s+\S+\s+import\s+.+|const\s+\w+\s*=\s*require\(.+\)|using\s+\S+.*)$/;
@@ -199,6 +205,25 @@ function summarizeJsonText(text: string, cfg: PayloadBlockConfig): string {
   return summarizeJsonTextWithContext(text, cfg);
 }
 
+function minifyJsonLossless(text: string): string | undefined {
+  let inString = false;
+  let escaped = false;
+  let output = "";
+  for (const character of text) {
+    if (inString) {
+      output += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (/\s/.test(character)) continue;
+    output += character;
+    if (character === '"') inString = true;
+  }
+  return inString ? undefined : output;
+}
+
 function summarizeJsonTextWithContext(
   text: string,
   cfg: PayloadBlockConfig,
@@ -207,7 +232,8 @@ function summarizeJsonTextWithContext(
 ): string {
   try {
     const parsed = parsedOverride ?? JSON.parse(text);
-    const minified = JSON.stringify(parsed);
+    const minified = minifyJsonLossless(text);
+    if (!minified) return summarizeLineBlock(text, "json", cfg);
     if (minified.length <= cfg.maxChars) {
       return minified;
     }
@@ -263,8 +289,18 @@ function summarizeWebResultJson(
   const answer = typeof obj.answer === "string" ? obj.answer : undefined;
   if (!results && !answer) return undefined;
 
-  const previewResults = (results ?? [])
-    .map((item) => {
+  const selectedResultIndices = Array.isArray(results)
+    ? selectJsonArrayAnchorIndices(results, {
+        maxItems: Math.max(1, Math.min(cfg.maxItems, 5)),
+        pattern: "search_results",
+        queryText: context?.queryText,
+        dedupIdenticalItems: true,
+        useInformationDensity: true,
+      })
+    : [];
+
+  const anchoredResultsPreview = selectedResultIndices.map((index) => {
+      const item = results?.[index];
       if (!item || typeof item !== "object" || Array.isArray(item)) {
         return summarizeJsonValue(item, 1, cfg.maxDepth, cfg.maxItems, cfg.maxPreviewChars);
       }
@@ -279,18 +315,6 @@ function summarizeWebResultJson(
             : undefined,
       };
     });
-
-  const selectedResultIndices = Array.isArray(results)
-    ? selectJsonArrayAnchorIndices(results, {
-        maxItems: Math.max(1, Math.min(cfg.maxItems, 5)),
-        pattern: "search_results",
-        queryText: context?.queryText,
-        dedupIdenticalItems: true,
-        useInformationDensity: true,
-      })
-    : [];
-
-  const anchoredResultsPreview = selectedResultIndices.map((index) => previewResults[index]);
 
   return JSON.stringify({
     reduced: "web_result_json",
@@ -323,17 +347,18 @@ function summarizeBlobText(text: string, cfg: PayloadBlockConfig): string {
 function parseSearchMatches(text: string): SearchMatch[] {
   const matches: SearchMatch[] = [];
   for (const line of text.split("\n")) {
-    const match = line.match(SEARCH_LINE_RE);
+    const match = line.match(/^(.+?):(\d+)(?::(\d+))?\s*(?:-|:)\s*(.*)$/);
     if (!match) continue;
     const file = match[1].trim();
     const lineNumber = Number.parseInt(match[2], 10);
-    const content = match[3].trim();
+    const columnNumber = match[3] ? Number.parseInt(match[3], 10) : undefined;
+    const content = match[4].trim();
     if (!file || !Number.isFinite(lineNumber)) continue;
     let score = 1;
     if (LOG_IMPORTANCE_RE.test(content)) score += 3;
     if (/todo|fixme|bug|error|fail|warning/i.test(content)) score += 2;
     if (content.length > 120) score += 1;
-    matches.push({ file, lineNumber, content, score });
+    matches.push({ file, lineNumber, columnNumber, content, score });
   }
   return matches;
 }
@@ -370,39 +395,61 @@ function summarizeSearchResults(text: string, cfg: PayloadBlockConfig): string {
     const selected = [...selectedMap.values()].sort((a, b) => a.lineNumber - b.lineNumber);
     lines.push(`${file} (${fileMatches.length} matches)`);
     for (const item of selected) {
-      lines.push(`  ${item.lineNumber}: ${clipText(item.content, cfg.maxPreviewChars)}`);
+      const location = item.columnNumber == null
+        ? `${item.lineNumber}`
+        : `${item.lineNumber}:${item.columnNumber}`;
+      lines.push(`  ${location}: ${clipText(item.content, cfg.maxPreviewChars)}`);
     }
   }
-  const omittedMatches = Math.max(0, matches.length - rankedFiles.reduce((sum, entry) => sum + entry[1].length, 0));
-  lines.push(`[search results reduced] kept ${rankedFiles.length} files / ${matches.length - omittedMatches} matches, omitted ${omittedMatches} matches`);
+  const displayedMatches = rankedFiles.reduce((sum, [, fileMatches]) => {
+    const selected = new Map<number, SearchMatch>();
+    const first = fileMatches.reduce((min, item) => item.lineNumber < min.lineNumber ? item : min, fileMatches[0]);
+    const last = fileMatches.reduce((max, item) => item.lineNumber > max.lineNumber ? item : max, fileMatches[0]);
+    selected.set(first.lineNumber, first);
+    selected.set(last.lineNumber, last);
+    for (const item of [...fileMatches]
+      .sort((a, b) => b.score - a.score || a.lineNumber - b.lineNumber)
+      .slice(0, Math.max(1, Math.min(2, cfg.keepHeadLines)))) {
+      selected.set(item.lineNumber, item);
+    }
+    return sum + selected.size;
+  }, 0);
+  const totalFiles = grouped.size;
+  const displayedFiles = rankedFiles.length;
+  const omittedFiles = Math.max(0, totalFiles - displayedFiles);
+  const omittedMatches = Math.max(0, matches.length - displayedMatches);
+  lines.push(`[search results reduced] total_files=${totalFiles} displayed_files=${displayedFiles} omitted_files=${omittedFiles} total_matches=${matches.length} displayed_matches=${displayedMatches} omitted_matches=${omittedMatches}`);
   return lines.join("\n");
 }
 
 function summarizeLogOutput(text: string, cfg: PayloadBlockConfig): string {
   if (text.length <= cfg.maxChars) return text;
   const lines = text.split("\n");
-  const selected: string[] = [];
+  const capacity = Math.max(8, cfg.maxItems * 4);
+  const selected = new Set<string>();
+  const add = (line: string): void => {
+    if (selected.size < capacity) selected.add(line);
+  };
+  const failures = lines.filter((line) => /\b(error|failed|exception|traceback|panic|fatal|denied|timeout)\b/i.test(line));
+  for (const line of failures.slice(-Math.max(2, cfg.maxItems))) add(line);
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const isImportant = LOG_IMPORTANCE_RE.test(line) || STACK_TRACE_RE.test(line);
-    if (!isImportant) continue;
-    selected.push(line);
-    let j = i + 1;
-    let stackLines = 0;
-    while (j < lines.length && stackLines < 3 && (STACK_TRACE_RE.test(lines[j]) || /^\s+/.test(lines[j]))) {
-      selected.push(lines[j]);
-      stackLines += 1;
-      j += 1;
+    if (!STACK_TRACE_RE.test(lines[i])) continue;
+    add(lines[i]);
+    for (const frame of lines.slice(i + 1, i + 4)) {
+      if (!/^\s+/.test(frame)) break;
+      add(frame);
     }
-    i = j - 1;
-    if (selected.length >= cfg.maxItems * 4) break;
   }
-
+  for (const line of lines) {
+    if (/\b(summary|completed|exit code|duration|elapsed|passed|failed)\b/i.test(line)) add(line);
+  }
   const header = lines.slice(0, Math.min(cfg.keepHeadLines, 6));
   const tail = lines.slice(-Math.min(cfg.keepTailLines, 6));
+  for (const line of header) add(line);
+  for (const line of tail) add(line);
   const merged = [
     ...header,
-    `...[log reduced important_lines=${selected.length} total_lines=${lines.length}]`,
+    `...[log reduced important_lines=${selected.size} total_lines=${lines.length}]`,
     ...selected,
     ...tail,
   ];
@@ -604,18 +651,38 @@ function summarizeDiffOutput(text: string, cfg: PayloadBlockConfig): string {
   let currentFile = "unknown";
 
   for (const line of lines) {
+    const gitMatch = line.match(DIFF_GIT_RE);
+    if (gitMatch) {
+      currentFile = gitMatch[2];
+      files.set(currentFile, {
+        file: currentFile,
+        oldFile: gitMatch[1],
+        newFile: gitMatch[2],
+        additions: 0,
+        deletions: 0,
+        hunks: 0,
+        hunkHeaders: [],
+        metadata: [],
+        preview: [],
+      });
+      continue;
+    }
     const fileMatch = line.match(DIFF_FILE_RE);
     if (fileMatch) {
       currentFile = fileMatch[1].trim();
       if (!files.has(currentFile)) {
         files.set(currentFile, {
           file: currentFile,
+          newFile: currentFile,
           additions: 0,
           deletions: 0,
           hunks: 0,
+          hunkHeaders: [],
+          metadata: [],
           preview: [],
         });
       }
+      files.get(currentFile)!.newFile = currentFile;
       continue;
     }
 
@@ -623,6 +690,23 @@ function summarizeDiffOutput(text: string, cfg: PayloadBlockConfig): string {
     if (!summary) continue;
     if (DIFF_HUNK_RE.test(line)) {
       summary.hunks += 1;
+      if (summary.hunkHeaders.length < 2) summary.hunkHeaders.push(line);
+      continue;
+    }
+    if (line.startsWith("--- ")) {
+      summary.oldFile = line.slice(4).trim().replace(/^a\//, "");
+      if (summary.oldFile === "/dev/null") summary.status = "added";
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      summary.newFile = line.slice(4).trim().replace(/^b\//, "");
+      if (summary.newFile === "/dev/null") summary.status = "deleted";
+      continue;
+    }
+    if (/^(similarity index|rename from|rename to|new file mode|deleted file mode|old mode|new mode|index )/.test(line)) {
+      if (summary.metadata.length < 3) summary.metadata.push(line);
+      if (line.startsWith("rename from ")) summary.status = "renamed";
+      if (line.startsWith("rename to ")) summary.status = "renamed";
       continue;
     }
     if (DIFF_CHANGE_RE.test(line)) {
@@ -643,10 +727,17 @@ function summarizeDiffOutput(text: string, cfg: PayloadBlockConfig): string {
   }
 
   const output: string[] = [
-    `[diff reduced files=${files.size} total_lines=${lines.length}]`,
+    `[diff reduced files=${files.size} displayed_files=${ranked.length} omitted_files=${Math.max(0, files.size - ranked.length)} total_lines=${lines.length} recoverable=true]`,
   ];
   for (const item of ranked) {
-    output.push(`${item.file} (+${item.additions} -${item.deletions}, hunks=${item.hunks})`);
+    const identity = item.status === "renamed" && item.oldFile && item.newFile
+      ? `${item.oldFile} -> ${item.newFile}`
+      : item.newFile === "/dev/null" && item.oldFile
+        ? `${item.oldFile} (deleted)`
+        : item.file;
+    output.push(`${identity} (+${item.additions} -${item.deletions}, hunks=${item.hunks}${item.status ? `, status=${item.status}` : ""})`);
+    output.push(...item.metadata.map((entry) => `  ${entry}`));
+    output.push(...item.hunkHeaders.map((entry) => `  ${entry}`));
     for (const previewLine of item.preview) {
       output.push(`  ${previewLine}`);
     }
@@ -714,7 +805,7 @@ function reduceByClassification(
           hint?.toolName === "tavily_search"
             ? summarizeWebResultJson(parsed, text, blockCfg, context)
             : undefined;
-        nextText = specialized ?? summarizeJsonTextWithContext(text, blockCfg, context);
+        nextText = specialized ?? summarizeJsonTextWithContext(text, blockCfg, context, parsed);
       } catch {
       nextText = summarizeJsonTextWithContext(text, blockCfg, context, classification.parsed);
       }

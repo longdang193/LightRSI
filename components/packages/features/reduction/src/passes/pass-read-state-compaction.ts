@@ -1,5 +1,5 @@
 import type { ContextSegment } from "@lightrsi/kernel";
-import type { ReductionPassHandler } from "../reduction/types.js";
+import type { ImmutableReductionPassHandler } from "../reduction/types.js";
 import {
   archiveContent,
   buildRecoveryHint,
@@ -112,7 +112,8 @@ function buildLifecycleStub(params: {
   );
 }
 
-export const readStateCompactionPass: ReductionPassHandler = {
+export const readStateCompactionPass: ImmutableReductionPassHandler = {
+  immutableInput: true,
   beforeCall: async ({ turnCtx, spec }) => {
     const config = resolveConfig(spec.options);
     if (!config.enabled) {
