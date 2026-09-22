@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { performance } from "node:perf_hooks";
 import { tmpdir } from "node:os";
@@ -12,7 +12,13 @@ import {
   type ContextCleanOccurrenceSelection,
   type ContextCleanSnapshot,
 } from "@lightrsi/cleaner";
-import { createTemporaryAcceptanceEnvironment, reserveUnusedPort } from "@lightrsi/host-adapter";
+import {
+  createTemporaryAcceptanceEnvironment,
+  readJsonFile,
+  reserveUnusedPort,
+  sessionSnapshotPath,
+  writeJsonFileAtomic,
+} from "@lightrsi/host-adapter";
 
 import {
   defaultTokenPilotConfigPath,
@@ -21,6 +27,8 @@ import {
   resolveUpstreamProvider,
 } from "../src/config.js";
 import { createCodexContextCleanerBridge } from "../src/context-cleaner/index.js";
+import { buildCodexEffectiveHistoryView, readCodexContextHistoryJournal } from "../src/context-history/index.js";
+import { loadCodexSessionSnapshot } from "../src/session-state.js";
 import { loadProviderEnvFile, providerModelFromEnvironment } from "./context-rebase-smoke.js";
 import { createBenchmarkTiming, type BenchmarkTimingSnapshot } from "../src/benchmark-timing.js";
 import { createConsoleLogger } from "../src/logger.js";
@@ -88,6 +96,15 @@ type RunResult = {
   failure?: string;
 };
 
+type BenchmarkSeed = {
+  stateDir: string;
+  sessionId: string;
+  history: JsonObject[];
+  turns: TurnResult[];
+  requests: UpstreamRequest[];
+  cleanup(): void;
+};
+
 export type ProviderShape = {
   inputBytes: number;
   inputFingerprint: string;
@@ -119,7 +136,7 @@ function responseEvent(event: string, payload: JsonObject): string {
   return `event: ${event}\ndata: ${JSON.stringify({ type: event, ...payload })}\n\n`;
 }
 
-async function startUpstream(): Promise<{
+async function startUpstream(initialRequestCount = 0): Promise<{
   baseUrl: string;
   requests: UpstreamRequest[];
   close(): Promise<void>;
@@ -138,7 +155,7 @@ async function startUpstream(): Promise<{
     }
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as JsonObject;
     const inputBytes = Buffer.byteLength(JSON.stringify(body.input ?? body), "utf8");
-    const responseId = `benchmark-response-${requests.length + 1}`;
+    const responseId = `benchmark-response-${initialRequestCount + requests.length + 1}`;
     const assistantText = `ACK_${responseId}`;
     response.statusCode = 200;
     response.setHeader("content-type", "text/event-stream; charset=utf-8");
@@ -378,6 +395,7 @@ async function sendTurn(params: {
   history: JsonObject[];
   label: string;
   content: string;
+  requestTimeoutMs: number;
   durableCompletion?: () => Promise<void>;
 }): Promise<{ history: JsonObject[]; result: TurnResult }> {
   const timing = createBenchmarkTiming();
@@ -399,6 +417,7 @@ async function sendTurn(params: {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: requestBody,
+    signal: AbortSignal.timeout(params.requestTimeoutMs),
   });
   assert.equal(response.status, 200);
   timing.mark("upstreamHeaders");
@@ -509,23 +528,38 @@ async function cleanerTraceSummary(stateDir: string): Promise<string> {
   }
 }
 
-async function runArm(
-  fixture: Fixture,
-  arm: Arm,
-  repetition: number,
+async function copyHistoryState(sourceDir: string, targetDir: string): Promise<void> {
+  for (const directory of ["context-history", "session-state"]) {
+    const sourcePath = join(sourceDir, directory);
+    for (const entry of await readdir(sourcePath)) {
+      await cp(join(sourcePath, entry), join(targetDir, directory, entry), { recursive: true, force: true });
+    }
+  }
+}
+
+async function waitForSeedDurability(stateDir: string, sessionId: string, expectedTurns: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const journal = await readCodexContextHistoryJournal(stateDir, sessionId);
+    const requests = journal.entries.filter((entry) => entry.kind === "request").length;
+    const responses = journal.entries.filter((entry) => entry.kind === "response").length;
+    if (requests >= expectedTurns && responses >= expectedTurns && await loadCodexSessionSnapshot(stateDir, sessionId)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`benchmark seed durability timeout: ${sessionId}`);
+}
+
+function benchmarkConfig(
+  stateDir: string,
   mode: BenchmarkMode,
-  liveOptions?: LiveOptions,
-): Promise<RunResult> {
-  const environment = createTemporaryAcceptanceEnvironment(`lightrsi-cleaner-benchmark-${arm}-`);
-  const upstream = mode === "mock" ? await startUpstream() : undefined;
-  const liveCapture = mode === "live" ? captureLiveProvider(liveOptions!.baseUrl) : undefined;
-  const sessionId = `cleaner-benchmark-${fixture.name}-${arm}-${repetition}`;
-  const config = normalizeTokenPilotCodexConfig({
-    stateDir: environment.stateDir,
-    proxyPort: await reserveUnusedPort(),
+  liveOptions: LiveOptions | undefined,
+  upstreamBaseUrl: string | undefined,
+) {
+  return normalizeTokenPilotCodexConfig({
+    stateDir,
+    proxyPort: 0,
     upstreamProvider: "OpenAI",
     upstream: {
-      baseUrl: upstream?.baseUrl ?? liveOptions!.baseUrl,
+      baseUrl: upstreamBaseUrl ?? liveOptions!.baseUrl,
       wireApi: "responses",
       requiresOpenAIAuth: mode === "live",
     },
@@ -535,9 +569,99 @@ async function runArm(
       providerCompatibilityProbe: mode === "live" ? "real_provider" : "mock_fixture",
     },
   } as any);
+}
+
+async function createBenchmarkSeed(
+  fixture: Fixture,
+  mode: BenchmarkMode,
+  repetition: number,
+  requestTimeoutMs: number,
+  liveOptions?: LiveOptions,
+): Promise<BenchmarkSeed> {
+  const environment = createTemporaryAcceptanceEnvironment(`lightrsi-cleaner-benchmark-seed-`);
+  const upstream = mode === "mock" ? await startUpstream() : undefined;
+  const liveCapture = mode === "live" ? captureLiveProvider(liveOptions!.baseUrl) : undefined;
+  const sessionId = `cleaner-benchmark-${fixture.name}-pair-${repetition}`;
+  const config = benchmarkConfig(environment.stateDir, mode, liveOptions, upstream?.baseUrl);
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   const turns: TurnResult[] = [];
   let history: JsonObject[] = [];
+  try {
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
+    });
+    const send = async (label: string, content: string) => {
+      const sent = await sendTurn({
+        runtime: runtime!,
+        sessionId,
+        model: liveOptions?.model ?? "gpt-5.4-mini",
+        history,
+        label,
+        content,
+        requestTimeoutMs,
+      });
+      history = sent.history;
+      turns.push(sent.result);
+    };
+    await send("retained", fixture.retained);
+    await send("release_a", fixture.releaseA);
+    for (const [index, content] of fixture.noiseBefore.entries()) await send(`noise_before_${index}`, content);
+    await send("release_b", fixture.releaseB);
+    await runtime.close();
+    runtime = undefined;
+    await waitForSeedDurability(environment.stateDir, sessionId, turns.length);
+    await liveCapture?.close();
+    const requests = upstream?.requests ?? liveCapture?.requests ?? [];
+    await upstream?.close();
+    return { stateDir: environment.stateDir, sessionId, history, turns, requests, cleanup: environment.cleanup };
+  } catch (error) {
+    await runtime?.close();
+    await liveCapture?.close();
+    await upstream?.close();
+    environment.cleanup();
+    throw error;
+  }
+}
+
+async function runArm(
+  fixture: Fixture,
+  arm: Arm,
+  repetition: number,
+  mode: BenchmarkMode,
+  liveOptions?: LiveOptions,
+  seed?: BenchmarkSeed,
+  requestTimeoutMs = 120_000,
+): Promise<RunResult> {
+  const environment = createTemporaryAcceptanceEnvironment(`lightrsi-cleaner-benchmark-${arm}-`);
+  if (seed) {
+    await copyHistoryState(seed.stateDir, environment.stateDir);
+    const clonedSnapshotPath = sessionSnapshotPath(environment.stateDir, seed.sessionId);
+    const clonedSnapshot = await readJsonFile<Record<string, unknown>>(clonedSnapshotPath);
+    if (clonedSnapshot && "transcriptPath" in clonedSnapshot) {
+      delete clonedSnapshot.transcriptPath;
+      await writeJsonFileAtomic(clonedSnapshotPath, clonedSnapshot);
+    }
+    const sourceJournal = await readCodexContextHistoryJournal(seed.stateDir, seed.sessionId);
+    const targetJournal = await readCodexContextHistoryJournal(environment.stateDir, seed.sessionId);
+    assert.deepEqual(targetJournal.entries, sourceJournal.entries, "causal seed journal clone mismatch");
+    const targetSession = await loadCodexSessionSnapshot(environment.stateDir, seed.sessionId);
+    assert.ok(targetSession, "causal seed session clone missing");
+    const targetView = await buildCodexEffectiveHistoryView({
+      stateDir: environment.stateDir,
+      sessionId: seed.sessionId,
+      headResponseId: targetSession.latestResponseId,
+    });
+    assert.equal(targetView.reasonCodes.length, 0, `causal seed clone incomplete: ${targetView.reasonCodes.join(",")}`);
+  }
+  const upstream = mode === "mock" ? await startUpstream(seed?.requests.length ?? 0) : undefined;
+  const liveCapture = mode === "live" ? captureLiveProvider(liveOptions!.baseUrl) : undefined;
+  const sessionId = seed?.sessionId ?? `cleaner-benchmark-${fixture.name}-${arm}-${repetition}`;
+  const config = benchmarkConfig(environment.stateDir, mode, liveOptions, upstream?.baseUrl);
+  let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  const turns: TurnResult[] = seed ? structuredClone(seed.turns) : [];
+  let history: JsonObject[] = seed ? structuredClone(seed.history) : [];
   let firstReleasePlan: string | undefined;
   let secondReleasePlan: string | undefined;
   try {
@@ -557,6 +681,7 @@ async function runArm(
         history,
         label,
         content,
+        requestTimeoutMs,
         durableCompletion: planId
           ? async () => { await waitForApplied(cleaner, planId, environment.stateDir); }
           : undefined,
@@ -564,11 +689,23 @@ async function runArm(
       history = sent.history;
       turns.push(sent.result);
     };
-    await send("retained", fixture.retained);
-    await send("release_a", fixture.releaseA);
-    for (const [index, content] of fixture.noiseBefore.entries()) await send(`noise_before_${index}`, content);
-    await send("release_b", fixture.releaseB);
+    if (!seed) {
+      await send("retained", fixture.retained);
+      await send("release_a", fixture.releaseA);
+      for (const [index, content] of fixture.noiseBefore.entries()) await send(`noise_before_${index}`, content);
+      await send("release_b", fixture.releaseB);
+    }
     if (arm === "cleaner") {
+      if (seed) {
+        const runtimeSession = await loadCodexSessionSnapshot(environment.stateDir, sessionId);
+        assert.ok(runtimeSession, "causal runtime session missing");
+        const runtimeView = await buildCodexEffectiveHistoryView({
+          stateDir: environment.stateDir,
+          sessionId,
+          headResponseId: runtimeSession.latestResponseId,
+        });
+        assert.equal(runtimeView.reasonCodes.length, 0, `causal runtime clone incomplete: ${runtimeView.reasonCodes.join(",")}`);
+      }
       const snapshot = await cleaner.inspect(sessionId);
       const retained = userItems(snapshot)[0]?.stableId;
       firstReleasePlan = (await cleaner.releaseOccurrences(sessionId, [
@@ -591,7 +728,9 @@ async function runArm(
       allowMockFixtureEvidence: true,
     });
     await send("after_restart", "AFTER_RESTART");
-    const forwardedRequests = upstream?.requests ?? liveCapture!.requests;
+    const forwardedRequests = seed
+      ? [...seed.requests, ...(upstream?.requests ?? liveCapture!.requests)]
+      : upstream?.requests ?? liveCapture!.requests;
     turns.forEach((turn, index) => {
       const forwarded = forwardedRequests[index];
       if (forwarded) turn.inputBytes = forwarded.inputBytes;
@@ -637,12 +776,18 @@ async function runArm(
       passed: false,
       upstreamRequestCount: (upstream?.requests ?? liveCapture?.requests ?? []).length,
       turns,
-      localInputBytes: (upstream?.requests ?? liveCapture?.requests ?? []).map((request) => request.inputBytes),
+      localInputBytes: (seed
+        ? [...seed.requests, ...(upstream?.requests ?? liveCapture?.requests ?? [])]
+        : upstream?.requests ?? liveCapture?.requests ?? []).map((request) => request.inputBytes),
       providerUsage: mode === "live"
-        ? (liveCapture?.requests ?? []).map((request) => request.providerUsage)
+        ? (seed
+          ? [...seed.requests, ...(liveCapture?.requests ?? [])]
+          : liveCapture?.requests ?? []).map((request) => request.providerUsage)
         : null,
       providerShape: mode === "live"
-        ? (liveCapture?.requests ?? []).map(providerShape)
+        ? (seed
+          ? [...seed.requests, ...(liveCapture?.requests ?? [])]
+          : liveCapture?.requests ?? []).map(providerShape)
         : null,
       failure: `${failure}; cleanerTrace=${await cleanerTraceSummary(environment.stateDir)}`,
     };
@@ -766,6 +911,9 @@ async function main(): Promise<void> {
   assert.ok(mode === "mock" || mode === "live", "LIGHTRSI_BENCHMARK_MODE must be mock or live");
   const armOrderMode = process.env.LIGHTRSI_BENCHMARK_ARM_ORDER ?? "baseline-first";
   assert.ok(armOrderMode === "baseline-first" || armOrderMode === "alternating", "LIGHTRSI_BENCHMARK_ARM_ORDER must be baseline-first or alternating");
+  const causalPairs = process.env.LIGHTRSI_BENCHMARK_CAUSAL_PAIRS === "true";
+  const requestTimeoutMs = Number.parseInt(process.env.LIGHTRSI_BENCHMARK_REQUEST_TIMEOUT_MS ?? "120000", 10);
+  assert.ok(Number.isInteger(requestTimeoutMs) && requestTimeoutMs > 0);
   const repetitions = Number.parseInt(process.env.LIGHTRSI_BENCHMARK_REPETITIONS ?? "5", 10);
   assert.ok(Number.isInteger(repetitions) && repetitions > 0);
   const fixtureNames = (process.env.LIGHTRSI_BENCHMARK_FIXTURES ?? "short/noisy,long/noisy")
@@ -794,8 +942,16 @@ async function main(): Promise<void> {
       const arms: Arm[] = armOrderMode === "alternating" && repetition % 2 === 0
         ? ["cleaner", "baseline"]
         : ["baseline", "cleaner"];
-      for (const arm of arms) {
-        runs.push(await runArm(createFixture(fixtureName), arm, repetition, mode, liveOptions));
+      const fixture = createFixture(fixtureName);
+      const seed = causalPairs
+        ? await createBenchmarkSeed(fixture, mode, repetition, requestTimeoutMs, liveOptions)
+        : undefined;
+      try {
+        for (const arm of arms) {
+          runs.push(await runArm(fixture, arm, repetition, mode, liveOptions, seed, requestTimeoutMs));
+        }
+      } finally {
+        seed?.cleanup();
       }
     }
   }
@@ -806,6 +962,7 @@ async function main(): Promise<void> {
     benchmark: "context-cleaner-occurrence-release",
     mode,
     armOrder: armOrderMode,
+    causalPairs,
     repetitions,
     fixtures: fixtureNames,
     provider: liveOptions ? { host: new URL(liveOptions.baseUrl).hostname, model: liveOptions.model } : null,
