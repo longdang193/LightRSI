@@ -160,9 +160,9 @@ export async function runReductionBeforeCall(
   const { turnCtx, passes, registry, frozenSegmentIds } = params;
   let currentCtx: RuntimeTurnContext = {
     ...turnCtx,
-    segments: turnCtx.segments
-      .filter((segment) => !frozenSegmentIds?.has(segment.id))
-      .map((segment) => ({ ...segment })),
+    segments: frozenSegmentIds?.size
+      ? turnCtx.segments.filter((segment) => !frozenSegmentIds.has(segment.id))
+      : turnCtx.segments,
   };
   const report: ReductionReportEntry[] = [];
 
@@ -201,16 +201,15 @@ export async function runReductionBeforeCall(
     }
 
     const beforeChars = totalSegmentChars(currentCtx);
-    const beforeCtx = cloneTurnContext(currentCtx);
+    const handlerTurnCtx = handler.immutableInput ? currentCtx : cloneTurnContext(currentCtx);
     const startedAt = Date.now();
     let outcome: Awaited<ReturnType<NonNullable<ReductionPassHandler["beforeCall"]>>>;
     try {
       outcome = await handler.beforeCall({
-        turnCtx: currentCtx,
+        turnCtx: handlerTurnCtx,
         spec,
       });
     } catch (error) {
-      currentCtx = beforeCtx;
       report.push({
         id: spec.id,
         phase: "before_call",
@@ -300,23 +299,19 @@ export async function runReductionAfterCall(
     }
 
     const beforeChars = currentResult.content.length;
-    const beforeResult = structuredClone(currentResult);
-    const beforeTurnCtx = cloneTurnContext(turnCtx);
+    const handlerResult = handler.immutableInput ? currentResult : structuredClone(currentResult);
+    const handlerTurnCtx = handler.immutableInput ? turnCtx : cloneTurnContext(turnCtx);
+    const handlerOriginalResult = handler.immutableInput ? result : structuredClone(result);
     const startedAt = Date.now();
     let outcome: Awaited<ReturnType<NonNullable<ReductionPassHandler["afterCall"]>>>;
     try {
       outcome = await handler.afterCall({
-        turnCtx,
-        originalResult: result,
-        currentResult,
+        turnCtx: handlerTurnCtx,
+        originalResult: handlerOriginalResult,
+        currentResult: handlerResult,
         spec,
       });
     } catch (error) {
-      currentResult = beforeResult;
-      for (const key of Object.keys(turnCtx)) {
-        if (!(key in beforeTurnCtx)) delete (turnCtx as Record<string, unknown>)[key];
-      }
-      Object.assign(turnCtx, beforeTurnCtx);
       report.push({
         id: spec.id,
         phase: "after_call",

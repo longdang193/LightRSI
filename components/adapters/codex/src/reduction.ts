@@ -146,18 +146,29 @@ function extractPathHint(value: unknown): string | undefined {
   return undefined;
 }
 
-export function normalizeResponsesInputForUpstream(input: any): void {
-  if (!Array.isArray(input)) return;
-  for (const item of input) {
+export function normalizeResponsesInputForUpstream(input: any): any {
+  if (!Array.isArray(input)) return input;
+  let nextInput = input;
+  for (let index = 0; index < input.length; index += 1) {
+    const item = input[index];
     if (!item || typeof item !== "object") continue;
+    let nextItem = item;
+    let changed = false;
     const type = String(item.type ?? "").toLowerCase();
     if (type === "function_call" && typeof item.arguments !== "string") {
-      item.arguments = stringifyStructuredValue(item.arguments);
+      nextItem = { ...nextItem, arguments: stringifyStructuredValue(item.arguments) };
+      changed = true;
     }
     if (type === "function_call_output" && item.output != null && !Array.isArray(item.output) && typeof item.output !== "string") {
-      item.output = stringifyStructuredValue(item.output);
+      nextItem = { ...nextItem, output: stringifyStructuredValue(item.output) };
+      changed = true;
+    }
+    if (changed) {
+      if (nextInput === input) nextInput = input.slice();
+      nextInput[index] = nextItem;
     }
   }
+  return nextInput;
 }
 
 function payloadKindForItem(item: any): "stdout" | "stderr" | "json" | "blob" {
@@ -670,7 +681,6 @@ export async function applyBeforeCallReductionToPayload(params: {
       skippedReason: !Array.isArray(payload?.input) ? "no_input_array" : "disabled",
     };
   }
-  const originalInput = structuredClone(payload.input);
   const startedAt = Date.now();
   try {
     const snapshot = await loadCodexSessionSnapshot(config.stateDir, sessionId);
@@ -733,27 +743,53 @@ export async function applyBeforeCallReductionToPayload(params: {
   let savedChars = 0;
   const changedItems = new Set<number>();
   const visualSegments: CodexReductionVisualSegment[] = [];
+  let nextInput = payload.input;
+  let inputCopied = false;
+  const copiedItems = new Set<number>();
+  const copiedContentArrays = new Set<number>();
+  const copiedBlocks = new Set<string>();
+  const ensureItemCopy = (itemIndex: number): any => {
+    if (!inputCopied) {
+      nextInput = payload.input.slice();
+      inputCopied = true;
+    }
+    if (!copiedItems.has(itemIndex)) {
+      nextInput[itemIndex] = { ...nextInput[itemIndex] };
+      copiedItems.add(itemIndex);
+    }
+    return nextInput[itemIndex];
+  };
   for (const binding of bindings) {
     if (!changedSegmentIds.has(binding.segmentId)) continue;
     const segment = segmentMap.get(binding.segmentId);
     if (!segment) continue;
-    const item = payload.input[binding.itemIndex];
+    const item = nextInput[binding.itemIndex];
     if (!item || typeof item !== "object") continue;
     let before = "";
     if (binding.field === "output" || binding.field === "arguments") {
       if (typeof item[binding.field] !== "string" || item[binding.field] === segment.text) continue;
       before = item[binding.field];
-      item[binding.field] = segment.text;
+      ensureItemCopy(binding.itemIndex)[binding.field] = segment.text;
     } else if (binding.blockIndex === undefined) {
       if (typeof item.content !== "string" || item.content === segment.text) continue;
       before = item.content;
-      item.content = segment.text;
+      ensureItemCopy(binding.itemIndex).content = segment.text;
     } else {
       const block = Array.isArray(item.content) ? item.content[binding.blockIndex] : null;
       if (!block || typeof block !== "object" || !binding.blockKey) continue;
       if (typeof block[binding.blockKey] !== "string" || block[binding.blockKey] === segment.text) continue;
       before = block[binding.blockKey];
-      block[binding.blockKey] = segment.text;
+      const nextItem = ensureItemCopy(binding.itemIndex);
+      if (!copiedContentArrays.has(binding.itemIndex)) {
+        nextItem.content = nextItem.content.slice();
+        copiedContentArrays.add(binding.itemIndex);
+      }
+      const blockKey = `${binding.itemIndex}:${binding.blockIndex}`;
+      if (!copiedBlocks.has(blockKey)) {
+        nextItem.content[binding.blockIndex] = { ...nextItem.content[binding.blockIndex] };
+        copiedBlocks.add(blockKey);
+      }
+      nextItem.content[binding.blockIndex][binding.blockKey] = segment.text;
     }
     changedBlocks += 1;
     changedItems.add(binding.itemIndex);
@@ -772,6 +808,7 @@ export async function applyBeforeCallReductionToPayload(params: {
       report: report.filter((entry) => entry.changed && entry.touchedSegmentIds?.includes(binding.segmentId)),
     });
   }
+    if (changedBlocks > 0) payload.input = nextInput;
     return {
       changedItems: changedItems.size,
       changedBlocks,
@@ -785,7 +822,6 @@ export async function applyBeforeCallReductionToPayload(params: {
       disclosedReadPaths: normalizeDisclosedReadPaths(reducedCtx.metadata?.disclosedReadPaths),
     };
   } catch (error) {
-    payload.input = originalInput;
     const note = error instanceof Error ? error.message : String(error);
     const report: CodexReductionReportEntry = {
       id: "codex_reduction_boundary",
@@ -838,7 +874,7 @@ export async function reduceCodexRequestEnvelope(params: {
     };
   };
   const rawPayload = params.codec.encodeRequest(params.envelope) as any;
-  normalizeResponsesInputForUpstream(rawPayload?.input);
+  rawPayload.input = normalizeResponsesInputForUpstream(rawPayload?.input);
   const summary = await applyBeforeCallReductionToPayload({
     payload: rawPayload,
     sessionId: params.envelope.session.sessionId,

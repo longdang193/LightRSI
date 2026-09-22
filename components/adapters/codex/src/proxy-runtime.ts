@@ -745,7 +745,7 @@ export async function startCodexResponsesProxy(params: {
     },
     async handleRequest({ req, res, body }) {
       const inboundPayload = JSON.parse(body) as JsonObject;
-      normalizeResponsesInputForUpstream(inboundPayload?.input);
+      inboundPayload.input = normalizeResponsesInputForUpstream(inboundPayload?.input);
       const inboundPromptCacheKey =
         typeof inboundPayload?.prompt_cache_key === "string" ? inboundPayload.prompt_cache_key.trim() : "";
       const mappedPreviousSessionId =
@@ -820,7 +820,7 @@ export async function startCodexResponsesProxy(params: {
         envelope,
         fallback: inboundPayload,
       });
-      normalizeResponsesInputForUpstream(originalPayload?.input);
+      originalPayload.input = normalizeResponsesInputForUpstream(originalPayload?.input);
       const originalRequestText = extractResponsesInputText(originalPayload?.input);
 
       let requestJournalEntry: CodexRequestJournalEntry | undefined;
@@ -1115,7 +1115,7 @@ export async function startCodexResponsesProxy(params: {
       }
 
       const payload = cloneJsonObject(rebaseRequest?.payload ?? originalPayload);
-      normalizeResponsesInputForUpstream(payload?.input);
+      payload.input = normalizeResponsesInputForUpstream(payload?.input);
       const preparedEnvelope = rebaseRequest ? codec.decodeRequest(payload) : envelope;
       const prepareStablePrefixForCodex = (nextEnvelope: HostRequestEnvelope) => (
         prepareCodexStablePrefix(nextEnvelope, config)
@@ -1176,7 +1176,7 @@ export async function startCodexResponsesProxy(params: {
       });
       const reductionSummary = prepared.reductionSummary;
       syncPayloadFromEnvelope(payload, prepared.envelope, codec);
-      normalizeResponsesInputForUpstream(payload?.input);
+      payload.input = normalizeResponsesInputForUpstream(payload?.input);
       if (rebaseRequest) {
         rebaseAccounting = withCodexRebaseReplayAccountingInput(rebaseRequest.accounting, payload.input);
       }
@@ -1190,7 +1190,7 @@ export async function startCodexResponsesProxy(params: {
           applyBeforeCallReduction: applyBeforeCallReductionForCodex,
         });
         syncPayloadFromEnvelope(fallbackPayload, fallbackPrepared.envelope, codec);
-        normalizeResponsesInputForUpstream(fallbackPayload?.input);
+        fallbackPayload.input = normalizeResponsesInputForUpstream(fallbackPayload?.input);
       }
       let continuationReplayPayload: JsonObject | undefined;
       if (continuationReplayRequest) {
@@ -1204,7 +1204,7 @@ export async function startCodexResponsesProxy(params: {
           applyBeforeCallReduction: applyBeforeCallReductionForCodex,
         });
         syncPayloadFromEnvelope(continuationReplayPayload, continuationPrepared.envelope, codec);
-        normalizeResponsesInputForUpstream(continuationReplayPayload?.input);
+        continuationReplayPayload.input = normalizeResponsesInputForUpstream(continuationReplayPayload?.input);
       }
       const forwardingScope: CodexForwardingScope = {
         ...(typeof prepared.envelope.metadata?.promptCacheKey === "string"
