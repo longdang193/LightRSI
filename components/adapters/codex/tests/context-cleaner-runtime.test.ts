@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
+  clearContextCleanExecutionClaim,
   readContextCleanExecutionClaim,
   readContextCleanReceipt,
   saveContextCleanPlan,
@@ -656,6 +657,86 @@ test("Codex cleaner runtime repairs the crash window after a committed rebase ep
   });
 });
 
+test("Codex cleaner recovery uses persisted execution revision and claim identity", async () => {
+  await withTempState(async (stateDir) => {
+    const seeded = await seedScheduledClean(stateDir);
+    const first = await prepareCodexCleanerRebase({
+      stateDir,
+      sessionId: SESSION_ID,
+      view: seeded.view,
+      backendRequest: seeded.request,
+    });
+    assert.equal(first.outcome, "ready");
+    if (first.outcome !== "ready") return;
+    const schedule = await readCodexCleanerSchedule({ stateDir, sessionId: SESSION_ID });
+    assert.equal(schedule.outcome, "ready");
+    if (schedule.outcome !== "ready") return;
+    const initialClaim = await readContextCleanExecutionClaim({
+      stateDir,
+      planId: CLEAN_PLAN_ID,
+    });
+    assert.ok(initialClaim.value);
+    if (!initialClaim.value) return;
+    assert.equal((await clearContextCleanExecutionClaim({
+      stateDir,
+      planId: CLEAN_PLAN_ID,
+      claimId: initialClaim.value.claimId,
+      ownerToken: initialClaim.value.ownerToken,
+    })).bypassed, false);
+    const claim = await ensureCodexCleanerExecutionClaim({
+      stateDir,
+      schedule: schedule.record,
+      mutationPlanId: first.prepared.execution.mutationPlan.planId,
+      executionRevision: "execution-revision",
+      ownerToken: "owner-token",
+    });
+    assert.deepEqual(claim.reasons, [], JSON.stringify(claim));
+    assert.ok(claim.claim?.claimId);
+
+    await appendPendingCodexRebaseEpoch({
+      stateDir,
+      sessionId: SESSION_ID,
+      planId: first.prepared.execution.mutationPlan.planId,
+      epochId: "epoch-execution-revision",
+      oldPreviousResponseId: "response-parent",
+      oldRevision: "execution-revision",
+      accounting: first.prepared.rebaseRequest.accounting,
+    });
+    await commitCodexRebaseEpoch({
+      stateDir,
+      sessionId: SESSION_ID,
+      epochId: "epoch-execution-revision",
+      newResponseId: "response-after-execution-revision",
+      newRevision: first.prepared.rebaseRequest.rebaseRevision,
+      accounting: first.prepared.rebaseRequest.accounting,
+      updatedAt: "2026-08-22T00:00:05.000Z",
+    });
+    assert.equal((await appendCodexCleanerCommitted({
+      stateDir,
+      sessionId: SESSION_ID,
+      cleanPlanId: CLEAN_PLAN_ID,
+      mutationPlanId: first.prepared.execution.mutationPlan.planId,
+      epochId: "epoch-execution-revision",
+      updatedAt: "2026-08-22T00:00:05.000Z",
+    })).outcome, "transitioned");
+
+    const recovered = await prepareCodexCleanerRebase({
+      stateDir,
+      sessionId: SESSION_ID,
+      view: sourceView("post-execution-revision"),
+      backendRequest: backendRequest(sourceView("post-execution-revision")),
+      now: "2026-08-22T00:00:06.000Z",
+    });
+    assert.equal(recovered.outcome, "committed", JSON.stringify(recovered));
+    const receipt = await readContextCleanReceipt({ stateDir, planId: CLEAN_PLAN_ID });
+    assert.equal(receipt.value?.status, "applied");
+    if (receipt.value?.status === "applied") {
+      assert.equal(receipt.value.evidence.claimId, claim.claim?.claimId);
+      assert.equal(receipt.value.evidence.previousRevision, "execution-revision");
+    }
+  });
+});
+
 test("Codex cleaner runtime recovers explicit occurrence evidence before dispatch", async () => {
   await withTempState(async (stateDir) => {
     const seeded = await seedScheduledClean(stateDir, "user", true);
@@ -1062,7 +1143,7 @@ test("Codex proxy gives the scheduled manual cleaner exclusive ownership of the 
         metadata: { tokenpilotSessionId: sessionId },
         input: [{ role: "user", content: "AUTOMATIC_RESUMES_cleaner_proxy" }],
       })).status, 200);
-      assert.ok(estimator.calls() > estimatorCallsAfterManualCommit);
+      assert.equal(estimator.calls(), estimatorCallsAfterManualCommit);
     } finally {
       await runtime?.close();
       await estimator.close();

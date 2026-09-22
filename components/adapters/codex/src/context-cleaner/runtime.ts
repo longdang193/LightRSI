@@ -676,12 +676,22 @@ async function recoverCodexCleanerCommittedEpoch(params: {
   if (storedClaim.bypassed) {
     return { outcome: "reserved", reasonCodes: storedClaim.reasons };
   }
-  const claimId = storedClaim.value?.mutationPlanId === execution.mutationPlan.planId
-    ? storedClaim.value.claimId
-    : executionClaimId(params.schedule, execution.mutationPlan.planId);
+  const storedExecutionClaim = storedClaim.value?.mutationPlanId === execution.mutationPlan.planId
+    ? storedClaim.value
+    : undefined;
+  const historicalClaimId = receipt.status === "applied"
+    ? receipt.evidence.claimId?.trim()
+    : undefined;
+  const executionRevision = storedExecutionClaim?.executionRevision.trim()
+    || (receipt.status === "applied" ? receipt.evidence.previousRevision.trim() : "");
+  const claimId = storedExecutionClaim?.claimId || historicalClaimId;
+  if (!executionRevision || !claimId) {
+    return { outcome: "reserved", reasonCodes: ["cleaner_runtime_execution_evidence_missing"] };
+  }
   const built = buildCodexCleanerAppliedReceipt({
     execution,
     epoch: matchingEpoch,
+    executionRevision,
     claimId,
   });
   if (!built.receipt) return { outcome: "reserved", reasonCodes: built.reasons };

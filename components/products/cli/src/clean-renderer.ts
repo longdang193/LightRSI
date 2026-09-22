@@ -28,6 +28,7 @@ export type CleanReceiptView = {
   planId: string;
   status: string;
   selectedTaskIds: string[];
+  occurrenceSelections?: Array<{ stableId: string; fingerprint: string }>;
   estimatedSavedTokens: number | null;
   estimatedSavedChars: number;
   appliedSavedTokens?: number | null;
@@ -76,7 +77,9 @@ export function renderCleanReceipt(receipt: CleanReceiptView): string {
   const lines = [
     `Context Cleaner receipt: ${receipt.planId}`,
     `Status: ${receipt.status}`,
-    `Selected: ${receipt.selectedTaskIds.length > 0 ? receipt.selectedTaskIds.join(", ") : "(none)"}`,
+    ...(receipt.occurrenceSelections && receipt.occurrenceSelections.length > 0
+      ? [`Selected occurrences: ${receipt.occurrenceSelections.map((selection) => selection.stableId).join(", ")}`]
+      : [`Selected tasks: ${receipt.selectedTaskIds.length > 0 ? receipt.selectedTaskIds.join(", ") : "(none)"}`]),
     `Estimated savings: ${count(receipt.estimatedSavedTokens, receipt.estimatedSavedChars)}`,
     `Fallback: ${receipt.fallbackUsed ? "yes" : "no"}`,
   ];

@@ -1,43 +1,26 @@
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
-  CONTEXT_CLEAN_ATTRIBUTION_SUBMISSION_SCHEMA_VERSION,
   sameCanonicalValue,
-  type ContextCleanAttributionSubmission,
-  type ContextCleanAttributionSubmissionResult,
   type ContextCleanerControlPlane,
   type ContextCleanerSchedulingControlPlane,
   type ContextCleanerHostBridge,
-  type ContextCleanAttributionStatus,
   type ContextCleanHistoryEvidence,
   type ContextCleanReceipt,
   type ContextCleanSnapshot,
   type ExecuteApprovedContextCleanParams,
 } from "@lightrsi/cleaner";
-import { createHash } from "node:crypto";
 import {
-  mapTaskUpdatesToRegistryPatch,
-  type SemanticTaskUpdate,
-  type TaskStateEstimatorApiConfig,
-} from "@lightrsi/eviction";
-import {
-  applySessionTaskRegistryPatch,
   createEmptySessionTaskRegistry,
-  loadSessionTaskRegistry,
-  persistSessionTaskRegistry,
-  sessionTaskRegistryPath,
   type SessionTaskRegistry,
 } from "@lightrsi/history";
-import { stat } from "node:fs/promises";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
-  withContextMutationPlanSessionLock,
   type ModelContextSnapshot,
 } from "@lightrsi/host-adapter";
 
 import { buildCodexEffectiveHistoryView, parseCodexRollout } from "../context-history/index.js";
 import { buildCodexRawSemanticTurns } from "../context-rewrite/semantic-mapping.js";
 import { codexSharedContextRewriteBackend } from "../context-rewrite/backend.js";
-import { resolveCodexTaskStateEstimator } from "../context-rewrite/estimator-config.js";
 import { buildCodexLifecycleBackendRequest } from "../context-rewrite/lifecycle-input.js";
 import {
   loadCodexSessionSnapshot,
@@ -68,33 +51,6 @@ function nonNegativeInteger(value: unknown): boolean {
 
 function nullableNonNegativeInteger(value: unknown): boolean {
   return value === null || nonNegativeInteger(value);
-}
-
-function submissionFingerprint(request: ContextCleanAttributionSubmission): string {
-  return createHash("sha256")
-    .update(JSON.stringify(request))
-    .digest("hex");
-}
-
-function validAttributionSubmission(request: ContextCleanAttributionSubmission): boolean {
-  return request.schemaVersion === CONTEXT_CLEAN_ATTRIBUTION_SUBMISSION_SCHEMA_VERSION
-    && request.hostId === CODEX_HOST_ID
-    && Boolean(request.submissionId.trim())
-    && Boolean(request.sessionId.trim())
-    && Boolean(request.callerId.trim())
-    && Boolean(request.authorityRef.trim())
-    && Boolean(request.evidenceRevision.trim())
-    && canonicalTimestamp(request.submittedAt)
-    && normalizedUniqueStrings(request.evidenceRefs) !== undefined
-    && normalizedUniqueStrings(request.invalidationConditions) !== undefined
-    && request.updates.length > 0
-    && request.updates.every((update) => (
-      Boolean(update.taskId.trim())
-      && Boolean(update.objective.trim())
-      && update.coveredOccurrenceRefs !== undefined
-      && normalizedUniqueStrings(update.coveredOccurrenceRefs) !== undefined
-      && update.coveredOccurrenceRefs.length > 0
-    ));
 }
 
 function validReceiptState(receipt: ContextCleanReceipt): boolean {
@@ -291,7 +247,6 @@ function assessHistoryEvidence(
 export function createCodexContextCleanerBridge(params: {
   stateDir: string;
   controlPlane: ContextCleanerControlPlane;
-  taskStateEstimator?: TaskStateEstimatorApiConfig;
   boundSessionId?: string;
 }): ContextCleanerHostBridge {
   async function readCleanSnapshotWithRegistry(
@@ -368,199 +323,8 @@ export function createCodexContextCleanerBridge(params: {
     async listSessions() {
       return listCodexCleanerSessions(params.stateDir);
     },
-    async readAttributionStatus(sessionId): Promise<ContextCleanAttributionStatus> {
-      let registryExists = false;
-      try {
-        const registry = await loadSessionTaskRegistry(params.stateDir, sessionId);
-        if (Object.keys(registry.tasks).length > 0) return "available";
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "failing";
-      }
-      try {
-        await stat(sessionTaskRegistryPath(params.stateDir, sessionId));
-        registryExists = true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "failing";
-      }
-      const estimator = resolveCodexTaskStateEstimator({ config: params.taskStateEstimator });
-      if (estimator.status === "disabled") return "disabled";
-      if (estimator.status !== "ready") return "failing";
-      return registryExists ? "empty" : "waiting";
-    },
     async readCleanSnapshot(sessionId) {
       return readCleanSnapshotWithRegistry(sessionId, createEmptySessionTaskRegistry(sessionId));
-    },
-    async readTaskAwareCleanSnapshot(sessionId) {
-      let registry: SessionTaskRegistry;
-      try {
-        registry = await loadSessionTaskRegistry(params.stateDir, sessionId);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        registry = createEmptySessionTaskRegistry(sessionId);
-      }
-      if (registry.sessionId !== sessionId) {
-        throw new Error("codex_clean_registry_session_mismatch");
-      }
-      return readCleanSnapshotWithRegistry(sessionId, registry);
-    },
-    async submitAttribution(
-      request: ContextCleanAttributionSubmission,
-    ): Promise<ContextCleanAttributionSubmissionResult> {
-      if (!validAttributionSubmission(request)) {
-        throw new Error("codex_clean_attribution_submission_invalid");
-      }
-      if (params.boundSessionId && params.boundSessionId !== request.sessionId) {
-        throw new Error("codex_clean_attribution_session_binding_mismatch");
-      }
-      const fingerprint = submissionFingerprint(request);
-      return withContextMutationPlanSessionLock({
-        stateDir: params.stateDir,
-        sessionId: request.sessionId,
-        run: async () => {
-          const registry = await loadSessionTaskRegistry(params.stateDir, request.sessionId);
-      const existing = registry.attributionSubmissions?.[request.submissionId];
-      if (existing) {
-        if (existing.fingerprint !== fingerprint) {
-          throw new Error("codex_clean_attribution_submission_conflict");
-        }
-        return {
-          submissionId: request.submissionId,
-          status: "replayed",
-          registryVersion: existing.registryVersion,
-          taskIds: [...existing.taskIds],
-        };
-      }
-
-      const session = await loadCodexSessionSnapshot(params.stateDir, request.sessionId);
-      if (!session) throw new Error("codex_clean_session_not_found");
-      const view = await buildCodexEffectiveHistoryView({
-        stateDir: params.stateDir,
-        sessionId: request.sessionId,
-        headResponseId: session.latestResponseId,
-        async rolloutViewBootstrap() {
-          if (!session.transcriptPath) return null;
-          return (await parseCodexRollout(session.transcriptPath))?.view ?? null;
-        },
-      });
-       const { historyEvidence } = assessHistoryEvidence(view);
-       if (!historyEvidence) {
-         throw new Error("codex_clean_attribution_evidence_stale");
-       }
-
-      const turnByItemId = new Map<string, { absId: string; seq: number }>();
-      for (const turn of view.turns) {
-        for (const itemId of [...turn.inputItemIds, ...turn.outputItemIds]) {
-          if (turnByItemId.has(itemId)) throw new Error("codex_clean_attribution_occurrence_shared");
-          turnByItemId.set(itemId, { absId: turn.turnAbsId, seq: turn.turnSeq });
-        }
-      }
-       const evidenceRefs = new Set(request.evidenceRefs);
-       const allUpdateRefs = request.updates.flatMap((update) => update.coveredOccurrenceRefs ?? []);
-       for (const ref of allUpdateRefs) evidenceRefs.add(ref);
-       if (view.history.revision !== request.evidenceRevision) {
-         const currentItemIds = new Set(turnByItemId.keys());
-         if ([...evidenceRefs].some((ref) => !currentItemIds.has(ref))) {
-           throw new Error("codex_clean_attribution_evidence_stale");
-         }
-       }
-       const protectedItemIds = new Set(historyEvidence.protectedItemIds);
-       const resolved = [...evidenceRefs].map((ref) => {
-         if (protectedItemIds.has(ref)) {
-           throw new Error(`codex_clean_attribution_occurrence_uncertain:${ref}`);
-         }
-         const turn = turnByItemId.get(ref);
-        if (!turn) throw new Error(`codex_clean_attribution_occurrence_invalid:${ref}`);
-        return [ref, turn] as const;
-      });
-      const resolvedByRef = new Map(resolved);
-      const occurrenceOwners = new Map<string, string>();
-      for (const update of request.updates) {
-        for (const ref of update.coveredOccurrenceRefs ?? []) {
-          const previousOwner = occurrenceOwners.get(ref);
-          if (previousOwner && previousOwner !== update.taskId.trim()) {
-            throw new Error(`codex_clean_attribution_occurrence_ambiguous:${ref}`);
-          }
-          occurrenceOwners.set(ref, update.taskId.trim());
-        }
-      }
-      const requestedTaskIds = new Set(request.updates.map((update) => update.taskId.trim()));
-      for (const ref of occurrenceOwners.keys()) {
-        const existingOwners = registry.occurrenceToTaskIds?.[ref] ?? [];
-        if (existingOwners.some((owner) => !requestedTaskIds.has(owner))) {
-          throw new Error(`codex_clean_attribution_occurrence_ambiguous:${ref}`);
-        }
-      }
-      const provenance = {
-        submissionId: request.submissionId,
-        callerId: request.callerId.trim(),
-        authorityRef: request.authorityRef.trim(),
-        evidenceRevision: request.evidenceRevision.trim(),
-        evidenceRefs: [...evidenceRefs].sort(),
-        invalidationConditions: [...request.invalidationConditions].sort(),
-      };
-      const updates: SemanticTaskUpdate[] = request.updates.map((update) => ({
-        taskId: update.taskId.trim(),
-        ...(update.title?.trim() ? { title: update.title.trim() } : {}),
-        objective: update.objective.trim(),
-        lifecycle: update.lifecycle,
-        coveredOccurrenceRefs: [...(update.coveredOccurrenceRefs ?? [])],
-        coveredTurnAbsIds: [...new Set((update.coveredOccurrenceRefs ?? []).map((ref) => {
-          const turn = resolvedByRef.get(ref);
-          if (!turn) throw new Error(`codex_clean_attribution_occurrence_invalid:${ref}`);
-          return turn.absId;
-        }))],
-        ...(update.completionEvidence ? { completionEvidence: update.completionEvidence } : {}),
-        ...(update.unresolvedQuestions ? { unresolvedQuestions: update.unresolvedQuestions } : {}),
-        ...(update.currentSubgoal ? { currentSubgoal: update.currentSubgoal } : {}),
-        ...(update.evictableReason ? { evictableReason: update.evictableReason } : {}),
-        ...(update.retentionDecision ? { retentionDecision: update.retentionDecision } : {}),
-        ...(update.dependencyDirection ? { dependencyDirection: update.dependencyDirection } : {}),
-        decisionProvenance: provenance,
-      }));
-      const coveredTurnAbsIds = [...new Set(updates.flatMap((update) => update.coveredTurnAbsIds ?? []))];
-      const coveredTurnSeqs = [...new Set(coveredTurnAbsIds.map((absId) => {
-        const turn = [...resolvedByRef.values()].find((candidate) => candidate.absId === absId);
-        return turn?.seq;
-      }).filter((value): value is number => value !== undefined))].sort((left, right) => left - right);
-      const toTurnSeqInclusive = coveredTurnSeqs.at(-1);
-      if (toTurnSeqInclusive === undefined) throw new Error("codex_clean_attribution_occurrence_invalid");
-      const mapped = mapTaskUpdatesToRegistryPatch({
-        registry,
-        updates,
-        coveredTurnAbsIds,
-        coveredTurnSeqs,
-        toTurnSeqInclusive,
-      });
-      if (mapped.rejectedUpdates.length > 0) {
-        throw new Error(`codex_clean_attribution_rejected:${mapped.rejectedUpdates.map((item) => item.reason).join(",")}`);
-      }
-      const taskIds = Object.keys(mapped.patch.upsertTasks ?? {});
-      if (taskIds.length === 0) throw new Error("codex_clean_attribution_empty");
-      const nextVersion = registry.version + 1;
-      const next = applySessionTaskRegistryPatch(registry, {
-        ...mapped.patch,
-        attributionSubmissions: {
-          [request.submissionId]: {
-            fingerprint,
-            taskIds,
-            registryVersion: nextVersion,
-            acceptedAt: request.submittedAt,
-          },
-        },
-      });
-      try {
-        await persistSessionTaskRegistry(params.stateDir, next, { expectedVersion: registry.version });
-      } catch {
-        throw new Error("codex_clean_attribution_submission_conflict");
-      }
-      return {
-        submissionId: request.submissionId,
-        status: "accepted",
-        registryVersion: next.version,
-        taskIds,
-      };
-        },
-      });
     },
     async executeApprovedClean(request) {
       if ((request.occurrenceSelections?.length ?? 0) > 0 && !params.boundSessionId) {

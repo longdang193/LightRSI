@@ -101,7 +101,7 @@ test("dispatch canonicalizes Codex Cleaner session aliases before snapshot looku
 
     await assert.rejects(
       () => dispatchCli(["codex", "clean", "--session", "codex-host-session-1"]),
-      /codex_clean_snapshot_incomplete/,
+      /clean_task_first_workflow_retired/,
     );
   } finally {
     if (originalHome === undefined) delete process.env.HOME;

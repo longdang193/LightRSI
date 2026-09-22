@@ -8,7 +8,6 @@ import {
   loadTokenPilotCodexConfig,
   normalizeTokenPilotCodexConfig,
 } from "../src/config.js";
-import { resolveCodexTaskStateEstimator } from "../src/context-rewrite/estimator-config.js";
 
 test("normalizeTokenPilotCodexConfig applies stable defaults", () => {
   const config = normalizeTokenPilotCodexConfig({});
@@ -27,11 +26,9 @@ test("normalizeTokenPilotCodexConfig applies stable defaults", () => {
   assert.equal(config.taskStateEstimator.requestTimeoutMs, undefined);
   assert.equal(config.taskStateEstimator.inputMode, undefined);
 });
-
 test("codexProxyBaseUrl uses canonical loopback port", () => {
   assert.equal(codexProxyBaseUrl({ proxyPort: 17667 }), "http://127.0.0.1:17667/v1");
 });
-
 test("normalizeTokenPilotCodexConfig derives default stateDir from the tokenpilot config path", () => {
   const config = normalizeTokenPilotCodexConfig({}, {
     configPath: "/tmp/custom-codex-root/tokenpilot.json",
@@ -117,42 +114,4 @@ test("normalizeTokenPilotCodexConfig enables real-provider compatibility learnin
     normalizeTokenPilotCodexConfig({}).contextRewrite.providerCompatibilityProbe,
     "real_provider",
   );
-});
-
-test("loadTokenPilotCodexConfig loads env beside the canonical config without overriding process env", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-env-"));
-  const configPath = join(dir, "tokenpilot.json");
-  const envNames = [
-    "LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED",
-    "LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL",
-    "LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY",
-    "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL",
-  ];
-  const originalEnv = new Map(envNames.map((name) => [name, process.env[name]]));
-  try {
-    for (const name of envNames) delete process.env[name];
-    process.env.LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL = "process-model";
-    await writeFile(join(dir, "tokenpilot.env"), [
-      "LIGHTRSI_TASK_STATE_ESTIMATOR_ENABLED=true",
-      "LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL=https://estimator.example/v1",
-      "LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY=file-secret",
-      "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL=file-model",
-    ].join("\n"), "utf8");
-
-    const config = await loadTokenPilotCodexConfig(configPath);
-    const resolved = resolveCodexTaskStateEstimator({
-      config: config.taskStateEstimator,
-    });
-
-    assert.equal(resolved.config.enabled, true);
-    assert.equal(resolved.config.baseUrl, "https://estimator.example/v1");
-    assert.equal(resolved.config.apiKey, "file-secret");
-    assert.equal(resolved.config.model, "process-model");
-  } finally {
-    for (const [name, value] of originalEnv) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
-    await rm(dir, { recursive: true, force: true });
-  }
 });

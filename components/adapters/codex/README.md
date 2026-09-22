@@ -129,36 +129,15 @@ Expected first-run shape:
 
 Once installed, Codex can use the real internal recovery tool named `memory_fault_recover` through the registered MCP server. Recovery hints in trimmed payloads are no longer just protocol text.
 
-### Task-state estimator bridge (PR-B)
+### Context Cleaner ownership
 
-The task-state estimator bridge is default-disabled. A conservative `~/.codex/tokenpilot.json` example is:
-
-```json
-{
-  "taskStateEstimator": {
-    "enabled": false,
-    "baseUrl": "https://estimator.example/v1",
-    "model": "estimator-model",
-    "requestTimeoutMs": 60000,
-    "batchTurns": 5,
-    "evictionLookaheadTurns": 3,
-    "inputMode": "sliding_window",
-    "lifecycleMode": "coupled",
-    "evidenceMode": "three_state"
-  },
-  "contextRewrite": {
-    "enabled": false
-  }
-}
-```
-
-Keep API keys out of checked-in configuration. The resolver accepts `LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY` from the environment, with `TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY` as a compatibility fallback. The same prefixes support `ENABLED`, `BASE_URL`, `MODEL`, `TIMEOUT_MS`, `BATCH_TURNS`, `EVICTION_LOOKAHEAD_TURNS`, `INPUT_MODE`, `LIFECYCLE_MODE`, and `EVIDENCE_MODE`; explicit JSON fields take precedence over environment values.
-
-For local use, put these variables in one user-local file at `~/.codex/tokenpilot.env`. TokenPilot loads this file beside `tokenpilot.json` when the adapter starts. Existing process environment values take precedence, so CI and service launchers can override local defaults without editing the file. Keep this file outside the repository.
-
-If the bridge is enabled without `baseUrl`, `apiKey`, or `model`, diagnostics report `incomplete` and fail closed. Status and doctor output expose only safe configuration state and numeric parameters, never the API key or an Authorization header.
-
-Automatic lifecycle eviction remains default-disabled. To opt in, set both `taskStateEstimator.enabled` and `contextRewrite.enabled` to `true`; the production proxy then derives the canonical delta, invokes the estimator and shared lifecycle planner, validates the resulting mutation plan, and attempts a response-chain rebase with original-request fallback. `contextRewrite.mutationPlan` remains a test/smoke override and is ignored whenever estimator-driven lifecycle planning is enabled.
+Exact agent-directed occurrence release is the only live Cleaner mutation
+workflow. Old `taskStateEstimator` settings and estimator environment variables
+remain inert compatibility input; they do not trigger estimator calls,
+task-registry eligibility, recommendations, or lifecycle planning. Historical
+task records remain readable only for committed exclusion replay and safe
+settlement. New releases require exact occurrence IDs and fingerprints bound to
+the canonical Codex session.
 
 ### Offline context-rebase smoke
 
