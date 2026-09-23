@@ -1,7 +1,7 @@
 ---
 layer: change
 artifact_type: plan
-status: active
+status: completed
 template_id: implementation-plan
 contract_version: "1"
 name: LightRSI Five P1 Closure
@@ -70,12 +70,12 @@ Approved by the user on 2026-09-23. Keep measurement inside existing runtime and
 - Mode: inline sequential
 - Coordination: git-tracked
 - Required skills: `skill-systematic-debugging`, `skill-test-driven-development`, `skill-backend-verification`, `skill-performance-optimization`, `skill-verification-before-completion`.
-- Isolation: branch `codex/lightrsi-p1-closure`, worktree `C:\Users\HOANG PHI LONG DANG\.codex\worktrees\lightrsi-p1-closure\LightMem2`, based at the recorded base commit.
+- Isolation: branch `codex/lightrsi-p1-closure`, worktree `C:\Users\HOANG PHI LONG DANG\.codex\worktrees\lightrsi-p1-closure-v2\LightMem2`, based at the recorded base commit.
 - Commit policy: no commits during execution; no push, merge, PR, branch deletion, or worktree removal.
 - Preauthorized local actions: create the named branch/worktree; edit named source/test/doc owners; run declared local tests, benchmarks, and approved provider measurements; preserve unrelated worktree changes.
 - User-approval actions: push, merge, PR creation, branch/worktree cleanup, destructive recovery, and writes outside the named worktree.
 - Parallel ownership: none; archive resolver and Reduction router are shared correctness owners; Cleaner CLI/evidence work follows sequentially.
-- Sequential fallback: Tasks 0–6 in listed dependency order; Task 5 remains deferred until authoritative capacity inputs exist.
+- Sequential fallback: Tasks 0–4, then Task 6; Task 5 remains deferred until authoritative capacity inputs exist.
 
 ## Coordination State
 
@@ -83,8 +83,8 @@ Approved by the user on 2026-09-23. Keep measurement inside existing runtime and
 - Coordination schema: 2
 - Branch: `codex/lightrsi-p1-closure`
 - Base commit: `4f1be2b37b2166f2fffd973b9c4b8b849190729b`
-- Expected workspace: `C:\Users\HOANG PHI LONG DANG\.codex\worktrees\lightrsi-p1-closure\LightMem2` at the recorded base commit; primary checkout and staged plan preserved
-- Next action: resume Task 5 and live-provider measurement when authoritative capacity inputs and approved provider benchmark access are available; do not describe current work as full P1 closure.
+- Expected workspace: `C:\Users\HOANG PHI LONG DANG\.codex\worktrees\lightrsi-p1-closure-v2\LightMem2` at candidate `7ffffbc583bbeaa84c46807fa445ab6547b85148`; primary checkout and staged plan preserved
+- Next action: no further local closure work; resume Task 5 and live-provider measurement only through separate approved integration when authoritative capacity inputs and provider access exist.
 - Deferred by user on 2026-09-23: the current Codex runtime/config exposes no authoritative context-window limit or reserved-output budget for pressure. No provider-related environment variables or Codex benchmark `.env` were configured, so live provider measurement was not run; mock-only runs cannot prove provider tokens, cost, cache receipts, or live Codex/9Router task completion.
 
 | Task | State | Workspace | Executor | Dependencies | Required Proof | Evidence |
@@ -95,7 +95,7 @@ Approved by the user on 2026-09-23. Keep measurement inside existing runtime and
 | Task 3 | completed | `codex/lightrsi-p1-closure` | codex | Task 0 | duplicate equivalence and CLI inspection regressions | Codex bridge and CLI tests passed; nested payload IDs preserved; opt-in inspection caps and omission counts tested. |
 | Task 4 | completed | `codex/lightrsi-p1-closure` | codex | Task 0 | comparable preview, side-effect proof, CLI coverage | Cleaner, Codex bridge, and CLI tests passed; codec-equivalent preview and no-write behavior verified. |
 | Task 5 | deferred with user approval | `codex/lightrsi-p1-closure` | codex | Task 0 | revision-bound usage and authoritative capacity evidence | Usage collection exists, but authoritative capacity inputs remain unavailable. Pressure remains `unknown`; no registry or estimate invented. Resume when approved source contract is available. |
-| Task 6 | completed | `codex/lightrsi-p1-closure` | codex | Tasks 1–5 | focused tests, typechecks, benchmarks, workspace validation | Fresh workspace tests, typechecks, build, listed local benchmarks, and diff check passed for partial scope. Task 5 and live-provider evidence remain explicitly deferred; full five-objective P1 closure remains incomplete. |
+| Task 6 | completed | `codex/lightrsi-p1-closure` | codex | Tasks 1–4; Task 5 disposition | focused tests, typechecks, benchmarks, workspace validation | Fresh workspace tests, typechecks, build, listed local benchmarks, and diff check passed. Four active objectives are closed; Task 5 pressure and live-provider evidence remain explicitly deferred and do not block this approved closure scope. |
 
 ## Measurement Report — 2026-09-23
 
@@ -120,9 +120,11 @@ Candidate measurements ran serially on the approved worktree using Node `v24.15.
 
 **Fresh forwarding watch:** candidate-only rerun reported long-history concurrency-16 p95 `59.626 ms` and nested-block concurrency-16 p95 `489.043 ms`. These lack matched base samples in this run; treat as unconfirmed timing signals, not attributable regressions. Rerun matched conditions before optimizing.
 
+**Matched forwarding rerun — 2026-09-23:** pre-change `4f1be2b` versus candidate `7ffffbc`, identical harness (`15` samples, `3` warmups). Long-history concurrency-16: p50 `55.165 → 59.971 ms` (`+8.7%`), p95 `156.157 → 72.046 ms` (`-53.9%`). Nested-block concurrency-16: p50 `50.808 → 52.336 ms` (`+3.0%`), p95 `346.104 → 67.563 ms` (`-80.5%`). Prior p95 watch regression did not reproduce; keep code unchanged and do not optimize from this run.
+
 **Unavailable metrics and limits:** `bench:context-cleaner` returned zero provider-usage records. It runs against mock upstreams, so actual input/output tokens, cost per successfully completed live task, provider cache-hit rate, cached-token count, TTFT, and live Codex/9Router continuation are unavailable. Its request-byte totals are not token estimates. Forwarding reports local request timing and JS heap/allocation proxies, not OS CPU, peak process memory, disk I/O, or provider latency. No harness currently measures those OS counters. Cleaner mock benchmark compares baseline and Cleaner arms, but does not establish cache impact from early/late releases with actual provider receipts. Do not infer any of these values from fixture bytes, hashes, or timing proxies.
 
-**Priority:** First rerun concurrency-16 forwarding against the pinned base under the same idle-machine conditions and expanded samples; optimize only if regression reproduces. Keep indexed CCR lookup; cold/stale-index rebuild and missing-artifact scans remain highest measured recovery costs. Add no runtime telemetry or provider-cache prediction without measured need and receipt-backed evidence.
+**Priority:** Keep indexed CCR lookup; cold/stale-index rebuild and missing-artifact scans remain highest measured recovery costs. Re-run concurrency-16 forwarding only if later evidence shows a repeatable regression. Add no runtime telemetry or provider-cache prediction without measured need and receipt-backed evidence.
 
 ## Invariants
 
@@ -381,7 +383,7 @@ Use Unicode content to distinguish character and byte counts. Assert common enco
 - `pnpm --dir components/adapters/codex typecheck`
 
 Test revision/session match and mismatch, stale data, missing limit/reservation, cache-only telemetry, malformed usage, and each pressure band. Assert no Cleaner lifecycle side effects.
-**Exit Criteria:** Pressure is trustworthy when complete inputs exist and explicitly unknown otherwise. Task 5 is deferred by user approval; full P1 closure remains incomplete until an authoritative limit and reservation source is confirmed.
+**Exit Criteria:** Pressure is trustworthy when complete inputs exist and explicitly unknown otherwise. Task 5 is deferred by user approval; it does not block closure of four active objectives.
 
 ### Task 6: Final Verification
 
@@ -394,13 +396,13 @@ Test revision/session match and mismatch, stale data, missing limit/reservation,
 **Specification Coverage:** All five P1 objectives and preserved invariants.
 **Required Skills:** `skill-verification-before-completion`.
 **Files And Symbols:** All task-owned source, test, and benchmark files listed above.
-**Dependencies:** Tasks 1–5.
+**Dependencies:** Tasks 1–4; Task 5 disposition.
 **Authority:**
 
 - Preauthorized local actions: Run listed checks and benchmarks only.
 - Stop for: an unrelated worktree change or a failed required check. Do not commit, publish, merge, or clean branches/worktrees.
 
-**Steps:** Run focused checks first, then listed full-scope checks. Record approved deferrals and unavailable evidence without weakening acceptance criteria or claiming full P1 closure.
+**Steps:** Run focused checks first, then listed full-scope checks. Record approved deferrals and unavailable evidence without weakening acceptance criteria; close approved active scope without claiming unavailable pressure or live-provider evidence.
 **Verification:** See `## Verification`.
 
 ## Verification
