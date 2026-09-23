@@ -499,10 +499,18 @@ function summarizeNodeTestOutput(
   if (signalCount < 2) return undefined;
 
   const selected: string[] = [];
+  const indentOf = (line: string): number => line.match(/^\s*/)?.[0].length ?? 0;
+  const failureCandidates = lines
+    .map((line, index) => ({ line, index, indent: indentOf(line) }))
+    .filter(({ line }) => /^\s*not ok\b/i.test(line));
+  const rootFailureIndent = Math.min(...failureCandidates.map(({ indent }) => indent));
   const failures = lines
     .map((line, index) => ({ line, index }))
-    .filter(({ line }) => /^\s*not ok\b/i.test(line))
+    .filter(({ line }) => /^\s*not ok\b/i.test(line) && indentOf(line) === rootFailureIndent)
     .slice(0, Math.max(2, cfg.maxItems));
+  const isSiblingBoundary = (line: string): boolean =>
+    (tapStatusLine.test(line) && indentOf(line) <= rootFailureIndent)
+      || (tapTestLine.test(line) && indentOf(line) <= rootFailureIndent);
   for (const failure of failures) {
     const block: string[] = [];
     const pendingContinuation: string[] = [];
@@ -515,7 +523,7 @@ function summarizeNodeTestOutput(
     };
     block.push(failure.line);
     for (let index = failure.index + 1; index < lines.length; index += 1) {
-      if (tapTestLine.test(lines[index]) || tapStatusLine.test(lines[index])) break;
+      if (isSiblingBoundary(lines[index])) break;
       const field = lines[index].match(tapEvidenceLine);
       if (!field) {
         if (tapContinuationLine.test(lines[index])) pendingContinuation.push(lines[index]);
@@ -524,15 +532,13 @@ function summarizeNodeTestOutput(
       flushPendingContinuation();
       const label = field[1].toLowerCase();
       const value = field[2].trim();
-      if (!value && (label === "expected" || label === "actual")) {
-        block.push(`[${label} value omitted; exact recovery available]`);
-        continue;
-      }
-      const fieldLines = [lines[index]];
+      const fieldLines = [value
+        ? lines[index]
+        : `[${label} value omitted; exact recovery available]`];
       const continuation: string[] = [];
       let nextIndex = index + 1;
       while (nextIndex < lines.length) {
-        if (tapTestLine.test(lines[nextIndex]) || tapStatusLine.test(lines[nextIndex]) || tapEvidenceLine.test(lines[nextIndex])) break;
+        if (isSiblingBoundary(lines[nextIndex]) || tapEvidenceLine.test(lines[nextIndex])) break;
         if (tapContinuationLine.test(lines[nextIndex])) continuation.push(lines[nextIndex]);
         nextIndex += 1;
       }
@@ -546,7 +552,7 @@ function summarizeNodeTestOutput(
     flushPendingContinuation();
     selected.push(...block);
   }
-  const status = [...new Set(lines.filter((line) => tapStatusLine.test(line)))];
+  const status = [...new Set(lines.filter((line) => tapStatusLine.test(line) && indentOf(line) <= rootFailureIndent))];
   const result = [
     ...status.slice(0, 1),
     ...selected,

@@ -464,3 +464,23 @@ are unavailable.
 5. Preview validates current revision, compares equivalent encoded requests, reports character and byte units separately, and writes no state.
 6. Pressure uses revision-bound provider usage plus authoritative model capacity and output reservation; otherwise it reports unknown. Do not mark all five P1 objectives complete while those inputs are unavailable.
 7. No automatic release, archive registry, second recovery engine, or historical-read classification change.
+
+## Final RTK/CCR Correctness Closure — 2026-09-23
+
+Follow-up against merged `main` at `7138156` closes the remaining agreed RTK
+and CCR correctness blockers without changing runtime architecture:
+
+- CCR search now admits matches under one shared output budget before deriving
+  response text or `structuredContent`; metadata contains only admitted bounded
+  entries, exact omission markers, and first-unreturned continuation.
+- MCP recovery forwards the canonical bounded CCR page without exposing omitted
+  full match text through structured content.
+- Nested TAP failures use indentation-aware sibling boundaries; multiline
+  `expected`, `actual`, and `stack` values, including empty-inline fields, stay
+  attached to their owning failure and preserve source order.
+
+Focused artifact-store, MCP, and Reduction tests plus typechecks pass. Full
+workspace verification and existing recovery/Reduction benchmarks remain the
+acceptance gate. Cache-aware preview, duplicate discovery, context-pressure
+runtime wiring, live-provider evaluation, and speculative optimization remain
+closed or deferred as previously recorded.

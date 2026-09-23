@@ -448,6 +448,33 @@ test("reduceToolPayloadText keeps multiline TAP fields attached in source order"
   assert.match(result.text, /Execution: complete; exit code: 1/);
 });
 
+test("reduceToolPayloadText isolates nested TAP failures from siblings", () => {
+  const result = reduceToolPayloadText([
+    "TAP version 13",
+    "not ok 1 - parent suite",
+    "    not ok 1 - nested child",
+    "      expected: child expected",
+    "      actual: child actual",
+    "not ok 2 - sibling failure",
+    "  expected:",
+    "    sibling expected",
+    "  actual:",
+    "    sibling actual",
+    "1..2",
+    "# tests 2",
+    "# pass 0",
+    "# fail 2",
+  ].join("\n"), "stderr", defaultCfg, {
+    toolName: "node",
+    payloadKind: "stderr",
+    execution: { commandFamily: "node_test", completion: "complete", exitCode: 1 },
+  });
+
+  assert.equal((result.text.match(/child expected/g) ?? []).length, 1);
+  assert.equal((result.text.match(/sibling expected/g) ?? []).length, 1);
+  assert.ok(result.text.indexOf("child expected") < result.text.indexOf("sibling expected"));
+});
+
 test("reduceToolPayloadText keeps TypeScript diagnostic identity and count", () => {
   const payload = [
     "src/a.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.",
