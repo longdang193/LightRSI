@@ -18,29 +18,32 @@ targets:
 
 ## Verdict Review
 
-The recommendation is directionally sound: close correctness and agent-facing integration gaps before further optimization. Source review confirms three specific gaps:
+The recommendation is accepted with four scope corrections. `2b3201a` is not current checkout `4f1be2b`; it is the second parent of merged `7ffffbc` on `origin/main`. Execute this plan only against the post-`2b3201a` tree, or record an explicit backport from `4f1be2b` before implementation.
 
-1. `canonicalDuplicateValue()` recursively removes every `id` key, including application payload fields. Inspection also computes duplicate evidence eagerly and linearly searches for each item size.
-2. The shared exact-reference resolver searches `tool-result-archives`, while existing writers support additional archive locations. Cleaner CLI projection/rendering drops duplicate and pressure evidence, and CLI has no preview command despite a service-level preview API.
-3. TAP selection uses a fixed continuation-line count instead of preserving complete diagnostic blocks; execution metadata is not rendered consistently.
+The remaining closure work is narrow: workspace recovery fallback, budget-aware CCR pagination, ordered TAP diagnostic fidelity, and CLI preview metric labels.
+
+1. Workspace recovery still needs trusted workspace-root fallback when its derived index is missing or stale.
+2. CCR search still materializes a complete page before checking the output budget, so oversized pages fail instead of returning navigable partial evidence.
+3. TAP selection still needs field/body grouping and ordered omission markers.
+4. Cleaner preview already exists after `2b3201a`; remaining work is renderer/accounting fidelity, not a new command or lifecycle path.
 
 The preview concern needs narrower wording: current code JSON-serializes both baseline and candidate payloads, so the pasted recommendation does not prove those representations differ. Prove parity with normal Codex request encoding before changing it. Concrete defect: `netSavedChars` is computed from UTF-8 byte lengths. Report characters and bytes separately.
 
 Pressure has a source gap. Codex response collection captures provider `usage`, but inspected runtime does not expose an authoritative context-window limit or reserved-output budget to Cleaner inspection. Keep pressure `unknown` until these values come from an existing authoritative host/config source; do not invent a model-limit registry or infer pressure from characters or cache-read tokens.
 
-The completed plan `docs/superpowers/plans/2026-09-22-lightrsi-rtk-ccr-context-cleaner-plan.md` remains historical evidence. This follow-up closes gaps still visible at `4f1be2b`; it does not reopen historical read classification or repeat completed work.
+Duplicate-occurrence discovery is closed for its agreed scope by `2b3201a`. This plan verifies that status but does not reopen its algorithm or add a registry. Context-pressure runtime wiring remains explicitly deferred and does not block P1 closure.
 
 ## Goal
 
-Complete the five P1 objectives—RTK diagnostic fidelity, CCR exact and focused recovery, duplicate-occurrence discovery, cache-aware release preview, and context-pressure attention—through existing Reduction, artifact-store, Context Cleaner, Codex adapter, and CLI owners. Preserve explicit release authority, exact recovery, and unknown-state behavior.
+Complete four active P1 closure objectives—RTK diagnostic fidelity, CCR exact and focused recovery, cache-aware release preview, and measured local acceptance—through existing Reduction, artifact-store, Context Cleaner, Codex adapter, and CLI owners. Preserve explicit release authority, exact recovery, and unknown-state behavior. Carry duplicate discovery forward as closed; carry context-pressure forward as deferred.
 
 ## Implementation Outcomes
 
 - Every `artifactRef` from a supported writer root recovers exact archived bytes through normal recovery tools.
 - RTK selectors preserve actionable diagnostic blocks and execution outcome.
-- Agents can request bounded duplicate evidence, preview exact occurrence release, and inspect revision-bound pressure evidence through existing CLI.
+- Agents can preview exact occurrence release through existing CLI; duplicate evidence remains bounded and opt-in.
 - Preview remains read-only; provider-cache outcomes come only from actual receipts.
-- Pressure remains unknown unless current usage, context limit, reserved output, and revision are authoritative.
+- Pressure remains unknown until a separate approved integration supplies authoritative capacity and reservation inputs.
 
 ## Approved Additive Scope — End-to-End Performance
 
