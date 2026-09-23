@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -1008,10 +1008,14 @@ test("Codex release preview builds candidate without persistence", async () => {
     assert.equal(preview.validatedOccurrenceCount, 1);
     assert.equal(preview.deferredOccurrenceCount, 0);
     assert.equal(preview.rejectedOccurrenceCount, 0);
+    assert.ok(preview.grossSavedChars > 0);
     assert.equal(preview.earliestChangedHistoryItem, target.stableId);
     assert.equal(preview.providerCacheOutcome, "unknown");
     assert.ok(preview.netSavedChars != null);
     assert.ok(preview.netSavedBytes != null);
+    assert.ok(preview.netSavedChars > 0);
+    assert.equal(typeof preview.transportDeltaChars, "number");
+    assert.equal(typeof preview.transportDeltaBytes, "number");
     assert.ok(Math.abs(preview.netSavedBytes) > Math.abs(preview.netSavedChars));
     await assert.rejects(bridge.previewCleanRelease!({
       sessionId,
@@ -1027,5 +1031,60 @@ test("Codex release preview builds candidate without persistence", async () => {
       ],
     }), /clean_preview_occurrence_invalid/);
     assert.equal((await bridge.readCleanSnapshot(sessionId)).revision, snapshot.revision);
+  });
+});
+
+test("Codex release preview reports backend-deferred observation-only items", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-cleaner-preview-observation";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: {
+        input: [
+          { role: "user", content: "continue" },
+          {
+            type: "function_call_output",
+            id: "host-tool-output",
+            name: "send_message_to_thread",
+            namespace: "codex_app",
+            output: "<codex_delegation>completed</codex_delegation>",
+          },
+        ],
+      },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: { id: "response-1", output: [] },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, {
+      latestResponseId: "response-1",
+      latestModel: "gpt-5.4",
+    });
+    const bridge = createCodexContextCleanerBridge({ stateDir, controlPlane: fakeControlPlane() });
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
+    const target = snapshot.items.find((item) => item.kind === "tool_result");
+    assert.ok(target);
+    const before = await readdir(stateDir);
+    const preview = await bridge.previewCleanRelease!({
+      sessionId,
+      baseRevision: snapshot.revision,
+      occurrences: [{ stableId: target.stableId, fingerprint: target.fingerprint }],
+    });
+    assert.equal(preview.selectedOccurrenceCount, 1);
+    assert.equal(preview.validatedOccurrenceCount, 0);
+    assert.equal(preview.deferredOccurrenceCount, 1);
+    assert.equal(preview.rejectedOccurrenceCount, 0);
+    assert.equal(preview.grossSavedChars, 0);
+    assert.equal(preview.netSavedChars, 0);
+    assert.equal(preview.netSavedBytes, 0);
+    assert.equal(preview.transportDeltaChars, 0);
+    assert.equal(preview.earliestChangedHistoryItem, undefined);
+    assert.deepEqual(await readdir(stateDir), before);
   });
 });

@@ -52,6 +52,8 @@ export type CacheReleasePreview = {
   grossSavedChars: number;
   netSavedChars: number | null;
   netSavedBytes: number | null;
+  transportDeltaChars?: number | null;
+  transportDeltaBytes?: number | null;
   earliestChangedHistoryItem?: string;
   unchangedPrefixItemCount: number;
   providerCacheOutcome: "preserved" | "changed" | "unknown";

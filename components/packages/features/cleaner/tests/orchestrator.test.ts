@@ -105,6 +105,19 @@ test("release preview validates current fingerprints and writes no Cleaner state
     }]);
     assert.equal(preview.providerCacheOutcome, "changed");
     assert.deepEqual(await readdir(stateDir), []);
+    const fallbackService = createContextCleanerControlService({
+      stateDir,
+      bridge: { ...bridge, previewCleanRelease: undefined },
+    });
+    const fallback = await fallbackService.previewRelease("session-1", [{
+      stableId: "item-a",
+      fingerprint: "digest-a",
+    }]);
+    assert.equal(fallback.selectedOccurrenceCount, 1);
+    assert.equal(fallback.validatedOccurrenceCount, 0);
+    assert.equal(fallback.deferredOccurrenceCount, 1);
+    assert.equal(fallback.grossSavedChars, 0);
+    assert.equal(fallback.earliestChangedHistoryItem, undefined);
     await assert.rejects(
       service.previewRelease("session-1", [{ stableId: "item-a", fingerprint: "wrong" }]),
       /clean_preview_occurrence_invalid/,

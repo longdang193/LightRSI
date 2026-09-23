@@ -9,6 +9,7 @@ export function createWorkspaceHintStore(
     workspaceDir: string | undefined,
   ) => void;
   resolveWorkspaceHintForEvent: (event: any) => string | undefined;
+  resolveWorkspaceHintForSessionId: (sessionId: string) => string | undefined;
 } {
   const workspaceDirBySessionKey = new Map<string, string>();
   const workspaceDirBySessionId = new Map<string, string>();
@@ -36,8 +37,12 @@ export function createWorkspaceHintStore(
     );
   };
 
+  const resolveWorkspaceHintForSessionId = (sessionId: string): string | undefined =>
+    workspaceDirBySessionId.get(sessionId.trim());
+
   return {
     rememberWorkspaceHint,
     resolveWorkspaceHintForEvent,
+    resolveWorkspaceHintForSessionId,
   };
 }

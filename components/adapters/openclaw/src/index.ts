@@ -84,7 +84,7 @@ module.exports = {
     const logger = makeLogger(api?.logger);
     configureStatePathResolver(createOpenClawStatePathResolver());
     const cfg = normalizeConfig(api?.pluginConfig);
-    const { rememberWorkspaceHint, resolveWorkspaceHintForEvent } = createWorkspaceHintStore(
+    const { rememberWorkspaceHint, resolveWorkspaceHintForEvent, resolveWorkspaceHintForSessionId } = createWorkspaceHintStore(
       extractSessionKey,
       extractOpenClawSessionId,
     );
@@ -157,6 +157,7 @@ module.exports = {
       extractSessionKey,
       extractLastUserMessage,
       extractOpenClawSessionId,
+      resolveWorkspaceHintForSessionId,
       extractWorkspaceDirFromMessages,
       normalizeTurnBindingMessage,
       rememberWorkspaceHint,

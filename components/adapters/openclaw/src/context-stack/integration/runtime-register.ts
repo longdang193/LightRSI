@@ -10,8 +10,8 @@ import { createRuntimeSessionRouter } from "./runtime-session-router.js";
 import { upsertOpenClawSessionSummary } from "../../session/session-summary.js";
 
 export async function registerRuntime(api: any, cfg: any, logger: any, deps: any): Promise<void> {
-  registerMemoryFaultRecoverTool(api, cfg, logger);
   const sessionRouter = createRuntimeSessionRouter({ cfg, deps });
+  registerMemoryFaultRecoverTool(api, cfg, logger, deps.resolveWorkspaceHintForSessionId);
 
   let proxyRuntime: Awaited<ReturnType<typeof startEmbeddedResponsesProxy>> | null = null;
   let proxyInitDone = false;

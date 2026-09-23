@@ -31,6 +31,7 @@ import { buildCodexEffectiveHistoryView, parseCodexRollout } from "../context-hi
 import { buildCodexRawSemanticTurns } from "../context-rewrite/semantic-mapping.js";
 import { codexSharedContextRewriteBackend } from "../context-rewrite/backend.js";
 import { buildCodexLifecycleBackendRequest } from "../context-rewrite/lifecycle-input.js";
+import { buildCodexRebaseRequest } from "../context-rewrite/rebase-request.js";
 import {
   loadCodexSessionSnapshot,
 } from "../session-state.js";
@@ -553,31 +554,58 @@ export function createCodexContextCleanerBridge(params: {
           plan,
           request: state.backendRequest,
         });
-      const historyItems = [
-        ...state.view.history.replayableItems,
-        ...state.view.history.observationOnlyItems,
-        ...state.view.history.deferredItems,
-      ];
-      const firstChanged = historyItems.findIndex((item) => selectedIds.includes(item.stableItemId));
-      const grossSavedChars = occurrences.reduce(
-        (sum, occurrence) => sum + (itemById.get(occurrence.stableId)?.chars ?? 0),
-        0,
-      );
+      const removedItemIds = new Set(candidate.result.removedItemIds);
+      const historyItems = state.persistableSnapshot.items;
+      const firstChanged = historyItems.findIndex((item) => removedItemIds.has(item.stableId));
       const codec = createCodexResponsesPayloadCodec();
-      const beforeEncoded = JSON.stringify(codec.encodeRequest(codec.decodeRequest(state.backendRequest.payload)));
-      const afterEncoded = JSON.stringify(codec.encodeRequest(codec.decodeRequest(candidate.request.payload)));
-      const encodingComparable = beforeEncoded !== undefined && afterEncoded !== undefined;
+      const encodePayload = (payload: typeof state.backendRequest.payload) => {
+        const encoded = codec.encodeRequest(codec.decodeRequest(payload));
+        return encoded === undefined ? undefined : JSON.stringify(encoded);
+      };
+      const transportBefore = encodePayload(state.backendRequest.payload);
+      const transportAfter = encodePayload(candidate.request.payload);
+      let equivalentBefore: string | undefined;
+      if (candidate.result.appliedOperationIds.length > 0) {
+        try {
+          const baseline = buildCodexRebaseRequest({
+            sessionId,
+            planId: `${plan.planId}-baseline`,
+            baseRevision,
+            originalPayload: state.backendRequest.payload,
+            effectiveHistory: state.backendRequest.effectiveHistory,
+            currentInput: state.backendRequest.currentInput ?? state.backendRequest.payload.input,
+            mutationPlan: { baseRevision, operations: [] },
+          });
+          equivalentBefore = encodePayload(baseline.payload);
+        } catch {
+          equivalentBefore = undefined;
+        }
+      }
+      const netSavedChars = candidate.result.appliedOperationIds.length === 0
+        ? 0
+        : equivalentBefore !== undefined && transportAfter !== undefined
+          ? equivalentBefore.length - transportAfter.length
+          : null;
+      const netSavedBytes = candidate.result.appliedOperationIds.length === 0
+        ? 0
+        : equivalentBefore !== undefined && transportAfter !== undefined
+          ? Buffer.byteLength(equivalentBefore, "utf8") - Buffer.byteLength(transportAfter, "utf8")
+          : null;
       return {
         selectedOccurrenceCount: occurrences.length,
-        validatedOccurrenceCount: occurrences.length,
-        deferredOccurrenceCount: 0,
+        validatedOccurrenceCount: candidate.result.appliedOperationIds.length,
+        deferredOccurrenceCount: candidate.result.deferredOperationIds.length,
         rejectedOccurrenceCount: 0,
-        grossSavedChars,
-        netSavedChars: encodingComparable ? beforeEncoded.length - afterEncoded.length : null,
-        netSavedBytes: encodingComparable
-          ? Buffer.byteLength(beforeEncoded, "utf8") - Buffer.byteLength(afterEncoded, "utf8")
+        grossSavedChars: candidate.result.savedChars,
+        netSavedChars,
+        netSavedBytes,
+        transportDeltaChars: transportBefore !== undefined && transportAfter !== undefined
+          ? transportAfter.length - transportBefore.length
           : null,
-        ...(firstChanged >= 0 ? { earliestChangedHistoryItem: historyItems[firstChanged]!.stableItemId } : {}),
+        transportDeltaBytes: transportBefore !== undefined && transportAfter !== undefined
+          ? Buffer.byteLength(transportAfter, "utf8") - Buffer.byteLength(transportBefore, "utf8")
+          : null,
+        ...(firstChanged >= 0 ? { earliestChangedHistoryItem: historyItems[firstChanged]!.stableId } : {}),
         unchangedPrefixItemCount: firstChanged >= 0 ? firstChanged : historyItems.length,
         providerCacheOutcome: "unknown",
         baseRevision,
