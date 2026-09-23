@@ -132,6 +132,39 @@ test("resolveMemoryFaultRecover supports stats and literal search modes", async 
   }
 });
 
+test("resolveMemoryFaultRecover keeps structured search evidence within output budget", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-mcp-search-budget-"));
+  try {
+    const location = await archiveContent({
+      sessionId: "session-budget",
+      segmentId: "segment-budget",
+      sourcePass: "tool_payload_trim",
+      toolName: "read",
+      dataKey: "segment:budget",
+      originalText: Array.from({ length: 30 }, (_, index) => `needle ${index + 1} ${"x".repeat(20)}`).join("\n"),
+      archiveDir: join(dir, "tokenpilot", "tool-result-archives", "session-budget"),
+    });
+
+    const result = await resolveMemoryFaultRecover({
+      artifactRef: location.artifactRef,
+      stateDir: dir,
+      mode: "search",
+      query: "needle",
+      contextLines: 0,
+      maxMatches: 20,
+      maxOutputChars: 500,
+    });
+    const matches = result.details.matches as Array<{ line: number; text?: string }> | undefined;
+    assert.ok((matches?.length ?? 0) < 20);
+    assert.equal(result.details.nextStartLine, (matches?.at(-1)?.line ?? 0) + 1);
+    assert.equal(result.details.omittedMatches, 30 - (matches?.length ?? 0));
+    assert.equal(result.details.truncated, true);
+    assert.ok(JSON.stringify(result.details).length < 1_000);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("handleMcpRequest returns tools/list and tools/call responses", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-mcp-rpc-"));
   try {

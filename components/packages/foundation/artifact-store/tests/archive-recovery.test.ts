@@ -340,9 +340,37 @@ test("search stays bounded for repeated matches and oversized lines", () => {
   });
   assert.ok(result.text.length <= 320);
   assert.equal(result.details.scanComplete, true);
-  assert.equal(result.details.resultsComplete, true);
+  assert.equal(result.details.resultsComplete, false);
   assert.equal(result.details.truncated, true);
   assert.match(result.text, /line 1 omitted|archive-relative line recovery/i);
+});
+
+test("search derives continuation and metadata from budget-admitted matches", () => {
+  const archive = {
+    schemaVersion: 2,
+    kind: "tool_payload_trim_archive",
+    sessionId: "sess-budget",
+    segmentId: "seg-budget",
+    sourcePass: "tool_payload_trim",
+    toolName: "read",
+    dataKey: "budget:key",
+    originalText: Array.from({ length: 30 }, (_, index) => `needle ${index + 1} ${"x".repeat(20)}`).join("\n"),
+    originalSize: 1_000,
+    archivedAt: "2026-07-03T00:00:00.000Z",
+  };
+
+  const result = renderRecoveredArchive({
+    archive,
+    mode: "search",
+    query: "needle",
+    contextLines: 0,
+    maxMatches: 20,
+    maxOutputChars: 500,
+  });
+
+  assert.ok((result.details.matches?.length ?? 0) < 20);
+  assert.equal(result.details.nextStartLine, (result.details.matches?.at(-1)?.line ?? 0) + 1);
+  assert.equal(result.details.resultsComplete, false);
 });
 
 test("synchronous tool-result persistence writes digest-scoped artifact lookups", async () => {

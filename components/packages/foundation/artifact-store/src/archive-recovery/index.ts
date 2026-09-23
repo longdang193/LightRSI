@@ -45,7 +45,10 @@ export type RecoveredArchiveRenderResult = {
     recoveredLineCount?: number;
     sourceStartLine?: number;
     sourceEndLine?: number;
-    matches?: Array<{ line: number; text: string }>;
+    matches?: Array<
+      | { line: number; text: string }
+      | { line: number; omitted: true; reason: string; startLine: number; endLine: number }
+    >;
     omittedMatches?: number;
     scanComplete?: boolean;
     resultsComplete?: boolean;
@@ -199,44 +202,40 @@ export function renderRecoveredArchive(params: {
       : 20;
     const scanStart = startLine ?? 1;
     const scanEnd = Math.min(endLine ?? lines.length, lines.length);
-    const matchingLines: number[] = [];
+    const candidates: Array<{ line: number; text: string }> = [];
     let matchCount = 0;
+    let firstOverflowMatchLine: number | undefined;
     for (let lineNumber = scanStart; lineNumber <= scanEnd; lineNumber += 1) {
       const text = lines[lineNumber - 1] ?? "";
       if (!text.includes(query)) continue;
       matchCount += 1;
-      matchingLines.push(lineNumber);
+      if (candidates.length < maxMatches) {
+        candidates.push({ line: lineNumber, text });
+      } else if (firstOverflowMatchLine == null) {
+        firstOverflowMatchLine = lineNumber;
+      }
     }
-    const selected = matchingLines
-      .slice(0, maxMatches)
-      .map((line) => ({ line, text: lines[line - 1] ?? "" }));
     const maxOutputChars = typeof params.maxOutputChars === "number" && Number.isFinite(params.maxOutputChars)
       ? Math.max(1, Math.trunc(params.maxOutputChars))
       : 12_000;
-    const omittedMatches = Math.max(0, matchCount - selected.length);
-    const nextStartLine = omittedMatches > 0 ? matchingLines[selected.length] : undefined;
-    const outputParts = [
+    const endMarker = "--- End Search Context ---";
+    const headerReserve = [
       `[Memory Fault Recovery] Search results for: ${reference}\n`,
       `Query: ${query}\n`,
       `Line basis: ${lineBasis}\n`,
-      `Matches: ${matchCount}; returned: ${selected.length}; omitted: ${omittedMatches}\n`,
+      `Matches: ${matchCount}; returned: ${maxMatches}; omitted: ${matchCount}\n`,
       "Scan complete: true\n",
-      ...(nextStartLine ? [`Continue with startLine: ${nextStartLine}\n`] : []),
+      `Continue with startLine: ${lines.length}\n`,
       "--- Search Context ---\n",
-    ];
-    const endMarker = "--- End Search Context ---";
-    const bodyBudget = Math.max(0, maxOutputChars - endMarker.length);
+    ].join("").length;
+    const bodyBudget = Math.max(0, maxOutputChars - endMarker.length - headerReserve);
     let outputChars = 0;
     const renderedParts: string[] = [];
-    for (const part of outputParts) {
-      if (outputChars + part.length > bodyBudget) break;
-      renderedParts.push(part);
-      outputChars += part.length;
-    }
+    const admitted: RecoveredArchiveRenderResult["details"]["matches"] = [];
     const renderedLineNumbers = new Set<number>();
     let representedMatches = 0;
-    let evidenceOmitted = renderedParts.length < outputParts.length;
-    for (const match of selected) {
+    let omittedEvidence = 0;
+    for (const match of candidates) {
       const start = Math.max(1, match.line - contextLines);
       const end = Math.min(lines.length, match.line + contextLines);
       const blockLines = Array.from({ length: end - start + 1 }, (_, index) => start + index)
@@ -246,37 +245,55 @@ export function renderRecoveredArchive(params: {
         renderedParts.push(block);
         outputChars += block.length;
         for (const line of blockLines) renderedLineNumbers.add(line);
+        admitted.push(match);
         representedMatches += 1;
         continue;
       }
-      const matchText = `${match.line}: ${match.text}\n`;
       const omission = `[line ${match.line} omitted; exact recovery available with startLine=${match.line}, endLine=${match.line}]\n`;
-      const replacement = matchText.length <= bodyBudget - outputChars ? matchText : omission;
-      if (outputChars + replacement.length > bodyBudget) {
-        evidenceOmitted = true;
+      if (outputChars + omission.length > bodyBudget) {
         break;
       }
-      renderedParts.push(replacement);
-      outputChars += replacement.length;
+      renderedParts.push(omission);
+      outputChars += omission.length;
       renderedLineNumbers.add(match.line);
-      representedMatches += 1;
-      evidenceOmitted = true;
+      admitted.push({
+        line: match.line,
+        omitted: true,
+        reason: "line_exceeds_output_budget",
+        startLine: match.line,
+        endLine: match.line,
+      });
+      omittedEvidence += 1;
     }
     if (renderedParts.length === 0 && bodyBudget > 0) {
       renderedParts.push("[search result omitted; use archive-relative line recovery]\n".slice(0, bodyBudget));
     }
-    const renderedText = `${renderedParts.join("")}${endMarker}`.slice(0, maxOutputChars);
+    const unreturnedMatches = Math.max(0, matchCount - admitted.length);
+    const omittedMatches = unreturnedMatches;
+    const nextStartLine = admitted.length < candidates.length
+      ? candidates[admitted.length]?.line
+      : firstOverflowMatchLine;
+    const outputParts = [
+      `[Memory Fault Recovery] Search results for: ${reference}\n`,
+      `Query: ${query}\n`,
+      `Line basis: ${lineBasis}\n`,
+      `Matches: ${matchCount}; returned: ${admitted.length}; omitted: ${omittedMatches}\n`,
+      "Scan complete: true\n",
+      ...(nextStartLine ? [`Continue with startLine: ${nextStartLine}\n`] : []),
+      "--- Search Context ---\n",
+    ];
+    const renderedText = `${outputParts.join("")}${renderedParts.join("")}${endMarker}`.slice(0, maxOutputChars);
     return {
       text:
         renderedText,
       details: {
         ...baseDetails,
-        matches: selected,
+        matches: admitted,
         omittedMatches,
         scanComplete: true,
-        resultsComplete: omittedMatches === 0 && representedMatches === selected.length,
+        resultsComplete: omittedMatches === 0 && representedMatches === admitted.length,
         ...(nextStartLine ? { nextStartLine } : {}),
-        truncated: omittedMatches > 0 || evidenceOmitted,
+        truncated: omittedMatches > 0 || omittedEvidence > 0,
       },
     };
   }
