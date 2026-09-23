@@ -157,6 +157,8 @@ test("resolveMemoryFaultRecover keeps structured search evidence within output b
     const matches = result.details.matches as Array<{ line: number; text?: string }> | undefined;
     assert.ok((matches?.length ?? 0) < 20);
     assert.equal(result.details.nextStartLine, (matches?.at(-1)?.line ?? 0) + 1);
+    assert.equal(result.details.omittedMatches, 30 - (matches?.length ?? 0));
+    assert.equal(result.details.truncated, true);
     assert.ok(JSON.stringify(result.details).length < 1_000);
   } finally {
     await rm(dir, { recursive: true, force: true });

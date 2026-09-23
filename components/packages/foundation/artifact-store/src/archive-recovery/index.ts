@@ -269,7 +269,7 @@ export function renderRecoveredArchive(params: {
       renderedParts.push("[search result omitted; use archive-relative line recovery]\n".slice(0, bodyBudget));
     }
     const unreturnedMatches = Math.max(0, matchCount - admitted.length);
-    const omittedMatches = unreturnedMatches + omittedEvidence;
+    const omittedMatches = unreturnedMatches;
     const nextStartLine = admitted.length < candidates.length
       ? candidates[admitted.length]?.line
       : firstOverflowMatchLine;
@@ -293,7 +293,7 @@ export function renderRecoveredArchive(params: {
         scanComplete: true,
         resultsComplete: omittedMatches === 0 && representedMatches === admitted.length,
         ...(nextStartLine ? { nextStartLine } : {}),
-        truncated: omittedMatches > 0,
+        truncated: omittedMatches > 0 || omittedEvidence > 0,
       },
     };
   }
