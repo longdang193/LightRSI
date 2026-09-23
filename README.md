@@ -42,6 +42,14 @@ Upstream attribution remains with [zjunlp/LightRSI](https://github.com/zjunlp/Li
 - **Easy to inspect:** use `status`, `doctor`, `report`, cache audits, and browser visuals to see what the runtime is doing.
 - **Provider-friendly:** preserve each provider's request format and configured identity while adding local optimization.
 
+<span id='fork-workflow'/>
+
+### 🧭 Forked LightRSI Workflow
+
+The interactive workflow explains the fork in six steps: receive a request, keep useful context, call the provider, save session history, recover the next turn, and inspect health.
+
+[Open the interactive workflow](./docs/diagrams/forked-lightrsi.workflow.html) · [View the Archify source](./docs/diagrams/forked-lightrsi.workflow.json)
+
 <span id='context-cleaner'/>
 
 ## 🧹 Agent-Directed Context Cleaner
@@ -129,6 +137,7 @@ LightRSI separates reusable improvement capabilities from shared runtime infrast
 ## 📑 Table of Contents
 
 * <a href='#fork'>🌿 About This Fork</a>
+* <a href='#fork-workflow'>🧭 Forked LightRSI Workflow</a>
 * <a href='#context-cleaner'>🧹 Agent-Directed Context Cleaner</a>
 * <a href='#engineering-contributions'>🛠️ What Changed in This Fork</a>
 * <a href='#fork-validation'>🧪 How We Validate It</a>

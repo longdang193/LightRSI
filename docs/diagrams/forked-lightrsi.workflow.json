@@ -1,0 +1,55 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Forked LightRSI in One Request",
+    "subtitle": "Six steps from agent request to a smaller, recoverable next turn",
+    "output": "docs/diagrams/forked-lightrsi.workflow.html",
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "simple-flow", "label": "Simple flow", "focus": ["host", "runtime", "optimize", "provider", "session", "recover", "observe"], "note": "Follow the small set of steps that matter in daily use." }
+    ]
+  },
+  "lanes": [
+    { "id": "host", "label": "Agent" },
+    { "id": "runtime", "label": "Forked LightRSI" },
+    { "id": "provider", "label": "Provider" },
+    { "id": "state", "label": "Session state" },
+    { "id": "evidence", "label": "Visibility" }
+  ],
+  "phases": [
+    { "id": "start", "label": "Start", "fromCol": 0, "toCol": 0 },
+    { "id": "shape", "label": "Shape context", "fromCol": 1, "toCol": 2, "variant": "emphasis" },
+    { "id": "continue", "label": "Send + continue", "fromCol": 3, "toCol": 4 },
+    { "id": "see", "label": "See results", "fromCol": 5, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "fork-core", "label": "Shared foundation plus fork improvements", "lane": "runtime", "fromCol": 1, "toCol": 2, "variant": "emphasis" },
+    { "id": "fork-continuity", "label": "Fork continuity layer", "lane": "state", "fromCol": 3, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["host", "runtime", "optimize", "provider", "session", "recover", "observe"],
+  "nodes": [
+    { "id": "host", "lane": "host", "col": 0, "width": 120, "type": "frontend", "label": "Agent request" },
+    { "id": "runtime", "lane": "runtime", "col": 1, "width": 145, "type": "backend", "label": "Forked LightRSI" },
+    { "id": "optimize", "lane": "runtime", "col": 2, "width": 145, "type": "security", "label": "Keep useful context" },
+    { "id": "provider", "lane": "provider", "col": 3, "width": 125, "type": "external", "label": "Model provider" },
+    { "id": "session", "lane": "state", "col": 3, "width": 135, "type": "database", "label": "Save session" },
+    { "id": "recover", "lane": "state", "col": 4, "width": 145, "type": "cloud", "label": "Recover next turn" },
+    { "id": "observe", "lane": "evidence", "col": 5, "width": 145, "type": "database", "label": "Inspect health" }
+  ],
+  "edges": [
+    { "from": "host", "to": "runtime", "label": "request", "variant": "emphasis" },
+    { "from": "runtime", "to": "optimize", "label": "prepare" },
+    { "from": "optimize", "to": "provider", "label": "optimized request", "variant": "emphasis" },
+    { "from": "provider", "to": "session", "label": "response" },
+    { "from": "session", "to": "recover", "label": "history" },
+    { "from": "recover", "to": "observe", "label": "continue" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Inherited", "items": ["LightRSI foundation and TokenPilot keep context efficient"] },
+    { "dot": "violet", "title": "Fork adds", "items": ["Exact Cleaner releases", "Safer forwarding and restart recovery"] },
+    { "dot": "amber", "title": "Result", "items": ["Smaller context", "Clear status and evidence"] }
+  ]
+}
