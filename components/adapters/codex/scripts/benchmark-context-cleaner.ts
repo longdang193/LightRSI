@@ -72,6 +72,33 @@ type ProviderUsage = {
   cachedInputTokens: number | null;
 };
 
+type UsageField = "inputTokens" | "outputTokens" | "cachedInputTokens";
+type UsageCompletenessStatus = "complete" | "incomplete" | "unavailable";
+
+type UsageSummary = {
+  expectedRequests: number;
+  observedRequests: number;
+  observedByField: Record<UsageField, number>;
+  status: UsageCompletenessStatus;
+  invalidReasons: string[];
+  totals: Record<UsageField, number | null>;
+};
+
+type ReleaseMode = "lifecycle" | "one-release";
+
+export type BreakEvenCheckpoint = {
+  label: string;
+  keepCost: number;
+  releaseCost: number;
+  netSavings: number;
+};
+
+export type BreakEvenSummary = {
+  checkpoints: BreakEvenCheckpoint[];
+  firstBreakEven: string | null;
+  sustainedBreakEven: boolean;
+};
+
 type BenchmarkMode = "mock" | "live";
 
 type LiveOptions = {
@@ -98,6 +125,7 @@ type RunResult = {
   upstreamRequestCount: number;
   turns: TurnResult[];
   localInputBytes: number[];
+  releaseOverheadMs: number;
   providerUsage: Array<ProviderUsage | null> | null;
   providerShape: ProviderShape[] | null;
   failure?: string;
@@ -389,6 +417,12 @@ function releaseSelection(
   };
 }
 
+function durableCompletionWait(turn: TurnResult | undefined): number {
+  const durable = turn?.timing.durationsMs.handlerToDurableCompletion;
+  const finished = turn?.timing.durationsMs.handlerToFinish;
+  return durable !== undefined && finished !== undefined ? Math.max(0, durable - finished) : 0;
+}
+
 export function userInputText(request: UpstreamRequest): string {
   const input = request.body.input;
   if (!Array.isArray(input)) return JSON.stringify(input ?? request.body);
@@ -643,6 +677,7 @@ function benchmarkConfig(
 
 async function createBenchmarkSeed(
   fixture: Fixture,
+  releaseMode: ReleaseMode,
   mode: BenchmarkMode,
   repetition: number,
   requestTimeoutMs: number,
@@ -678,7 +713,7 @@ async function createBenchmarkSeed(
     await send("retained", fixture.retained);
     await send("release_a", fixture.releaseA);
     for (const [index, content] of fixture.noiseBefore.entries()) await send(`noise_before_${index}`, content);
-    await send("release_b", fixture.releaseB);
+    if (releaseMode === "lifecycle") await send("release_b", fixture.releaseB);
     await runtime.close();
     runtime = undefined;
     await waitForSeedDurability(environment.stateDir, sessionId, turns.length);
@@ -697,6 +732,7 @@ async function createBenchmarkSeed(
 
 async function runArm(
   fixture: Fixture,
+  releaseMode: ReleaseMode,
   arm: Arm,
   repetition: number,
   mode: BenchmarkMode,
@@ -734,6 +770,7 @@ async function runArm(
   let history: JsonObject[] = seed ? structuredClone(seed.history) : [];
   let firstReleasePlan: string | undefined;
   let secondReleasePlan: string | undefined;
+  let releaseOverheadMs = 0;
   try {
     runtime = await startCodexResponsesProxy({
       config,
@@ -763,7 +800,7 @@ async function runArm(
       await send("retained", fixture.retained);
       await send("release_a", fixture.releaseA);
       for (const [index, content] of fixture.noiseBefore.entries()) await send(`noise_before_${index}`, content);
-      await send("release_b", fixture.releaseB);
+      if (releaseMode === "lifecycle") await send("release_b", fixture.releaseB);
     }
     if (arm === "cleaner") {
       if (seed) {
@@ -776,28 +813,36 @@ async function runArm(
         });
         assert.equal(runtimeView.reasonCodes.length, 0, `causal runtime clone incomplete: ${runtimeView.reasonCodes.join(",")}`);
       }
+      const releaseStartedAt = performance.now();
       const snapshot = await cleaner.inspect(sessionId);
       const retained = userItems(snapshot)[0]?.stableId;
       firstReleasePlan = (await cleaner.releaseOccurrences(sessionId, [
         releaseSelection(snapshot, 1, retained ? [retained] : []),
       ])).planId;
+      releaseOverheadMs += performance.now() - releaseStartedAt;
     }
     await send("after_release_a", "AFTER_RELEASE_A", firstReleasePlan);
+    if (firstReleasePlan) releaseOverheadMs += durableCompletionWait(turns.at(-1));
     for (const [index, content] of fixture.noiseBetween.entries()) await send(`noise_between_${index}`, content);
-    if (arm === "cleaner") {
+    if (releaseMode === "lifecycle" && arm === "cleaner") {
+      const releaseStartedAt = performance.now();
       const snapshot = await cleaner.inspect(sessionId);
       secondReleasePlan = (await cleaner.releaseOccurrences(sessionId, [
         releaseSelection(snapshot, 2 + fixture.noiseBefore.length),
       ])).planId;
+      releaseOverheadMs += performance.now() - releaseStartedAt;
     }
     await send("after_release_b", "AFTER_RELEASE_B", secondReleasePlan);
-    await runtime.close();
-    runtime = await startCodexResponsesProxy({
-      config,
-      logger: createConsoleLogger(false),
-      allowMockFixtureEvidence: true,
-    });
-    await send("after_restart", "AFTER_RESTART");
+    if (secondReleasePlan) releaseOverheadMs += durableCompletionWait(turns.at(-1));
+    if (releaseMode === "lifecycle") {
+      await runtime.close();
+      runtime = await startCodexResponsesProxy({
+        config,
+        logger: createConsoleLogger(false),
+        allowMockFixtureEvidence: true,
+      });
+      await send("after_restart", "AFTER_RESTART");
+    }
     const forwardedRequests = seed
       ? [...seed.requests, ...(upstream?.requests ?? liveCapture!.requests)]
       : upstream?.requests ?? liveCapture!.requests;
@@ -809,15 +854,24 @@ async function runArm(
     const releaseARequest = texts.findIndex((text) => text.includes("AFTER_RELEASE_A"));
     const releaseBRequest = texts.findIndex((text) => text.includes("AFTER_RELEASE_B"));
     const restartRequest = texts.findIndex((text) => text.includes("AFTER_RESTART"));
-    if (releaseARequest < 0 || releaseBRequest < 0 || restartRequest < 0) {
-      throw new Error(`forwarded request markers missing: releaseA=${releaseARequest}; releaseB=${releaseBRequest}; restart=${restartRequest}`);
+    if (releaseARequest < 0 || releaseBRequest < 0) {
+      throw new Error(`forwarded request markers missing: releaseA=${releaseARequest}; releaseB=${releaseBRequest}`);
     }
-    if (arm === "baseline") {
+    if (releaseMode === "one-release") {
+      if (arm === "baseline") {
+        assertMarker(texts[releaseARequest]!, fixture.releaseA, true, "baseline release A");
+      } else {
+        assertMarker(texts[releaseARequest]!, fixture.releaseA, false, "cleaner release A");
+        assertMarker(texts[releaseARequest]!, fixture.retained, true, "cleaner retained release A");
+      }
+    } else if (arm === "baseline") {
+      if (restartRequest < 0) throw new Error("forwarded restart marker missing");
       assertMarker(texts[releaseARequest]!, fixture.releaseA, true, "baseline release A");
       assertMarker(texts[releaseBRequest]!, fixture.releaseB, true, "baseline release B");
       assertMarker(texts[restartRequest]!, fixture.releaseA, true, "baseline restart release A");
       assertMarker(texts[restartRequest]!, fixture.releaseB, true, "baseline restart release B");
     } else {
+      if (restartRequest < 0) throw new Error("forwarded restart marker missing");
       assertMarker(texts[releaseARequest]!, fixture.releaseA, false, "cleaner release A");
       assertMarker(texts[releaseARequest]!, fixture.releaseB, true, "cleaner retained release B");
       assertMarker(texts[releaseBRequest]!, fixture.releaseA, false, "cleaner release B release A");
@@ -834,6 +888,7 @@ async function runArm(
       upstreamRequestCount: forwardedRequests.length,
       turns,
       localInputBytes: forwardedRequests.map((request) => request.inputBytes),
+      releaseOverheadMs,
       providerUsage: mode === "live" ? forwardedRequests.map((request) => request.providerUsage) : null,
       providerShape: mode === "live" ? forwardedRequests.map(providerShape) : null,
     };
@@ -849,6 +904,7 @@ async function runArm(
       localInputBytes: (seed
         ? [...seed.requests, ...(upstream?.requests ?? liveCapture?.requests ?? [])]
         : upstream?.requests ?? liveCapture?.requests ?? []).map((request) => request.inputBytes),
+      releaseOverheadMs,
       providerUsage: mode === "live"
         ? (seed
           ? [...seed.requests, ...(liveCapture?.requests ?? [])]
@@ -929,6 +985,16 @@ function pairedDifferences(runs: RunResult[]) {
             inputBytesDelta: baselineTurn ? turn.inputBytes - baselineTurn.inputBytes : null,
           };
         }),
+        localAccounting: cumulativeBreakEven(
+          baseline.turns.map((turn) => turn.timing.durationsMs.handlerToFinish ?? 0),
+          run.turns.map((turn, index) => (
+            (turn.timing.durationsMs.handlerToFinish ?? 0)
+            + (index === run.turns.findIndex((candidate) => candidate.label === "after_release_a")
+              ? run.releaseOverheadMs
+              : 0)
+          )),
+          run.turns.map((turn) => turn.label),
+        ),
         providerUsage: run.providerUsage
           && baseline.providerUsage
           && providerShapesComparableBeforeRelease(
@@ -938,47 +1004,155 @@ function pairedDifferences(runs: RunResult[]) {
             run.providerShape,
           )
           ? {
-            inputTokensDelta: usageDelta(run.providerUsage, baseline.providerUsage, "inputTokens"),
-            outputTokensDelta: usageDelta(run.providerUsage, baseline.providerUsage, "outputTokens"),
-            totalTokensDelta: usageDelta(run.providerUsage, baseline.providerUsage, "totalTokens"),
-            cachedInputTokensDelta: usageDelta(run.providerUsage, baseline.providerUsage, "cachedInputTokens"),
+            ...compareProviderUsage(run.providerUsage, baseline.providerUsage, run.turns.map((turn) => turn.label)),
           }
           : null,
       };
     });
 }
 
-function usageDelta(
+const USAGE_FIELDS: UsageField[] = ["inputTokens", "outputTokens", "cachedInputTokens"];
+
+function validTokenCount(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function summarizeUsageValues(
+  usages: Array<ProviderUsage | null> | null,
+  expectedRequests: number,
+): UsageSummary {
+  const observedByField = Object.fromEntries(USAGE_FIELDS.map((field) => [field, 0])) as Record<UsageField, number>;
+  const totals = Object.fromEntries(USAGE_FIELDS.map((field) => [field, null])) as Record<UsageField, number | null>;
+  if (!usages) {
+    return {
+      expectedRequests,
+      observedRequests: 0,
+      observedByField,
+      status: "unavailable",
+      invalidReasons: ["provider_usage_unavailable"],
+      totals,
+    };
+  }
+  const invalidReasons = new Set<string>();
+  if (usages.length !== expectedRequests) invalidReasons.add("request_count_mismatch");
+  let observedRequests = 0;
+  for (const [index, usage] of usages.entries()) {
+    if (!usage) {
+      invalidReasons.add(`missing_usage:${index}`);
+      continue;
+    }
+    observedRequests += 1;
+    for (const field of USAGE_FIELDS) {
+      if (validTokenCount(usage[field])) observedByField[field] += 1;
+      else invalidReasons.add(`missing_${field}:${index}`);
+    }
+    if (validTokenCount(usage.inputTokens)
+      && validTokenCount(usage.cachedInputTokens)
+      && usage.cachedInputTokens > usage.inputTokens) {
+      invalidReasons.add(`cached_tokens_exceed_input:${index}`);
+    }
+  }
+  const complete = expectedRequests > 0
+    && usages.length === expectedRequests
+    && invalidReasons.size === 0
+    && USAGE_FIELDS.every((field) => observedByField[field] === expectedRequests);
+  if (complete) {
+    for (const field of USAGE_FIELDS) {
+      totals[field] = usages.reduce((total, usage) => total + usage![field]!, 0);
+    }
+  }
+  return {
+    expectedRequests,
+    observedRequests,
+    observedByField,
+    status: complete ? "complete" : observedRequests === 0 ? "unavailable" : "incomplete",
+    invalidReasons: [...invalidReasons],
+    totals,
+  };
+}
+
+export function usageDelta(
   cleaner: Array<ProviderUsage | null>,
   baseline: Array<ProviderUsage | null>,
-  field: keyof ProviderUsage,
+  field: UsageField,
 ): number | null {
-  const cleanerTotal = cleaner.reduce((sum, usage) => sum + (usage?.[field] ?? 0), 0);
-  const baselineTotal = baseline.reduce((sum, usage) => sum + (usage?.[field] ?? 0), 0);
-  const cleanerObserved = cleaner.some((usage) => usage?.[field] !== null && usage?.[field] !== undefined);
-  const baselineObserved = baseline.some((usage) => usage?.[field] !== null && usage?.[field] !== undefined);
-  return cleanerObserved && baselineObserved ? cleanerTotal - baselineTotal : null;
+  if (cleaner.length !== baseline.length) return null;
+  const cleanerSummary = summarizeUsageValues(cleaner, cleaner.length);
+  const baselineSummary = summarizeUsageValues(baseline, baseline.length);
+  if (cleanerSummary.status !== "complete" || baselineSummary.status !== "complete") return null;
+  return cleanerSummary.totals[field]! - baselineSummary.totals[field]!;
+}
+
+function compareProviderUsage(
+  cleaner: Array<ProviderUsage | null>,
+  baseline: Array<ProviderUsage | null>,
+  labels: string[],
+) {
+  const expectedRequests = labels.length;
+  const cleanerSummary = summarizeUsageValues(cleaner, expectedRequests);
+  const baselineSummary = summarizeUsageValues(baseline, expectedRequests);
+  const comparable = cleaner.length === baseline.length
+    && cleanerSummary.status === "complete"
+    && baselineSummary.status === "complete";
+  return {
+    status: comparable ? "complete" : cleanerSummary.status === "unavailable" || baselineSummary.status === "unavailable" ? "unavailable" : "incomplete",
+    baseline: baselineSummary,
+    cleaner: cleanerSummary,
+    invalidReasons: [...new Set([...baselineSummary.invalidReasons, ...cleanerSummary.invalidReasons])],
+    inputTokensDelta: comparable ? usageDelta(cleaner, baseline, "inputTokens") : null,
+    outputTokensDelta: comparable ? usageDelta(cleaner, baseline, "outputTokens") : null,
+    cachedInputTokensDelta: comparable ? usageDelta(cleaner, baseline, "cachedInputTokens") : null,
+    cumulativeInputTokens: comparable
+      ? cumulativeBreakEven(
+        baseline.map((usage) => usage!.inputTokens!),
+        cleaner.map((usage) => usage!.inputTokens!),
+        labels,
+      )
+      : null,
+  };
+}
+
+export function cumulativeBreakEven(
+  keepCosts: number[],
+  releaseCosts: number[],
+  labels = keepCosts.map((_, index) => `checkpoint_${index}`),
+): BreakEvenSummary {
+  assert.equal(keepCosts.length, releaseCosts.length, "break-even cost series length mismatch");
+  assert.equal(keepCosts.length, labels.length, "break-even label series length mismatch");
+  let keepTotal = 0;
+  let releaseTotal = 0;
+  const checkpoints = keepCosts.map((keepCost, index) => {
+    keepTotal += keepCost;
+    releaseTotal += releaseCosts[index]!;
+    return {
+      label: labels[index]!,
+      keepCost: keepTotal,
+      releaseCost: releaseTotal,
+      netSavings: keepTotal - releaseTotal,
+    };
+  });
+  const firstIndex = checkpoints.findIndex((checkpoint) => checkpoint.netSavings > 0);
+  return {
+    checkpoints,
+    firstBreakEven: firstIndex < 0 ? null : checkpoints[firstIndex]!.label,
+    sustainedBreakEven: firstIndex >= 0 && checkpoints.slice(firstIndex).every((checkpoint) => checkpoint.netSavings > 0),
+  };
 }
 
 function summarizeProviderUsage(runs: RunResult[]) {
+  const unavailable = runs.some((run) => run.providerUsage === null);
   const usages = runs.flatMap((run) => run.providerUsage ?? []);
-  const sum = (field: keyof ProviderUsage): number | null => {
-    const observed = usages.filter((usage): usage is ProviderUsage => Boolean(usage && usage[field] !== null && usage[field] !== undefined));
-    return observed.length > 0 ? observed.reduce((total, usage) => total + (usage[field] ?? 0), 0) : null;
-  };
-  return {
-    requests: usages.length,
-    requestsWithUsage: usages.filter(Boolean).length,
-    inputTokens: sum("inputTokens"),
-    outputTokens: sum("outputTokens"),
-    totalTokens: sum("totalTokens"),
-    cachedInputTokens: sum("cachedInputTokens"),
-  };
+  return summarizeUsageValues(
+    unavailable ? null : usages,
+    runs.reduce((total, run) => total + run.upstreamRequestCount, 0),
+  );
 }
 
 async function main(): Promise<void> {
   const mode = (process.env.LIGHTRSI_BENCHMARK_MODE ?? "mock") as BenchmarkMode;
   assert.ok(mode === "mock" || mode === "live", "LIGHTRSI_BENCHMARK_MODE must be mock or live");
+  const releaseMode = (process.env.LIGHTRSI_BENCHMARK_RELEASE_MODE ?? "lifecycle") as ReleaseMode;
+  assert.ok(releaseMode === "lifecycle" || releaseMode === "one-release", "LIGHTRSI_BENCHMARK_RELEASE_MODE must be lifecycle or one-release");
   const armOrderMode = process.env.LIGHTRSI_BENCHMARK_ARM_ORDER ?? "baseline-first";
   assert.ok(armOrderMode === "baseline-first" || armOrderMode === "alternating", "LIGHTRSI_BENCHMARK_ARM_ORDER must be baseline-first or alternating");
   const causalPairs = process.env.LIGHTRSI_BENCHMARK_CAUSAL_PAIRS === "true";
@@ -1014,11 +1188,11 @@ async function main(): Promise<void> {
         : ["baseline", "cleaner"];
       const fixture = createFixture(fixtureName);
       const seed = causalPairs
-        ? await createBenchmarkSeed(fixture, mode, repetition, requestTimeoutMs, liveOptions)
+        ? await createBenchmarkSeed(fixture, releaseMode, mode, repetition, requestTimeoutMs, liveOptions)
         : undefined;
       try {
         for (const arm of arms) {
-          runs.push(await runArm(fixture, arm, repetition, mode, liveOptions, seed, requestTimeoutMs));
+          runs.push(await runArm(fixture, releaseMode, arm, repetition, mode, liveOptions, seed, requestTimeoutMs));
         }
       } finally {
         seed?.cleanup();
@@ -1031,6 +1205,7 @@ async function main(): Promise<void> {
     generatedAt: new Date().toISOString(),
     benchmark: "context-cleaner-occurrence-release",
     mode,
+    releaseMode,
     armOrder: armOrderMode,
     causalPairs,
     repetitions,
