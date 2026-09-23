@@ -491,9 +491,10 @@ function summarizeNodeTestOutput(
   hint: ToolPayloadHint,
 ): string | undefined {
   const lines = text.split("\n");
-  const tapTestLine = /^\s*(?:not )?ok\b/i;
+  const tapTestLine = /^\s{0,2}(?:not )?ok\b/i;
   const tapStatusLine = /^\s*(?:TAP version|1\.\.\d+|# (?:tests|pass|fail|cancelled|skipped|todo|duration)\b)/i;
-  const tapEvidenceLine = /^\s*(?:location|failureType|error|code|stack|operator|expected|actual|duration_ms):/i;
+  const tapEvidenceLine = /^\s{2,}(location|failureType|error|code|stack|operator|expected|actual|duration_ms):\s*(.*)$/i;
+  const tapContinuationLine = /^\s{4,}\S/;
   const signalCount = lines.filter((line) => tapTestLine.test(line) || tapStatusLine.test(line)).length;
   if (signalCount < 2) return undefined;
 
@@ -504,24 +505,46 @@ function summarizeNodeTestOutput(
     .slice(0, Math.max(2, cfg.maxItems));
   for (const failure of failures) {
     const block: string[] = [];
+    const pendingContinuation: string[] = [];
+    const flushPendingContinuation = () => {
+      if (pendingContinuation.length === 0) return;
+      block.push(...pendingContinuation.slice(0, 8));
+      const omitted = pendingContinuation.length - 8;
+      if (omitted > 0) block.push(`[continuation lines omitted: ${omitted}; exact recovery available]`);
+      pendingContinuation.length = 0;
+    };
+    block.push(failure.line);
     for (let index = failure.index + 1; index < lines.length; index += 1) {
       if (tapTestLine.test(lines[index]) || tapStatusLine.test(lines[index])) break;
-      block.push(lines[index]);
+      const field = lines[index].match(tapEvidenceLine);
+      if (!field) {
+        if (tapContinuationLine.test(lines[index])) pendingContinuation.push(lines[index]);
+        continue;
+      }
+      flushPendingContinuation();
+      const label = field[1].toLowerCase();
+      const value = field[2].trim();
+      if (!value && (label === "expected" || label === "actual")) {
+        block.push(`[${label} value omitted; exact recovery available]`);
+        continue;
+      }
+      const fieldLines = [lines[index]];
+      const continuation: string[] = [];
+      let nextIndex = index + 1;
+      while (nextIndex < lines.length) {
+        if (tapTestLine.test(lines[nextIndex]) || tapStatusLine.test(lines[nextIndex]) || tapEvidenceLine.test(lines[nextIndex])) break;
+        if (tapContinuationLine.test(lines[nextIndex])) continuation.push(lines[nextIndex]);
+        nextIndex += 1;
+      }
+      fieldLines.push(...continuation.slice(0, 8));
+      if (continuation.length > 8) {
+        fieldLines.push(`[${label} continuation lines omitted: ${continuation.length - 8}; exact recovery available]`);
+      }
+      block.push(...fieldLines);
+      index = nextIndex - 1;
     }
-    const emptyEvidence = block
-      .map((line) => line.match(/^\s*(expected|actual):\s*$/i)?.[1]?.toLowerCase())
-      .filter((label): label is string => Boolean(label));
-    const evidence = block.filter((line) => tapEvidenceLine.test(line) && !/^\s*(?:expected|actual):\s*$/i.test(line));
-    const continuation = block.filter((line) => /^\s{4,}\S/.test(line) && !tapEvidenceLine.test(line));
-    selected.push(
-      failure.line,
-      ...evidence,
-      ...emptyEvidence.map((label) => `[${label} value omitted; exact recovery available]`),
-      ...continuation.slice(0, 8),
-      ...(continuation.length > 8
-        ? [`[continuation lines omitted: ${continuation.length - 8}; exact recovery available]`]
-        : []),
-    );
+    flushPendingContinuation();
+    selected.push(...block);
   }
   const status = [...new Set(lines.filter((line) => tapStatusLine.test(line)))];
   const result = [

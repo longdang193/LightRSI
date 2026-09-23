@@ -71,6 +71,8 @@ export type CleanPreviewView = {
   grossSavedChars: number;
   netSavedChars: number | null;
   netSavedBytes: number | null;
+  transportDeltaChars?: number | null;
+  transportDeltaBytes?: number | null;
   earliestChangedHistoryItem?: string;
   unchangedPrefixItemCount: number;
   providerCacheOutcome: string;
@@ -140,6 +142,7 @@ export function renderCleanPreview(preview: CleanPreviewView): string {
     `Context Cleaner preview: ${preview.baseRevision}`,
     `Occurrences: selected=${preview.selectedOccurrenceCount} validated=${preview.validatedOccurrenceCount} deferred=${preview.deferredOccurrenceCount} rejected=${preview.rejectedOccurrenceCount}`,
     `Savings: gross=${preview.grossSavedChars} chars; encoded=${preview.netSavedChars ?? "unknown"} chars / ${preview.netSavedBytes ?? "unknown"} bytes`,
+    `Transport delta: ${preview.transportDeltaChars ?? "unknown"} chars / ${preview.transportDeltaBytes ?? "unknown"} bytes`,
     ...(preview.earliestChangedHistoryItem ? [`Earliest changed history item: ${preview.earliestChangedHistoryItem}`] : []),
     `Unchanged prefix items: ${preview.unchangedPrefixItemCount}`,
     `Provider cache outcome: ${preview.providerCacheOutcome}`,
