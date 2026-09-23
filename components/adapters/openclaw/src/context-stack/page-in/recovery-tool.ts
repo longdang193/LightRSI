@@ -13,6 +13,7 @@ export function registerMemoryFaultRecoverTool(
   api: any,
   cfg: { stateDir: string },
   logger: { warn: (message: string) => void },
+  resolveWorkspaceHintForSessionId?: (sessionId: string) => string | undefined,
 ): void {
   if (typeof api.registerTool !== "function") {
     logger.warn("[plugin-runtime] registerTool unavailable in this OpenClaw version.");
@@ -64,7 +65,11 @@ export function registerMemoryFaultRecoverTool(
           ? toolCtx.sessionId.trim()
           : "proxy-session";
       const resolvedByArtifact = artifactRef
-        ? await resolveArchiveAcrossSessionsByArtifactRef(artifactRef, stateDir)
+        ? await resolveArchiveAcrossSessionsByArtifactRef(
+            artifactRef,
+            stateDir,
+            resolveWorkspaceHintForSessionId?.(sessionId),
+          )
         : null;
       const archivePath = resolvedByArtifact?.archivePath ?? (dataKey
         ? (await resolveArchivePathFromLookup(dataKey, stateDir, sessionId))

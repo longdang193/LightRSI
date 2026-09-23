@@ -46,3 +46,30 @@ test("OpenClaw recovery accepts exact and legacy references", async () => {
     await rm(stateDir, { recursive: true, force: true });
   }
 });
+
+test("OpenClaw exact recovery resolves workspace archives from trusted session hints", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-workspace-recovery-"));
+  const workspaceDir = join(stateDir, "workspace");
+  try {
+    const location = await archiveContent({
+      sessionId: "openclaw-session",
+      segmentId: "segment-1",
+      sourcePass: "test",
+      toolName: "read",
+      dataKey: "workspace-key",
+      originalText: "workspace archive body",
+      workspaceDir,
+    });
+    let tool: any;
+    registerMemoryFaultRecoverTool({
+      registerTool(factory: (ctx: any) => any) {
+        tool = factory({ sessionId: "openclaw-session" });
+      },
+    }, { stateDir }, { warn() {} }, (sessionId) => sessionId === "openclaw-session" ? workspaceDir : undefined);
+    const recovered = await tool.execute("call-1", { artifactRef: location.artifactRef });
+    assert.match(recovered.content[0].text, /workspace archive body/);
+    assert.equal(recovered.details.archivePath, location.archivePath);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});

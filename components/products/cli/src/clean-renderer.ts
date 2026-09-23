@@ -51,6 +51,30 @@ export type CleanInspectionView = {
   sessionId: string;
   revision: string;
   occurrences: CleanOccurrenceView[];
+  duplicateEvidenceStatus?: "available" | "unavailable";
+  duplicateEvidence?: Array<{
+    contentDigest: string;
+    occurrenceIds: string[];
+    occurrenceCount: number;
+    combinedChars: number;
+    omittedOccurrenceCount?: number;
+  }>;
+  duplicateEvidenceOmittedGroupCount?: number;
+  contextPressure?: { level: string; source: string; observedAt?: string };
+};
+
+export type CleanPreviewView = {
+  selectedOccurrenceCount: number;
+  validatedOccurrenceCount: number;
+  deferredOccurrenceCount: number;
+  rejectedOccurrenceCount: number;
+  grossSavedChars: number;
+  netSavedChars: number | null;
+  netSavedBytes: number | null;
+  earliestChangedHistoryItem?: string;
+  unchangedPrefixItemCount: number;
+  providerCacheOutcome: string;
+  baseRevision: string;
 };
 
 function count(tokens: number | null, chars: number): string {
@@ -93,10 +117,31 @@ export function renderCleanInspection(inspection: CleanInspectionView): string {
   const lines = [
     `Context Cleaner occurrences: ${inspection.hostId} / ${inspection.sessionId}`,
     `Revision: ${inspection.revision}`,
+    `Duplicate evidence: ${inspection.duplicateEvidenceStatus ?? "unavailable"}${inspection.duplicateEvidenceStatus === "unavailable" ? " (use --duplicates to calculate)" : ""}`,
+    `Context pressure: ${inspection.contextPressure?.level ?? "unknown"} (${inspection.contextPressure?.source ?? "unavailable"})`,
   ];
   for (const occurrence of inspection.occurrences) {
     lines.push(`${occurrence.stableId} ${occurrence.shape} — ${occurrence.chars} chars — ${occurrence.protectionReason}`);
     lines.push(`  fingerprint: ${occurrence.fingerprint}`);
   }
+  for (const group of inspection.duplicateEvidence ?? []) {
+    lines.push(`Duplicate group ${group.contentDigest}: ${group.occurrenceCount} occurrences — ${group.combinedChars} chars`);
+    lines.push(`  occurrences: ${group.occurrenceIds.join(", ")}${group.omittedOccurrenceCount ? `; omitted ${group.omittedOccurrenceCount}` : ""}`);
+  }
+  if ((inspection.duplicateEvidenceOmittedGroupCount ?? 0) > 0) {
+    lines.push(`Duplicate groups omitted: ${inspection.duplicateEvidenceOmittedGroupCount}`);
+  }
+  if (inspection.contextPressure?.observedAt) lines.push(`Pressure observed: ${inspection.contextPressure.observedAt}`);
   return lines.join("\n");
+}
+
+export function renderCleanPreview(preview: CleanPreviewView): string {
+  return [
+    `Context Cleaner preview: ${preview.baseRevision}`,
+    `Occurrences: selected=${preview.selectedOccurrenceCount} validated=${preview.validatedOccurrenceCount} deferred=${preview.deferredOccurrenceCount} rejected=${preview.rejectedOccurrenceCount}`,
+    `Savings: gross=${preview.grossSavedChars} chars; encoded=${preview.netSavedChars ?? "unknown"} chars / ${preview.netSavedBytes ?? "unknown"} bytes`,
+    ...(preview.earliestChangedHistoryItem ? [`Earliest changed history item: ${preview.earliestChangedHistoryItem}`] : []),
+    `Unchanged prefix items: ${preview.unchangedPrefixItemCount}`,
+    `Provider cache outcome: ${preview.providerCacheOutcome}`,
+  ].join("\n");
 }

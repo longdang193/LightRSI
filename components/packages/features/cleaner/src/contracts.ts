@@ -26,6 +26,7 @@ export type DuplicateEvidence = {
   occurrenceIds: string[];
   occurrenceCount: number;
   combinedChars: number;
+  omittedOccurrenceCount?: number;
 };
 
 export type ContextPressureEvidence = {
@@ -45,8 +46,14 @@ export type ContextPressureObservation = {
 
 export type CacheReleasePreview = {
   selectedOccurrenceCount: number;
+  validatedOccurrenceCount: number;
+  deferredOccurrenceCount: number;
+  rejectedOccurrenceCount: number;
   grossSavedChars: number;
-  netSavedChars: number;
+  netSavedChars: number | null;
+  netSavedBytes: number | null;
+  transportDeltaChars?: number | null;
+  transportDeltaBytes?: number | null;
   earliestChangedHistoryItem?: string;
   unchangedPrefixItemCount: number;
   providerCacheOutcome: "preserved" | "changed" | "unknown";
@@ -302,6 +309,7 @@ export type ContextCleanSnapshot = ModelContextSnapshot & {
   historyEvidence?: ContextCleanHistoryEvidence;
   duplicateEvidence?: DuplicateEvidence[];
   duplicateEvidenceStatus?: "available" | "unavailable";
+  duplicateEvidenceOmittedGroupCount?: number;
   contextPressure?: ContextPressureEvidence;
 };
 
@@ -427,7 +435,7 @@ export interface ContextCleanerHostBridge {
   readonly hostId: string;
   readonly rewriteMode: ModelContextRewriteMode;
   listSessions(): Promise<ContextCleanerSession[]>;
-  readCleanSnapshot(sessionId: string): Promise<ContextCleanSnapshot>;
+  readCleanSnapshot(sessionId: string, options?: { includeDuplicates?: boolean }): Promise<ContextCleanSnapshot>;
   executeApprovedClean(
     params: ExecuteApprovedContextCleanParams,
   ): Promise<ContextCleanReceipt>;

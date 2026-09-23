@@ -368,7 +368,7 @@ test("reduceToolPayloadText keeps late Node TAP assertion evidence", () => {
   const payload = [
     "TAP version 13",
     "not ok 1 - rejects invalid token",
-    ...Array.from({ length: 24 }, (_, index) => `    continuation ${index}`),
+    ...Array.from({ length: 160 }, (_, index) => `    continuation ${index}`),
     "  actual: 200",
     "  expected: 401",
     "  operator: strictEqual",
@@ -377,7 +377,7 @@ test("reduceToolPayloadText keeps late Node TAP assertion evidence", () => {
     "# tests 1",
     "# pass 0",
     "# fail 1",
-  ].join("\n").repeat(4);
+  ].join("\n");
 
   const result = reduceToolPayloadText(payload, "stderr", defaultCfg, {
     toolName: "node",
@@ -389,6 +389,28 @@ test("reduceToolPayloadText keeps late Node TAP assertion evidence", () => {
   assert.match(result.text, /expected: 401/);
   assert.match(result.text, /operator: strictEqual/);
   assert.match(result.text, /failureType: 'testCodeFailure'/);
+  assert.doesNotMatch(result.text, /continuation 159/);
+  assert.match(result.text, /continuation lines omitted: 152/);
+  assert.match(result.text, /Execution: complete; exit code: 1/);
+});
+
+test("reduceToolPayloadText preserves unknown Node TAP completion state", () => {
+  const result = reduceToolPayloadText([
+    "TAP version 13",
+    "not ok 1 - rejects invalid token",
+    "  actual: 200",
+    "  expected: ",
+    "  expected: 401",
+  ].join("\n"), "stderr", defaultCfg, {
+    toolName: "node",
+    payloadKind: "stderr",
+    execution: { commandFamily: "node_test", completion: "unknown" },
+  });
+
+  assert.match(result.text, /Execution: unknown; exit code: unavailable/);
+  assert.match(result.text, /expected value omitted; exact recovery available/);
+  assert.doesNotMatch(result.text, /^\s*expected:\s*$/m);
+  assert.doesNotMatch(result.text, /Execution: complete/);
 });
 
 test("reduceToolPayloadText keeps TypeScript diagnostic identity and count", () => {

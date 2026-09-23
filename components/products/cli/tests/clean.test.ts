@@ -114,6 +114,74 @@ test("clean CLI inspects stable occurrences without task selection", async () =>
   assert.match(result.text, /digest-1/);
 });
 
+test("clean CLI requests duplicate evidence only when asked", async () => {
+  const inspection = {
+    hostId: "codex",
+    sessionId: "session-1",
+    revision: "rev-1",
+    occurrences: [],
+    duplicateEvidenceStatus: "available" as const,
+    duplicateEvidence: [{
+      contentDigest: "digest-1",
+      occurrenceIds: ["item-1", "item-2"],
+      occurrenceCount: 2,
+      combinedChars: 80,
+    }],
+  };
+  let includeDuplicates = false;
+  const backend = {
+    async inspect(_sessionId: string, options?: { includeDuplicates?: boolean }) {
+      includeDuplicates = options?.includeDuplicates === true;
+      return inspection;
+    },
+    async readReceipt() { return undefined; },
+    async cancel() { return receipt; },
+  };
+
+  const result = await handleCleanCommand({ args: ["--inspect", "session-1", "--duplicates"], backend });
+  assert.equal(includeDuplicates, true);
+  assert.match(result.text, /Duplicate group digest-1: 2 occurrences/);
+});
+
+test("clean CLI renders side-effect-free occurrence preview evidence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-preview-"));
+  try {
+    const path = join(dir, "occurrences.json");
+    await writeFile(path, JSON.stringify([{ stableId: "item-1", fingerprint: "digest-1" }]), "utf8");
+    let sessionId = "";
+    const backend = {
+      async previewRelease(id: string, selections: Array<{ stableId: string }>) {
+        sessionId = id;
+        assert.equal(selections[0]?.stableId, "item-1");
+        return {
+          selectedOccurrenceCount: 1,
+          validatedOccurrenceCount: 1,
+          deferredOccurrenceCount: 0,
+          rejectedOccurrenceCount: 0,
+          grossSavedChars: 3,
+          netSavedChars: 12,
+          netSavedBytes: 15,
+          unchangedPrefixItemCount: 2,
+          providerCacheOutcome: "unknown",
+          baseRevision: "rev-1",
+        };
+      },
+      async readReceipt() { return undefined; },
+      async cancel() { return receipt; },
+    };
+
+    const result = await handleCleanCommand({
+      args: ["--session", "session-1", "--preview-release", path],
+      backend,
+    });
+    assert.equal(sessionId, "session-1");
+    assert.match(result.text, /encoded=12 chars \/ 15 bytes/);
+    assert.match(result.text, /Provider cache outcome: unknown/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("clean CLI releases exact occurrence evidence through the shared service", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-cli-release-"));
   try {

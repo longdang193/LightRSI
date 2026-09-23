@@ -145,7 +145,34 @@ test("renderRecoveredArchive supports bounded stats and literal search", () => {
   assert.match(search.text, /Matches: 2; returned: 1; omitted: 1/);
   assert.match(search.text, /2: needle one/);
   assert.equal(search.details.omittedMatches, 1);
-  assert.equal(search.details.scanComplete, true);
+  assert.equal(search.details.scanComplete, false);
+  assert.equal(search.details.nextStartLine, 3);
+});
+
+test("search resumes from archive-relative startLine without skipping matches", () => {
+  const archive = {
+    schemaVersion: 2,
+    kind: "tool_payload_trim_archive",
+    sessionId: "sess-1",
+    segmentId: "seg-1",
+    sourcePass: "tool_payload_trim",
+    toolName: "read",
+    dataKey: "repo:file.ts",
+    originalText: "needle one\nnoise\nneedle two\nneedle three",
+    originalSize: 40,
+    archivedAt: "2026-07-03T00:00:00.000Z",
+  };
+  const first = renderRecoveredArchive({ archive, mode: "search", query: "needle", contextLines: 0, maxMatches: 1 });
+  assert.deepEqual(first.details.matches?.map((match) => match.line), [1]);
+  assert.equal(first.details.scanComplete, false);
+  assert.equal(first.details.nextStartLine, 2);
+  const second = renderRecoveredArchive({ archive, mode: "search", query: "needle", contextLines: 0, maxMatches: 1, startLine: first.details.nextStartLine });
+  assert.deepEqual(second.details.matches?.map((match) => match.line), [3]);
+  assert.equal(second.details.nextStartLine, 4);
+  assert.equal(second.details.scanComplete, false);
+  const last = renderRecoveredArchive({ archive, mode: "search", query: "needle", contextLines: 0, maxMatches: 1, startLine: second.details.nextStartLine });
+  assert.deepEqual(last.details.matches?.map((match) => match.line), [4]);
+  assert.equal(last.details.scanComplete, true);
 });
 
 test("exact artifact recovery repairs only artifact lookup and preserves latest dataKey lookup", async () => {
@@ -216,6 +243,28 @@ test("artifact recovery writes a digest-scoped lookup that resolves without the 
   }
 });
 
+test("workspace archive exact recovery uses caller-supplied trusted workspace root", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-workspace-artifact-"));
+  const workspaceDir = join(stateDir, "workspace");
+  try {
+    const archive = await archiveContent({
+      sessionId: "session-1",
+      segmentId: "segment-1",
+      sourcePass: "test",
+      toolName: "read",
+      dataKey: "repo:file.ts",
+      originalText: "workspace exact recovery",
+      workspaceDir,
+    });
+    assert.equal(await resolveArchiveAcrossSessionsByArtifactRef(archive.artifactRef!, stateDir), null);
+    const resolved = await resolveArchiveAcrossSessionsByArtifactRef(archive.artifactRef!, stateDir, workspaceDir);
+    assert.equal(resolved?.archivePath, archive.archivePath);
+    assert.equal(resolved?.archive.originalText, "workspace exact recovery");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("synchronous tool-result persistence writes digest-scoped artifact lookups", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-artifact-sync-shard-"));
 
@@ -238,6 +287,9 @@ test("synchronous tool-result persistence writes digest-scoped artifact lookups"
     );
     const lookup = JSON.parse(await readFile(lookupPath, "utf8")) as string[];
     assert.deepEqual(lookup, [persisted.outputFile]);
+    const recovered = await resolveArchiveAcrossSessionsByArtifactRef(persisted.artifactRef!, stateDir);
+    assert.equal(recovered?.archivePath, persisted.outputFile);
+    assert.equal(recovered?.archive.originalText, "x".repeat(12_001));
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

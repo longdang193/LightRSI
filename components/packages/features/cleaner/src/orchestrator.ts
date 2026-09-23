@@ -188,18 +188,17 @@ export async function previewContextCleanRelease(params: {
       occurrences: selections,
     });
   }
-  const selected = new Set(selectedIds);
-  const firstChanged = snapshot.items.findIndex((item) => selected.has(item.stableId));
-  const grossSavedChars = selections.reduce(
-    (sum, selection) => sum + (items.get(selection.stableId)?.chars ?? 0),
-    0,
-  );
   return {
     selectedOccurrenceCount: selections.length,
-    grossSavedChars,
-    netSavedChars: grossSavedChars,
-    ...(firstChanged >= 0 ? { earliestChangedHistoryItem: snapshot.items[firstChanged]!.stableId } : {}),
-    unchangedPrefixItemCount: firstChanged >= 0 ? firstChanged : snapshot.items.length,
+    validatedOccurrenceCount: 0,
+    deferredOccurrenceCount: selections.length,
+    rejectedOccurrenceCount: 0,
+    grossSavedChars: 0,
+    netSavedChars: 0,
+    netSavedBytes: 0,
+    transportDeltaChars: null,
+    transportDeltaBytes: null,
+    unchangedPrefixItemCount: snapshot.items.length,
     providerCacheOutcome: "unknown",
     baseRevision: snapshot.revision,
   };

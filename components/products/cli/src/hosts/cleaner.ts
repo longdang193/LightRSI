@@ -40,7 +40,8 @@ export function createCodexCleanCommandBackend(params: {
     bridge,
   });
   return {
-    async inspect(sessionId) { return inspectionView(await service.inspect(sessionId)); },
+    async inspect(sessionId, options) { return inspectionView(await service.inspect(sessionId, options)); },
+    async previewRelease(sessionId, selections) { return service.previewRelease(sessionId, selections); },
     async approveOccurrences(planId, selections) { return receiptView(await service.approveOccurrences(planId, selections)); },
     async releaseOccurrences(sessionId, selections) { return receiptView(await service.releaseOccurrences(sessionId, selections)); },
     async readReceipt(planId) { const receipt = await service.readReceipt(planId); return receipt ? receiptView(receipt) : undefined; },
@@ -53,6 +54,12 @@ function inspectionView(snapshot: ContextCleanSnapshot): CleanInspectionView {
     hostId: snapshot.hostId,
     sessionId: snapshot.sessionId,
     revision: snapshot.revision,
+    duplicateEvidenceStatus: snapshot.duplicateEvidenceStatus ?? "unavailable",
+    ...(snapshot.duplicateEvidence ? { duplicateEvidence: snapshot.duplicateEvidence } : {}),
+    ...(snapshot.duplicateEvidenceOmittedGroupCount != null
+      ? { duplicateEvidenceOmittedGroupCount: snapshot.duplicateEvidenceOmittedGroupCount }
+      : {}),
+    contextPressure: snapshot.contextPressure ?? { level: "unknown", source: "unavailable" },
     occurrences: snapshot.items.map((item) => ({
       stableId: item.stableId,
       fingerprint: item.fingerprint,

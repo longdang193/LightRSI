@@ -47,6 +47,7 @@ export type RecoveredArchiveRenderResult = {
     matches?: Array<{ line: number; text: string }>;
     omittedMatches?: number;
     scanComplete?: boolean;
+    nextStartLine?: number;
     truncated?: boolean;
   };
 };
@@ -194,40 +195,55 @@ export function renderRecoveredArchive(params: {
     const maxMatches = typeof params.maxMatches === "number" && Number.isFinite(params.maxMatches)
       ? Math.max(1, Math.trunc(params.maxMatches))
       : 20;
-    const matchLines: number[] = [];
-    lines.forEach((line, index) => {
-      if (line.includes(query)) matchLines.push(index + 1);
-    });
-    const selected = matchLines.slice(0, maxMatches);
-    const renderedLines = new Set<number>();
-    for (const line of selected) {
-      for (let index = Math.max(1, line - contextLines); index <= Math.min(lines.length, line + contextLines); index += 1) {
-        renderedLines.add(index);
-      }
+    const scanStart = startLine ?? 1;
+    const scanEnd = Math.min(endLine ?? lines.length, lines.length);
+    const selected: Array<{ line: number; text: string }> = [];
+    let matchCount = 0;
+    for (let lineNumber = scanStart; lineNumber <= scanEnd; lineNumber += 1) {
+      const text = lines[lineNumber - 1] ?? "";
+      if (!text.includes(query)) continue;
+      matchCount += 1;
+      if (selected.length < maxMatches) selected.push({ line: lineNumber, text });
     }
-    const output = [...renderedLines].sort((a, b) => a - b).map((line) => `${line}: ${lines[line - 1]}`);
-    const omittedMatches = Math.max(0, matchLines.length - selected.length);
-    const renderedText =
-      `[Memory Fault Recovery] Search results for: ${reference}\n` +
-      `Query: ${query}\n` +
-      `Line basis: ${lineBasis}\n` +
-      `Matches: ${matchLines.length}; returned: ${selected.length}; omitted: ${omittedMatches}\n` +
-      `Scan complete: true\n` +
-      `--- Search Context ---\n` +
-      `${output.join("\n")}\n` +
-      "--- End Search Context ---";
     const maxOutputChars = typeof params.maxOutputChars === "number" && Number.isFinite(params.maxOutputChars)
       ? Math.max(1, Math.trunc(params.maxOutputChars))
       : 12_000;
-    if (renderedText.length > maxOutputChars) throw new Error("search output exceeds maxOutputChars");
+    const omittedMatches = Math.max(0, matchCount - selected.length);
+    const nextStartLine = omittedMatches > 0 ? selected[selected.length - 1]!.line + 1 : undefined;
+    const outputParts = [
+      `[Memory Fault Recovery] Search results for: ${reference}\n`,
+      `Query: ${query}\n`,
+      `Line basis: ${lineBasis}\n`,
+      `Matches: ${matchCount}; returned: ${selected.length}; omitted: ${omittedMatches}\n`,
+      `Scan complete: ${omittedMatches === 0}\n`,
+      ...(nextStartLine ? [`Continue with startLine: ${nextStartLine}\n`] : []),
+      "--- Search Context ---\n",
+    ];
+    let outputChars = outputParts.reduce((sum, part) => sum + part.length, 0) + "\n--- End Search Context ---".length;
+    if (outputChars > maxOutputChars) throw new Error("search output exceeds maxOutputChars");
+    let lastRenderedLine = 0;
+    for (const match of selected) {
+      const start = Math.max(1, match.line - contextLines);
+      const end = Math.min(lines.length, match.line + contextLines);
+      for (let line = Math.max(start, lastRenderedLine + 1); line <= end; line += 1) {
+        const part = `${line}: ${lines[line - 1]}\n`;
+        outputChars += part.length;
+        if (outputChars > maxOutputChars) throw new Error("search output exceeds maxOutputChars");
+        outputParts.push(part);
+      }
+      lastRenderedLine = Math.max(lastRenderedLine, end);
+    }
+    outputParts.push("--- End Search Context ---");
+    const renderedText = outputParts.join("");
     return {
       text:
         renderedText,
       details: {
         ...baseDetails,
-        matches: selected.map((line) => ({ line, text: lines[line - 1] ?? "" })),
+        matches: selected,
         omittedMatches,
-        scanComplete: true,
+        scanComplete: omittedMatches === 0,
+        ...(nextStartLine ? { nextStartLine } : {}),
         truncated: omittedMatches > 0,
       },
     };
@@ -408,25 +424,46 @@ export async function resolveArchivePathAcrossSessionsByArtifactRef(
 export async function resolveArchiveAcrossSessionsByArtifactRef(
   artifactRef: string,
   stateDir: string,
+  workspaceDir?: string,
 ): Promise<{ archivePath: string; archive: GenericArchiveEntry } | null> {
   if (!artifactDigest(artifactRef)) return null;
-  const sessionRootCandidates = pluginStateSubdirCandidates(stateDir, "tool-result-archives");
+  const sessionRootCandidates = Array.from(new Set([
+    ...(workspaceDir ? [workspaceDir] : []),
+    ...pluginStateSubdirCandidates(stateDir, "tool-result-archives"),
+    ...pluginStateSubdirCandidates(stateDir, "artifacts"),
+  ]));
+  const archiveDirsByRoot = new Map<string, string[]>();
   for (const sessionRoot of sessionRootCandidates) {
     const indexedPaths = await readArtifactLookup(sessionRoot, artifactRef);
     for (const archivePath of indexedPaths) {
       const archive = await readArchiveForArtifactRef(archivePath, artifactRef);
       if (archive) return { archivePath, archive };
     }
+    if (workspaceDir && sessionRoot === workspaceDir) {
+      archiveDirsByRoot.set(sessionRoot, []);
+      continue;
+    }
     try {
       const sessions = await readdir(sessionRoot, { withFileTypes: true });
+      const archiveDirs: string[] = [];
       for (const session of sessions) {
         if (!session.isDirectory()) continue;
         const archiveDir = join(sessionRoot, session.name);
+        archiveDirs.push(archiveDir);
         const indexedPaths = await readArtifactLookup(archiveDir, artifactRef);
         for (const archivePath of indexedPaths) {
           const archive = await readArchiveForArtifactRef(archivePath, artifactRef);
           if (archive) return { archivePath, archive };
         }
+      }
+      archiveDirsByRoot.set(sessionRoot, archiveDirs);
+    } catch {
+      archiveDirsByRoot.set(sessionRoot, []);
+    }
+  }
+  for (const archiveDirs of archiveDirsByRoot.values()) {
+    for (const archiveDir of archiveDirs) {
+      try {
         const entries = await readdir(archiveDir, { withFileTypes: true });
         for (const entry of entries) {
           if (
@@ -442,9 +479,9 @@ export async function resolveArchiveAcrossSessionsByArtifactRef(
             return { archivePath, archive };
           }
         }
+      } catch {
+        // Try next candidate.
       }
-    } catch {
-      // Try next candidate.
     }
   }
   return null;

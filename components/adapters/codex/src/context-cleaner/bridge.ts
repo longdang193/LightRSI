@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createCodexResponsesPayloadCodec } from "../responses-codec.js";
 
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
@@ -30,6 +31,7 @@ import { buildCodexEffectiveHistoryView, parseCodexRollout } from "../context-hi
 import { buildCodexRawSemanticTurns } from "../context-rewrite/semantic-mapping.js";
 import { codexSharedContextRewriteBackend } from "../context-rewrite/backend.js";
 import { buildCodexLifecycleBackendRequest } from "../context-rewrite/lifecycle-input.js";
+import { buildCodexRebaseRequest } from "../context-rewrite/rebase-request.js";
 import {
   loadCodexSessionSnapshot,
 } from "../session-state.js";
@@ -40,6 +42,8 @@ import {
 import { listCodexCleanerSessions } from "./session-catalog.js";
 
 const CODEX_HOST_ID = "codex";
+const MAX_DUPLICATE_GROUPS = 20;
+const MAX_DUPLICATE_OCCURRENCES = 20;
 
 const DUPLICATE_ID_KEYS = new Set([
   "id",
@@ -53,12 +57,12 @@ const DUPLICATE_ID_KEYS = new Set([
   "occurrenceId",
 ]);
 
-function canonicalDuplicateValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalDuplicateValue);
+function canonicalDuplicateValue(value: unknown, topLevel = false): unknown {
+  if (Array.isArray(value)) return value.map((child) => canonicalDuplicateValue(child));
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value)
-      .filter(([key]) => !DUPLICATE_ID_KEYS.has(key))
+      .filter(([key]) => !topLevel || !DUPLICATE_ID_KEYS.has(key))
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, child]) => [key, canonicalDuplicateValue(child)]),
   );
@@ -71,7 +75,7 @@ function duplicateContentDigest(item: JsonObject): string {
       ? item.role.trim()
       : "unknown";
   return createHash("sha256")
-    .update(Buffer.from(JSON.stringify({ payloadKind, content: canonicalDuplicateValue(item) }), "utf8"))
+    .update(Buffer.from(JSON.stringify({ payloadKind, content: canonicalDuplicateValue(item, true) }), "utf8"))
     .digest("hex");
 }
 
@@ -368,6 +372,7 @@ export function createCodexContextCleanerBridge(params: {
   async function readCleanSnapshotWithRegistry(
     sessionId: string,
     registry: SessionTaskRegistry,
+    includeDuplicates = false,
   ): Promise<ContextCleanSnapshot> {
     const session = await loadCodexSessionSnapshot(params.stateDir, sessionId);
     if (!session) throw new Error("codex_clean_session_not_found");
@@ -414,6 +419,7 @@ export function createCodexContextCleanerBridge(params: {
       sourceItems.map((item) => [item.stableItemId, item] as const),
     );
     const { adapterMetadata: _adapterMetadata, ...persistableSnapshot } = backendSnapshot;
+    const snapshotItemsById = new Map(persistableSnapshot.items.map((item) => [item.stableId, item] as const));
     if (!validPersistableSnapshot(persistableSnapshot, sessionId, view.history.revision)
       || sourceItemsById.size !== sourceItems.length
       || sourceItems.length !== persistableSnapshot.items.length
@@ -430,14 +436,26 @@ export function createCodexContextCleanerBridge(params: {
       tokenCountMode: "chars_only",
       tokenCountMethod: "utf16_chars",
       historyEvidence,
-      duplicateEvidence: collectCodexDuplicateEvidence(
-        sourceItems.map((entry) => ({
-          stableId: entry.stableItemId,
-          item: entry.item,
-          chars: persistableSnapshot.items.find((item) => item.stableId === entry.stableItemId)?.chars ?? 0,
-        })),
-      ),
-      duplicateEvidenceStatus: "available",
+      ...(includeDuplicates
+        ? (() => {
+            const groups = collectCodexDuplicateEvidence(sourceItems.map((entry) => ({
+              stableId: entry.stableItemId,
+              item: entry.item,
+              chars: snapshotItemsById.get(entry.stableItemId)?.chars ?? 0,
+            })));
+            return {
+              duplicateEvidence: groups.slice(0, MAX_DUPLICATE_GROUPS).map((group) => ({
+                ...group,
+                occurrenceIds: group.occurrenceIds.slice(0, MAX_DUPLICATE_OCCURRENCES),
+                ...(group.occurrenceIds.length > MAX_DUPLICATE_OCCURRENCES
+                  ? { omittedOccurrenceCount: group.occurrenceIds.length - MAX_DUPLICATE_OCCURRENCES }
+                  : {}),
+              })),
+              duplicateEvidenceOmittedGroupCount: Math.max(0, groups.length - MAX_DUPLICATE_GROUPS),
+              duplicateEvidenceStatus: "available" as const,
+            };
+          })()
+        : { duplicateEvidenceStatus: "unavailable" as const }),
       contextPressure: assessCodexContextPressure({
         revision: view.history.revision,
         providerUsage: params.providerUsage,
@@ -494,8 +512,12 @@ export function createCodexContextCleanerBridge(params: {
     async listSessions() {
       return listCodexCleanerSessions(params.stateDir);
     },
-    async readCleanSnapshot(sessionId) {
-      return readCleanSnapshotWithRegistry(sessionId, createEmptySessionTaskRegistry(sessionId));
+    async readCleanSnapshot(sessionId, options) {
+      return readCleanSnapshotWithRegistry(
+        sessionId,
+        createEmptySessionTaskRegistry(sessionId),
+        options?.includeDuplicates === true,
+      );
     },
     async previewCleanRelease({ sessionId, baseRevision, occurrences }) {
       const state = await readRewriteState(sessionId);
@@ -532,27 +554,60 @@ export function createCodexContextCleanerBridge(params: {
           plan,
           request: state.backendRequest,
         });
-      const historyItems = [
-        ...state.view.history.replayableItems,
-        ...state.view.history.observationOnlyItems,
-        ...state.view.history.deferredItems,
-      ];
-      const firstChanged = historyItems.findIndex((item) => selectedIds.includes(item.stableItemId));
-      const grossSavedChars = occurrences.reduce(
-        (sum, occurrence) => sum + (itemById.get(occurrence.stableId)?.chars ?? 0),
-        0,
-      );
-      const beforeBytes = Buffer.byteLength(JSON.stringify(state.backendRequest.payload) ?? "undefined", "utf8");
-      const afterBytes = Buffer.byteLength(JSON.stringify(candidate.request.payload) ?? "undefined", "utf8");
+      const removedItemIds = new Set(candidate.result.removedItemIds);
+      const historyItems = state.persistableSnapshot.items;
+      const firstChanged = historyItems.findIndex((item) => removedItemIds.has(item.stableId));
+      const codec = createCodexResponsesPayloadCodec();
+      const encodePayload = (payload: typeof state.backendRequest.payload) => {
+        const encoded = codec.encodeRequest(codec.decodeRequest(payload));
+        return encoded === undefined ? undefined : JSON.stringify(encoded);
+      };
+      const transportBefore = encodePayload(state.backendRequest.payload);
+      const transportAfter = encodePayload(candidate.request.payload);
+      let equivalentBefore: string | undefined;
+      if (candidate.result.appliedOperationIds.length > 0) {
+        try {
+          const baseline = buildCodexRebaseRequest({
+            sessionId,
+            planId: `${plan.planId}-baseline`,
+            baseRevision,
+            originalPayload: state.backendRequest.payload,
+            effectiveHistory: state.backendRequest.effectiveHistory,
+            currentInput: state.backendRequest.currentInput ?? state.backendRequest.payload.input,
+            mutationPlan: { baseRevision, operations: [] },
+          });
+          equivalentBefore = encodePayload(baseline.payload);
+        } catch {
+          equivalentBefore = undefined;
+        }
+      }
+      const netSavedChars = candidate.result.appliedOperationIds.length === 0
+        ? 0
+        : equivalentBefore !== undefined && transportAfter !== undefined
+          ? equivalentBefore.length - transportAfter.length
+          : null;
+      const netSavedBytes = candidate.result.appliedOperationIds.length === 0
+        ? 0
+        : equivalentBefore !== undefined && transportAfter !== undefined
+          ? Buffer.byteLength(equivalentBefore, "utf8") - Buffer.byteLength(transportAfter, "utf8")
+          : null;
       return {
         selectedOccurrenceCount: occurrences.length,
-        grossSavedChars,
-        netSavedChars: beforeBytes - afterBytes,
-        ...(firstChanged >= 0 ? { earliestChangedHistoryItem: historyItems[firstChanged]!.stableItemId } : {}),
+        validatedOccurrenceCount: candidate.result.appliedOperationIds.length,
+        deferredOccurrenceCount: candidate.result.deferredOperationIds.length,
+        rejectedOccurrenceCount: 0,
+        grossSavedChars: candidate.result.savedChars,
+        netSavedChars,
+        netSavedBytes,
+        transportDeltaChars: transportBefore !== undefined && transportAfter !== undefined
+          ? transportAfter.length - transportBefore.length
+          : null,
+        transportDeltaBytes: transportBefore !== undefined && transportAfter !== undefined
+          ? Buffer.byteLength(transportAfter, "utf8") - Buffer.byteLength(transportBefore, "utf8")
+          : null,
+        ...(firstChanged >= 0 ? { earliestChangedHistoryItem: historyItems[firstChanged]!.stableId } : {}),
         unchangedPrefixItemCount: firstChanged >= 0 ? firstChanged : historyItems.length,
-        providerCacheOutcome: candidate.result.changed && !candidate.result.fallbackUsed
-          ? "changed"
-          : candidate.result.changed ? "unknown" : "preserved",
+        providerCacheOutcome: "unknown",
         baseRevision,
       } satisfies CacheReleasePreview;
     },
