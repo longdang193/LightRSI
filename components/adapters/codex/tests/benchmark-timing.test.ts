@@ -3,7 +3,9 @@ import test from "node:test";
 
 import { createBenchmarkTiming } from "../src/benchmark-timing.js";
 import {
+  cumulativeBreakEven,
   providerShapesComparableBeforeRelease,
+  usageDelta,
   userInputText,
   type ProviderShape,
 } from "../scripts/benchmark-context-cleaner.js";
@@ -133,5 +135,54 @@ test("benchmark rejects cache identity drift before Cleaner release", () => {
       [shape("different-key", "same-wire"), shape("same-key", "same-wire"), shape("cleaner", "cleaner-wire")],
     ),
     false,
+  );
+});
+
+test("benchmark keeps missing provider usage out of economic deltas", () => {
+  const baseline = [{ inputTokens: 10, outputTokens: 2, totalTokens: 12, cachedInputTokens: 0 }, null];
+  const cleaner = [
+    { inputTokens: 8, outputTokens: 2, totalTokens: 10, cachedInputTokens: 0 },
+    { inputTokens: 8, outputTokens: 2, totalTokens: 10, cachedInputTokens: 0 },
+  ];
+
+  assert.equal(usageDelta(cleaner, baseline, "inputTokens"), null);
+  assert.equal(usageDelta(cleaner, [baseline[0]!], "cachedInputTokens"), null);
+});
+
+test("benchmark accepts recorded zero cached tokens", () => {
+  const baseline = [{ inputTokens: 10, outputTokens: 2, totalTokens: 12, cachedInputTokens: 0 }];
+  const cleaner = [{ inputTokens: 8, outputTokens: 2, totalTokens: 10, cachedInputTokens: 0 }];
+
+  assert.equal(usageDelta(cleaner, baseline, "inputTokens"), -2);
+  assert.equal(usageDelta(cleaner, baseline, "cachedInputTokens"), 0);
+});
+
+test("benchmark rejects invalid cached tokens", () => {
+  const baseline = [{ inputTokens: 10, outputTokens: 2, totalTokens: 12, cachedInputTokens: 11 }];
+  const cleaner = [{ inputTokens: 8, outputTokens: 2, totalTokens: 10, cachedInputTokens: 0 }];
+
+  assert.equal(usageDelta(cleaner, baseline, "inputTokens"), null);
+});
+
+test("benchmark reports delayed, temporary, and recovery-erased break-even", () => {
+  assert.deepEqual(
+    cumulativeBreakEven([10, 10, 10], [12, 12, 4], ["release", "continuation", "recovery"]),
+    {
+      checkpoints: [
+        { label: "release", keepCost: 10, releaseCost: 12, netSavings: -2 },
+        { label: "continuation", keepCost: 20, releaseCost: 24, netSavings: -4 },
+        { label: "recovery", keepCost: 30, releaseCost: 28, netSavings: 2 },
+      ],
+      firstBreakEven: "recovery",
+      sustainedBreakEven: true,
+    },
+  );
+  assert.equal(
+    cumulativeBreakEven([10, 10, 10], [8, 14, 10], ["release", "continuation", "recovery"]).sustainedBreakEven,
+    false,
+  );
+  assert.equal(
+    cumulativeBreakEven([10, 10], [8, 8], ["release", "continuation"]).sustainedBreakEven,
+    true,
   );
 });
