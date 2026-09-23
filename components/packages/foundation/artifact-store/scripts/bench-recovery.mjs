@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   archiveContent,
@@ -96,7 +96,13 @@ try {
     const early = fixture.entries[0];
     const late = fixture.entries[entryCount - 1];
     const target = fixture.entries[Math.floor(entryCount / 2)];
-    const artifactLookupPath = join(fixture.archiveDir, "artifact-lookup.json");
+    const targetDigest = target.artifactRef.slice("artifact:v2:".length);
+    const artifactLookupPath = join(
+      dirname(fixture.archiveDir),
+      "artifact-lookups",
+      targetDigest.slice(0, 2),
+      `${targetDigest}.json`,
+    );
 
     const indexedEarly = await measureLookupScenario({
       name: "indexed-early",
@@ -131,9 +137,7 @@ try {
       artifactRef: target.artifactRef,
       expectedText: target.originalText,
       prepare: async () => {
-        await writeFile(artifactLookupPath, JSON.stringify({
-          [target.artifactRef.slice("artifact:v2:".length)]: [join(fixture.archiveDir, "missing.json")],
-        }), "utf8");
+        await writeFile(artifactLookupPath, JSON.stringify([join(fixture.archiveDir, "missing.json")]), "utf8");
       },
     });
     const missingArtifact = await measure(async () => {

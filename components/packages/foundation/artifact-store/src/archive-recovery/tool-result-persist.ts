@@ -6,7 +6,7 @@ import {
   buildArtifactRef,
   buildRecoveryHint,
 } from "./index.js";
-import { archiveDirWriteTargets, hashText, pluginStateSubdir } from "./archive-paths.js";
+import { archiveDirWriteTargets, artifactLookupFilePath, hashText, pluginStateSubdir } from "./archive-paths.js";
 
 export function buildToolResultPreview(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -44,22 +44,19 @@ function updateArchiveLookupSync(
   lookup[dataKey] = archivePath;
   writeFileSync(lookupPath, JSON.stringify(lookup, null, 2), "utf8");
   if (artifactRef) {
-    const artifactLookupPath = join(archiveDir, "artifact-lookup.json");
-    let artifactLookup: Record<string, string[]> = {};
+    const digest = /^artifact:v2:([a-f0-9]{64})$/.exec(artifactRef)?.[1];
+    if (!digest) return;
+    const artifactLookupPath = artifactLookupFilePath(dirname(archiveDir), digest);
+    let locations: string[] = [];
     try {
-      const parsed = JSON.parse(readFileSync(artifactLookupPath, "utf8")) as Record<string, unknown>;
-      artifactLookup = Object.fromEntries(Object.entries(parsed).map(([key, value]) => [
-        key,
-        Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [],
-      ]));
+      const parsed = JSON.parse(readFileSync(artifactLookupPath, "utf8")) as unknown;
+      if (Array.isArray(parsed)) locations = parsed.filter((entry): entry is string => typeof entry === "string");
     } catch {
-      artifactLookup = {};
+      locations = [];
     }
-    const digest = artifactRef.slice("artifact:v2:".length);
-    const locations = artifactLookup[digest] ?? [];
     if (!locations.includes(archivePath)) locations.push(archivePath);
-    artifactLookup[digest] = locations;
-    writeFileSync(artifactLookupPath, JSON.stringify(artifactLookup, null, 2), "utf8");
+    mkdirSync(dirname(artifactLookupPath), { recursive: true });
+    writeFileSync(artifactLookupPath, JSON.stringify(locations), "utf8");
   }
 }
 

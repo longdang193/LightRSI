@@ -108,3 +108,7 @@ export function defaultArchiveLookupDirs(sessionId: string, stateDir?: string): 
 export function hashText(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
+
+export function artifactLookupFilePath(archiveRoot: string, digest: string): string {
+  return join(archiveRoot, "artifact-lookups", digest.slice(0, 2), `${digest}.json`);
+}

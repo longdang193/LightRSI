@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promise
 import { dirname, join } from "node:path";
 import {
   archiveDirWriteTargets,
+  artifactLookupFilePath,
   defaultArchiveDir,
   defaultArchiveLookupDirs,
   defaultPluginStateDir,
@@ -342,22 +343,17 @@ export async function updateArtifactLocationIndex(
 ): Promise<void> {
   const digest = artifactDigest(artifactRef);
   if (!digest) return;
-  const artifactLookupPath = join(archiveDir, "artifact-lookup.json");
-  let artifactLookup: Record<string, string[]> = {};
+  const lookupPath = artifactLookupFilePath(dirname(archiveDir), digest);
+  let locations: string[] = [];
   try {
-    const raw = await readFile(artifactLookupPath, "utf8");
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    artifactLookup = Object.fromEntries(Object.entries(parsed).map(([key, value]) => [
-      key,
-      Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [],
-    ]));
+    const parsed = JSON.parse(await readFile(lookupPath, "utf8")) as unknown;
+    if (Array.isArray(parsed)) locations = parsed.filter((entry): entry is string => typeof entry === "string");
   } catch {
-    artifactLookup = {};
+    locations = [];
   }
-  const locations = artifactLookup[digest] ?? [];
   if (!locations.includes(archivePath)) locations.push(archivePath);
-  artifactLookup[digest] = locations;
-  await atomicWriteFile(artifactLookupPath, JSON.stringify(artifactLookup, null, 2));
+  await mkdir(dirname(lookupPath), { recursive: true });
+  await atomicWriteFile(lookupPath, JSON.stringify(locations));
 }
 
 export async function updateArchiveLookup(
@@ -416,6 +412,11 @@ export async function resolveArchiveAcrossSessionsByArtifactRef(
   if (!artifactDigest(artifactRef)) return null;
   const sessionRootCandidates = pluginStateSubdirCandidates(stateDir, "tool-result-archives");
   for (const sessionRoot of sessionRootCandidates) {
+    const indexedPaths = await readArtifactLookup(sessionRoot, artifactRef);
+    for (const archivePath of indexedPaths) {
+      const archive = await readArchiveForArtifactRef(archivePath, artifactRef);
+      if (archive) return { archivePath, archive };
+    }
     try {
       const sessions = await readdir(sessionRoot, { withFileTypes: true });
       for (const session of sessions) {
@@ -449,11 +450,17 @@ export async function resolveArchiveAcrossSessionsByArtifactRef(
   return null;
 }
 
-async function readArtifactLookup(archiveDir: string, artifactRef: string): Promise<string[]> {
+async function readArtifactLookup(indexDir: string, artifactRef: string): Promise<string[]> {
   const digest = artifactDigest(artifactRef);
   if (!digest) return [];
   try {
-    const raw = await readFile(join(archiveDir, "artifact-lookup.json"), "utf8");
+    const parsed = JSON.parse(await readFile(artifactLookupFilePath(indexDir, digest), "utf8")) as unknown;
+    if (Array.isArray(parsed)) return parsed.filter((entry): entry is string => typeof entry === "string");
+  } catch {
+    // Read the legacy shared index below.
+  }
+  try {
+    const raw = await readFile(join(indexDir, "artifact-lookup.json"), "utf8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return Array.isArray(parsed[digest])
       ? parsed[digest].filter((entry): entry is string => typeof entry === "string")

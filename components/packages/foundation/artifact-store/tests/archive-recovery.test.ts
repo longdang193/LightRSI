@@ -16,6 +16,7 @@ import {
   resolveArchiveAcrossSessionsByArtifactRef,
   archiveContent,
   pluginStateSubdir,
+  planToolResultPersistence,
   renderRecoveredArchive,
   workspaceArchiveDir,
 } from "../src/index.js";
@@ -171,14 +172,72 @@ test("exact artifact recovery repairs only artifact lookup and preserves latest 
       archiveDir,
     });
 
+    const digest = first.artifactRef!.slice("artifact:v2:".length);
+    await rm(join(stateDir, "tokenpilot", "tool-result-archives", "artifact-lookups", digest.slice(0, 2), `${digest}.json`), { force: true });
     await writeFile(join(archiveDir, "artifact-lookup.json"), "{}", "utf8");
     const resolved = await resolveArchiveAcrossSessionsByArtifactRef(first.artifactRef!, stateDir);
     assert.equal(resolved?.archivePath, first.archivePath);
+    assert.ok(await readFile(join(stateDir, "tokenpilot", "tool-result-archives", "artifact-lookups", digest.slice(0, 2), `${digest}.json`), "utf8"));
     assert.equal((await createFileSystemArtifactStore().resolve({
       dataKey: "same-key",
       stateDir,
       sessionId: "session-1",
     })), second.archivePath);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("artifact recovery writes a digest-scoped lookup that resolves without the legacy index", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-artifact-shard-"));
+  const archiveDir = join(stateDir, "tokenpilot", "tool-result-archives", "session-1");
+
+  try {
+    const archive = await archiveContent({
+      sessionId: "session-1",
+      segmentId: "segment-1",
+      sourcePass: "test",
+      toolName: "read",
+      dataKey: "repo:file.ts",
+      originalText: "exact recovery content",
+      archiveDir,
+    });
+    const digest = archive.artifactRef!.slice("artifact:v2:".length);
+    const lookupPath = join(stateDir, "tokenpilot", "tool-result-archives", "artifact-lookups", digest.slice(0, 2), `${digest}.json`);
+    const lookup = JSON.parse(await readFile(lookupPath, "utf8")) as string[];
+
+    assert.deepEqual(lookup, [archive.archivePath]);
+    await writeFile(join(archiveDir, "artifact-lookup.json"), "{}", "utf8");
+    const resolved = await resolveArchiveAcrossSessionsByArtifactRef(archive.artifactRef!, stateDir);
+    assert.equal(resolved?.archivePath, archive.archivePath);
+    assert.equal(resolved?.archive.originalText, "exact recovery content");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("synchronous tool-result persistence writes digest-scoped artifact lookups", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-artifact-sync-shard-"));
+
+  try {
+    const persisted = planToolResultPersistence({
+      event: { toolName: "read", toolCallId: "call-1", sessionId: "session-1" },
+      text: "x".repeat(12_001),
+      stateDir,
+      safeId: (value) => value,
+    });
+    assert.equal(persisted.resultMode, "artifact");
+    const digest = persisted.artifactRef!.slice("artifact:v2:".length);
+    const lookupPath = join(
+      stateDir,
+      "tokenpilot",
+      "artifacts",
+      "artifact-lookups",
+      digest.slice(0, 2),
+      `${digest}.json`,
+    );
+    const lookup = JSON.parse(await readFile(lookupPath, "utf8")) as string[];
+    assert.deepEqual(lookup, [persisted.outputFile]);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }
