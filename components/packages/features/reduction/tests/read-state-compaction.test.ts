@@ -548,6 +548,7 @@ test("readStateCompactionPass replaces superseded reads with state stub", async 
   assert.ok(updated);
   assert.match(updated?.text ?? "", /\[Read superseded\]/);
   assert.match(updated?.text ?? "", /memory_fault_recover/);
+  assert.match(updated?.text ?? "", /"artifactRef":"artifact:v2:/);
   assert.equal(
     ((updated?.metadata as Record<string, unknown> | undefined)?.recovery as Record<string, unknown> | undefined)?.skipReduction,
     true,

@@ -21,6 +21,38 @@ export const CONTEXT_CLEAN_LOCK_ORDER = [
 
 export type ContextCleanTokenCountMode = "exact" | "estimated" | "chars_only";
 
+export type DuplicateEvidence = {
+  contentDigest: string;
+  occurrenceIds: string[];
+  occurrenceCount: number;
+  combinedChars: number;
+};
+
+export type ContextPressureEvidence = {
+  level: "normal" | "elevated" | "critical" | "unknown";
+  source: "provider_usage" | "token_estimate" | "unavailable";
+  observedRevision?: string;
+  observedAt?: string;
+};
+
+export type ContextPressureObservation = {
+  usedTokens: number;
+  contextLimitTokens: number;
+  reservedOutputTokens: number;
+  observedRevision: string;
+  observedAt: string;
+};
+
+export type CacheReleasePreview = {
+  selectedOccurrenceCount: number;
+  grossSavedChars: number;
+  netSavedChars: number;
+  earliestChangedHistoryItem?: string;
+  unchangedPrefixItemCount: number;
+  providerCacheOutcome: "preserved" | "changed" | "unknown";
+  baseRevision: string;
+};
+
 export type ContextCleanLifecycleState =
   | "active"
   | "unresolved"
@@ -268,6 +300,9 @@ export type ContextCleanSnapshot = ModelContextSnapshot & {
   tokenCountMethod: string;
   itemTokenCounts?: Record<string, number>;
   historyEvidence?: ContextCleanHistoryEvidence;
+  duplicateEvidence?: DuplicateEvidence[];
+  duplicateEvidenceStatus?: "available" | "unavailable";
+  contextPressure?: ContextPressureEvidence;
 };
 
 export type ContextCleanerSession = {
@@ -284,6 +319,8 @@ export type ContextCleanApprovedOccurrence = {
   stableId: string;
   fingerprint: string;
 };
+
+export type ContextCleanPreviewSelection = Pick<ContextCleanApprovedOccurrence, "stableId" | "fingerprint">;
 
 export type ContextCleanOccurrenceSet = {
   hostId: string;
@@ -396,6 +433,11 @@ export interface ContextCleanerHostBridge {
   ): Promise<ContextCleanReceipt>;
   readCleanReceipt(planId: string): Promise<ContextCleanReceipt | undefined>;
   cancelCleanPlan(planId: string): Promise<ContextCleanReceipt>;
+  previewCleanRelease?(params: {
+    sessionId: string;
+    baseRevision: string;
+    occurrences: readonly ContextCleanPreviewSelection[];
+  }): Promise<CacheReleasePreview>;
 }
 
 /**

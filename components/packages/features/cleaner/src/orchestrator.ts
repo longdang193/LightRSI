@@ -6,6 +6,8 @@ import {
   type ContextCleanPlan,
   type ContextCleanReceipt,
   type ContextCleanOccurrenceSelection,
+  type CacheReleasePreview,
+  type ContextCleanPreviewSelection,
   type ContextCleanerHostBridge,
   type ExecuteApprovedContextCleanParams,
   type FinalizeContextCleanScheduleParams,
@@ -158,6 +160,49 @@ export async function prepareContextCleanOccurrenceRelease(params: {
   });
   if (receipt.bypassed) error("clean_analysis_receipt_store_failed", receipt.reasons);
   return plan;
+}
+
+export async function previewContextCleanRelease(params: {
+  bridge: ContextCleanerHostBridge;
+  sessionId: string;
+  selections: readonly ContextCleanPreviewSelection[];
+}): Promise<CacheReleasePreview> {
+  const snapshot = await params.bridge.readCleanSnapshot(params.sessionId);
+  const selections = [...params.selections];
+  const selectedIds = selections.map((selection) => selection.stableId);
+  if (selections.length === 0 || new Set(selectedIds).size !== selectedIds.length) {
+    throw new Error("clean_preview_occurrence_invalid");
+  }
+  const items = new Map(snapshot.items.map((item) => [item.stableId, item]));
+  if (selections.some((selection) => (
+    !selection.stableId.trim()
+    || !selection.fingerprint.trim()
+    || items.get(selection.stableId)?.fingerprint !== selection.fingerprint
+  ))) {
+    throw new Error("clean_preview_occurrence_invalid");
+  }
+  if (params.bridge.previewCleanRelease) {
+    return params.bridge.previewCleanRelease({
+      sessionId: params.sessionId,
+      baseRevision: snapshot.revision,
+      occurrences: selections,
+    });
+  }
+  const selected = new Set(selectedIds);
+  const firstChanged = snapshot.items.findIndex((item) => selected.has(item.stableId));
+  const grossSavedChars = selections.reduce(
+    (sum, selection) => sum + (items.get(selection.stableId)?.chars ?? 0),
+    0,
+  );
+  return {
+    selectedOccurrenceCount: selections.length,
+    grossSavedChars,
+    netSavedChars: grossSavedChars,
+    ...(firstChanged >= 0 ? { earliestChangedHistoryItem: snapshot.items[firstChanged]!.stableId } : {}),
+    unchangedPrefixItemCount: firstChanged >= 0 ? firstChanged : snapshot.items.length,
+    providerCacheOutcome: "unknown",
+    baseRevision: snapshot.revision,
+  };
 }
 
 export async function approveContextCleanSelection(params: {

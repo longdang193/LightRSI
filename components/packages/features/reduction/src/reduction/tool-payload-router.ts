@@ -491,7 +491,10 @@ function summarizeNodeTestOutput(
   hint: ToolPayloadHint,
 ): string | undefined {
   const lines = text.split("\n");
-  const signalCount = lines.filter((line) => /^(?:TAP version|1\.\.\d+|\s*(?:not )?ok\b|# (?:tests|pass|fail|cancelled|skipped|todo|duration)\b)/i.test(line)).length;
+  const tapTestLine = /^\s*(?:not )?ok\b/i;
+  const tapStatusLine = /^\s*(?:TAP version|1\.\.\d+|# (?:tests|pass|fail|cancelled|skipped|todo|duration)\b)/i;
+  const tapEvidenceLine = /^\s*(?:location|failureType|error|code|stack|operator|expected|actual|duration_ms):/i;
+  const signalCount = lines.filter((line) => tapTestLine.test(line) || tapStatusLine.test(line)).length;
   if (signalCount < 2) return undefined;
 
   const selected: string[] = [];
@@ -500,15 +503,21 @@ function summarizeNodeTestOutput(
     .filter(({ line }) => /^\s*not ok\b/i.test(line))
     .slice(0, Math.max(2, cfg.maxItems));
   for (const failure of failures) {
-    selected.push(failure.line);
-    for (let index = failure.index + 1; index < Math.min(lines.length, failure.index + 12); index += 1) {
-      if (/^\s*(?:not )?ok\b/i.test(lines[index])) break;
-      if (/^\s*(?:location|failureType|error|code|stack|operator|expected|actual|duration_ms):/i.test(lines[index]) || /^\s{4,}/.test(lines[index])) {
-        selected.push(lines[index]);
-      }
+    const block: string[] = [];
+    const maxFailureBlockLines = Math.max(32, cfg.maxItems * 32);
+    for (
+      let index = failure.index + 1;
+      index < lines.length && block.length < maxFailureBlockLines;
+      index += 1
+    ) {
+      if (tapTestLine.test(lines[index]) || tapStatusLine.test(lines[index])) break;
+      block.push(lines[index]);
     }
+    const evidence = block.filter((line) => tapEvidenceLine.test(line));
+    const continuation = block.filter((line) => /^\s{4,}\S/.test(line) && !tapEvidenceLine.test(line));
+    selected.push(failure.line, ...evidence, ...continuation.slice(0, 8));
   }
-  const status = [...new Set(lines.filter((line) => /^\s*(?:TAP version|1\.\.\d+|# (?:tests|pass|fail|cancelled|skipped|todo|duration)\b)/i.test(line)))];
+  const status = [...new Set(lines.filter((line) => tapStatusLine.test(line)))];
   const complete = hint.execution?.completion === "complete";
   const result = [
     ...status.slice(0, 1),
@@ -526,8 +535,10 @@ function summarizeTypeScriptDiagnostics(
 ): string | undefined {
   const lines = text.split("\n");
   const diagnosticRe = /^(.+?)(?:\((\d+),(\d+)\)|:(\d+):(\d+)):\s*(error|warning)\s+(TS\d+):\s*(.*)$/i;
-  const diagnostics = new Map<string, { line: string; count: number }>();
-  for (const line of lines) {
+  const diagnosticStatusRe = /^(?:Found \d+ errors?|error TS\d+|warning TS\d+)\b/i;
+  const diagnostics = new Map<string, { lines: string[]; count: number }>();
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const match = line.match(diagnosticRe);
     if (!match) continue;
     const file = match[1].trim();
@@ -535,16 +546,32 @@ function summarizeTypeScriptDiagnostics(
     const column = match[3] ?? match[5] ?? "?";
     const code = match[7].toUpperCase();
     const message = match[8].trim();
-    const key = `${file}:${row}:${column}:${code}:${message}`.toLowerCase();
+    const key = `${file}:${row}:${column}:${code}:${message}`;
     const existing = diagnostics.get(key);
     if (existing) existing.count += 1;
-    else diagnostics.set(key, { line: `${file}(${row},${column}): ${match[6].toLowerCase()} ${code}: ${clipText(message, cfg.maxPreviewChars * 2)}`, count: 1 });
+    else {
+      const continuation: string[] = [];
+      for (let next = index + 1; next < Math.min(lines.length, index + 9); next += 1) {
+        if (lines[next].match(diagnosticRe) || diagnosticStatusRe.test(lines[next])) break;
+        if (lines[next].trim()) continuation.push(lines[next]);
+      }
+      diagnostics.set(key, {
+        lines: [
+          `${file}(${row},${column}): ${match[6].toLowerCase()} ${code}: ${clipText(message, cfg.maxPreviewChars * 2)}`,
+          ...continuation,
+        ],
+        count: 1,
+      });
+    }
   }
   if (diagnostics.size === 0) return undefined;
-  const status = [...new Set(lines.filter((line) => /\b(?:Found \d+ errors?|error TS\d+|warning TS\d+)\b/i.test(line)))];
+  const status = [...new Set(lines.filter((line) => diagnosticStatusRe.test(line)))];
   const complete = hint.execution?.completion === "complete";
   const output = [
-    ...[...diagnostics.values()].slice(0, Math.max(2, cfg.maxItems)).map(({ line, count }) => `${line}${count > 1 ? ` [Occurrences: ${count}]` : ""}`),
+    ...[...diagnostics.values()].slice(0, Math.max(2, cfg.maxItems)).flatMap(({ lines: diagnosticLines, count }) => [
+      `${diagnosticLines[0]}${count > 1 ? ` [Occurrences: ${count}]` : ""}`,
+      ...diagnosticLines.slice(1),
+    ]),
     ...status.slice(-2),
     ...(!complete ? ["[TypeScript diagnostics incomplete; completion status preserved]"] : []),
   ];

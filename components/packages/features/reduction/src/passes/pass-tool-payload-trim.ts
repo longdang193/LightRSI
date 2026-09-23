@@ -3,6 +3,7 @@ import type { DeepReadonly, ImmutableReductionPassHandler } from "../reduction/t
 import {
   archiveContent,
   buildArchiveLocation,
+  buildArtifactRef,
   buildRecoveryHint,
 } from "@lightrsi/artifact-store";
 import {
@@ -339,8 +340,10 @@ export const toolPayloadTrimPass: ImmutableReductionPassHandler = {
         workspaceDir,
       });
 
+      const artifactRef = buildArtifactRef(segment.text);
       const replacementText = reduced.text + buildRecoveryHint({
         dataKey,
+        artifactRef,
         originalSize: segment.text.length,
         archivePath,
         sourceLabel: "Tool payload trimmed",
@@ -389,6 +392,7 @@ export const toolPayloadTrimPass: ImmutableReductionPassHandler = {
               contentRoute: reduced.route,
               contentRouteReason: reduced.reason,
               dataKey,
+              artifactRef,
               originalSize: segment.text.length,
               reducedSize: reduced.text.length,
               archivePath,

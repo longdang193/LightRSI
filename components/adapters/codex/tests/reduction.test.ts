@@ -702,6 +702,9 @@ test("command-aware reduction uses direct node test provenance and ignores ambig
     "TAP version 13",
     "not ok 1 - rejects invalid token",
     "  location: 'test/auth.test.ts:12:3'",
+    ...Array.from({ length: 20 }, (_, index) => `    continuation ${index}`),
+    "  actual: 200",
+    "  expected: 401",
     "1..1",
     "# tests 1",
     "# pass 0",
@@ -713,7 +716,7 @@ test("command-aware reduction uses direct node test provenance and ignores ambig
       input: [
         { role: "user", content: "run tests" },
         { type: "function_call", call_id: "call-1", name: "node", arguments: { command: "node --test" } },
-        { type: "function_call_output", call_id: "call-1", output },
+        { type: "function_call_output", call_id: "call-1", output, status: "completed", exitCode: 1 },
       ],
     }),
     codec,
@@ -721,6 +724,7 @@ test("command-aware reduction uses direct node test provenance and ignores ambig
   });
   const directOutput = JSON.stringify(direct.envelope.rawPayload);
   assert.match(directOutput, /rejects invalid token/);
+  assert.match(directOutput, /actual: 200/);
   assert.match(directOutput, /# fail 1/);
 
   const ambiguous = await reduceCodexRequestEnvelope({

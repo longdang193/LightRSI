@@ -1,6 +1,11 @@
+import { createHash } from "node:crypto";
+
 import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
   sameCanonicalValue,
+  type CacheReleasePreview,
+  type ContextPressureEvidence,
+  type ContextPressureObservation,
   type ContextCleanerControlPlane,
   type ContextCleanerSchedulingControlPlane,
   type ContextCleanerHostBridge,
@@ -15,8 +20,11 @@ import {
 } from "@lightrsi/history";
 import {
   MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
+  type ContextMutationPlan,
+  type ContextRewritePreview,
   type ModelContextSnapshot,
 } from "@lightrsi/host-adapter";
+import type { JsonObject } from "../context-history/types.js";
 
 import { buildCodexEffectiveHistoryView, parseCodexRollout } from "../context-history/index.js";
 import { buildCodexRawSemanticTurns } from "../context-rewrite/semantic-mapping.js";
@@ -32,6 +40,112 @@ import {
 import { listCodexCleanerSessions } from "./session-catalog.js";
 
 const CODEX_HOST_ID = "codex";
+
+const DUPLICATE_ID_KEYS = new Set([
+  "id",
+  "call_id",
+  "callId",
+  "response_id",
+  "responseId",
+  "request_id",
+  "requestId",
+  "stableItemId",
+  "occurrenceId",
+]);
+
+function canonicalDuplicateValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalDuplicateValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !DUPLICATE_ID_KEYS.has(key))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => [key, canonicalDuplicateValue(child)]),
+  );
+}
+
+function duplicateContentDigest(item: JsonObject): string {
+  const payloadKind = typeof item.type === "string" && item.type.trim()
+    ? item.type.trim()
+    : typeof item.role === "string" && item.role.trim()
+      ? item.role.trim()
+      : "unknown";
+  return createHash("sha256")
+    .update(Buffer.from(JSON.stringify({ payloadKind, content: canonicalDuplicateValue(item) }), "utf8"))
+    .digest("hex");
+}
+
+export function collectCodexDuplicateEvidence(items: readonly {
+  stableId: string;
+  item: JsonObject;
+  chars: number;
+}[]): Array<{
+  contentDigest: string;
+  occurrenceIds: string[];
+  occurrenceCount: number;
+  combinedChars: number;
+}> {
+  const groups = new Map<string, { occurrenceIds: string[]; combinedChars: number }>();
+  for (const entry of items) {
+    const digest = duplicateContentDigest(entry.item);
+    const group = groups.get(digest) ?? { occurrenceIds: [], combinedChars: 0 };
+    group.occurrenceIds.push(entry.stableId);
+    group.combinedChars += entry.chars;
+    groups.set(digest, group);
+  }
+  return [...groups.entries()]
+    .filter(([, group]) => group.occurrenceIds.length > 1)
+    .map(([contentDigest, group]) => ({
+      contentDigest,
+      occurrenceIds: group.occurrenceIds,
+      occurrenceCount: group.occurrenceIds.length,
+      combinedChars: group.combinedChars,
+    }));
+}
+
+function validPressureObservation(observation: ContextPressureObservation, revision: string): boolean {
+  return Number.isSafeInteger(observation.usedTokens)
+    && observation.usedTokens >= 0
+    && Number.isSafeInteger(observation.contextLimitTokens)
+    && observation.contextLimitTokens > 0
+    && Number.isSafeInteger(observation.reservedOutputTokens)
+    && observation.reservedOutputTokens >= 0
+    && observation.observedRevision === revision
+    && Number.isFinite(Date.parse(observation.observedAt));
+}
+
+export function assessCodexContextPressure(params: {
+  revision: string;
+  providerUsage?: ContextPressureObservation;
+  tokenEstimate?: ContextPressureObservation;
+}): ContextPressureEvidence {
+  const source = params.providerUsage ? "provider_usage" : params.tokenEstimate ? "token_estimate" : "unavailable";
+  const observation = params.providerUsage ?? params.tokenEstimate;
+  if (!observation || !validPressureObservation(observation, params.revision)) {
+    return {
+      level: "unknown",
+      source,
+      ...(observation?.observedRevision ? { observedRevision: observation.observedRevision } : {}),
+      ...(observation?.observedAt ? { observedAt: observation.observedAt } : {}),
+    };
+  }
+  const availableTokens = observation.contextLimitTokens - observation.reservedOutputTokens;
+  if (availableTokens <= 0) {
+    return {
+      level: "unknown",
+      source,
+      observedRevision: observation.observedRevision,
+      observedAt: observation.observedAt,
+    };
+  }
+  const ratio = observation.usedTokens / availableTokens;
+  return {
+    level: ratio < 0.7 ? "normal" : ratio <= 0.85 ? "elevated" : "critical",
+    source,
+    observedRevision: observation.observedRevision,
+    observedAt: observation.observedAt,
+  };
+}
 
 function canonicalTimestamp(value: string): boolean {
   const timestamp = Date.parse(value);
@@ -248,6 +362,8 @@ export function createCodexContextCleanerBridge(params: {
   stateDir: string;
   controlPlane: ContextCleanerControlPlane;
   boundSessionId?: string;
+  providerUsage?: ContextPressureObservation;
+  tokenEstimate?: ContextPressureObservation;
 }): ContextCleanerHostBridge {
   async function readCleanSnapshotWithRegistry(
     sessionId: string,
@@ -314,7 +430,62 @@ export function createCodexContextCleanerBridge(params: {
       tokenCountMode: "chars_only",
       tokenCountMethod: "utf16_chars",
       historyEvidence,
+      duplicateEvidence: collectCodexDuplicateEvidence(
+        sourceItems.map((entry) => ({
+          stableId: entry.stableItemId,
+          item: entry.item,
+          chars: persistableSnapshot.items.find((item) => item.stableId === entry.stableItemId)?.chars ?? 0,
+        })),
+      ),
+      duplicateEvidenceStatus: "available",
+      contextPressure: assessCodexContextPressure({
+        revision: view.history.revision,
+        providerUsage: params.providerUsage,
+        tokenEstimate: params.tokenEstimate,
+      }),
     };
+  }
+
+  async function readRewriteState(sessionId: string) {
+    const session = await loadCodexSessionSnapshot(params.stateDir, sessionId);
+    if (!session) throw new Error("codex_clean_session_not_found");
+    const view = await buildCodexEffectiveHistoryView({
+      stateDir: params.stateDir,
+      sessionId,
+      headResponseId: session.latestResponseId,
+      async rolloutViewBootstrap() {
+        if (!session.transcriptPath) return null;
+        return (await parseCodexRollout(session.transcriptPath))?.view ?? null;
+      },
+    });
+    const { historyEvidence } = assessHistoryEvidence(view);
+    if (!historyEvidence) {
+      throw new Error(`codex_clean_snapshot_incomplete:${view.reasonCodes.join(",") || "unknown"}`);
+    }
+    const model = session.latestModel?.trim() || undefined;
+    const backendRequest = buildCodexLifecycleBackendRequest({
+      view,
+      registry: createEmptySessionTaskRegistry(sessionId),
+      request: {
+        sessionId,
+        payload: {
+          ...(model ? { model } : {}),
+          ...(session.latestResponseId ? { previous_response_id: session.latestResponseId } : {}),
+          input: [],
+        },
+        effectiveHistory: view.history,
+        currentInput: [],
+      },
+    });
+    const backendSnapshot = await codexSharedContextRewriteBackend.readSnapshot({
+      sessionId,
+      request: backendRequest,
+    });
+    const { adapterMetadata: _adapterMetadata, ...persistableSnapshot } = backendSnapshot;
+    if (!validPersistableSnapshot(persistableSnapshot, sessionId, view.history.revision)) {
+      throw new Error("codex_clean_snapshot_invalid");
+    }
+    return { session, view, backendRequest, backendSnapshot, persistableSnapshot };
   }
 
   return {
@@ -325,6 +496,65 @@ export function createCodexContextCleanerBridge(params: {
     },
     async readCleanSnapshot(sessionId) {
       return readCleanSnapshotWithRegistry(sessionId, createEmptySessionTaskRegistry(sessionId));
+    },
+    async previewCleanRelease({ sessionId, baseRevision, occurrences }) {
+      const state = await readRewriteState(sessionId);
+      if (state.view.history.revision !== baseRevision) {
+        throw new Error("clean_preview_revision_stale");
+      }
+      const itemById = new Map(state.persistableSnapshot.items.map((item) => [item.stableId, item]));
+      const selectedIds = occurrences.map((occurrence) => occurrence.stableId);
+      if (occurrences.length === 0 || new Set(selectedIds).size !== selectedIds.length
+        || occurrences.some((occurrence) => itemById.get(occurrence.stableId)?.fingerprint !== occurrence.fingerprint)) {
+        throw new Error("clean_preview_occurrence_invalid");
+      }
+      const operations = occurrences.map((occurrence, index) => ({
+        id: `preview-${index}`,
+        type: "remove" as const,
+        targetItemIds: [occurrence.stableId],
+        targetItemFingerprints: { [occurrence.stableId]: occurrence.fingerprint },
+        rationale: "inspection preview",
+        estimatedSavedChars: itemById.get(occurrence.stableId)?.chars ?? 0,
+      }));
+      const plan: ContextMutationPlan = {
+        schemaVersion: MODEL_CONTEXT_REWRITE_SCHEMA_VERSION,
+        planId: `ctxclean-preview-${createHash("sha256").update(JSON.stringify({ baseRevision, selectedIds })).digest("hex").slice(0, 24)}`,
+        hostId: CODEX_HOST_ID,
+        sessionId,
+        baseRevision,
+        sourceModuleId: "context-cleaner-preview",
+        operations,
+        createdAt: state.session.updatedAt,
+      };
+      const candidate: ContextRewritePreview<typeof state.backendRequest, unknown> =
+        await codexSharedContextRewriteBackend.apply({
+          snapshot: state.backendSnapshot,
+          plan,
+          request: state.backendRequest,
+        });
+      const historyItems = [
+        ...state.view.history.replayableItems,
+        ...state.view.history.observationOnlyItems,
+        ...state.view.history.deferredItems,
+      ];
+      const firstChanged = historyItems.findIndex((item) => selectedIds.includes(item.stableItemId));
+      const grossSavedChars = occurrences.reduce(
+        (sum, occurrence) => sum + (itemById.get(occurrence.stableId)?.chars ?? 0),
+        0,
+      );
+      const beforeBytes = Buffer.byteLength(JSON.stringify(state.backendRequest.payload) ?? "undefined", "utf8");
+      const afterBytes = Buffer.byteLength(JSON.stringify(candidate.request.payload) ?? "undefined", "utf8");
+      return {
+        selectedOccurrenceCount: occurrences.length,
+        grossSavedChars,
+        netSavedChars: beforeBytes - afterBytes,
+        ...(firstChanged >= 0 ? { earliestChangedHistoryItem: historyItems[firstChanged]!.stableItemId } : {}),
+        unchangedPrefixItemCount: firstChanged >= 0 ? firstChanged : historyItems.length,
+        providerCacheOutcome: candidate.result.changed && !candidate.result.fallbackUsed
+          ? "changed"
+          : candidate.result.changed ? "unknown" : "preserved",
+        baseRevision,
+      } satisfies CacheReleasePreview;
     },
     async executeApprovedClean(request) {
       if ((request.occurrenceSelections?.length ?? 0) > 0 && !params.boundSessionId) {

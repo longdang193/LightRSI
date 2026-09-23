@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -59,6 +59,52 @@ test("direct occurrence release creates internal evidence without task analysis"
     const plan = await service.readPlan(executionRequest!.cleanPlanId);
     assert.deepEqual(plan?.tasks, []);
     assert.equal(plan?.occurrenceDigests?.["item-a"], "digest-a");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("release preview validates current fingerprints and writes no Cleaner state", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-cleaner-preview-"));
+  try {
+    const bridge = {
+      hostId: "fake-host" as const,
+      rewriteMode: "request_overlay" as const,
+      async listSessions() { return []; },
+      async readCleanSnapshot() {
+        return {
+          ...sampleSnapshot(),
+          capturedAt: "2026-09-20T10:00:00.000Z",
+          tokenCountMode: "chars_only" as const,
+          tokenCountMethod: "fixture",
+        };
+      },
+      async previewCleanRelease() {
+        return {
+          selectedOccurrenceCount: 1,
+          grossSavedChars: 40,
+          netSavedChars: 20,
+          earliestChangedHistoryItem: "item-a",
+          unchangedPrefixItemCount: 0,
+          providerCacheOutcome: "changed" as const,
+          baseRevision: "rev-1",
+        };
+      },
+      async executeApprovedClean() { throw new Error("not used"); },
+      async readCleanReceipt() { return undefined; },
+      async cancelCleanPlan() { throw new Error("not used"); },
+    };
+    const service = createContextCleanerControlService({ stateDir, bridge });
+    const preview = await service.previewRelease("session-1", [{
+      stableId: "item-a",
+      fingerprint: "digest-a",
+    }]);
+    assert.equal(preview.providerCacheOutcome, "changed");
+    assert.deepEqual(await readdir(stateDir), []);
+    await assert.rejects(
+      service.previewRelease("session-1", [{ stableId: "item-a", fingerprint: "wrong" }]),
+      /clean_preview_occurrence_invalid/,
+    );
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

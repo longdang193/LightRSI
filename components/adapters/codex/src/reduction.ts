@@ -212,7 +212,12 @@ function mergeExecutionHints(
 ): ToolExecutionHint | undefined {
   if (!base) return update;
   if (!update) return base;
-  return { ...base, ...update };
+  return {
+    commandFamily: update.commandFamily ?? base.commandFamily,
+    outputStream: update.outputStream ?? base.outputStream,
+    exitCode: update.exitCode ?? base.exitCode,
+    completion: update.completion ?? base.completion,
+  };
 }
 
 export function normalizeResponsesInputForUpstream(input: any): any {

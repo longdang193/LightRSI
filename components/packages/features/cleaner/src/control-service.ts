@@ -2,6 +2,8 @@ import {
   CONTEXT_CLEAN_SCHEMA_VERSION,
   type ContextCleanPlan,
   type ContextCleanReceipt,
+  type CacheReleasePreview,
+  type ContextCleanPreviewSelection,
   type ContextCleanerHostBridge,
   type ContextCleanerSchedulingControlPlane,
   type ExecuteApprovedContextCleanParams,
@@ -15,11 +17,13 @@ import {
   approveContextCleanSelection,
   cancelContextCleanPlan,
   finalizeContextCleanSchedule,
+  previewContextCleanRelease,
 } from "./orchestrator.js";
 
 export interface ContextCleanerControlService {
   releaseOccurrences(sessionId: string, selections: readonly ContextCleanOccurrenceSelection[]): Promise<ContextCleanReceipt>;
   inspect(sessionId: string): Promise<ContextCleanSnapshot>;
+  previewRelease(sessionId: string, selections: readonly ContextCleanPreviewSelection[]): Promise<CacheReleasePreview>;
   readPlan(planId: string): Promise<ContextCleanPlan | undefined>;
   approveOccurrences(planId: string, selections: readonly ContextCleanOccurrenceSelection[]): Promise<ContextCleanReceipt>;
   readReceipt(planId: string): Promise<ContextCleanReceipt | undefined>;
@@ -63,7 +67,19 @@ export function createContextCleanerControlService(params: {
   const controlPlane = createContextCleanerControlPlane({ stateDir: params.stateDir, now: params.now });
   return {
     async inspect(sessionId) {
-      return params.bridge.readCleanSnapshot(sessionId);
+      const snapshot = await params.bridge.readCleanSnapshot(sessionId);
+      return {
+        ...snapshot,
+        duplicateEvidenceStatus: snapshot.duplicateEvidenceStatus ?? "unavailable",
+        contextPressure: snapshot.contextPressure ?? { level: "unknown", source: "unavailable" },
+      };
+    },
+    async previewRelease(sessionId, selections) {
+      return previewContextCleanRelease({
+        bridge: params.bridge,
+        sessionId,
+        selections,
+      });
     },
     async readPlan(planId) {
       const result = await readContextCleanPlan({ stateDir: params.stateDir, planId });

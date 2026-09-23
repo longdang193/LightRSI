@@ -3,6 +3,7 @@ import type { DeepReadonly, ImmutableReductionPassHandler } from "../reduction/t
 import {
   archiveContent,
   buildArchiveLocation,
+  buildArtifactRef,
   buildRecoveryHint,
 } from "@lightrsi/artifact-store";
 import { isRecoveryExemptSegment } from "../reduction/recovery-exemptions.js";
@@ -123,6 +124,7 @@ const extractDataKey = (metadata: Record<string, unknown> | undefined): string |
 const buildTruncationStub = (
   toolName: string,
   dataKey: string,
+  artifactRef: string,
   originalSize: number,
   archivePath: string,
   headPreview: string,
@@ -143,6 +145,7 @@ const buildTruncationStub = (
     `=== END PREVIEW ===` +
     buildRecoveryHint({
       dataKey,
+      artifactRef,
       originalSize,
       archivePath,
       sourceLabel: `${toolName} output truncated`,
@@ -155,6 +158,7 @@ type TruncationResult = {
   text: string;
   changed: boolean;
   archivePath?: string;
+  artifactRef?: string;
   originalSize?: number;
 };
 
@@ -189,6 +193,7 @@ const truncateExecOutput = async (
   });
 
   const fullText = segment.text;
+  const artifactRef = buildArtifactRef(fullText);
   const headPreview = clipText(fullText, config.headPreviewSize);
   const tailPreview = fullText.length > config.tailPreviewSize ? fullText.slice(-config.tailPreviewSize) : "";
   const omittedChars = fullText.length - config.headPreviewSize - config.tailPreviewSize;
@@ -196,6 +201,7 @@ const truncateExecOutput = async (
   const truncatedStub = buildTruncationStub(
     toolName,
     dataKey,
+    artifactRef,
     fullText.length,
     archivePath,
     headPreview,
@@ -228,6 +234,7 @@ const truncateExecOutput = async (
     text: truncatedStub,
     changed: true,
     archivePath,
+    artifactRef,
     originalSize: fullText.length,
   };
 };
@@ -344,6 +351,7 @@ const updateSegments = async (
             execOutputTruncation: {
               archived: true,
               dataKey: extractDataKey(meta),
+              artifactRef: result.artifactRef,
               archivePath: result.archivePath,
               originalSize: result.originalSize,
               truncatedSize: result.text.length,

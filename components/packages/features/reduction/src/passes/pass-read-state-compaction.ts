@@ -3,6 +3,7 @@ import type { ImmutableReductionPassHandler } from "../reduction/types.js";
 import {
   archiveContent,
   buildArchiveLocation,
+  buildArtifactRef,
   buildRecoveryHint,
   buildRecoveryContextSafePatch,
 } from "@lightrsi/artifact-store";
@@ -75,6 +76,7 @@ const clipText = (value: string, maxChars: number): string =>
 function buildLifecycleStub(params: {
   state: "superseded" | "stale";
   dataKey: string;
+  artifactRef: string;
   originalText: string;
   archivePath: string;
   sourceLabel: string;
@@ -84,6 +86,7 @@ function buildLifecycleStub(params: {
   const {
     state,
     dataKey,
+    artifactRef,
     originalText,
     archivePath,
     sourceLabel,
@@ -106,6 +109,7 @@ function buildLifecycleStub(params: {
     `--- Read Preview ---\n${previewBlock}\n--- End Preview ---` +
     buildRecoveryHint({
       dataKey,
+      artifactRef,
       originalSize: originalText.length,
       archivePath,
       sourceLabel,
@@ -186,9 +190,11 @@ export const readStateCompactionPass: ImmutableReductionPassHandler = {
         archiveDir: config.archiveDir,
       });
 
+      const artifactRef = buildArtifactRef(segment.text);
       const replacementText = buildLifecycleStub({
         state: classification.state,
         dataKey,
+        artifactRef,
         originalText: segment.text,
         archivePath,
         sourceLabel: `Read ${classification.state}`,
@@ -242,6 +248,7 @@ export const readStateCompactionPass: ImmutableReductionPassHandler = {
               state: classification.state,
               reason: classification.reason,
               dataKey,
+              artifactRef,
               originalSize: segment.text.length,
               reducedSize: replacementText.length,
               archivePath,

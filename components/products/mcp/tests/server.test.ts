@@ -117,7 +117,16 @@ test("resolveMemoryFaultRecover supports stats and literal search modes", async 
       maxMatches: 1,
     });
     assert.match(search.text, /omitted: 1/);
-    assert.equal(search.details.lineBasis, "source-relative");
+    assert.equal(search.details.lineBasis, "archive-relative");
+
+    const range = await resolveMemoryFaultRecover({
+      artifactRef: location.artifactRef,
+      stateDir: dir,
+      startLine: 2,
+      endLine: 2,
+    });
+    assert.equal(range.details.recoveredStartLine, 2);
+    assert.equal(range.details.sourceStartLine, 12);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

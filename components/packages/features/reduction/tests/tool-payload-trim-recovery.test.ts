@@ -177,6 +177,7 @@ test("toolPayloadTrimPass archives oversized bounded reads before publishing rec
   assert.equal(trim.contentRouteReason, "read_path_code_hint:controlled_code_read_oversized");
   assert.deepEqual(trim.readWindow, { offset: 0, limit: 120 });
   assert.equal(typeof trim.archivePath, "string");
+  assert.match(String(trim.artifactRef), /^artifact:v2:[a-f0-9]{64}$/);
 
   const rerun = await toolPayloadTrimPass.beforeCall?.({
     turnCtx: result!.turnCtx!,

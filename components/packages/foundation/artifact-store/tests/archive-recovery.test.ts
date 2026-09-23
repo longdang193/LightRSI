@@ -13,6 +13,8 @@ import {
   WORKSPACE_ARCHIVE_DIRNAME,
   buildRecoveryHint,
   createFileSystemArtifactStore,
+  resolveArchiveAcrossSessionsByArtifactRef,
+  archiveContent,
   pluginStateSubdir,
   renderRecoveredArchive,
   workspaceArchiveDir,
@@ -118,7 +120,18 @@ test("renderRecoveredArchive supports bounded stats and literal search", () => {
   const stats = renderRecoveredArchive({ artifactRef: archive.artifactRef, archive, mode: "stats" });
   assert.match(stats.text, /Line count: 5/);
   assert.doesNotMatch(stats.text, /needle one/);
-  assert.equal(stats.details.lineBasis, "source-relative");
+  assert.equal(stats.details.lineBasis, "archive-relative");
+
+  const range = renderRecoveredArchive({
+    artifactRef: archive.artifactRef,
+    archive,
+    startLine: 2,
+    endLine: 2,
+  });
+  assert.equal(range.details.recoveredStartLine, 2);
+  assert.equal(range.details.recoveredEndLine, 2);
+  assert.equal(range.details.sourceStartLine, 12);
+  assert.equal(range.details.sourceEndLine, 12);
 
   const search = renderRecoveredArchive({
     artifactRef: archive.artifactRef,
@@ -129,9 +142,46 @@ test("renderRecoveredArchive supports bounded stats and literal search", () => {
     maxMatches: 1,
   });
   assert.match(search.text, /Matches: 2; returned: 1; omitted: 1/);
-  assert.match(search.text, /12: needle one/);
+  assert.match(search.text, /2: needle one/);
   assert.equal(search.details.omittedMatches, 1);
   assert.equal(search.details.scanComplete, true);
+});
+
+test("exact artifact recovery repairs only artifact lookup and preserves latest dataKey lookup", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-artifact-ref-"));
+  const archiveDir = join(stateDir, "tokenpilot", "tool-result-archives", "session-1");
+
+  try {
+    const first = await archiveContent({
+      sessionId: "session-1",
+      segmentId: "first",
+      sourcePass: "test",
+      toolName: "read",
+      dataKey: "same-key",
+      originalText: "first version",
+      archiveDir,
+    });
+    const second = await archiveContent({
+      sessionId: "session-1",
+      segmentId: "second",
+      sourcePass: "test",
+      toolName: "read",
+      dataKey: "same-key",
+      originalText: "second version",
+      archiveDir,
+    });
+
+    await writeFile(join(archiveDir, "artifact-lookup.json"), "{}", "utf8");
+    const resolved = await resolveArchiveAcrossSessionsByArtifactRef(first.artifactRef!, stateDir);
+    assert.equal(resolved?.archivePath, first.archivePath);
+    assert.equal((await createFileSystemArtifactStore().resolve({
+      dataKey: "same-key",
+      stateDir,
+      sessionId: "session-1",
+    })), second.archivePath);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
 });
 
 test("file system artifact store preserves archive and lookup behavior", async () => {

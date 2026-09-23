@@ -90,6 +90,11 @@ export type ContextRewriteResult<TResultDetails = never> = {
   details?: TResultDetails;
 };
 
+export type ContextRewritePreview<TRequest = unknown, TResultDetails = never> = {
+  request: TRequest;
+  result: ContextRewriteResult<TResultDetails>;
+};
+
 export interface ModelContextRewriteBackend<
   TRequest = unknown,
   TAdapterMetadata = never,

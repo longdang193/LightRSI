@@ -32,7 +32,7 @@ export type RecoveredArchiveRenderResult = {
   details: {
     mode: "range" | "stats" | "search";
     artifactRef?: string;
-    lineBasis: "archive-relative" | "source-relative";
+    lineBasis: "archive-relative";
     originalSize: number;
     lineCount: number;
     sourcePass: string;
@@ -41,6 +41,8 @@ export type RecoveredArchiveRenderResult = {
     recoveredStartLine?: number;
     recoveredEndLine?: number;
     recoveredLineCount?: number;
+    sourceStartLine?: number;
+    sourceEndLine?: number;
     matches?: Array<{ line: number; text: string }>;
     omittedMatches?: number;
     scanComplete?: boolean;
@@ -158,7 +160,7 @@ export function renderRecoveredArchive(params: {
   const offset = readWindow && typeof readWindow === "object" && typeof (readWindow as Record<string, unknown>).offset === "number"
     ? Math.max(0, Math.trunc((readWindow as Record<string, unknown>).offset as number))
     : undefined;
-  const lineBasis: "archive-relative" | "source-relative" = offset == null ? "archive-relative" : "source-relative";
+  const lineBasis = "archive-relative" as const;
   const sourceLine = (line: number): number => offset == null ? line : offset + line;
   const reference = params.artifactRef ?? params.dataKey ?? params.archive.artifactRef ?? params.archive.dataKey;
   const baseDetails = {
@@ -202,7 +204,7 @@ export function renderRecoveredArchive(params: {
         renderedLines.add(index);
       }
     }
-    const output = [...renderedLines].sort((a, b) => a - b).map((line) => `${sourceLine(line)}: ${lines[line - 1]}`);
+    const output = [...renderedLines].sort((a, b) => a - b).map((line) => `${line}: ${lines[line - 1]}`);
     const omittedMatches = Math.max(0, matchLines.length - selected.length);
     const renderedText =
       `[Memory Fault Recovery] Search results for: ${reference}\n` +
@@ -222,7 +224,7 @@ export function renderRecoveredArchive(params: {
         renderedText,
       details: {
         ...baseDetails,
-        matches: selected.map((line) => ({ line: sourceLine(line), text: lines[line - 1] ?? "" })),
+        matches: selected.map((line) => ({ line, text: lines[line - 1] ?? "" })),
         omittedMatches,
         scanComplete: true,
         truncated: omittedMatches > 0,
@@ -241,7 +243,7 @@ export function renderRecoveredArchive(params: {
       `[Memory Fault Recovery] Recovered content for: ${reference}\n`
       + `Original size: ${params.archive.originalSize.toLocaleString()} chars\n`
       + `Line basis: ${lineBasis}\n`
-      + (hasLineWindow ? `Recovered lines: ${sourceLine(boundedStart)}-${sourceLine(boundedEnd)}\n` : "")
+      + (hasLineWindow ? `Recovered lines: ${boundedStart}-${boundedEnd}\n` : "")
       + `Archived by: ${params.archive.sourcePass}\n`
       + `--- Recovered Content ---\n`
       + `${recoveredText}\n`
@@ -250,9 +252,13 @@ export function renderRecoveredArchive(params: {
       ...baseDetails,
       ...(hasLineWindow
         ? {
-            recoveredStartLine: sourceLine(boundedStart),
-            recoveredEndLine: sourceLine(boundedEnd),
+            recoveredStartLine: boundedStart,
+            recoveredEndLine: boundedEnd,
             recoveredLineCount: Math.max(0, boundedEnd - boundedStart + 1),
+            ...(offset != null ? {
+              sourceStartLine: sourceLine(boundedStart),
+              sourceEndLine: sourceLine(boundedEnd),
+            } : {}),
           }
         : {}),
     },
@@ -304,11 +310,10 @@ export function buildArchiveLocation(params: ArchiveLocationParams): ArchiveLoca
   return { archiveDir, archivePath };
 }
 
-export async function updateArchiveLookup(
+export async function updateLatestDataKeyLookup(
   dataKey: string,
   archivePath: string,
   archiveDir: string,
-  artifactRef?: string,
 ): Promise<void> {
   const keyDir = join(archiveDir, "keys");
   const keyPath = join(keyDir, `${hashText(dataKey)}.json`);
@@ -328,29 +333,42 @@ export async function updateArchiveLookup(
   }
   lookup[dataKey] = archivePath;
   await atomicWriteFile(lookupPath, JSON.stringify(lookup, null, 2));
-  if (artifactRef) {
-    const artifactLookupPath = join(archiveDir, "artifact-lookup.json");
-    let artifactLookup: Record<string, string[]> = {};
-    try {
-      const raw = await readFile(artifactLookupPath, "utf8");
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      artifactLookup = Object.fromEntries(Object.entries(parsed).map(([key, value]) => [
-        key,
-        Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [],
-      ]));
-    } catch {
-      artifactLookup = {};
-    }
-    const digest = artifactDigest(artifactRef);
-    if (digest) {
-      const locations = artifactLookup[digest] ?? [];
-      if (!locations.includes(archivePath)) locations.push(archivePath);
-      artifactLookup[digest] = locations;
-      await atomicWriteFile(artifactLookupPath, JSON.stringify(artifactLookup, null, 2));
-    }
-  }
 }
 
+export async function updateArtifactLocationIndex(
+  archivePath: string,
+  archiveDir: string,
+  artifactRef: string,
+): Promise<void> {
+  const digest = artifactDigest(artifactRef);
+  if (!digest) return;
+  const artifactLookupPath = join(archiveDir, "artifact-lookup.json");
+  let artifactLookup: Record<string, string[]> = {};
+  try {
+    const raw = await readFile(artifactLookupPath, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    artifactLookup = Object.fromEntries(Object.entries(parsed).map(([key, value]) => [
+      key,
+      Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [],
+    ]));
+  } catch {
+    artifactLookup = {};
+  }
+  const locations = artifactLookup[digest] ?? [];
+  if (!locations.includes(archivePath)) locations.push(archivePath);
+  artifactLookup[digest] = locations;
+  await atomicWriteFile(artifactLookupPath, JSON.stringify(artifactLookup, null, 2));
+}
+
+export async function updateArchiveLookup(
+  dataKey: string,
+  archivePath: string,
+  archiveDir: string,
+  artifactRef?: string,
+): Promise<void> {
+  await updateLatestDataKeyLookup(dataKey, archivePath, archiveDir);
+  if (artifactRef) await updateArtifactLocationIndex(archivePath, archiveDir, artifactRef);
+}
 export async function readArchive(archivePath: string): Promise<GenericArchiveEntry | null> {
   try {
     const content = await readFile(archivePath);
@@ -410,11 +428,16 @@ export async function resolveArchiveAcrossSessionsByArtifactRef(
         }
         const entries = await readdir(archiveDir, { withFileTypes: true });
         for (const entry of entries) {
-          if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name === "key-lookup.json") continue;
+          if (
+            !entry.isFile()
+            || !entry.name.endsWith(".json")
+            || entry.name === "key-lookup.json"
+            || entry.name === "artifact-lookup.json"
+          ) continue;
           const archivePath = join(archiveDir, entry.name);
           const archive = await readArchiveForArtifactRef(archivePath, artifactRef);
           if (archive) {
-            await updateArchiveLookup(archive.dataKey, archivePath, archiveDir, artifactRef);
+            await updateArtifactLocationIndex(archivePath, archiveDir, artifactRef);
             return { archivePath, archive };
           }
         }
@@ -474,7 +497,12 @@ export async function resolveArchivePathFromLookup(
     try {
       const entries = await readdir(archiveDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name === "key-lookup.json") {
+        if (
+          !entry.isFile()
+          || !entry.name.endsWith(".json")
+          || entry.name === "key-lookup.json"
+          || entry.name === "artifact-lookup.json"
+        ) {
           continue;
         }
         const archivePath = join(archiveDir, entry.name);

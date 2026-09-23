@@ -364,6 +364,33 @@ test("reduceToolPayloadText keeps Node TAP failures and final counts", () => {
   assert.doesNotMatch(result.text, /output incomplete/);
 });
 
+test("reduceToolPayloadText keeps late Node TAP assertion evidence", () => {
+  const payload = [
+    "TAP version 13",
+    "not ok 1 - rejects invalid token",
+    ...Array.from({ length: 24 }, (_, index) => `    continuation ${index}`),
+    "  actual: 200",
+    "  expected: 401",
+    "  operator: strictEqual",
+    "  failureType: 'testCodeFailure'",
+    "1..1",
+    "# tests 1",
+    "# pass 0",
+    "# fail 1",
+  ].join("\n").repeat(4);
+
+  const result = reduceToolPayloadText(payload, "stderr", defaultCfg, {
+    toolName: "node",
+    payloadKind: "stderr",
+    execution: { commandFamily: "node_test", completion: "complete", exitCode: 1 },
+  });
+
+  assert.match(result.text, /actual: 200/);
+  assert.match(result.text, /expected: 401/);
+  assert.match(result.text, /operator: strictEqual/);
+  assert.match(result.text, /failureType: 'testCodeFailure'/);
+});
+
 test("reduceToolPayloadText keeps TypeScript diagnostic identity and count", () => {
   const payload = [
     "src/a.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.",
@@ -382,6 +409,25 @@ test("reduceToolPayloadText keeps TypeScript diagnostic identity and count", () 
   assert.match(result.text, /src\/a\.ts\(4,7\).*TS2322/);
   assert.match(result.text, /src\/b\.ts\(8,2\).*TS2304/);
   assert.match(result.text, /Found 2 errors/);
+});
+
+test("reduceToolPayloadText keeps TypeScript paths and messages case-sensitive", () => {
+  const payload = [
+    "src/Case.ts(4,7): error TS2322: Type 'String' is not assignable to type 'number'.",
+    "src/case.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+    "  related information keeps diagnostic context",
+    "Found 2 errors.",
+  ].join("\n").repeat(6);
+
+  const result = reduceToolPayloadText(payload, "stderr", defaultCfg, {
+    toolName: "tsc",
+    payloadKind: "stderr",
+    execution: { commandFamily: "typescript_diagnostics", completion: "complete", exitCode: 2 },
+  });
+
+  assert.match(result.text, /src\/Case\.ts\(4,7\).*Type 'String'/);
+  assert.match(result.text, /src\/case\.ts\(4,7\).*Type 'string'/);
+  assert.match(result.text, /related information keeps diagnostic context/);
 });
 
 test("reduceToolPayloadText preserves distinct failure blocks during duplicate floods", () => {

@@ -4,6 +4,7 @@ import {
   MEMORY_FAULT_RECOVER_TOOL_NAME,
   readArchive,
   renderRecoveredArchive,
+  resolveArchiveAcrossSessionsByArtifactRef,
   resolveArchivePathFromLookup,
   resolveRecoveryStateDir,
 } from "@lightrsi/artifact-store";
@@ -22,11 +23,15 @@ export function registerMemoryFaultRecoverTool(
     label: "Memory Fault Recover",
     name: MEMORY_FAULT_RECOVER_TOOL_NAME,
     description:
-      "Recover archived content that was trimmed from a prior tool result. Use this internal tool with the provided dataKey instead of re-running the original tool.",
+      "Recover archived content that was trimmed from a prior tool result. Use exactly one artifactRef or dataKey instead of re-running the original tool.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
+        artifactRef: {
+          type: "string",
+          description: "Opaque archive artifact reference from a prior recovery notice.",
+        },
         dataKey: {
           type: "string",
           description: "Archive dataKey from a prior [Tool payload trimmed] notice.",
@@ -42,14 +47,15 @@ export function registerMemoryFaultRecoverTool(
           description: "Optional 1-based end line for partial recovery.",
         },
       },
-      required: ["dataKey"],
+      oneOf: [{ required: ["artifactRef"] }, { required: ["dataKey"] }],
     },
     execute: async (_toolCallId: string, args: Record<string, unknown>) => {
+      const artifactRef = typeof args?.artifactRef === "string" ? args.artifactRef.trim() : "";
       const dataKey = typeof args?.dataKey === "string" ? args.dataKey.trim() : "";
-      if (!dataKey) {
+      if ((artifactRef.length > 0) === (dataKey.length > 0)) {
         return {
-          content: [{ type: "text", text: "Missing required parameter: dataKey" }],
-          details: { error: "missing_data_key" },
+          content: [{ type: "text", text: "Provide exactly one of artifactRef or dataKey" }],
+          details: { error: "invalid_recovery_reference" },
         };
       }
       const stateDir = resolveRecoveryStateDir(cfg.stateDir);
@@ -57,19 +63,27 @@ export function registerMemoryFaultRecoverTool(
         typeof toolCtx?.sessionId === "string" && toolCtx.sessionId.trim().length > 0
           ? toolCtx.sessionId.trim()
           : "proxy-session";
-      const archivePath =
-        (await resolveArchivePathFromLookup(dataKey, stateDir, sessionId))
-        ?? (await resolveArchivePathFromLookup(dataKey, stateDir, "proxy-session"))
-        ?? "";
-      const archive = archivePath ? await readArchive(archivePath) : null;
+      const resolvedByArtifact = artifactRef
+        ? await resolveArchiveAcrossSessionsByArtifactRef(artifactRef, stateDir)
+        : null;
+      const archivePath = resolvedByArtifact?.archivePath ?? (dataKey
+        ? (await resolveArchivePathFromLookup(dataKey, stateDir, sessionId))
+          ?? (await resolveArchivePathFromLookup(dataKey, stateDir, "proxy-session"))
+        : null);
+      const archive = resolvedByArtifact?.archive ?? (archivePath ? await readArchive(archivePath) : null);
       if (!archive) {
         return {
-          content: [{ type: "text", text: `No archived content found for dataKey: ${dataKey}` }],
-          details: { error: "archive_not_found", dataKey, archivePath },
+          content: [{ type: "text", text: "No archived content found" }],
+          details: {
+            error: "archive_not_found",
+            ...(artifactRef ? { artifactRef } : { dataKey }),
+            archivePath: archivePath ?? "",
+          },
         };
       }
       const rendered = renderRecoveredArchive({
-        dataKey,
+        ...(dataKey ? { dataKey } : {}),
+        ...(artifactRef ? { artifactRef } : {}),
         archive,
         startLine: typeof args?.startLine === "number" ? args.startLine : undefined,
         endLine: typeof args?.endLine === "number" ? args.endLine : undefined,
@@ -78,7 +92,7 @@ export function registerMemoryFaultRecoverTool(
       return {
         content: [{ type: "text", text: rendered.text }],
         details: {
-          dataKey,
+          ...(artifactRef ? { artifactRef } : { dataKey }),
           archivePath,
           ...rendered.details,
           contextSafe: {

@@ -28,7 +28,11 @@ import {
   appendCodexRequestJournalEntry,
   appendCodexResponseJournalEntry,
 } from "../src/context-history/index.js";
-import { createCodexContextCleanerBridge } from "../src/context-cleaner/index.js";
+import {
+  assessCodexContextPressure,
+  collectCodexDuplicateEvidence,
+  createCodexContextCleanerBridge,
+} from "../src/context-cleaner/index.js";
 import { readCodexCleanerSchedule } from "../src/context-cleaner/scheduler.js";
 import { upsertCodexSessionSnapshot } from "../src/session-state.js";
 
@@ -837,4 +841,114 @@ test("Codex cleaner bridge rejects a snapshot with an invalid capture timestamp"
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }
+});
+
+test("Codex duplicate evidence ignores occurrence and transport identities", () => {
+  const evidence = collectCodexDuplicateEvidence([
+    {
+      stableId: "item-a",
+      chars: 10,
+      item: { type: "message", role: "user", id: "message-a", call_id: "call-a", content: "same" },
+    },
+    {
+      stableId: "item-b",
+      chars: 12,
+      item: { type: "message", role: "user", id: "message-b", call_id: "call-b", content: "same" },
+    },
+  ]);
+  assert.deepEqual(evidence, [{
+    contentDigest: evidence[0]!.contentDigest,
+    occurrenceIds: ["item-a", "item-b"],
+    occurrenceCount: 2,
+    combinedChars: 22,
+  }]);
+});
+
+test("Codex context pressure preserves unknown and uses fixed provider bands", () => {
+  assert.deepEqual(assessCodexContextPressure({ revision: "rev-1" }), {
+    level: "unknown",
+    source: "unavailable",
+  });
+  assert.equal(assessCodexContextPressure({
+    revision: "rev-1",
+    providerUsage: {
+      usedTokens: 69,
+      contextLimitTokens: 100,
+      reservedOutputTokens: 0,
+      observedRevision: "rev-1",
+      observedAt: "2026-09-20T10:00:00.000Z",
+    },
+  }).level, "normal");
+  assert.equal(assessCodexContextPressure({
+    revision: "rev-1",
+    providerUsage: {
+      usedTokens: 70,
+      contextLimitTokens: 100,
+      reservedOutputTokens: 0,
+      observedRevision: "rev-1",
+      observedAt: "2026-09-20T10:00:00.000Z",
+    },
+  }).level, "elevated");
+  assert.equal(assessCodexContextPressure({
+    revision: "rev-1",
+    providerUsage: {
+      usedTokens: 86,
+      contextLimitTokens: 100,
+      reservedOutputTokens: 0,
+      observedRevision: "rev-1",
+      observedAt: "2026-09-20T10:00:00.000Z",
+    },
+  }).level, "critical");
+  assert.equal(assessCodexContextPressure({
+    revision: "rev-1",
+    providerUsage: {
+      usedTokens: 90,
+      contextLimitTokens: 100,
+      reservedOutputTokens: 0,
+      observedRevision: "old-rev",
+      observedAt: "2026-09-20T10:00:00.000Z",
+    },
+  }).level, "unknown");
+});
+
+test("Codex release preview builds candidate without persistence", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-cleaner-preview";
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input: [{ role: "user", content: "keep" }] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{ type: "message", role: "assistant", content: "remove" }],
+      },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, {
+      latestResponseId: "response-1",
+      latestModel: "gpt-5.4",
+    });
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane: fakeControlPlane(),
+    });
+    const snapshot = await bridge.readCleanSnapshot(sessionId);
+    const target = snapshot.items.find((item) => item.kind === "assistant");
+    assert.ok(target);
+    const preview = await bridge.previewCleanRelease!({
+      sessionId,
+      baseRevision: snapshot.revision,
+      occurrences: [{ stableId: target.stableId, fingerprint: target.fingerprint }],
+    });
+    assert.equal(preview.selectedOccurrenceCount, 1);
+    assert.equal(preview.earliestChangedHistoryItem, target.stableId);
+    assert.equal(preview.providerCacheOutcome, "changed");
+  });
 });
