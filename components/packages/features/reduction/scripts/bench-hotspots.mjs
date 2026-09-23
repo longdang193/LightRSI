@@ -4,7 +4,8 @@ import { performance } from "node:perf_hooks";
 import { analyzeReadStateCompaction } from "../src/analyzers/read-state-compaction-analyzer.ts";
 import { reduceToolPayloadText } from "../src/reduction/tool-payload-router.ts";
 
-const sampleRuns = 3;
+const sampleRuns = Number.parseInt(process.env.LIGHTRSI_BENCHMARK_SAMPLE_RUNS ?? "3", 10);
+if (!Number.isInteger(sampleRuns) || sampleRuns < 1) throw new Error("LIGHTRSI_BENCHMARK_SAMPLE_RUNS must be a positive integer");
 const routeConfig = {
   stdout: { enabled: true, maxChars: 2_000, keepHeadLines: 8, keepTailLines: 8, maxPreviewChars: 120, maxItems: 8, maxDepth: 4 },
   stderr: { enabled: true, maxChars: 2_000, keepHeadLines: 8, keepTailLines: 8, maxPreviewChars: 120, maxItems: 8, maxDepth: 4 },
