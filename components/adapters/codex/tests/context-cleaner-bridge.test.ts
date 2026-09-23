@@ -421,6 +421,9 @@ test("Codex cleaner bridge lists persisted sessions and reads canonical effectiv
     assert.deepEqual(repeated.items, snapshot.items);
     assert.deepEqual(repeated.itemTokenCounts, snapshot.itemTokenCounts);
     assert.equal(repeated.capturedAt, snapshot.capturedAt);
+    assert.equal(snapshot.duplicateEvidenceStatus, "unavailable");
+    const duplicateSnapshot = await bridge.readCleanSnapshot(sessionId, { includeDuplicates: true });
+    assert.equal(duplicateSnapshot.duplicateEvidenceStatus, "available");
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }
@@ -855,6 +858,16 @@ test("Codex duplicate evidence ignores occurrence and transport identities", () 
       chars: 12,
       item: { type: "message", role: "user", id: "message-b", call_id: "call-b", content: "same" },
     },
+    {
+      stableId: "nested-a",
+      chars: 15,
+      item: { type: "message", role: "user", id: "message-c", content: { id: "business-a", text: "same" } },
+    },
+    {
+      stableId: "nested-b",
+      chars: 15,
+      item: { type: "message", role: "user", id: "message-d", content: { id: "business-b", text: "same" } },
+    },
   ]);
   assert.deepEqual(evidence, [{
     contentDigest: evidence[0]!.contentDigest,
@@ -862,6 +875,50 @@ test("Codex duplicate evidence ignores occurrence and transport identities", () 
     occurrenceCount: 2,
     combinedChars: 22,
   }]);
+});
+
+test("Codex duplicate inspection bounds groups and occurrence IDs with omission counts", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-cleaner-duplicate-limits";
+    const input = [
+      ...Array.from({ length: 21 }, () => ({ role: "user", content: "repeated" })),
+      ...Array.from({ length: 20 }, (_, index) => ({ role: "user", content: `group-${index}` }))
+        .flatMap((item) => [item, item]),
+    ];
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      payload: { input },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId,
+      requestId: "request-1",
+      response: {
+        id: "response-1",
+        output: [{ type: "message", role: "assistant", content: "done" }],
+      },
+      status: "completed",
+    });
+    await upsertCodexSessionSnapshot(stateDir, sessionId, {
+      latestResponseId: "response-1",
+      latestModel: "gpt-5.4",
+    });
+
+    const bridge = createCodexContextCleanerBridge({
+      stateDir,
+      controlPlane: fakeControlPlane(),
+    });
+    const snapshot = await bridge.readCleanSnapshot(sessionId, { includeDuplicates: true });
+
+    assert.equal(snapshot.duplicateEvidence?.length, 20);
+    assert.equal(snapshot.duplicateEvidenceOmittedGroupCount, 1);
+    assert.equal(snapshot.duplicateEvidence?.[0]?.occurrenceCount, 21);
+    assert.equal(snapshot.duplicateEvidence?.[0]?.occurrenceIds.length, 20);
+    assert.equal(snapshot.duplicateEvidence?.[0]?.omittedOccurrenceCount, 1);
+  });
 });
 
 test("Codex context pressure preserves unknown and uses fixed provider bands", () => {
@@ -918,7 +975,7 @@ test("Codex release preview builds candidate without persistence", async () => {
       stateDir,
       sessionId,
       requestId: "request-1",
-      payload: { input: [{ role: "user", content: "keep" }] },
+      payload: { input: [{ role: "user", content: "é🙂" }] },
       status: "completed",
     });
     await appendCodexResponseJournalEntry({
@@ -927,7 +984,7 @@ test("Codex release preview builds candidate without persistence", async () => {
       requestId: "request-1",
       response: {
         id: "response-1",
-        output: [{ type: "message", role: "assistant", content: "remove" }],
+        output: [{ type: "message", role: "assistant", content: "é🙂" }],
       },
       status: "completed",
     });
@@ -940,7 +997,7 @@ test("Codex release preview builds candidate without persistence", async () => {
       controlPlane: fakeControlPlane(),
     });
     const snapshot = await bridge.readCleanSnapshot(sessionId);
-    const target = snapshot.items.find((item) => item.kind === "assistant");
+    const target = snapshot.items.find((item) => item.kind === "user");
     assert.ok(target);
     const preview = await bridge.previewCleanRelease!({
       sessionId,
@@ -948,7 +1005,27 @@ test("Codex release preview builds candidate without persistence", async () => {
       occurrences: [{ stableId: target.stableId, fingerprint: target.fingerprint }],
     });
     assert.equal(preview.selectedOccurrenceCount, 1);
+    assert.equal(preview.validatedOccurrenceCount, 1);
+    assert.equal(preview.deferredOccurrenceCount, 0);
+    assert.equal(preview.rejectedOccurrenceCount, 0);
     assert.equal(preview.earliestChangedHistoryItem, target.stableId);
-    assert.equal(preview.providerCacheOutcome, "changed");
+    assert.equal(preview.providerCacheOutcome, "unknown");
+    assert.ok(preview.netSavedChars != null);
+    assert.ok(preview.netSavedBytes != null);
+    assert.ok(Math.abs(preview.netSavedBytes) > Math.abs(preview.netSavedChars));
+    await assert.rejects(bridge.previewCleanRelease!({
+      sessionId,
+      baseRevision: "stale-revision",
+      occurrences: [{ stableId: target.stableId, fingerprint: target.fingerprint }],
+    }), /clean_preview_revision_stale/);
+    await assert.rejects(bridge.previewCleanRelease!({
+      sessionId,
+      baseRevision: snapshot.revision,
+      occurrences: [
+        { stableId: target.stableId, fingerprint: target.fingerprint },
+        { stableId: target.stableId, fingerprint: target.fingerprint },
+      ],
+    }), /clean_preview_occurrence_invalid/);
+    assert.equal((await bridge.readCleanSnapshot(sessionId)).revision, snapshot.revision);
   });
 });

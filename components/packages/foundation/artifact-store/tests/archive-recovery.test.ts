@@ -238,6 +238,9 @@ test("synchronous tool-result persistence writes digest-scoped artifact lookups"
     );
     const lookup = JSON.parse(await readFile(lookupPath, "utf8")) as string[];
     assert.deepEqual(lookup, [persisted.outputFile]);
+    const recovered = await resolveArchiveAcrossSessionsByArtifactRef(persisted.artifactRef!, stateDir);
+    assert.equal(recovered?.archivePath, persisted.outputFile);
+    assert.equal(recovered?.archive.originalText, "x".repeat(12_001));
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

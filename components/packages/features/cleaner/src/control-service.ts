@@ -22,7 +22,7 @@ import {
 
 export interface ContextCleanerControlService {
   releaseOccurrences(sessionId: string, selections: readonly ContextCleanOccurrenceSelection[]): Promise<ContextCleanReceipt>;
-  inspect(sessionId: string): Promise<ContextCleanSnapshot>;
+  inspect(sessionId: string, options?: { includeDuplicates?: boolean }): Promise<ContextCleanSnapshot>;
   previewRelease(sessionId: string, selections: readonly ContextCleanPreviewSelection[]): Promise<CacheReleasePreview>;
   readPlan(planId: string): Promise<ContextCleanPlan | undefined>;
   approveOccurrences(planId: string, selections: readonly ContextCleanOccurrenceSelection[]): Promise<ContextCleanReceipt>;
@@ -66,8 +66,8 @@ export function createContextCleanerControlService(params: {
 }): ContextCleanerControlService {
   const controlPlane = createContextCleanerControlPlane({ stateDir: params.stateDir, now: params.now });
   return {
-    async inspect(sessionId) {
-      const snapshot = await params.bridge.readCleanSnapshot(sessionId);
+    async inspect(sessionId, options) {
+      const snapshot = await params.bridge.readCleanSnapshot(sessionId, options);
       return {
         ...snapshot,
         duplicateEvidenceStatus: snapshot.duplicateEvidenceStatus ?? "unavailable",

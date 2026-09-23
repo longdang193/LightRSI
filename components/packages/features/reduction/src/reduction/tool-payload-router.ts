@@ -504,28 +504,41 @@ function summarizeNodeTestOutput(
     .slice(0, Math.max(2, cfg.maxItems));
   for (const failure of failures) {
     const block: string[] = [];
-    const maxFailureBlockLines = Math.max(32, cfg.maxItems * 32);
-    for (
-      let index = failure.index + 1;
-      index < lines.length && block.length < maxFailureBlockLines;
-      index += 1
-    ) {
+    for (let index = failure.index + 1; index < lines.length; index += 1) {
       if (tapTestLine.test(lines[index]) || tapStatusLine.test(lines[index])) break;
       block.push(lines[index]);
     }
-    const evidence = block.filter((line) => tapEvidenceLine.test(line));
+    const emptyEvidence = block
+      .map((line) => line.match(/^\s*(expected|actual):\s*$/i)?.[1]?.toLowerCase())
+      .filter((label): label is string => Boolean(label));
+    const evidence = block.filter((line) => tapEvidenceLine.test(line) && !/^\s*(?:expected|actual):\s*$/i.test(line));
     const continuation = block.filter((line) => /^\s{4,}\S/.test(line) && !tapEvidenceLine.test(line));
-    selected.push(failure.line, ...evidence, ...continuation.slice(0, 8));
+    selected.push(
+      failure.line,
+      ...evidence,
+      ...emptyEvidence.map((label) => `[${label} value omitted; exact recovery available]`),
+      ...continuation.slice(0, 8),
+      ...(continuation.length > 8
+        ? [`[continuation lines omitted: ${continuation.length - 8}; exact recovery available]`]
+        : []),
+    );
   }
   const status = [...new Set(lines.filter((line) => tapStatusLine.test(line)))];
-  const complete = hint.execution?.completion === "complete";
   const result = [
     ...status.slice(0, 1),
     ...selected,
     ...status.slice(1),
-    ...(!complete ? ["[node test output incomplete; completion status preserved]"] : []),
+    formatExecutionEvidence(hint),
   ];
   return result.length > 1 ? result.join("\n") : undefined;
+}
+
+function formatExecutionEvidence(hint: ToolPayloadHint): string {
+  const completion = hint.execution?.completion ?? "unknown";
+  const exitCode = typeof hint.execution?.exitCode === "number"
+    ? hint.execution.exitCode
+    : "unavailable";
+  return `Execution: ${completion}; exit code: ${exitCode}`;
 }
 
 function summarizeTypeScriptDiagnostics(
@@ -566,14 +579,13 @@ function summarizeTypeScriptDiagnostics(
   }
   if (diagnostics.size === 0) return undefined;
   const status = [...new Set(lines.filter((line) => diagnosticStatusRe.test(line)))];
-  const complete = hint.execution?.completion === "complete";
   const output = [
     ...[...diagnostics.values()].slice(0, Math.max(2, cfg.maxItems)).flatMap(({ lines: diagnosticLines, count }) => [
       `${diagnosticLines[0]}${count > 1 ? ` [Occurrences: ${count}]` : ""}`,
       ...diagnosticLines.slice(1),
     ]),
     ...status.slice(-2),
-    ...(!complete ? ["[TypeScript diagnostics incomplete; completion status preserved]"] : []),
+    formatExecutionEvidence(hint),
   ];
   return output.join("\n");
 }

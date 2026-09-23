@@ -410,7 +410,10 @@ export async function resolveArchiveAcrossSessionsByArtifactRef(
   stateDir: string,
 ): Promise<{ archivePath: string; archive: GenericArchiveEntry } | null> {
   if (!artifactDigest(artifactRef)) return null;
-  const sessionRootCandidates = pluginStateSubdirCandidates(stateDir, "tool-result-archives");
+  const sessionRootCandidates = [
+    ...pluginStateSubdirCandidates(stateDir, "tool-result-archives"),
+    ...pluginStateSubdirCandidates(stateDir, "artifacts"),
+  ];
   for (const sessionRoot of sessionRootCandidates) {
     const indexedPaths = await readArtifactLookup(sessionRoot, artifactRef);
     for (const archivePath of indexedPaths) {

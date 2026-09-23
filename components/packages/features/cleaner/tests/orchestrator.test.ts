@@ -82,8 +82,12 @@ test("release preview validates current fingerprints and writes no Cleaner state
       async previewCleanRelease() {
         return {
           selectedOccurrenceCount: 1,
+          validatedOccurrenceCount: 1,
+          deferredOccurrenceCount: 0,
+          rejectedOccurrenceCount: 0,
           grossSavedChars: 40,
           netSavedChars: 20,
+          netSavedBytes: 24,
           earliestChangedHistoryItem: "item-a",
           unchangedPrefixItemCount: 0,
           providerCacheOutcome: "changed" as const,

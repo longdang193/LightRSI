@@ -196,8 +196,12 @@ export async function previewContextCleanRelease(params: {
   );
   return {
     selectedOccurrenceCount: selections.length,
+    validatedOccurrenceCount: selections.length,
+    deferredOccurrenceCount: 0,
+    rejectedOccurrenceCount: 0,
     grossSavedChars,
-    netSavedChars: grossSavedChars,
+    netSavedChars: null,
+    netSavedBytes: null,
     ...(firstChanged >= 0 ? { earliestChangedHistoryItem: snapshot.items[firstChanged]!.stableId } : {}),
     unchangedPrefixItemCount: firstChanged >= 0 ? firstChanged : snapshot.items.length,
     providerCacheOutcome: "unknown",

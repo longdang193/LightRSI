@@ -5,13 +5,16 @@ import type {
 } from "@lightrsi/cleaner";
 import {
   renderCleanInspection,
+  renderCleanPreview,
   renderCleanReceipt,
   type CleanInspectionView,
+  type CleanPreviewView,
   type CleanReceiptView,
 } from "./clean-renderer.js";
 
 export interface CleanCommandBackend {
-  inspect?(sessionId: string): Promise<CleanInspectionView>;
+  inspect?(sessionId: string, options?: { includeDuplicates?: boolean }): Promise<CleanInspectionView>;
+  previewRelease?(sessionId: string, selections: ContextCleanOccurrenceSelection[]): Promise<CleanPreviewView>;
   approveOccurrences?(planId: string, selections: ContextCleanOccurrenceSelection[]): Promise<CleanReceiptView>;
   releaseOccurrences?(sessionId: string, selections: ContextCleanOccurrenceSelection[]): Promise<CleanReceiptView>;
   readReceipt(planId: string): Promise<CleanReceiptView | undefined>;
@@ -22,6 +25,8 @@ export function formatCleanUsage(): string {
   return [
     "Usage:",
     "  lightrsi <host> clean --inspect <session-id>",
+    "  lightrsi <host> clean --inspect <session-id> --duplicates",
+    "  lightrsi <host> clean --session <session-id> --preview-release <occurrence-evidence.json>",
     "  lightrsi <host> clean --session <session-id> --release <occurrence-evidence.json>",
     "  lightrsi <host> clean --plan <plan-id> --release <occurrence-evidence.json>",
     "  lightrsi <host> clean --status <plan-id>",
@@ -62,11 +67,28 @@ export async function handleCleanCommand(params: {
   if (args.length === 2 && args[0] === "--cancel") {
     return { text: renderCleanReceipt(await params.backend.cancel(valueAt(args, 1, "clean_plan_id_missing"))) };
   }
-  if (args.length === 2 && args[0] === "--inspect") {
+  if ((args.length === 2 || (args.length === 3 && args[2] === "--duplicates")) && args[0] === "--inspect") {
     if (!params.backend.inspect) throw new Error("clean_occurrence_inspection_unsupported");
     const requestedSessionId = valueAt(args, 1, "clean_session_id_missing");
     const sessionId = await params.resolveSessionId?.(requestedSessionId) ?? requestedSessionId;
-    return { text: renderCleanInspection(await params.backend.inspect(sessionId)) };
+    return {
+      text: renderCleanInspection(await params.backend.inspect(sessionId, {
+        includeDuplicates: args[2] === "--duplicates",
+      })),
+    };
+  }
+  if (args.length === 4 && args[0] === "--session" && args[2] === "--preview-release") {
+    if (!params.backend.previewRelease) throw new Error("clean_occurrence_preview_unsupported");
+    const sessionId = await params.resolveSessionId?.(valueAt(args, 1, "clean_session_id_missing")) ?? args[1]!;
+    const selections = await readJsonInput(valueAt(args, 3, "clean_preview_file_missing"), "clean_preview_json_invalid");
+    if (!Array.isArray(selections) || selections.length === 0
+      || selections.some((selection) => !selection || typeof selection.stableId !== "string"
+        || typeof selection.fingerprint !== "string")) {
+      throw new Error("clean_preview_evidence_invalid");
+    }
+    return {
+      text: renderCleanPreview(await params.backend.previewRelease(sessionId, selections)),
+    };
   }
   if (args.length === 2 && args[0] === "--submit-attribution") {
     throw new Error("clean_task_first_workflow_retired");
