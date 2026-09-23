@@ -48,6 +48,10 @@ Upstream attribution remains with [zjunlp/LightRSI](https://github.com/zjunlp/Li
 
 The interactive workflow explains the fork in six steps: receive a request, keep useful context, call the provider, save session history, recover the next turn, and inspect health.
 
+<p align="center">
+  <img src="./docs/diagrams/forked-lightrsi.workflow.svg" alt="Forked LightRSI workflow" width="100%">
+</p>
+
 [Open the interactive workflow](./docs/diagrams/forked-lightrsi.workflow.html) · [View the Archify source](./docs/diagrams/forked-lightrsi.workflow.json)
 
 <span id='context-cleaner'/>
