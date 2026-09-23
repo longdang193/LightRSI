@@ -165,6 +165,53 @@ test("resolveMemoryFaultRecover keeps structured search evidence within output b
   }
 });
 
+test("handleMcpRequest maps insufficient search budget to structured error", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-mcp-search-budget-error-"));
+  try {
+    const location = await archiveContent({
+      sessionId: "session-budget-error",
+      segmentId: "segment-budget-error",
+      sourcePass: "tool_payload_trim",
+      toolName: "read",
+      dataKey: "segment:budget-error",
+      originalText: `needle ${"x".repeat(2_000)}`,
+      archiveDir: join(dir, "tokenpilot", "tool-result-archives", "session-budget-error"),
+    });
+
+    const response = await handleMcpRequest(
+      {
+        id: 4,
+        method: "tools/call",
+        params: {
+          name: MEMORY_FAULT_RECOVER_TOOL_NAME,
+          arguments: {
+            artifactRef: location.artifactRef,
+            mode: "search",
+            query: "needle",
+            contextLines: 0,
+            maxOutputChars: 300,
+          },
+        },
+      },
+      { stateDir: dir },
+    );
+
+    assert.ok(response);
+    const structuredContent = response.result?.structuredContent as {
+      error?: string;
+      line?: number;
+      nextStartLine?: number;
+    } | undefined;
+    assert.equal(response.result?.isError, true);
+    assert.equal(structuredContent?.error, "search_output_budget_insufficient");
+    assert.equal(structuredContent?.line, 1);
+    assert.equal(structuredContent?.nextStartLine, undefined);
+    assert.doesNotMatch(JSON.stringify(structuredContent ?? {}), /x{100}/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("handleMcpRequest returns tools/list and tools/call responses", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-mcp-rpc-"));
   try {

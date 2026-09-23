@@ -150,6 +150,38 @@ test("renderRecoveredArchive supports bounded stats and literal search", () => {
   assert.equal(search.details.nextStartLine, 4);
 });
 
+test("renderRecoveredArchive reports insufficient search budget without a repeated cursor", () => {
+  const archive = {
+    schemaVersion: 2,
+    kind: "tool_payload_trim_archive",
+    sessionId: "sess-budget",
+    segmentId: "seg-budget",
+    sourcePass: "tool_payload_trim",
+    toolName: "read",
+    dataKey: "repo:large.txt",
+    artifactRef: `artifact:v2:${"c".repeat(64)}`,
+    originalText: `needle ${"x".repeat(2_000)}`,
+    originalSize: 2_007,
+    archivedAt: "2026-09-23T00:00:00.000Z",
+  };
+
+  const result = renderRecoveredArchive({
+    artifactRef: archive.artifactRef,
+    archive,
+    mode: "search",
+    query: "needle",
+    contextLines: 0,
+    maxOutputChars: 300,
+  });
+
+  assert.equal(result.details.error, "search_output_budget_insufficient");
+  assert.equal(result.details.line, 1);
+  assert.equal(result.details.startLine, 1);
+  assert.equal(result.details.endLine, 1);
+  assert.equal(result.details.nextStartLine, undefined);
+  assert.match(result.text, /search_output_budget_insufficient/);
+});
+
 test("search resumes from archive-relative startLine without skipping matches", () => {
   const archive = {
     schemaVersion: 2,

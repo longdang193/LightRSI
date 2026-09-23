@@ -394,6 +394,43 @@ test("reduceToolPayloadText keeps late Node TAP assertion evidence", () => {
   assert.match(result.text, /Execution: complete; exit code: 1/);
 });
 
+test("reduceToolPayloadText preserves child TAP failures emitted before parent summary", () => {
+  const payload = [
+    "TAP version 13",
+    "    not ok 1 - first child",
+    "      location: 'test/first.test.ts:4:1'",
+    "      expected: 401",
+    "      actual: 200",
+    "      stack: first stack frame",
+    "    not ok 2 - second child",
+    "      location: 'test/second.test.ts:8:1'",
+    "      expected: true",
+    "      actual: false",
+    "      stack: second stack frame",
+    "not ok 1 - parent suite",
+    "  error: 2 subtests failed",
+    "1..1",
+    "# tests 1",
+    "# pass 0",
+    "# fail 1",
+  ].join("\n").repeat(8);
+
+  const result = reduceToolPayloadText(payload, "stderr", defaultCfg, {
+    toolName: "node",
+    payloadKind: "stderr",
+    execution: { commandFamily: "node_test", completion: "complete", exitCode: 1 },
+  });
+
+  assert.match(result.text, /first child/);
+  assert.match(result.text, /second child/);
+  assert.match(result.text, /expected: 401/);
+  assert.match(result.text, /actual: 200/);
+  assert.match(result.text, /expected: true/);
+  assert.match(result.text, /actual: false/);
+  assert.match(result.text, /first stack frame/);
+  assert.match(result.text, /second stack frame/);
+});
+
 test("reduceToolPayloadText preserves unknown Node TAP completion state", () => {
   const result = reduceToolPayloadText([
     "TAP version 13",

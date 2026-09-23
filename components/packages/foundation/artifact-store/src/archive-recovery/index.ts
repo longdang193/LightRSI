@@ -45,6 +45,12 @@ export type RecoveredArchiveRenderResult = {
     recoveredLineCount?: number;
     sourceStartLine?: number;
     sourceEndLine?: number;
+    error?: string;
+    requiredAction?: string;
+    line?: number;
+    startLine?: number;
+    endLine?: number;
+    requestedMaxOutputChars?: number;
     matches?: Array<
       | { line: number; text: string }
       | { line: number; omitted: true; reason: string; startLine: number; endLine: number }
@@ -251,6 +257,31 @@ export function renderRecoveredArchive(params: {
       }
       const omission = `[line ${match.line} omitted; exact recovery available with startLine=${match.line}, endLine=${match.line}]\n`;
       if (outputChars + omission.length > bodyBudget) {
+        if (admitted.length === 0) {
+          const error = "search_output_budget_insufficient";
+          const requiredAction = "increase_budget_or_recover_line";
+          const errorText =
+            `[Memory Fault Recovery] ${error}\n`
+            + `Archive-relative line: ${match.line}\n`
+            + `Action: increase maxOutputChars or recover startLine=${match.line}, endLine=${match.line}`;
+          return {
+            text: errorText.slice(0, maxOutputChars),
+            details: {
+              ...baseDetails,
+              error,
+              requiredAction,
+              line: match.line,
+              startLine: match.line,
+              endLine: match.line,
+              requestedMaxOutputChars: maxOutputChars,
+              matches: [],
+              omittedMatches: matchCount,
+              scanComplete: true,
+              resultsComplete: false,
+              truncated: true,
+            },
+          };
+        }
         break;
       }
       renderedParts.push(omission);

@@ -484,3 +484,22 @@ workspace verification and existing recovery/Reduction benchmarks remain the
 acceptance gate. Cache-aware preview, duplicate discovery, context-pressure
 runtime wiring, live-provider evaluation, and speculative optimization remain
 closed or deferred as previously recorded.
+
+## Final RTK/CCR Boundary Stabilization — 2026-09-23
+
+Follow-up against merged `main` at `8f923a5` closes two reproducible boundary
+cases without changing runtime architecture:
+
+- RTK nested TAP selection now builds per-failure ranges, preserves actionable
+  child failures emitted before parent summaries, isolates siblings, and keeps
+  multiline evidence attached in source order.
+- CCR search now returns `search_output_budget_insufficient` with exact
+  archive-relative recovery coordinates when no evidence or omission marker can
+  fit the requested budget. It emits no repeated continuation cursor, and MCP
+  maps the condition to `isError: true` without exposing full match text.
+
+Focused Reduction, artifact-store, and MCP tests; full workspace tests,
+typecheck, and build; package typechecks; recovery and Reduction benchmarks;
+and `git diff --check` all pass. Cache-aware preview, duplicate discovery,
+context-pressure runtime wiring, live-provider evaluation, and speculative
+optimization remain closed or deferred.
