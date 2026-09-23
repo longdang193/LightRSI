@@ -161,6 +161,8 @@ test("clean CLI renders side-effect-free occurrence preview evidence", async () 
           grossSavedChars: 3,
           netSavedChars: 12,
           netSavedBytes: 15,
+          transportDeltaChars: -4,
+          transportDeltaBytes: -7,
           unchangedPrefixItemCount: 2,
           providerCacheOutcome: "unknown",
           baseRevision: "rev-1",
@@ -176,6 +178,7 @@ test("clean CLI renders side-effect-free occurrence preview evidence", async () 
     });
     assert.equal(sessionId, "session-1");
     assert.match(result.text, /encoded=12 chars \/ 15 bytes/);
+    assert.match(result.text, /Transport delta: -4 chars \/ -7 bytes/);
     assert.match(result.text, /Provider cache outcome: unknown/);
   } finally {
     await rm(dir, { recursive: true, force: true });

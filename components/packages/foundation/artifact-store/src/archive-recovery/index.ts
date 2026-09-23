@@ -10,6 +10,7 @@ import {
   pluginStateSubdirCandidates,
   hashText,
   sanitizePathPart,
+  workspaceArchiveDirCandidates,
 } from "./archive-paths.js";
 
 export type GenericArchiveEntry = {
@@ -47,6 +48,7 @@ export type RecoveredArchiveRenderResult = {
     matches?: Array<{ line: number; text: string }>;
     omittedMatches?: number;
     scanComplete?: boolean;
+    resultsComplete?: boolean;
     nextStartLine?: number;
     truncated?: boolean;
   };
@@ -197,44 +199,73 @@ export function renderRecoveredArchive(params: {
       : 20;
     const scanStart = startLine ?? 1;
     const scanEnd = Math.min(endLine ?? lines.length, lines.length);
-    const selected: Array<{ line: number; text: string }> = [];
+    const matchingLines: number[] = [];
     let matchCount = 0;
     for (let lineNumber = scanStart; lineNumber <= scanEnd; lineNumber += 1) {
       const text = lines[lineNumber - 1] ?? "";
       if (!text.includes(query)) continue;
       matchCount += 1;
-      if (selected.length < maxMatches) selected.push({ line: lineNumber, text });
+      matchingLines.push(lineNumber);
     }
+    const selected = matchingLines
+      .slice(0, maxMatches)
+      .map((line) => ({ line, text: lines[line - 1] ?? "" }));
     const maxOutputChars = typeof params.maxOutputChars === "number" && Number.isFinite(params.maxOutputChars)
       ? Math.max(1, Math.trunc(params.maxOutputChars))
       : 12_000;
     const omittedMatches = Math.max(0, matchCount - selected.length);
-    const nextStartLine = omittedMatches > 0 ? selected[selected.length - 1]!.line + 1 : undefined;
+    const nextStartLine = omittedMatches > 0 ? matchingLines[selected.length] : undefined;
     const outputParts = [
       `[Memory Fault Recovery] Search results for: ${reference}\n`,
       `Query: ${query}\n`,
       `Line basis: ${lineBasis}\n`,
       `Matches: ${matchCount}; returned: ${selected.length}; omitted: ${omittedMatches}\n`,
-      `Scan complete: ${omittedMatches === 0}\n`,
+      "Scan complete: true\n",
       ...(nextStartLine ? [`Continue with startLine: ${nextStartLine}\n`] : []),
       "--- Search Context ---\n",
     ];
-    let outputChars = outputParts.reduce((sum, part) => sum + part.length, 0) + "\n--- End Search Context ---".length;
-    if (outputChars > maxOutputChars) throw new Error("search output exceeds maxOutputChars");
-    let lastRenderedLine = 0;
+    const endMarker = "--- End Search Context ---";
+    const bodyBudget = Math.max(0, maxOutputChars - endMarker.length);
+    let outputChars = 0;
+    const renderedParts: string[] = [];
+    for (const part of outputParts) {
+      if (outputChars + part.length > bodyBudget) break;
+      renderedParts.push(part);
+      outputChars += part.length;
+    }
+    const renderedLineNumbers = new Set<number>();
+    let representedMatches = 0;
+    let evidenceOmitted = renderedParts.length < outputParts.length;
     for (const match of selected) {
       const start = Math.max(1, match.line - contextLines);
       const end = Math.min(lines.length, match.line + contextLines);
-      for (let line = Math.max(start, lastRenderedLine + 1); line <= end; line += 1) {
-        const part = `${line}: ${lines[line - 1]}\n`;
-        outputChars += part.length;
-        if (outputChars > maxOutputChars) throw new Error("search output exceeds maxOutputChars");
-        outputParts.push(part);
+      const blockLines = Array.from({ length: end - start + 1 }, (_, index) => start + index)
+        .filter((line) => !renderedLineNumbers.has(line));
+      const block = blockLines.map((line) => `${line}: ${lines[line - 1] ?? ""}\n`).join("");
+      if (outputChars + block.length <= bodyBudget) {
+        renderedParts.push(block);
+        outputChars += block.length;
+        for (const line of blockLines) renderedLineNumbers.add(line);
+        representedMatches += 1;
+        continue;
       }
-      lastRenderedLine = Math.max(lastRenderedLine, end);
+      const matchText = `${match.line}: ${match.text}\n`;
+      const omission = `[line ${match.line} omitted; exact recovery available with startLine=${match.line}, endLine=${match.line}]\n`;
+      const replacement = matchText.length <= bodyBudget - outputChars ? matchText : omission;
+      if (outputChars + replacement.length > bodyBudget) {
+        evidenceOmitted = true;
+        break;
+      }
+      renderedParts.push(replacement);
+      outputChars += replacement.length;
+      renderedLineNumbers.add(match.line);
+      representedMatches += 1;
+      evidenceOmitted = true;
     }
-    outputParts.push("--- End Search Context ---");
-    const renderedText = outputParts.join("");
+    if (renderedParts.length === 0 && bodyBudget > 0) {
+      renderedParts.push("[search result omitted; use archive-relative line recovery]\n".slice(0, bodyBudget));
+    }
+    const renderedText = `${renderedParts.join("")}${endMarker}`.slice(0, maxOutputChars);
     return {
       text:
         renderedText,
@@ -242,9 +273,10 @@ export function renderRecoveredArchive(params: {
         ...baseDetails,
         matches: selected,
         omittedMatches,
-        scanComplete: omittedMatches === 0,
+        scanComplete: true,
+        resultsComplete: omittedMatches === 0 && representedMatches === selected.length,
         ...(nextStartLine ? { nextStartLine } : {}),
-        truncated: omittedMatches > 0,
+        truncated: omittedMatches > 0 || evidenceOmitted,
       },
     };
   }
@@ -372,6 +404,18 @@ export async function updateArtifactLocationIndex(
   await atomicWriteFile(lookupPath, JSON.stringify(locations));
 }
 
+async function repairArtifactLocationIndex(
+  archivePath: string,
+  archiveDir: string,
+  artifactRef: string,
+): Promise<void> {
+  const digest = artifactDigest(artifactRef);
+  if (!digest) return;
+  const lookupPath = artifactLookupFilePath(dirname(archiveDir), digest);
+  await mkdir(dirname(lookupPath), { recursive: true });
+  await atomicWriteFile(lookupPath, JSON.stringify([archivePath]));
+}
+
 export async function updateArchiveLookup(
   dataKey: string,
   archivePath: string,
@@ -440,7 +484,7 @@ export async function resolveArchiveAcrossSessionsByArtifactRef(
       if (archive) return { archivePath, archive };
     }
     if (workspaceDir && sessionRoot === workspaceDir) {
-      archiveDirsByRoot.set(sessionRoot, []);
+      archiveDirsByRoot.set(sessionRoot, workspaceArchiveDirCandidates(workspaceDir));
       continue;
     }
     try {
@@ -475,7 +519,7 @@ export async function resolveArchiveAcrossSessionsByArtifactRef(
           const archivePath = join(archiveDir, entry.name);
           const archive = await readArchiveForArtifactRef(archivePath, artifactRef);
           if (archive) {
-            await updateArtifactLocationIndex(archivePath, archiveDir, artifactRef);
+            await repairArtifactLocationIndex(archivePath, archiveDir, artifactRef);
             return { archivePath, archive };
           }
         }

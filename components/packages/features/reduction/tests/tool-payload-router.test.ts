@@ -413,6 +413,41 @@ test("reduceToolPayloadText preserves unknown Node TAP completion state", () => 
   assert.doesNotMatch(result.text, /Execution: complete/);
 });
 
+test("reduceToolPayloadText keeps multiline TAP fields attached in source order", () => {
+  const result = reduceToolPayloadText([
+    "TAP version 13",
+    "not ok 1 - rejects invalid token",
+    "  expected: |",
+    "    401",
+    "    unauthorized",
+    "  actual: |",
+    "    200",
+    "    ok",
+    "  stack: |",
+    "    at verify (test/auth.test.ts:12:3)",
+    "    at run (test/auth.test.ts:20:1)",
+    "1..1",
+    "# tests 1",
+    "# pass 0",
+    "# fail 1",
+  ].join("\n"), "stderr", defaultCfg, {
+    toolName: "node",
+    payloadKind: "stderr",
+    execution: { commandFamily: "node_test", completion: "complete", exitCode: 1 },
+  });
+
+  const expectedIndex = result.text.indexOf("expected: |");
+  const expectedBodyIndex = result.text.indexOf("    unauthorized");
+  const actualIndex = result.text.indexOf("actual: |");
+  const actualBodyIndex = result.text.indexOf("    ok");
+  const stackIndex = result.text.indexOf("stack: |");
+  const stackBodyIndex = result.text.indexOf("at verify");
+  assert.ok(expectedIndex >= 0 && expectedBodyIndex > expectedIndex);
+  assert.ok(actualIndex > expectedBodyIndex && actualBodyIndex > actualIndex);
+  assert.ok(stackIndex > actualBodyIndex && stackBodyIndex > stackIndex);
+  assert.match(result.text, /Execution: complete; exit code: 1/);
+});
+
 test("reduceToolPayloadText keeps TypeScript diagnostic identity and count", () => {
   const payload = [
     "src/a.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.",

@@ -431,6 +431,30 @@ git diff --check
 
 Run workspace `pnpm test`, `pnpm typecheck`, and `pnpm build` only after focused checks pass. Compare identical fixtures; report measured results separately from estimates.
 
+## Post-merge RTK/CCR Correctness Erratum — 2026-09-23
+
+PR #34 remains historically complete for its approved scope. Follow-up
+verification found and closed four narrower defects without changing release
+authority or runtime architecture:
+
+- trusted workspace `artifactRef` recovery now scans the existing workspace
+  archive directory after missing or stale derived indexes, verifies content,
+  and repairs the sharded lookup;
+- CCR search now admits bounded evidence blocks, reports `scanComplete`,
+  `resultsComplete`, `truncated`, and first-unreturned `nextStartLine`
+  separately, and emits archive-relative recovery guidance for oversized lines;
+- RTK TAP summaries keep multiline `expected`, `actual`, and `stack` bodies
+  attached to their headers in source order;
+- CLI Cleaner preview now renders existing transport character and UTF-8 byte
+  deltas separately from gross and encoded savings.
+
+Fresh focused tests, typechecks, MCP/OpenClaw coverage, Codex coverage, local
+recovery/reduction benchmarks, and full workspace verification passed. One
+unrelated Cleaner concurrency test was flaky on its first run; rerun passed.
+Context-pressure wiring and provider-backed measurements remain explicitly
+deferred because authoritative capacity, reservation, and provider evidence
+are unavailable.
+
 ## Completion Criteria
 
 1. Every reference emitted by supported persistence paths recovers exact content through normal MCP/OpenClaw recovery after resolver restart.
