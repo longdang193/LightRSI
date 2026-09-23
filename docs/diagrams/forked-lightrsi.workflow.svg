@@ -4807,7 +4807,7 @@
       .source-evidence-beacon,
       svg [data-node-id], svg [data-edge-from], svg [data-detail], svg [data-detail-anchor], svg [data-legend-hit], svg { transition: none !important; }
     }
-  
+
 ]]></style>
         <title id="archify-diagram-title">Forked LightRSI in One Request</title>
         <desc id="archify-diagram-description">Six steps from agent request to a smaller, recoverable next turn</desc>
