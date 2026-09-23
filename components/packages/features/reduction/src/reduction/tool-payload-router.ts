@@ -498,20 +498,16 @@ function summarizeNodeTestOutput(
   const signalCount = lines.filter((line) => tapTestLine.test(line) || tapStatusLine.test(line)).length;
   if (signalCount < 2) return undefined;
 
-  const selected: string[] = [];
   const indentOf = (line: string): number => line.match(/^\s*/)?.[0].length ?? 0;
+  const tapFailureLine = /^\s*not ok\b/i;
+  const tapPassingLine = /^\s*ok\b/i;
   const failureCandidates = lines
     .map((line, index) => ({ line, index, indent: indentOf(line) }))
     .filter(({ line }) => /^\s*not ok\b/i.test(line));
-  const rootFailureIndent = Math.min(...failureCandidates.map(({ indent }) => indent));
-  const failures = lines
-    .map((line, index) => ({ line, index }))
-    .filter(({ line }) => /^\s*not ok\b/i.test(line) && indentOf(line) === rootFailureIndent)
-    .slice(0, Math.max(2, cfg.maxItems));
-  const isSiblingBoundary = (line: string): boolean =>
-    (tapStatusLine.test(line) && indentOf(line) <= rootFailureIndent)
-      || (tapTestLine.test(line) && indentOf(line) <= rootFailureIndent);
-  for (const failure of failures) {
+  const topLevelIndent = failureCandidates.length > 0
+    ? Math.min(...failureCandidates.map(({ indent }) => indent))
+    : 0;
+  const failureBlocks = failureCandidates.map((failure) => {
     const block: string[] = [];
     const pendingContinuation: string[] = [];
     const flushPendingContinuation = () => {
@@ -523,7 +519,9 @@ function summarizeNodeTestOutput(
     };
     block.push(failure.line);
     for (let index = failure.index + 1; index < lines.length; index += 1) {
-      if (isSiblingBoundary(lines[index])) break;
+      if (tapFailureLine.test(lines[index])
+        || (tapPassingLine.test(lines[index]) && indentOf(lines[index]) <= failure.indent)
+        || (tapStatusLine.test(lines[index]) && indentOf(lines[index]) <= failure.indent)) break;
       const field = lines[index].match(tapEvidenceLine);
       if (!field) {
         if (tapContinuationLine.test(lines[index])) pendingContinuation.push(lines[index]);
@@ -538,7 +536,10 @@ function summarizeNodeTestOutput(
       const continuation: string[] = [];
       let nextIndex = index + 1;
       while (nextIndex < lines.length) {
-        if (isSiblingBoundary(lines[nextIndex]) || tapEvidenceLine.test(lines[nextIndex])) break;
+        if (tapFailureLine.test(lines[nextIndex])
+          || (tapPassingLine.test(lines[nextIndex]) && indentOf(lines[nextIndex]) <= failure.indent)
+          || (tapStatusLine.test(lines[nextIndex]) && indentOf(lines[nextIndex]) <= failure.indent)
+          || tapEvidenceLine.test(lines[nextIndex])) break;
         if (tapContinuationLine.test(lines[nextIndex])) continuation.push(lines[nextIndex]);
         nextIndex += 1;
       }
@@ -550,9 +551,17 @@ function summarizeNodeTestOutput(
       index = nextIndex - 1;
     }
     flushPendingContinuation();
-    selected.push(...block);
-  }
-  const status = [...new Set(lines.filter((line) => tapStatusLine.test(line) && indentOf(line) <= rootFailureIndent))];
+    const actionable = block.some((line) =>
+      /^\s*(?:location|failureType|stack|operator|expected|actual):/i.test(line),
+    );
+    return { block, firstIndex: failure.index, actionable };
+  });
+  const selected = failureBlocks
+    .sort((a, b) => Number(b.actionable) - Number(a.actionable) || a.firstIndex - b.firstIndex)
+    .slice(0, Math.max(2, cfg.maxItems))
+    .sort((a, b) => a.firstIndex - b.firstIndex)
+    .flatMap(({ block }) => block);
+  const status = [...new Set(lines.filter((line) => tapStatusLine.test(line) && indentOf(line) <= topLevelIndent))];
   const result = [
     ...status.slice(0, 1),
     ...selected,
