@@ -145,6 +145,7 @@ type BenchmarkMode = "mock" | "live";
 type LiveOptions = {
   baseUrl: string;
   model: string;
+  apiKey: string;
 };
 
 export type GitPreflight = {
@@ -839,6 +840,7 @@ function benchmarkConfig(
     upstreamProvider: "OpenAI",
     upstream: {
       baseUrl: upstreamBaseUrl ?? liveOptions!.baseUrl,
+      apiKey: liveOptions?.apiKey,
       wireApi: "responses",
       requiresOpenAIAuth: mode === "live",
     },
@@ -1489,7 +1491,7 @@ async function main(): Promise<void> {
         || providerModelFromEnvironment()
         || "gpt-5.4-mini";
       assert.ok(process.env.OPENAI_API_KEY?.trim(), "live mode requires provider credentials");
-      liveOptions = { baseUrl, model };
+      liveOptions = { baseUrl, model, apiKey: process.env.OPENAI_API_KEY!.trim() };
     }
     const providerIdentityStatus = mode === "mock"
       ? "mock_fixture"
