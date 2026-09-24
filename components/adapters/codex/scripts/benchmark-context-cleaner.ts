@@ -36,10 +36,41 @@ import { computeEncodedProviderWirePrefixDiagnostics, startCodexResponsesProxy }
 
 type JsonObject = Record<string, unknown>;
 type Arm = "baseline" | "cleaner";
-type FixtureName = "short/noisy" | "long/noisy";
+type FixtureName = "short/early" | "long/early" | "long/late" | "recovery/early";
+type CacheCondition = "cold" | "warm";
+type AttemptOutcome = "pending" | "success" | "provider_error" | "transport_error" | "timeout" | "cancelled";
+
+type StageBFixtureSpec = {
+  id: FixtureName;
+  releasePosition: "early" | "late";
+  cacheCondition: CacheCondition;
+  recovery: boolean;
+  noiseBefore: number;
+  noiseBetween: number;
+};
+
+type StageBManifest = {
+  experiment: string;
+  runtimeSha: string;
+  benchmarkSha: string;
+  comparison: { keep: Arm; release: Arm };
+  releaseMode: ReleaseMode;
+  controls: { causalPairs: boolean; armOrder: string };
+  measurement: Record<string, string>;
+  fixtures: StageBFixtureSpec[];
+  provider: JsonObject;
+  repetitions: number;
+  spendingCapUsd: number | string;
+  outcomes: string[];
+  decisionStates: string[];
+  acceptance: JsonObject;
+};
 
 type Fixture = {
   name: FixtureName;
+  releasePosition: StageBFixtureSpec["releasePosition"];
+  cacheCondition: CacheCondition;
+  recovery: boolean;
   noiseBefore: string[];
   noiseBetween: string[];
   retained: string;
@@ -48,6 +79,7 @@ type Fixture = {
 };
 
 type UpstreamRequest = {
+  attemptIndex: number;
   body: JsonObject;
   inputBytes: number;
   startedAt: number;
@@ -63,6 +95,8 @@ type UpstreamRequest = {
   providerWirePrefixItemCount: number;
   promptCacheBreakpoint: boolean;
   outputItemTypes: string[];
+  outcome: AttemptOutcome;
+  failureReason: string | null;
 };
 
 type ProviderUsage = {
@@ -119,6 +153,8 @@ type TurnResult = {
 
 type RunResult = {
   fixture: FixtureName;
+  cacheCondition: CacheCondition;
+  recovery: boolean;
   arm: Arm;
   repetition: number;
   passed: boolean;
@@ -128,6 +164,18 @@ type RunResult = {
   releaseOverheadMs: number;
   providerUsage: Array<ProviderUsage | null> | null;
   providerShape: ProviderShape[] | null;
+  seedRequestCount: number;
+  attempts: Array<{
+    attemptIndex: number;
+    outcome: AttemptOutcome;
+    failureReason: string | null;
+    inputBytes: number;
+    providerUsage: ProviderUsage | null;
+  }>;
+  executionStatus: "complete" | "partial" | "failed";
+  measurementStatus: UsageCompletenessStatus;
+  correctnessStatus: "pass" | "fail" | "unavailable";
+  economicStatus: "pass" | "fail" | "inconclusive";
   failure?: string;
 };
 
@@ -156,16 +204,43 @@ export type ProviderShape = {
   promptCacheBreakpoint?: boolean;
 };
 
-function createFixture(name: FixtureName): Fixture {
-  const noiseCount = name === "short/noisy" ? 2 : 20;
-  const noise = (prefix: string) => Array.from(
-    { length: noiseCount },
-    (_, index) => `${prefix}_${String(index + 1).padStart(2, "0")}_${"noise ".repeat(name === "short/noisy" ? 8 : 80)}`,
+async function loadStageBManifest(): Promise<{ manifest: StageBManifest; path: string; hash: string }> {
+  const relativePath = join("docs", "superpowers", "experiments", "2026-09-24-context-cleaner-stage-b.json");
+  const candidates = [
+    process.env.LIGHTRSI_BENCHMARK_MANIFEST?.trim(),
+    join(process.cwd(), relativePath),
+    join(process.cwd(), "..", "..", "..", relativePath),
+  ].filter((value): value is string => Boolean(value));
+  let lastError: unknown;
+  for (const path of candidates) {
+    try {
+      const raw = await readFile(path);
+      const manifest = JSON.parse(raw.toString("utf8")) as StageBManifest;
+      assert.equal(manifest.experiment, "context-cleaner-stage-b");
+      assert.ok(manifest.fixtures.length === 4, "Stage B manifest must define four fixtures");
+      assert.ok(manifest.comparison.keep === "baseline" && manifest.comparison.release === "cleaner");
+      return { manifest, path, hash: createHash("sha256").update(raw).digest("hex") };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new Error(`Stage B manifest unavailable: ${String(lastError)}`);
+}
+
+function createFixture(name: FixtureName, manifest: StageBManifest): Fixture {
+  const spec = manifest.fixtures.find((fixture) => fixture.id === name);
+  assert.ok(spec, `unknown Stage B fixture: ${name}`);
+  const makeNoise = (prefix: string, count: number) => Array.from(
+    { length: count },
+    (_, index) => `${prefix}_${String(index + 1).padStart(2, "0")}_${"noise ".repeat(count < 10 ? 8 : 80)}`,
   );
   return {
     name,
-    noiseBefore: noise("NOISE_BEFORE"),
-    noiseBetween: noise("NOISE_BETWEEN"),
+    releasePosition: spec.releasePosition,
+    cacheCondition: spec.cacheCondition,
+    recovery: spec.recovery,
+    noiseBefore: makeNoise("NOISE_BEFORE", spec.noiseBefore),
+    noiseBetween: makeNoise("NOISE_BETWEEN", spec.noiseBetween),
     retained: `RETAINED_${name.replace("/", "_")}`,
     releaseA: `RELEASE_A_${name.replace("/", "_")}`,
     releaseB: `RELEASE_B_${name.replace("/", "_")}`,
@@ -230,6 +305,7 @@ async function startUpstream(initialRequestCount = 0): Promise<{
     const finishedAt = performance.now();
     const prefixDiagnostics = computeEncodedProviderWirePrefixDiagnostics(body);
     requests.push({
+      attemptIndex: initialRequestCount + requests.length,
       body,
       inputBytes,
       startedAt,
@@ -245,6 +321,8 @@ async function startUpstream(initialRequestCount = 0): Promise<{
       providerWirePrefixItemCount: prefixDiagnostics.inputItems.length,
       promptCacheBreakpoint: hasPromptCacheBreakpoint(body.input),
       outputItemTypes: ["message"],
+      outcome: "success",
+      failureReason: null,
     });
   });
   const port = await reserveUnusedPort();
@@ -301,6 +379,8 @@ async function consumeProviderResponse(response: Response, request: UpstreamRequ
   if (!reader) {
     request.finishedAt = performance.now();
     request.providerLatencyMs = request.finishedAt - request.startedAt;
+    request.outcome = response.ok ? "success" : "provider_error";
+    if (!response.ok) request.failureReason = `provider_status:${response.status}`;
     return;
   }
   const decoder = new TextDecoder();
@@ -343,9 +423,11 @@ async function consumeProviderResponse(response: Response, request: UpstreamRequ
   request.outputItemTypes = [...outputTypes.entries()]
     .sort(([left], [right]) => left - right)
     .map(([, type]) => type);
+  request.outcome = response.ok ? "success" : "provider_error";
+  if (!response.ok) request.failureReason = `provider_status:${response.status}`;
 }
 
-function captureLiveProvider(baseUrl: string): {
+export function captureLiveProvider(baseUrl: string): {
   requests: UpstreamRequest[];
   close(): Promise<void>;
 } {
@@ -360,6 +442,7 @@ function captureLiveProvider(baseUrl: string): {
     const inputValue = body.input ?? body;
     const prefixDiagnostics = computeEncodedProviderWirePrefixDiagnostics(body);
     const request: UpstreamRequest = {
+      attemptIndex: requests.length,
       body,
       inputBytes: Buffer.byteLength(JSON.stringify(inputValue), "utf8"),
       startedAt: performance.now(),
@@ -375,15 +458,33 @@ function captureLiveProvider(baseUrl: string): {
       providerWirePrefixItemCount: prefixDiagnostics.inputItems.length,
       promptCacheBreakpoint: hasPromptCacheBreakpoint(body.input),
       outputItemTypes: [],
+      outcome: "pending",
+      failureReason: null,
     };
-    const response = await originalFetch(input, init);
-    request.headersAt = performance.now();
-    request.providerHeadersLatencyMs = request.headersAt - request.startedAt;
     requests.push(request);
-    const task = consumeProviderResponse(response.clone(), request);
-    pending.add(task);
-    void task.finally(() => pending.delete(task));
-    return response;
+    try {
+      const response = await originalFetch(input, init);
+      request.headersAt = performance.now();
+      request.providerHeadersLatencyMs = request.headersAt - request.startedAt;
+      const task = consumeProviderResponse(response.clone(), request)
+        .catch((error: unknown) => {
+          request.finishedAt = performance.now();
+          request.providerLatencyMs = request.finishedAt - request.startedAt;
+          request.outcome = "provider_error";
+          request.failureReason = error instanceof Error ? error.message : String(error);
+        });
+      pending.add(task);
+      void task.finally(() => pending.delete(task)).catch(() => undefined);
+      return response;
+    } catch (error) {
+      request.finishedAt = performance.now();
+      request.providerLatencyMs = request.finishedAt - request.startedAt;
+      request.outcome = error instanceof DOMException && error.name === "TimeoutError"
+        ? "timeout"
+        : "transport_error";
+      request.failureReason = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
   };
   return {
     requests,
@@ -632,6 +733,56 @@ async function cleanerTraceSummary(stateDir: string): Promise<string> {
   }
 }
 
+function summarizeAttempt(request: UpstreamRequest) {
+  return {
+    attemptIndex: request.attemptIndex,
+    outcome: request.outcome,
+    failureReason: request.failureReason,
+    inputBytes: request.inputBytes,
+    providerUsage: request.providerUsage,
+  };
+}
+
+function runResultFromRequests(params: {
+  fixture: Fixture;
+  arm: Arm;
+  repetition: number;
+  mode: BenchmarkMode;
+  seedRequestCount: number;
+  turns: TurnResult[];
+  requests: UpstreamRequest[];
+  releaseOverheadMs: number;
+  passed: boolean;
+  failure?: string;
+}): RunResult {
+  const usage = params.mode === "live" ? params.requests.map((request) => request.providerUsage) : null;
+  const measurementStatus = params.mode === "live"
+    ? summarizeUsageValues(usage, params.requests.length).status
+    : "unavailable";
+  const completeTiming = params.turns.every((turn) => turn.timing.complete);
+  return {
+    fixture: params.fixture.name,
+    cacheCondition: params.fixture.cacheCondition,
+    recovery: params.fixture.recovery,
+    arm: params.arm,
+    repetition: params.repetition,
+    passed: params.passed,
+    upstreamRequestCount: params.requests.length,
+    turns: params.turns,
+    localInputBytes: params.requests.map((request) => request.inputBytes),
+    releaseOverheadMs: params.releaseOverheadMs,
+    providerUsage: usage,
+    providerShape: params.mode === "live" ? params.requests.map(providerShape) : null,
+    seedRequestCount: params.seedRequestCount,
+    attempts: params.requests.map(summarizeAttempt),
+    executionStatus: params.passed && completeTiming ? "complete" : params.requests.length > 0 ? "partial" : "failed",
+    measurementStatus,
+    correctnessStatus: params.passed ? "pass" : "fail",
+    economicStatus: "inconclusive",
+    ...(params.failure ? { failure: params.failure } : {}),
+  };
+}
+
 async function copyHistoryState(sourceDir: string, targetDir: string): Promise<void> {
   for (const directory of ["context-history", "session-state"]) {
     const sourcePath = join(sourceDir, directory);
@@ -771,6 +922,12 @@ async function runArm(
   let firstReleasePlan: string | undefined;
   let secondReleasePlan: string | undefined;
   let releaseOverheadMs = 0;
+  let captureClosed = false;
+  const closeCapture = async () => {
+    if (captureClosed) return;
+    captureClosed = true;
+    await liveCapture?.close();
+  };
   try {
     runtime = await startCodexResponsesProxy({
       config,
@@ -843,9 +1000,10 @@ async function runArm(
       });
       await send("after_restart", "AFTER_RESTART");
     }
+    await closeCapture();
     const forwardedRequests = seed
-      ? [...seed.requests, ...(upstream?.requests ?? liveCapture!.requests)]
-      : upstream?.requests ?? liveCapture!.requests;
+      ? [...seed.requests, ...(upstream?.requests ?? liveCapture?.requests ?? [])]
+      : upstream?.requests ?? liveCapture?.requests ?? [];
     turns.forEach((turn, index) => {
       const forwarded = forwardedRequests[index];
       if (forwarded) turn.inputBytes = forwarded.inputBytes;
@@ -880,45 +1038,37 @@ async function runArm(
       assertMarker(texts[restartRequest]!, fixture.releaseB, false, "cleaner restart release B");
       assertMarker(texts[restartRequest]!, fixture.retained, true, "cleaner restart retained");
     }
-    return {
-      fixture: fixture.name,
+    return runResultFromRequests({
+      fixture,
       arm,
       repetition,
-      passed: true,
-      upstreamRequestCount: forwardedRequests.length,
+      mode,
+      seedRequestCount: seed?.requests.length ?? 0,
       turns,
-      localInputBytes: forwardedRequests.map((request) => request.inputBytes),
+      requests: forwardedRequests,
       releaseOverheadMs,
-      providerUsage: mode === "live" ? forwardedRequests.map((request) => request.providerUsage) : null,
-      providerShape: mode === "live" ? forwardedRequests.map(providerShape) : null,
-    };
+      passed: true,
+    });
   } catch (error) {
     const failure = error instanceof Error ? error.message : String(error);
-    return {
-      fixture: fixture.name,
+    await closeCapture();
+    const forwardedRequests = seed
+      ? [...seed.requests, ...(upstream?.requests ?? liveCapture?.requests ?? [])]
+      : upstream?.requests ?? liveCapture?.requests ?? [];
+    return runResultFromRequests({
+      fixture,
       arm,
       repetition,
-      passed: false,
-      upstreamRequestCount: (upstream?.requests ?? liveCapture?.requests ?? []).length,
+      mode,
+      seedRequestCount: seed?.requests.length ?? 0,
       turns,
-      localInputBytes: (seed
-        ? [...seed.requests, ...(upstream?.requests ?? liveCapture?.requests ?? [])]
-        : upstream?.requests ?? liveCapture?.requests ?? []).map((request) => request.inputBytes),
+      requests: forwardedRequests,
       releaseOverheadMs,
-      providerUsage: mode === "live"
-        ? (seed
-          ? [...seed.requests, ...(liveCapture?.requests ?? [])]
-          : liveCapture?.requests ?? []).map((request) => request.providerUsage)
-        : null,
-      providerShape: mode === "live"
-        ? (seed
-          ? [...seed.requests, ...(liveCapture?.requests ?? [])]
-          : liveCapture?.requests ?? []).map(providerShape)
-        : null,
+      passed: false,
       failure: `${failure}; cleanerTrace=${await cleanerTraceSummary(environment.stateDir)}`,
-    };
+    });
   } finally {
-    await liveCapture?.close();
+    await closeCapture();
     await runtime?.close();
     await upstream?.close();
     environment.cleanup();
@@ -964,6 +1114,10 @@ function pairedDifferences(runs: RunResult[]) {
       const baseline = baselineByKey.get(`${run.fixture}:${run.repetition}`);
       if (!baseline) throw new Error(`missing paired baseline for ${run.fixture}/${run.repetition}`);
       const baselineTurns = new Map(baseline.turns.map((turn) => [turn.label, turn]));
+      const baselinePostSeedTurns = baseline.turns.slice(baseline.seedRequestCount);
+      const cleanerPostSeedTurns = run.turns.slice(run.seedRequestCount);
+      const baselinePostSeedUsage = baseline.providerUsage?.slice(baseline.seedRequestCount) ?? null;
+      const cleanerPostSeedUsage = run.providerUsage?.slice(run.seedRequestCount) ?? null;
       return {
         fixture: run.fixture,
         repetition: run.repetition,
@@ -985,18 +1139,21 @@ function pairedDifferences(runs: RunResult[]) {
             inputBytesDelta: baselineTurn ? turn.inputBytes - baselineTurn.inputBytes : null,
           };
         }),
-        localAccounting: cumulativeBreakEven(
-          baseline.turns.map((turn) => turn.timing.durationsMs.handlerToFinish ?? 0),
-          run.turns.map((turn, index) => (
-            (turn.timing.durationsMs.handlerToFinish ?? 0)
-            + (index === run.turns.findIndex((candidate) => candidate.label === "after_release_a")
-              ? run.releaseOverheadMs
-              : 0)
-          )),
-          run.turns.map((turn) => turn.label),
+        localAccounting: cumulativeBreakEvenByLabel(
+          baselinePostSeedTurns.map((turn) => ({
+            label: turn.label,
+            cost: turn.timing.durationsMs.handlerToFinish ?? 0,
+          })),
+          cleanerPostSeedTurns.map((turn, index) => ({
+            label: turn.label,
+            cost: (turn.timing.durationsMs.handlerToFinish ?? 0)
+              + (index === cleanerPostSeedTurns.findIndex((candidate) => candidate.label === "after_release_a")
+                ? run.releaseOverheadMs
+                : 0),
+          })),
         ),
-        providerUsage: run.providerUsage
-          && baseline.providerUsage
+        providerUsage: cleanerPostSeedUsage
+          && baselinePostSeedUsage
           && providerShapesComparableBeforeRelease(
             baseline.turns.map((turn) => turn.label),
             baseline.providerShape,
@@ -1004,11 +1161,25 @@ function pairedDifferences(runs: RunResult[]) {
             run.providerShape,
           )
           ? {
-            ...compareProviderUsage(run.providerUsage, baseline.providerUsage, run.turns.map((turn) => turn.label)),
+            ...compareProviderUsage(cleanerPostSeedUsage, baselinePostSeedUsage, cleanerPostSeedTurns.map((turn) => turn.label)),
           }
           : null,
       };
     });
+}
+
+export function cumulativeBreakEvenByLabel(
+  keep: Array<{ label: string; cost: number }>,
+  release: Array<{ label: string; cost: number }>,
+): BreakEvenSummary {
+  const labels = [...new Set([...keep, ...release].map((checkpoint) => checkpoint.label))];
+  const keepByLabel = new Map(keep.map((checkpoint) => [checkpoint.label, checkpoint.cost]));
+  const releaseByLabel = new Map(release.map((checkpoint) => [checkpoint.label, checkpoint.cost]));
+  return cumulativeBreakEven(
+    labels.map((label) => keepByLabel.get(label) ?? 0),
+    labels.map((label) => releaseByLabel.get(label) ?? 0),
+    labels,
+  );
 }
 
 const USAGE_FIELDS: UsageField[] = ["inputTokens", "outputTokens", "cachedInputTokens"];
@@ -1083,31 +1254,29 @@ export function usageDelta(
   return cleanerSummary.totals[field]! - baselineSummary.totals[field]!;
 }
 
-function compareProviderUsage(
+export function compareProviderUsage(
   cleaner: Array<ProviderUsage | null>,
   baseline: Array<ProviderUsage | null>,
   labels: string[],
 ) {
-  const expectedRequests = labels.length;
-  const cleanerSummary = summarizeUsageValues(cleaner, expectedRequests);
-  const baselineSummary = summarizeUsageValues(baseline, expectedRequests);
-  const comparable = cleaner.length === baseline.length
-    && cleanerSummary.status === "complete"
+  const cleanerSummary = summarizeUsageValues(cleaner, cleaner.length);
+  const baselineSummary = summarizeUsageValues(baseline, baseline.length);
+  const comparable = cleanerSummary.status === "complete"
     && baselineSummary.status === "complete";
+  const checkpointCosts = (usages: Array<ProviderUsage | null>) => usages.map((usage, index) => ({
+    label: labels[index] ?? `provider_attempt_${index}`,
+    cost: usage?.inputTokens ?? 0,
+  }));
   return {
     status: comparable ? "complete" : cleanerSummary.status === "unavailable" || baselineSummary.status === "unavailable" ? "unavailable" : "incomplete",
     baseline: baselineSummary,
     cleaner: cleanerSummary,
     invalidReasons: [...new Set([...baselineSummary.invalidReasons, ...cleanerSummary.invalidReasons])],
-    inputTokensDelta: comparable ? usageDelta(cleaner, baseline, "inputTokens") : null,
-    outputTokensDelta: comparable ? usageDelta(cleaner, baseline, "outputTokens") : null,
-    cachedInputTokensDelta: comparable ? usageDelta(cleaner, baseline, "cachedInputTokens") : null,
+    inputTokensDelta: comparable ? cleanerSummary.totals.inputTokens! - baselineSummary.totals.inputTokens! : null,
+    outputTokensDelta: comparable ? cleanerSummary.totals.outputTokens! - baselineSummary.totals.outputTokens! : null,
+    cachedInputTokensDelta: comparable ? cleanerSummary.totals.cachedInputTokens! - baselineSummary.totals.cachedInputTokens! : null,
     cumulativeInputTokens: comparable
-      ? cumulativeBreakEven(
-        baseline.map((usage) => usage!.inputTokens!),
-        cleaner.map((usage) => usage!.inputTokens!),
-        labels,
-      )
+      ? cumulativeBreakEvenByLabel(checkpointCosts(baseline), checkpointCosts(cleaner))
       : null,
   };
 }
@@ -1149,97 +1318,141 @@ function summarizeProviderUsage(runs: RunResult[]) {
 }
 
 async function main(): Promise<void> {
-  const mode = (process.env.LIGHTRSI_BENCHMARK_MODE ?? "mock") as BenchmarkMode;
-  assert.ok(mode === "mock" || mode === "live", "LIGHTRSI_BENCHMARK_MODE must be mock or live");
-  const releaseMode = (process.env.LIGHTRSI_BENCHMARK_RELEASE_MODE ?? "lifecycle") as ReleaseMode;
-  assert.ok(releaseMode === "lifecycle" || releaseMode === "one-release", "LIGHTRSI_BENCHMARK_RELEASE_MODE must be lifecycle or one-release");
-  const armOrderMode = process.env.LIGHTRSI_BENCHMARK_ARM_ORDER ?? "baseline-first";
-  assert.ok(armOrderMode === "baseline-first" || armOrderMode === "alternating", "LIGHTRSI_BENCHMARK_ARM_ORDER must be baseline-first or alternating");
-  const causalPairs = process.env.LIGHTRSI_BENCHMARK_CAUSAL_PAIRS === "true";
-  const requestTimeoutMs = Number.parseInt(process.env.LIGHTRSI_BENCHMARK_REQUEST_TIMEOUT_MS ?? "120000", 10);
-  assert.ok(Number.isInteger(requestTimeoutMs) && requestTimeoutMs > 0);
-  const repetitions = Number.parseInt(process.env.LIGHTRSI_BENCHMARK_REPETITIONS ?? "5", 10);
-  assert.ok(Number.isInteger(repetitions) && repetitions > 0);
-  const fixtureNames = (process.env.LIGHTRSI_BENCHMARK_FIXTURES ?? "short/noisy,long/noisy")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean) as FixtureName[];
-  assert.ok(fixtureNames.length > 0 && fixtureNames.every((name) => name === "short/noisy" || name === "long/noisy"));
-  let liveOptions: LiveOptions | undefined;
-  if (mode === "live") {
-    const config = await loadTokenPilotCodexConfig(defaultTokenPilotConfigPath());
-    const initialCwd = process.env.INIT_CWD?.trim() || process.cwd();
-    await loadProviderEnvFile(process.env.LIGHTRSI_BENCHMARK_CREDENTIALS_FILE?.trim() || join(initialCwd, ".env"));
-    const configuredProvider = await resolveUpstreamProvider(config);
-    const baseUrl = process.env.LIGHTRSI_BENCHMARK_BASE_URL?.trim()
-      || process.env.OPENAI_BASE_URL?.trim()
-      || configuredProvider.baseUrl;
-    const model = process.env.LIGHTRSI_BENCHMARK_MODEL?.trim()
-      || providerModelFromEnvironment()
-      || "gpt-5.4-mini";
-    assert.ok(process.env.OPENAI_API_KEY?.trim(), "live mode requires provider credentials");
-    liveOptions = { baseUrl, model };
-  }
-  const runs: RunResult[] = [];
-  for (const fixtureName of fixtureNames) {
-    for (let repetition = 1; repetition <= repetitions; repetition += 1) {
-      const arms: Arm[] = armOrderMode === "alternating" && repetition % 2 === 0
-        ? ["cleaner", "baseline"]
-        : ["baseline", "cleaner"];
-      const fixture = createFixture(fixtureName);
-      const seed = causalPairs
-        ? await createBenchmarkSeed(fixture, releaseMode, mode, repetition, requestTimeoutMs, liveOptions)
-        : undefined;
-      try {
-        for (const arm of arms) {
-          runs.push(await runArm(fixture, releaseMode, arm, repetition, mode, liveOptions, seed, requestTimeoutMs));
-        }
-      } finally {
-        seed?.cleanup();
-      }
-    }
-  }
-  const differences = pairedDifferences(runs);
-  const report = {
-    schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
-    benchmark: "context-cleaner-occurrence-release",
-    mode,
-    releaseMode,
-    armOrder: armOrderMode,
-    causalPairs,
-    repetitions,
-    fixtures: fixtureNames,
-    provider: liveOptions ? { host: new URL(liveOptions.baseUrl).hostname, model: liveOptions.model } : null,
-    usage: mode === "live" ? "provider_response_usage_when_present" : "provider_usage_unavailable_for_mock_upstream",
-    runs,
-    pairedDifferences: differences,
-    measurementComparability: {
-      pairs: differences.length,
-      comparablePairs: differences.filter((difference) => difference.measurementComparable).length,
-      incomparablePairs: differences
-        .filter((difference) => !difference.measurementComparable)
-        .map((difference) => `${difference.fixture}:${difference.repetition}`),
-    },
-    summaryByArm: {
-      baseline: summarize(runs.filter((run) => run.arm === "baseline")),
-      cleaner: summarize(runs.filter((run) => run.arm === "cleaner")),
-      providerUsage: mode === "live"
-        ? {
-          baseline: summarizeProviderUsage(runs.filter((run) => run.arm === "baseline")),
-          cleaner: summarizeProviderUsage(runs.filter((run) => run.arm === "cleaner")),
-        }
-        : null,
-    },
-    passed: runs.every((run) => run.passed)
-      && runs.every((run) => run.turns.every((turn) => turn.timing.complete)),
-  };
   const outputPath = process.env.LIGHTRSI_BENCHMARK_OUTPUT
     ?? join(tmpdir(), "lightrsi-context-cleaner-benchmark.json");
+  const runs: RunResult[] = [];
+  let report: JsonObject;
+  let passed = false;
+  try {
+    const manifestInfo = await loadStageBManifest();
+    const { manifest } = manifestInfo;
+    const mode = (process.env.LIGHTRSI_BENCHMARK_MODE ?? "mock") as BenchmarkMode;
+    assert.ok(mode === "mock" || mode === "live", "LIGHTRSI_BENCHMARK_MODE must be mock or live");
+    const releaseMode = (process.env.LIGHTRSI_BENCHMARK_RELEASE_MODE ?? manifest.releaseMode) as ReleaseMode;
+    assert.ok(releaseMode === "lifecycle" || releaseMode === "one-release", "LIGHTRSI_BENCHMARK_RELEASE_MODE must be lifecycle or one-release");
+    const armOrderMode = process.env.LIGHTRSI_BENCHMARK_ARM_ORDER ?? manifest.controls.armOrder;
+    assert.ok(armOrderMode === "baseline-first" || armOrderMode === "alternating", "LIGHTRSI_BENCHMARK_ARM_ORDER must be baseline-first or alternating");
+    const causalPairs = process.env.LIGHTRSI_BENCHMARK_CAUSAL_PAIRS === undefined
+      ? manifest.controls.causalPairs
+      : process.env.LIGHTRSI_BENCHMARK_CAUSAL_PAIRS === "true";
+    const requestTimeoutMs = Number.parseInt(process.env.LIGHTRSI_BENCHMARK_REQUEST_TIMEOUT_MS ?? "120000", 10);
+    assert.ok(Number.isInteger(requestTimeoutMs) && requestTimeoutMs > 0);
+    const repetitions = Number.parseInt(process.env.LIGHTRSI_BENCHMARK_REPETITIONS ?? String(manifest.repetitions), 10);
+    assert.ok(Number.isInteger(repetitions) && repetitions > 0);
+    const fixtureNames = (process.env.LIGHTRSI_BENCHMARK_FIXTURES ?? manifest.fixtures.map((fixture) => fixture.id).join(","))
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean) as FixtureName[];
+    assert.ok(fixtureNames.length > 0 && fixtureNames.every((name) => manifest.fixtures.some((fixture) => fixture.id === name)));
+    let liveOptions: LiveOptions | undefined;
+    if (mode === "live") {
+      const config = await loadTokenPilotCodexConfig(defaultTokenPilotConfigPath());
+      const initialCwd = process.env.INIT_CWD?.trim() || process.cwd();
+      await loadProviderEnvFile(process.env.LIGHTRSI_BENCHMARK_CREDENTIALS_FILE?.trim() || join(initialCwd, ".env"));
+      const configuredProvider = await resolveUpstreamProvider(config);
+      const baseUrl = process.env.LIGHTRSI_BENCHMARK_BASE_URL?.trim()
+        || process.env.OPENAI_BASE_URL?.trim()
+        || configuredProvider.baseUrl;
+      const model = process.env.LIGHTRSI_BENCHMARK_MODEL?.trim()
+        || providerModelFromEnvironment()
+        || "gpt-5.4-mini";
+      assert.ok(process.env.OPENAI_API_KEY?.trim(), "live mode requires provider credentials");
+      liveOptions = { baseUrl, model };
+    }
+    for (const fixtureName of fixtureNames) {
+      for (let repetition = 1; repetition <= repetitions; repetition += 1) {
+        const arms: Arm[] = armOrderMode === "alternating" && repetition % 2 === 0
+          ? ["cleaner", "baseline"]
+          : ["baseline", "cleaner"];
+        const fixture = createFixture(fixtureName, manifest);
+        const seed = causalPairs
+          ? await createBenchmarkSeed(fixture, releaseMode, mode, repetition, requestTimeoutMs, liveOptions)
+          : undefined;
+        try {
+          for (const arm of arms) {
+            runs.push(await runArm(fixture, releaseMode, arm, repetition, mode, liveOptions, seed, requestTimeoutMs));
+          }
+        } finally {
+          seed?.cleanup();
+        }
+      }
+    }
+    const differences = pairedDifferences(runs);
+    const executionStatus = runs.length > 0 && runs.every((run) => run.executionStatus === "complete") ? "complete" : runs.length > 0 ? "partial" : "failed";
+    const measurementStatus: UsageCompletenessStatus = mode === "mock"
+      ? "unavailable"
+      : runs.every((run) => run.measurementStatus === "complete") ? "complete" : runs.some((run) => run.measurementStatus === "incomplete") ? "incomplete" : "unavailable";
+    const correctnessStatus = runs.length > 0 && runs.every((run) => run.correctnessStatus === "pass") ? "pass" : "fail";
+    const economicStatus = "inconclusive";
+    passed = runs.length > 0 && runs.every((run) => run.passed) && runs.every((run) => run.turns.every((turn) => turn.timing.complete));
+    report = {
+      schemaVersion: 2,
+      generatedAt: new Date().toISOString(),
+      benchmark: "context-cleaner-occurrence-release",
+      experiment: {
+        name: manifest.experiment,
+        runtimeSha: manifest.runtimeSha,
+        benchmarkSha: manifest.benchmarkSha,
+        manifestPath: manifestInfo.path,
+        manifestHash: manifestInfo.hash,
+      },
+      comparison: { keep: "baseline", release: "cleaner" },
+      mode,
+      releaseMode,
+      armOrder: armOrderMode,
+      causalPairs,
+      repetitions,
+      fixtures: fixtureNames.map((name) => manifest.fixtures.find((fixture) => fixture.id === name)),
+      provider: liveOptions ? { host: new URL(liveOptions.baseUrl).hostname, model: liveOptions.model } : null,
+      usage: mode === "live" ? "provider_response_usage_when_present" : "provider_usage_unavailable_for_mock_upstream",
+      statuses: { executionStatus, measurementStatus, correctnessStatus, economicStatus },
+      runs,
+      pairedDifferences: differences,
+      measurementComparability: {
+        pairs: differences.length,
+        comparablePairs: differences.filter((difference) => difference.measurementComparable).length,
+        incomparablePairs: differences.filter((difference) => !difference.measurementComparable).map((difference) => `${difference.fixture}:${difference.repetition}`),
+      },
+      summaryByArm: {
+        baseline: summarize(runs.filter((run) => run.arm === "baseline")),
+        cleaner: summarize(runs.filter((run) => run.arm === "cleaner")),
+        providerUsage: mode === "live"
+          ? {
+            baseline: summarizeProviderUsage(runs.filter((run) => run.arm === "baseline")),
+            cleaner: summarizeProviderUsage(runs.filter((run) => run.arm === "cleaner")),
+          }
+          : null,
+      },
+      passed,
+    };
+  } catch (error) {
+    const failure = error instanceof Error ? error.message : String(error);
+    let pairedForReport: unknown[] = [];
+    try {
+      pairedForReport = pairedDifferences(runs);
+    } catch (pairError) {
+      pairedForReport = [{ error: pairError instanceof Error ? pairError.message : String(pairError) }];
+    }
+    report = {
+      schemaVersion: 2,
+      generatedAt: new Date().toISOString(),
+      benchmark: "context-cleaner-occurrence-release",
+      statuses: {
+        executionStatus: runs.length > 0 ? "partial" : "failed",
+        measurementStatus: "incomplete",
+        correctnessStatus: "fail",
+        economicStatus: "inconclusive",
+      },
+      runs,
+      pairedDifferences: pairedForReport,
+      failure,
+      passed: false,
+    };
+  }
   await mkdir(join(outputPath, ".."), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
-  console.log(JSON.stringify({ outputPath, passed: report.passed, runs: runs.length }, null, 2));
-  if (!report.passed) process.exitCode = 1;
+  console.log(JSON.stringify({ outputPath, passed, runs: runs.length }, null, 2));
+  if (!passed) process.exitCode = 1;
 }
 
 if (process.argv[1] && /(?:^|[\\/])benchmark-context-cleaner\.ts$/u.test(process.argv[1])) {

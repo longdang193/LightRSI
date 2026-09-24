@@ -1,0 +1,79 @@
+{
+  "experiment": "context-cleaner-stage-b",
+  "runtimeSha": "a0813871f81abde8988b7b70ea20b66613f9eef3",
+  "benchmarkSha": "filled-at-execution",
+  "comparison": {
+    "keep": "baseline",
+    "release": "cleaner"
+  },
+  "releaseMode": "one-release",
+  "controls": {
+    "causalPairs": true,
+    "armOrder": "alternating"
+  },
+  "measurement": {
+    "providerUsage": "required",
+    "cacheEvidence": "required",
+    "correctness": "required",
+    "recoveryCost": "required"
+  },
+  "fixtures": [
+    {
+      "id": "short/early",
+      "releasePosition": "early",
+      "cacheCondition": "cold",
+      "recovery": false,
+      "noiseBefore": 2,
+      "noiseBetween": 2
+    },
+    {
+      "id": "long/early",
+      "releasePosition": "early",
+      "cacheCondition": "warm",
+      "recovery": false,
+      "noiseBefore": 20,
+      "noiseBetween": 20
+    },
+    {
+      "id": "long/late",
+      "releasePosition": "late",
+      "cacheCondition": "warm",
+      "recovery": false,
+      "noiseBefore": 40,
+      "noiseBetween": 20
+    },
+    {
+      "id": "recovery/early",
+      "releasePosition": "early",
+      "cacheCondition": "cold",
+      "recovery": true,
+      "noiseBefore": 4,
+      "noiseBetween": 4
+    }
+  ],
+  "provider": {
+    "model": "resolved-at-execution",
+    "pricing": {
+      "status": "required-before-live-run",
+      "source": "required-before-live-run",
+      "effectiveDate": "required-before-live-run",
+      "currency": "USD"
+    }
+  },
+  "repetitions": 5,
+  "spendingCapUsd": "approved-before-live-run",
+  "outcomes": [
+    "monetaryCost",
+    "taskCorrectness",
+    "taskDuration",
+    "recovery",
+    "cumulativeBreakEven"
+  ],
+  "decisionStates": ["pass", "fail", "inconclusive"],
+  "acceptance": {
+    "providerUsageComplete": true,
+    "cacheEvidenceComplete": true,
+    "correctnessPassRequired": true,
+    "sustainedBreakEvenRequired": false
+  }
+}

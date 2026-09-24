@@ -3,7 +3,10 @@ import test from "node:test";
 
 import { createBenchmarkTiming } from "../src/benchmark-timing.js";
 import {
+  captureLiveProvider,
+  compareProviderUsage,
   cumulativeBreakEven,
+  cumulativeBreakEvenByLabel,
   providerShapesComparableBeforeRelease,
   usageDelta,
   userInputText,
@@ -162,6 +165,74 @@ test("benchmark rejects invalid cached tokens", () => {
   const cleaner = [{ inputTokens: 8, outputTokens: 2, totalTokens: 10, cachedInputTokens: 0 }];
 
   assert.equal(usageDelta(cleaner, baseline, "inputTokens"), null);
+});
+
+test("benchmark compares unequal continuation paths by logical checkpoint", () => {
+  const usage = (inputTokens: number) => ({
+    inputTokens,
+    outputTokens: 2,
+    totalTokens: inputTokens + 2,
+    cachedInputTokens: 0,
+  });
+  const comparison = compareProviderUsage(
+    [usage(7), usage(7), usage(1)],
+    [usage(10), usage(8)],
+    ["release", "continuation", "recovery"],
+  );
+
+  assert.equal(comparison.status, "complete");
+  assert.equal(comparison.inputTokensDelta, -3);
+  assert.deepEqual(comparison.cumulativeInputTokens?.checkpoints, [
+    { label: "release", keepCost: 10, releaseCost: 7, netSavings: 3 },
+    { label: "continuation", keepCost: 18, releaseCost: 14, netSavings: 4 },
+    { label: "recovery", keepCost: 18, releaseCost: 15, netSavings: 3 },
+  ]);
+});
+
+test("benchmark keeps incomplete unequal paths inconclusive", () => {
+  const usage = { inputTokens: 10, outputTokens: 2, totalTokens: 12, cachedInputTokens: 0 };
+  const comparison = compareProviderUsage([usage, null], [usage], ["release", "recovery"]);
+
+  assert.equal(comparison.status, "incomplete");
+  assert.equal(comparison.inputTokensDelta, null);
+  assert.equal(comparison.cumulativeInputTokens, null);
+});
+
+test("benchmark records transport failures before provider dispatch completes", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("provider unavailable");
+  };
+  const capture = captureLiveProvider("https://provider.example/v1");
+  try {
+    await assert.rejects(
+      () => fetch("https://provider.example/v1/responses", {
+        method: "POST",
+        body: JSON.stringify({ input: [] }),
+      }),
+      /provider unavailable/u,
+    );
+    await capture.close();
+    assert.equal(capture.requests.length, 1);
+    assert.equal(capture.requests[0]?.outcome, "transport_error");
+    assert.equal(capture.requests[0]?.failureReason, "provider unavailable");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("benchmark aligns local costs by checkpoint instead of request count", () => {
+  assert.deepEqual(
+    cumulativeBreakEvenByLabel(
+      [{ label: "release", cost: 10 }, { label: "continuation", cost: 8 }],
+      [{ label: "release", cost: 7 }, { label: "continuation", cost: 7 }, { label: "recovery", cost: 1 }],
+    ).checkpoints,
+    [
+      { label: "release", keepCost: 10, releaseCost: 7, netSavings: 3 },
+      { label: "continuation", keepCost: 18, releaseCost: 14, netSavings: 4 },
+      { label: "recovery", keepCost: 18, releaseCost: 15, netSavings: 3 },
+    ],
+  );
 });
 
 test("benchmark reports delayed, temporary, and recovery-erased break-even", () => {
