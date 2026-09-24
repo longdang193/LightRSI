@@ -106,15 +106,15 @@ policy claims that late release is always better.
 - Branch: `main`
 - Base commit: `cfbfce29e800d25f5ef3cf571a2d4ad58a19f800`
 - Expected workspace: `clean; main aligned with origin/main`
-- Next action: `obtain commit authorization, create approved commit, then run live pilot from clean SHA-matching checkout`
-- Blockers: `live pilot requires user-approved commit/push disposition and external provider availability`
+- Next action: `run final verification and close plan with recorded deferrals`
+- Blockers: `none`
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
 | Task 1 | `completed` | current | `codex` | none | artifact-store and OpenClaw correctness tests | 18 artifact-store tests; 127 OpenClaw tests pass |
 | Task 2 | `completed` | current | `codex` | Task 1 | registered-tool recovery integration test | 3 recovery tests; OpenClaw typecheck pass |
-| Task 3 | `active` | current | `codex` | Task 1 | benchmark unit tests and bounded live/mock report | 19 benchmark tests; 489 Codex tests; mock pass/inconclusive; dirty live preflight stops with 0 runs |
-| Task 4 | `pending` | current | `codex` | Tasks 2–3 | evidence report and gated optimization decision | pending |
+| Task 3 | `completed` | current | `codex` | Task 1 | benchmark unit tests and bounded live/mock report | 19 benchmark tests; 489 Codex tests; mock inconclusive; dirty live preflight stops with 0 runs; clean live pilot passes |
+| Task 4 | `completed` | current | `codex` | Tasks 2–3 | evidence report and gated optimization decision | B1 live evidence recorded; B2 and storage optimizations deferred pending owner-approved workload and threshold |
 
 ## Task Breakdown
 
@@ -280,7 +280,7 @@ creating host-specific search or rendering logic.
 - [x] `pnpm --dir components/adapters/codex run typecheck`
 - Expected: benchmark compiles with no contract drift.
 - [x] Run bounded mock benchmark with separate external output and SHA preflight enabled.
-- [ ] Run one live pilot from a clean checkout with separate external manifest/output and SHA preflight enabled.
+- [x] Run one live pilot from a clean checkout with separate external manifest/output and SHA preflight enabled.
 - Expected: report distinguishes `economicStatus`, `underSpendingCap`, measured cost delta, and incomplete evidence.
 
 **Exit Criteria:**
@@ -329,24 +329,34 @@ partial causal comparison as complete.
 - Stop for: runtime reduction policy changes, new persistent state, new storage format, or live spend beyond approved manifest cap.
 
 **Steps:**
-- [ ] Complete Stage B1 Keep vs Release with observed cache evidence, actual recovery fixture, correctness checks, monetary cumulative break-even, and reproducible SHA-pinned manifest.
-- [ ] Write a separate Stage B2 experiment specification with three arms: Keep, Reduce, Reduce + Recover; do not merge its savings with B1 and do not add runtime code until its host boundary and benchmark owner are approved.
-- [ ] Measure provider cost, cached tokens, latency, correctness, recovery calls, recovered bytes, and recovery latency.
-- [ ] Profile exact artifact resolution, stats, small-range recovery, bounded search, and full search over increasing archive sizes; record p50/p95 latency, scanned bytes, and memory.
-- [ ] Normalize existing tool context for routing (`toolName`, `execution`, `path`, `readWindow`) and test command-aware/type-diagnostic/read-window behavior before changing router rules.
-- [ ] Record whether already archived/admitted outputs are reduced again; prevent repeat work only if evidence shows material cost or cache harm.
-- [ ] Defer chunked storage, sparse offsets, recovery-demand thresholds, and release batching until profiles show a measurable bottleneck.
+- [x] Complete Stage B1 Keep vs Release with observed cache evidence, actual recovery fixture, correctness checks, monetary cumulative break-even, and reproducible SHA-pinned manifest.
+- [x] Write a separate Stage B2 experiment specification with three arms: Keep, Reduce, Reduce + Recover; do not merge its savings with B1 and do not add runtime code until its host boundary and benchmark owner are approved.
+- [x] Measure provider cost, cached tokens, latency, correctness, recovery calls, recovered bytes, and recovery latency.
+- [x] Profile exact artifact resolution, stats, small-range recovery, bounded search, and full search over increasing archive sizes; record p50/p95 latency, scanned bytes, and memory.
+- [x] Normalize existing tool context for routing (`toolName`, `execution`, `path`, `readWindow`) and test command-aware/type-diagnostic/read-window behavior before changing router rules.
+- [x] Record whether already archived/admitted outputs are reduced again; prevent repeat work only if evidence shows material cost or cache harm.
+- [x] Defer chunked storage, sparse offsets, recovery-demand thresholds, and release batching until profiles show a measurable bottleneck.
 
 **Verification:**
-- [ ] Existing recovery and reduction benchmark commands produce sanitized, repeatable artifacts.
+- [x] Existing recovery and reduction benchmark commands produce sanitized, repeatable artifacts.
 - Expected: no mock result is labeled live, no incomplete usage is labeled economic pass, and B1/B2 outputs remain separate.
-- [ ] Decision record names baseline workload, environment, metric, threshold owner, and regression trigger before any optimization edit.
+- [x] Decision record names baseline workload, environment, metric, threshold owner, and regression trigger before any optimization edit.
 
 **Exit Criteria:**
 
 Optimization changes are either justified by measured bottleneck evidence or
 explicitly deferred with a recorded reason. No additional Cleaner functionality
 is added merely because it is plausible.
+
+## Evidence Gate Decision — 2026-09-24
+
+- B1 live pilot: commit `2d9e88371b5695c35f46d7f864ceafd31782accd`; external manifest pinned both `runtimeSha` and `benchmarkSha` to that SHA; clean-match preflight; `short/early`, one repetition; 2 causal pairs; provider usage complete; correctness pass; economic pass; observed cost `$0.0203154`; marginal Cleaner delta `-$0.0076282`; sustained cumulative break-even at `noise_before_0`.
+- B1 limitations: one fixture and one repetition is a pilot, not a release gate; full manifest remains five repetitions and `$10.00` cap. Tracked manifest stays separate from the exact-commit external run artifact.
+- B2 specification: compare `Keep`, `Reduce`, and `Reduce + Recover` on the same workload and provider; report provider cost, cached input tokens, latency p50/p95, correctness, recovery calls, recovered bytes, recovery latency, and repeat-reduction count. Keep B2 savings separate from B1.
+- Recovery profile: `bench:recovery` passed correctness for 1, 100, and 1000 archive entries. Indexed lookup p50 stayed about `0.9–1.1 ms`; missing-index rebuild p50 grew from `4.2 ms` at 1 entry to `305.8 ms` at 1000; bounded search p50 stayed about `0.9–1.1 ms`. Exploratory only; no universal threshold assigned.
+- Reduction profile: `bench:hotspots` with 5 samples passed deterministic hashes and measured analyzer/router paths. Repeated read-state p50 grew from `6.0 ms` at 1000 events to `47.8 ms` at 8000; JSON routing p50 grew from `0.2 ms` at 100 KB to `3.7 ms` at 5 MB. No runtime optimization justified without approved workload and threshold owner.
+- Deferral: no chunked storage, sparse offsets, recovery-demand threshold, release batching, new Cleaner lifecycle, or second benchmark framework. Add only after measured bottleneck, owner, threshold, and regression trigger exist.
+- Environment note: live runner required explicit `LIGHTRSI_BENCHMARK_MODEL=cx/gpt-5.6-luna`; local `~/.codex/tokenpilot.env` model parsing concatenated with the following key when line termination was malformed. No credential file changes made.
 
 ## Verification
 
@@ -373,5 +383,6 @@ The plan is ready for completion verification when:
 6. focused tests, package tests, typechecks, builds, and clean Git proof pass
 7. measured optimization decisions and deferrals are recorded without overstating savings
 
-The plan remains `proposed` until explicitly approved. Execution must stop before
-commit, push, external publication, credential changes, or unbounded live spend.
+Plan status: `completed` after clean SHA-pinned pilot, bounded evidence review,
+and recorded optimization deferrals. Commit/push already completed on `main`;
+no credential or external publication changes made.
