@@ -17,6 +17,13 @@ export * from "./reduction/registry.js";
 export * from "./reduction/types.js";
 export * from "./reduction/resource-key.js";
 export {
+  reduceToolPayloadText,
+  type ToolPayloadKind,
+  type ToolPayloadRouteConfig,
+  type ToolPayloadReductionResult,
+} from "./reduction/tool-payload-router.js";
+export { resolveToolPayloadTrimConfig, type ToolPayloadTrimConfig } from "./passes/pass-tool-payload-trim.js";
+export {
   classifyToolPayloadContent,
   classifyToolPayloadContentWithHint,
   type CommandFamily,

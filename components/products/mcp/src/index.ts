@@ -446,6 +446,7 @@ export async function resolveMemoryFaultRecover(params: {
   contextLines?: number;
   maxMatches?: number;
   maxOutputChars?: number;
+  maxScanLines?: number;
 }): Promise<MemoryFaultRecoverResult> {
   const artifactRef = typeof params.artifactRef === "string" ? params.artifactRef.trim() : "";
   const dataKey = typeof params.dataKey === "string" ? params.dataKey.trim() : "";
@@ -470,6 +471,9 @@ export async function resolveMemoryFaultRecover(params: {
   }
   if (mode === "search" && !params.query?.trim()) {
     return { text: "query is required for search mode", details: { error: "invalid_search_query" } };
+  }
+  if (params.maxScanLines != null && (!Number.isInteger(params.maxScanLines) || params.maxScanLines < 1)) {
+    return { text: "maxScanLines must be a positive integer", details: { error: "invalid_max_scan_lines" } };
   }
 
   const stateDir = resolveRecoveryStateDir(params.stateDir);
@@ -503,6 +507,7 @@ export async function resolveMemoryFaultRecover(params: {
       contextLines: params.contextLines,
       maxMatches: params.maxMatches,
       maxOutputChars: params.maxOutputChars,
+      maxScanLines: params.maxScanLines,
     });
   } catch (error) {
     return {
@@ -644,6 +649,11 @@ export async function handleMcpRequest(message: McpRequest, params?: {
                   default: 12000,
                   description: "Maximum search response size; oversized requests fail instead of returning unbounded output.",
                 },
+                maxScanLines: {
+                  type: "integer",
+                  minimum: 1,
+                  description: "Optional maximum number of archive lines to scan in search mode.",
+                },
               },
               oneOf: [
                 { required: ["artifactRef"] },
@@ -680,6 +690,7 @@ export async function handleMcpRequest(message: McpRequest, params?: {
       contextLines: typeof argumentsObject.contextLines === "number" ? argumentsObject.contextLines : undefined,
       maxMatches: typeof argumentsObject.maxMatches === "number" ? argumentsObject.maxMatches : undefined,
       maxOutputChars: typeof argumentsObject.maxOutputChars === "number" ? argumentsObject.maxOutputChars : undefined,
+      maxScanLines: typeof argumentsObject.maxScanLines === "number" ? argumentsObject.maxScanLines : undefined,
     });
     const isError = typeof result.details.error === "string";
     return {

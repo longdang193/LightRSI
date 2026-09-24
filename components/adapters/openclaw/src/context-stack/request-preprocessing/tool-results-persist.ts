@@ -1,6 +1,11 @@
 import {
   planToolResultPersistence,
 } from "@lightrsi/artifact-store";
+import {
+  reduceToolPayloadText,
+  resolveToolPayloadTrimConfig,
+  type ToolPayloadKind,
+} from "@lightrsi/reduction";
 
 type PersistHelpers = {
   appendTaskStateTrace: (stateDir: string, payload: Record<string, unknown>) => Promise<void>;
@@ -13,7 +18,7 @@ type PersistHelpers = {
 
 export function applyToolResultPersistPolicy(
   event: any,
-  cfg: { stateDir: string },
+  cfg: { stateDir: string; reduction?: { passOptions?: { toolPayloadTrim?: Record<string, unknown> } } },
   logger: { warn: (message: string) => void },
   helpers: PersistHelpers,
 ): { message: Record<string, unknown> } | undefined {
@@ -45,6 +50,24 @@ export function applyToolResultPersistPolicy(
     };
   }
 
+  const toolName = outcome.toolName;
+  const payloadKind: ToolPayloadKind = toolName === "exec" || toolName === "bash" ? "stdout" : "blob";
+  const reducedPreview = outcome.previewText
+    ? reduceToolPayloadText(
+        text,
+        payloadKind,
+        resolveToolPayloadTrimConfig(cfg.reduction?.passOptions?.toolPayloadTrim),
+        {
+          toolName,
+          payloadKind,
+          execution: {
+            exitCode: typeof event?.exitCode === "number" ? event.exitCode : undefined,
+          },
+        },
+      )
+    : undefined;
+  const previewText = reducedPreview?.changed ? reducedPreview.text : outcome.previewText;
+
   if (cfg.stateDir) {
     void helpers.appendTaskStateTrace(cfg.stateDir, {
       stage: "tool_result_persist_applied",
@@ -64,7 +87,7 @@ export function applyToolResultPersistPolicy(
       ...rawMessage,
       content: [{
         type: "text",
-        text: `${outcome.noticeText}\n\n${outcome.previewText}${outcome.recoveryHint}`,
+        text: `${outcome.noticeText}\n\n${previewText}${outcome.recoveryHint}`,
       }],
       details: helpers.ensureContextSafeDetails(rawMessage.details, {
         resultMode: outcome.resultMode,
@@ -72,7 +95,9 @@ export function applyToolResultPersistPolicy(
         outputFile: outcome.outputFile,
         dataKey: outcome.dataKey,
         originalChars: outcome.originalChars,
-        previewChars: outcome.inlineLimit,
+        previewChars: previewText?.length ?? 0,
+        reductionRoute: reducedPreview?.route,
+        reductionReason: reducedPreview?.reason,
         sourcePass: outcome.sourcePass,
         persistedBy: outcome.persistedBy,
       }),

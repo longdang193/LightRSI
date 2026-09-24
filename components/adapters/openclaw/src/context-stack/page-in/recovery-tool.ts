@@ -47,6 +47,11 @@ export function registerMemoryFaultRecoverTool(
           minimum: 1,
           description: "Optional 1-based end line for partial recovery.",
         },
+        maxScanLines: {
+          type: "integer",
+          minimum: 1,
+          description: "Optional maximum number of archive lines to scan in search mode.",
+        },
       },
       oneOf: [{ required: ["artifactRef"] }, { required: ["dataKey"] }],
     },
@@ -92,6 +97,7 @@ export function registerMemoryFaultRecoverTool(
         archive,
         startLine: typeof args?.startLine === "number" ? args.startLine : undefined,
         endLine: typeof args?.endLine === "number" ? args.endLine : undefined,
+        maxScanLines: typeof args?.maxScanLines === "number" ? args.maxScanLines : undefined,
       });
 
       return {

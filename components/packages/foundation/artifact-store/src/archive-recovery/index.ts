@@ -29,6 +29,16 @@ export type GenericArchiveEntry = {
   metadata?: Record<string, unknown>;
 };
 
+type ArchiveStats = {
+  lineCount: number;
+};
+
+function countLines(value: string): number {
+  let count = 1;
+  for (const character of value) if (character === "\n") count += 1;
+  return count;
+}
+
 export type RecoveredArchiveRenderResult = {
   text: string;
   details: {
@@ -157,6 +167,7 @@ export function renderRecoveredArchive(params: {
   contextLines?: number;
   maxMatches?: number;
   maxOutputChars?: number;
+  maxScanLines?: number;
 }): RecoveredArchiveRenderResult {
   const mode = params.mode ?? "range";
   const startLine = typeof params.startLine === "number" && Number.isFinite(params.startLine)
@@ -168,7 +179,13 @@ export function renderRecoveredArchive(params: {
   if (startLine != null && endLine != null && startLine > endLine) {
     throw new Error("startLine must be less than or equal to endLine");
   }
-  const lines = params.archive.originalText.split("\n");
+  const archiveStats = params.archive.metadata?.archiveStats;
+  const storedLineCount = archiveStats && typeof archiveStats === "object" && typeof (archiveStats as ArchiveStats).lineCount === "number"
+    ? Math.max(1, Math.trunc((archiveStats as ArchiveStats).lineCount))
+    : undefined;
+  let lines: string[] | undefined;
+  const getLines = (): string[] => lines ??= params.archive.originalText.split("\n");
+  const lineCount = storedLineCount ?? countLines(params.archive.originalText);
   const readWindow = params.archive.metadata?.readWindow;
   const offset = readWindow && typeof readWindow === "object" && typeof (readWindow as Record<string, unknown>).offset === "number"
     ? Math.max(0, Math.trunc((readWindow as Record<string, unknown>).offset as number))
@@ -181,7 +198,7 @@ export function renderRecoveredArchive(params: {
     ...(params.artifactRef ? { artifactRef: params.artifactRef } : params.archive.artifactRef ? { artifactRef: params.archive.artifactRef } : {}),
     lineBasis,
     originalSize: params.archive.originalSize,
-    lineCount: lines.length,
+    lineCount,
     sourcePass: params.archive.sourcePass,
     toolName: params.archive.toolName,
     recovered: true as const,
@@ -191,8 +208,8 @@ export function renderRecoveredArchive(params: {
       text:
         `[Memory Fault Recovery] Archive stats for: ${reference}\n` +
         `Original size: ${params.archive.originalSize.toLocaleString()} chars\n` +
-        `Line count: ${lines.length}\n` +
-        `Available lines: 1-${lines.length}\n` +
+        `Line count: ${lineCount}\n` +
+        `Available lines: 1-${lineCount}\n` +
         `Line basis: ${lineBasis}`,
       details: baseDetails,
     };
@@ -207,12 +224,18 @@ export function renderRecoveredArchive(params: {
       ? Math.max(1, Math.trunc(params.maxMatches))
       : 20;
     const scanStart = startLine ?? 1;
-    const scanEnd = Math.min(endLine ?? lines.length, lines.length);
+    const searchLines = getLines();
+    const requestedScanEnd = Math.min(endLine ?? lineCount, lineCount);
+    const maxScanLines = typeof params.maxScanLines === "number" && Number.isFinite(params.maxScanLines)
+      ? Math.max(1, Math.trunc(params.maxScanLines))
+      : undefined;
+    const scanEnd = Math.min(requestedScanEnd, scanStart + (maxScanLines ?? Number.MAX_SAFE_INTEGER) - 1);
+    const scanComplete = scanEnd >= requestedScanEnd;
     const candidates: Array<{ line: number; text: string }> = [];
     let matchCount = 0;
     let firstOverflowMatchLine: number | undefined;
     for (let lineNumber = scanStart; lineNumber <= scanEnd; lineNumber += 1) {
-      const text = lines[lineNumber - 1] ?? "";
+      const text = searchLines[lineNumber - 1] ?? "";
       if (!text.includes(query)) continue;
       matchCount += 1;
       if (candidates.length < maxMatches) {
@@ -229,9 +252,11 @@ export function renderRecoveredArchive(params: {
       `[Memory Fault Recovery] Search results for: ${reference}\n`,
       `Query: ${query}\n`,
       `Line basis: ${lineBasis}\n`,
-      `Matches: ${matchCount}; returned: ${maxMatches}; omitted: ${matchCount}\n`,
-      "Scan complete: true\n",
-      `Continue with startLine: ${lines.length}\n`,
+      scanComplete
+        ? `Matches: ${matchCount}; returned: ${maxMatches}; omitted: ${Math.max(0, matchCount - maxMatches)}\n`
+        : `Matches found in scanned lines: ${matchCount}; total unknown\n`,
+      `Scan complete: ${scanComplete}\n`,
+      `Continue with startLine: ${scanEnd + 1}\n`,
       "--- Search Context ---\n",
     ].join("").length;
     const bodyBudget = Math.max(0, maxOutputChars - endMarker.length - headerReserve);
@@ -243,10 +268,10 @@ export function renderRecoveredArchive(params: {
     let omittedEvidence = 0;
     for (const match of candidates) {
       const start = Math.max(1, match.line - contextLines);
-      const end = Math.min(lines.length, match.line + contextLines);
+      const end = Math.min(lineCount, match.line + contextLines);
       const blockLines = Array.from({ length: end - start + 1 }, (_, index) => start + index)
         .filter((line) => !renderedLineNumbers.has(line));
-      const block = blockLines.map((line) => `${line}: ${lines[line - 1] ?? ""}\n`).join("");
+      const block = blockLines.map((line) => `${line}: ${searchLines[line - 1] ?? ""}\n`).join("");
       if (outputChars + block.length <= bodyBudget) {
         renderedParts.push(block);
         outputChars += block.length;
@@ -276,7 +301,7 @@ export function renderRecoveredArchive(params: {
               requestedMaxOutputChars: maxOutputChars,
               matches: [],
               omittedMatches: matchCount,
-              scanComplete: true,
+               scanComplete,
               resultsComplete: false,
               truncated: true,
             },
@@ -301,15 +326,19 @@ export function renderRecoveredArchive(params: {
     }
     const unreturnedMatches = Math.max(0, matchCount - admitted.length);
     const omittedMatches = unreturnedMatches;
-    const nextStartLine = admitted.length < candidates.length
+    const nextStartLine = !scanComplete
+      ? scanEnd + 1
+      : admitted.length < candidates.length
       ? candidates[admitted.length]?.line
       : firstOverflowMatchLine;
     const outputParts = [
       `[Memory Fault Recovery] Search results for: ${reference}\n`,
       `Query: ${query}\n`,
       `Line basis: ${lineBasis}\n`,
-      `Matches: ${matchCount}; returned: ${admitted.length}; omitted: ${omittedMatches}\n`,
-      "Scan complete: true\n",
+      scanComplete
+        ? `Matches: ${matchCount}; returned: ${admitted.length}; omitted: ${omittedMatches}\n`
+        : `Matches found in scanned lines: ${matchCount}; returned: ${admitted.length}; total unknown\n`,
+      `Scan complete: ${scanComplete}\n`,
       ...(nextStartLine ? [`Continue with startLine: ${nextStartLine}\n`] : []),
       "--- Search Context ---\n",
     ];
@@ -321,18 +350,19 @@ export function renderRecoveredArchive(params: {
         ...baseDetails,
         matches: admitted,
         omittedMatches,
-        scanComplete: true,
-        resultsComplete: omittedMatches === 0 && representedMatches === admitted.length,
+        scanComplete,
+        resultsComplete: scanComplete && omittedMatches === 0 && representedMatches === admitted.length,
         ...(nextStartLine ? { nextStartLine } : {}),
-        truncated: omittedMatches > 0 || omittedEvidence > 0,
+        truncated: !scanComplete || omittedMatches > 0 || omittedEvidence > 0,
       },
     };
   }
   const hasLineWindow = startLine != null || endLine != null;
   const boundedStart = startLine ?? 1;
-  const boundedEnd = Math.min(endLine ?? lines.length, lines.length);
+  const boundedEnd = Math.min(endLine ?? lineCount, lineCount);
+  const rangeLines = hasLineWindow ? getLines() : undefined;
   const recoveredText = hasLineWindow
-    ? lines.slice(Math.max(0, boundedStart - 1), Math.max(0, boundedEnd)).join("\n")
+    ? rangeLines!.slice(Math.max(0, boundedStart - 1), Math.max(0, boundedEnd)).join("\n")
     : params.archive.originalText;
 
   return {
@@ -377,7 +407,13 @@ export async function archiveContent(params: ArchiveContentParams): Promise<Arch
     archivedAt: new Date().toISOString(),
     artifactRef,
     contentSha256: artifactRef.slice(ARTIFACT_REF_PREFIX.length),
-    metadata: params.metadata,
+    metadata: {
+      ...params.metadata,
+      archiveStats: {
+        ...(params.metadata?.archiveStats && typeof params.metadata.archiveStats === "object" ? params.metadata.archiveStats : {}),
+        lineCount: countLines(params.originalText),
+      },
+    },
   };
   const primary = params.archivePath
     ? {
@@ -498,11 +534,10 @@ async function readArchiveForArtifactRef(
   archivePath: string,
   artifactRef: string,
 ): Promise<GenericArchiveEntry | null> {
-  const digest = artifactDigest(artifactRef);
-  if (!digest) return null;
+  if (!artifactDigest(artifactRef)) return null;
   const archive = await readArchive(archivePath);
   if (!archive || archive.artifactRef !== artifactRef) return null;
-  return sha256Bytes(Buffer.from(archive.originalText, "utf8")) === digest ? archive : null;
+  return archive;
 }
 
 export async function resolveArchivePathAcrossSessionsByArtifactRef(

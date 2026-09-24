@@ -25,7 +25,7 @@ const DEFAULT_HEAD_LINES = 8;
 const DEFAULT_TAIL_LINES = 8;
 const MAX_DISCLOSED_READ_PATHS = 128;
 
-type ToolPayloadTrimConfig = {
+export type ToolPayloadTrimConfig = {
   maxChars: number;
   noteLabel: string;
   stdout: PayloadBlockConfig;
@@ -58,7 +58,7 @@ const buildBlockConfig = (
   };
 };
 
-const resolveConfig = (options?: Record<string, unknown>): ToolPayloadTrimConfig => {
+export const resolveToolPayloadTrimConfig = (options?: Record<string, unknown>): ToolPayloadTrimConfig => {
   const maxChars = parsePositiveInt(options?.maxChars, DEFAULT_MAX_CHARS);
   const noteLabel =
     typeof options?.noteLabel === "string" && options.noteLabel.trim().length > 0
@@ -234,7 +234,7 @@ const readDisclosedReadPaths = (metadata: Record<string, unknown> | undefined): 
 export const toolPayloadTrimPass: ImmutableReductionPassHandler = {
   immutableInput: true,
   async beforeCall({ turnCtx, spec, requestState }) {
-    const cfg = resolveConfig(spec.options);
+    const cfg = resolveToolPayloadTrimConfig(spec.options);
 
     // Check if policy provided instructions for this strategy
     const policy = asObject(turnCtx.metadata?.policy);

@@ -150,6 +150,33 @@ test("renderRecoveredArchive supports bounded stats and literal search", () => {
   assert.equal(search.details.nextStartLine, 4);
 });
 
+test("search reports an honest continuation when scan work is bounded", () => {
+  const archive = {
+    schemaVersion: 2,
+    kind: "tool_payload_trim_archive",
+    sessionId: "sess-scan",
+    segmentId: "seg-scan",
+    sourcePass: "tool_payload_trim",
+    toolName: "read",
+    dataKey: "repo:file.ts",
+    originalText: "needle one\nnoise\nneedle two\nneedle three",
+    originalSize: 42,
+    archivedAt: "2026-09-24T00:00:00.000Z",
+  };
+  const result = renderRecoveredArchive({
+    archive,
+    mode: "search",
+    query: "needle",
+    contextLines: 0,
+    maxMatches: 5,
+    maxScanLines: 2,
+  });
+  assert.match(result.text, /total unknown/);
+  assert.equal(result.details.scanComplete, false);
+  assert.equal(result.details.nextStartLine, 3);
+  assert.equal(result.details.omittedMatches, 0);
+});
+
 test("renderRecoveredArchive reports insufficient search budget without a repeated cursor", () => {
   const archive = {
     schemaVersion: 2,

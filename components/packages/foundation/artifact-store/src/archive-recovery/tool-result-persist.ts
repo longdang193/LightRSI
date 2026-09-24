@@ -8,6 +8,12 @@ import {
 } from "./index.js";
 import { archiveDirWriteTargets, artifactLookupFilePath, hashText, pluginStateSubdir } from "./archive-paths.js";
 
+function countLines(value: string): number {
+  let count = 1;
+  for (const character of value) if (character === "\n") count += 1;
+  return count;
+}
+
 export function buildToolResultPreview(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}\n\n[tool result preview truncated]`;
@@ -84,7 +90,13 @@ function archiveContentSync(params: {
     archivedAt: new Date().toISOString(),
     artifactRef,
     contentSha256: artifactRef.slice("artifact:v2:".length),
-    metadata: params.metadata,
+    metadata: {
+      ...params.metadata,
+      archiveStats: {
+        ...(params.metadata?.archiveStats && typeof params.metadata.archiveStats === "object" ? params.metadata.archiveStats : {}),
+        lineCount: countLines(params.originalText),
+      },
+    },
   };
   const primary = buildArchiveLocation(params);
   const writeDirs = archiveDirWriteTargets(primary.archiveDir);

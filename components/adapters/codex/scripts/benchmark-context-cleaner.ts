@@ -174,6 +174,7 @@ type RunResult = {
   seedRequestCount: number;
   attempts: Array<{
     attemptIndex: number;
+    checkpoint: string;
     outcome: AttemptOutcome;
     failureReason: string | null;
     inputBytes: number;
@@ -744,9 +745,10 @@ async function cleanerTraceSummary(stateDir: string): Promise<string> {
   }
 }
 
-function summarizeAttempt(request: UpstreamRequest) {
+function summarizeAttempt(request: UpstreamRequest, checkpoint: string) {
   return {
     attemptIndex: request.attemptIndex,
+    checkpoint,
     outcome: request.outcome,
     failureReason: request.failureReason,
     inputBytes: request.inputBytes,
@@ -786,7 +788,7 @@ function runResultFromRequests(params: {
     providerUsage: usage,
     providerShape: params.mode === "live" ? params.requests.map(providerShape) : null,
     seedRequestCount: params.seedRequestCount,
-    attempts: params.requests.map(summarizeAttempt),
+    attempts: params.requests.map((request, index) => summarizeAttempt(request, params.turns[index]?.label ?? `provider_attempt_${index}`)),
     executionStatus: params.passed && completeTiming ? "complete" : params.requests.length > 0 ? "partial" : "failed",
     measurementStatus,
     correctnessStatus: params.passed ? "pass" : "fail",
@@ -1361,12 +1363,22 @@ export function cumulativeBreakEven(
   };
 }
 
-function summarizeProviderUsage(runs: RunResult[]) {
+function summarizeProviderUsage(runs: RunResult[], excludeSeed = false) {
   const unavailable = runs.some((run) => run.providerUsage === null);
-  const usages = runs.flatMap((run) => run.providerUsage ?? []);
+  const usages = runs.flatMap((run) => run.providerUsage?.slice(excludeSeed ? run.seedRequestCount : 0) ?? []);
   return summarizeUsageValues(
     unavailable ? null : usages,
-    runs.reduce((total, run) => total + run.upstreamRequestCount, 0),
+    runs.reduce((total, run) => total + run.upstreamRequestCount - (excludeSeed ? run.seedRequestCount : 0), 0),
+  );
+}
+
+function summarizeSharedSeedUsage(runs: RunResult[]) {
+  const seedRuns = runs.filter((run) => run.arm === "baseline" && run.seedRequestCount > 0);
+  const unavailable = seedRuns.some((run) => run.providerUsage === null);
+  const usages = seedRuns.flatMap((run) => run.providerUsage?.slice(0, run.seedRequestCount) ?? []);
+  return summarizeUsageValues(
+    unavailable ? null : usages,
+    seedRuns.reduce((total, run) => total + run.seedRequestCount, 0),
   );
 }
 
@@ -1397,6 +1409,8 @@ async function main(): Promise<void> {
       .map((value) => value.trim())
       .filter(Boolean) as FixtureName[];
     assert.ok(fixtureNames.length > 0 && fixtureNames.every((name) => manifest.fixtures.some((fixture) => fixture.id === name)));
+    const spendingCapUsd = Number(manifest.spendingCapUsd);
+    assert.ok(Number.isFinite(spendingCapUsd) && spendingCapUsd > 0, "spendingCapUsd must be positive");
     let liveOptions: LiveOptions | undefined;
     if (mode === "live") {
       const config = await loadTokenPilotCodexConfig(defaultTokenPilotConfigPath());
@@ -1412,38 +1426,71 @@ async function main(): Promise<void> {
       assert.ok(process.env.OPENAI_API_KEY?.trim(), "live mode requires provider credentials");
       liveOptions = { baseUrl, model };
     }
+    const providerIdentityStatus = mode === "mock"
+      ? "mock_fixture"
+      : manifest.provider.model === liveOptions!.model ? "match" : "mismatch";
+    const plannedDispatches = fixtureNames.length * repetitions * (2 + (causalPairs ? 1 : 0));
+    const reservedDispatchCostUsd = mode === "live" ? spendingCapUsd / plannedDispatches : 0;
+    let reservedCostUsd = 0;
+    let capStopReason: string | null = null;
     for (const fixtureName of fixtureNames) {
       for (let repetition = 1; repetition <= repetitions; repetition += 1) {
         const arms: Arm[] = armOrderMode === "alternating" && repetition % 2 === 0
           ? ["cleaner", "baseline"]
           : ["baseline", "cleaner"];
         const fixture = createFixture(fixtureName, manifest);
-        const seed = causalPairs
-          ? await createBenchmarkSeed(fixture, releaseMode, mode, repetition, requestTimeoutMs, liveOptions)
-          : undefined;
+        let seed: BenchmarkSeed | undefined;
         try {
+          if (causalPairs) {
+            if (mode === "live") {
+              const observedCostUsd = estimateProviderCost(
+                summarizeProviderUsage(runs),
+                readProviderPricing(manifest.provider) ?? { inputUsdPerMillion: 0, cachedInputUsdPerMillion: 0, outputUsdPerMillion: 0 },
+              ) ?? 0;
+              if (observedCostUsd + reservedCostUsd + reservedDispatchCostUsd > spendingCapUsd) {
+                capStopReason = "spending_cap_reservation_exhausted";
+                break;
+              }
+              reservedCostUsd += reservedDispatchCostUsd;
+            }
+            seed = await createBenchmarkSeed(fixture, releaseMode, mode, repetition, requestTimeoutMs, liveOptions);
+          }
           for (const arm of arms) {
+            if (mode === "live") {
+              const observedCostUsd = estimateProviderCost(
+                summarizeProviderUsage(runs),
+                readProviderPricing(manifest.provider) ?? { inputUsdPerMillion: 0, cachedInputUsdPerMillion: 0, outputUsdPerMillion: 0 },
+              ) ?? 0;
+              if (observedCostUsd + reservedCostUsd + reservedDispatchCostUsd > spendingCapUsd) {
+                capStopReason = "spending_cap_reservation_exhausted";
+                break;
+              }
+              reservedCostUsd += reservedDispatchCostUsd;
+            }
             runs.push(await runArm(fixture, releaseMode, arm, repetition, mode, liveOptions, seed, requestTimeoutMs));
           }
         } finally {
           seed?.cleanup();
         }
+        if (capStopReason) break;
       }
+      if (capStopReason) break;
     }
     const differences = pairedDifferences(runs);
+    const pricing = mode === "live" ? readProviderPricing(manifest.provider) : null;
     const providerUsage = mode === "live"
       ? {
-        baseline: summarizeProviderUsage(runs.filter((run) => run.arm === "baseline")),
-        cleaner: summarizeProviderUsage(runs.filter((run) => run.arm === "cleaner")),
+        seed: summarizeSharedSeedUsage(runs),
+        baseline: summarizeProviderUsage(runs.filter((run) => run.arm === "baseline"), true),
+        cleaner: summarizeProviderUsage(runs.filter((run) => run.arm === "cleaner"), true),
       }
       : null;
-    const pricing = mode === "live" ? readProviderPricing(manifest.provider) : null;
+    const seedCostUsd = providerUsage && pricing ? estimateProviderCost(providerUsage.seed, pricing) : null;
     const baselineCostUsd = providerUsage && pricing ? estimateProviderCost(providerUsage.baseline, pricing) : null;
     const cleanerCostUsd = providerUsage && pricing ? estimateProviderCost(providerUsage.cleaner, pricing) : null;
-    const combinedCostUsd = baselineCostUsd !== null && cleanerCostUsd !== null
-      ? baselineCostUsd + cleanerCostUsd
+    const combinedCostUsd = seedCostUsd !== null && baselineCostUsd !== null && cleanerCostUsd !== null
+      ? seedCostUsd + baselineCostUsd + cleanerCostUsd
       : null;
-    const spendingCapUsd = Number(manifest.spendingCapUsd);
     const underSpendingCap = combinedCostUsd !== null && Number.isFinite(spendingCapUsd)
       ? combinedCostUsd <= spendingCapUsd
       : null;
@@ -1452,7 +1499,10 @@ async function main(): Promise<void> {
       ? "unavailable"
       : runs.every((run) => run.measurementStatus === "complete") ? "complete" : runs.some((run) => run.measurementStatus === "incomplete") ? "incomplete" : "unavailable";
     const correctnessStatus = runs.length > 0 && runs.every((run) => run.correctnessStatus === "pass") ? "pass" : "fail";
-    const economicStatus = underSpendingCap === null ? "inconclusive" : underSpendingCap ? "pass" : "fail";
+    const comparablePairCount = differences.filter((difference) => difference.measurementComparable).length;
+    const economicStatus = providerIdentityStatus === "mismatch" || measurementStatus !== "complete" || comparablePairCount === 0 || underSpendingCap === null
+      ? "inconclusive"
+      : underSpendingCap ? "pass" : "fail";
     passed = runs.length > 0 && runs.every((run) => run.passed) && runs.every((run) => run.turns.every((turn) => turn.timing.complete));
     report = {
       schemaVersion: 2,
@@ -1472,7 +1522,7 @@ async function main(): Promise<void> {
       causalPairs,
       repetitions,
       fixtures: fixtureNames.map((name) => manifest.fixtures.find((fixture) => fixture.id === name)),
-      provider: liveOptions ? { host: new URL(liveOptions.baseUrl).hostname, model: liveOptions.model } : null,
+       provider: liveOptions ? { host: new URL(liveOptions.baseUrl).hostname, model: liveOptions.model, identityStatus: providerIdentityStatus } : null,
       usage: mode === "live" ? "provider_response_usage_when_present" : "provider_usage_unavailable_for_mock_upstream",
       statuses: { executionStatus, measurementStatus, correctnessStatus, economicStatus },
       economics: mode === "live"
@@ -1480,12 +1530,15 @@ async function main(): Promise<void> {
           status: economicStatus,
           pricingStatus: pricing ? "pinned" : "unavailable",
           calculation: "uncached_input + cached_input + output; cache creation tokens unavailable",
-          baselineCostUsd,
-          cleanerCostUsd,
-          combinedCostUsd,
-          costDeltaUsd: baselineCostUsd !== null && cleanerCostUsd !== null ? cleanerCostUsd - baselineCostUsd : null,
-          spendingCapUsd: Number.isFinite(spendingCapUsd) ? spendingCapUsd : null,
-          underSpendingCap,
+           baselineCostUsd,
+           cleanerCostUsd,
+           seedCostUsd,
+           combinedCostUsd,
+           marginalCostDeltaUsd: baselineCostUsd !== null && cleanerCostUsd !== null ? cleanerCostUsd - baselineCostUsd : null,
+           spendingCapUsd: Number.isFinite(spendingCapUsd) ? spendingCapUsd : null,
+           underSpendingCap,
+           reservedCostUsd,
+           capStopReason,
         }
         : null,
       runs,
