@@ -1,7 +1,7 @@
 {
   "experiment": "context-cleaner-stage-b",
-  "runtimeSha": "6516772",
-  "benchmarkSha": "6516772",
+  "runtimeSha": "a5002540fee91066c04367e682f1e1d16af62788",
+  "benchmarkSha": "a5002540fee91066c04367e682f1e1d16af62788",
   "comparison": {
     "keep": "baseline",
     "release": "cleaner"
