@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -146,6 +147,15 @@ type LiveOptions = {
   model: string;
 };
 
+export type GitPreflight = {
+  status: "clean_match" | "clean_mismatch" | "dirty";
+  actualSha: string | null;
+  expectedRuntimeSha: string;
+  expectedBenchmarkSha: string;
+  runtimeMatch: boolean | null;
+  benchmarkMatch: boolean | null;
+};
+
 const BENCHMARK_STABLE_INSTRUCTIONS = "Stable benchmark policy. ".repeat(512).trim();
 
 type TurnResult = {
@@ -212,7 +222,7 @@ export type ProviderShape = {
   promptCacheBreakpoint?: boolean;
 };
 
-async function loadStageBManifest(): Promise<{ manifest: StageBManifest; path: string; hash: string }> {
+async function loadStageBManifest(): Promise<{ manifest: StageBManifest; path: string }> {
   const relativePath = join("docs", "superpowers", "experiments", "2026-09-24-context-cleaner-stage-b.json");
   const candidates = [
     process.env.LIGHTRSI_BENCHMARK_MANIFEST?.trim(),
@@ -227,7 +237,7 @@ async function loadStageBManifest(): Promise<{ manifest: StageBManifest; path: s
       assert.equal(manifest.experiment, "context-cleaner-stage-b");
       assert.ok(manifest.fixtures.length === 4, "Stage B manifest must define four fixtures");
       assert.ok(manifest.comparison.keep === "baseline" && manifest.comparison.release === "cleaner");
-      return { manifest, path, hash: createHash("sha256").update(raw).digest("hex") };
+      return { manifest, path };
     } catch (error) {
       lastError = error;
     }
@@ -1264,6 +1274,53 @@ function summarizeUsageValues(
   };
 }
 
+function gitOutput(args: string[]): string {
+  return execFileSync("git", args, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+export function evaluateGitPreflight(params: {
+  actualSha: string | null;
+  expectedRuntimeSha: string;
+  expectedBenchmarkSha: string;
+  clean: boolean;
+}): GitPreflight {
+  if (!params.clean) {
+    return {
+      status: "dirty",
+      actualSha: null,
+      expectedRuntimeSha: params.expectedRuntimeSha,
+      expectedBenchmarkSha: params.expectedBenchmarkSha,
+      runtimeMatch: null,
+      benchmarkMatch: null,
+    };
+  }
+  assert.ok(params.actualSha, "clean git preflight requires HEAD SHA");
+  const runtimeMatch = params.actualSha === params.expectedRuntimeSha;
+  const benchmarkMatch = params.actualSha === params.expectedBenchmarkSha;
+  return {
+    status: runtimeMatch && benchmarkMatch ? "clean_match" : "clean_mismatch",
+    actualSha: params.actualSha,
+    expectedRuntimeSha: params.expectedRuntimeSha,
+    expectedBenchmarkSha: params.expectedBenchmarkSha,
+    runtimeMatch,
+    benchmarkMatch,
+  };
+}
+
+function readGitPreflight(expectedRuntimeSha: string, expectedBenchmarkSha: string): GitPreflight {
+  const clean = gitOutput(["status", "--porcelain=v1", "--untracked-files=all"]) === "";
+  return evaluateGitPreflight({
+    actualSha: clean ? gitOutput(["rev-parse", "HEAD"]) : null,
+    expectedRuntimeSha,
+    expectedBenchmarkSha,
+    clean,
+  });
+}
+
 export function estimateProviderCost(
   summary: Pick<UsageSummary, "status" | "totals">,
   pricing: ProviderPricing,
@@ -1388,6 +1445,7 @@ async function main(): Promise<void> {
   const runs: RunResult[] = [];
   let report: JsonObject;
   let passed = false;
+  let gitPreflight: GitPreflight | null = null;
   try {
     const manifestInfo = await loadStageBManifest();
     const { manifest } = manifestInfo;
@@ -1411,6 +1469,13 @@ async function main(): Promise<void> {
     assert.ok(fixtureNames.length > 0 && fixtureNames.every((name) => manifest.fixtures.some((fixture) => fixture.id === name)));
     const spendingCapUsd = Number(manifest.spendingCapUsd);
     assert.ok(Number.isFinite(spendingCapUsd) && spendingCapUsd > 0, "spendingCapUsd must be positive");
+    gitPreflight = readGitPreflight(manifest.runtimeSha, manifest.benchmarkSha);
+    if (gitPreflight.status === "dirty") {
+      throw new Error("benchmark requires a clean git checkout");
+    }
+    if (mode === "live" && gitPreflight.status === "clean_mismatch") {
+      throw new Error(`live benchmark SHA preflight failed: expected runtime=${manifest.runtimeSha}, benchmark=${manifest.benchmarkSha}, actual=${gitPreflight.actualSha}`);
+    }
     let liveOptions: LiveOptions | undefined;
     if (mode === "live") {
       const config = await loadTokenPilotCodexConfig(defaultTokenPilotConfigPath());
@@ -1500,7 +1565,7 @@ async function main(): Promise<void> {
       : runs.every((run) => run.measurementStatus === "complete") ? "complete" : runs.some((run) => run.measurementStatus === "incomplete") ? "incomplete" : "unavailable";
     const correctnessStatus = runs.length > 0 && runs.every((run) => run.correctnessStatus === "pass") ? "pass" : "fail";
     const comparablePairCount = differences.filter((difference) => difference.measurementComparable).length;
-    const economicStatus = providerIdentityStatus === "mismatch" || measurementStatus !== "complete" || comparablePairCount === 0 || underSpendingCap === null
+    const economicStatus = providerIdentityStatus === "mismatch" || gitPreflight.status !== "clean_match" || measurementStatus !== "complete" || comparablePairCount === 0 || underSpendingCap === null
       ? "inconclusive"
       : underSpendingCap ? "pass" : "fail";
     passed = runs.length > 0 && runs.every((run) => run.passed) && runs.every((run) => run.turns.every((turn) => turn.timing.complete));
@@ -1513,8 +1578,8 @@ async function main(): Promise<void> {
         runtimeSha: manifest.runtimeSha,
         benchmarkSha: manifest.benchmarkSha,
         manifestPath: manifestInfo.path,
-        manifestHash: manifestInfo.hash,
       },
+      gitPreflight,
       comparison: { keep: "baseline", release: "cleaner" },
       mode,
       releaseMode,
@@ -1573,6 +1638,7 @@ async function main(): Promise<void> {
         correctnessStatus: "fail",
         economicStatus: "inconclusive",
       },
+      gitPreflight,
       runs,
       pairedDifferences: pairedForReport,
       failure,

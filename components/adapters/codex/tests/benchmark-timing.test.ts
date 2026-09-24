@@ -8,6 +8,7 @@ import {
   cumulativeBreakEven,
   cumulativeBreakEvenByLabel,
   estimateProviderCost,
+  evaluateGitPreflight,
   providerShapesComparableBeforeRelease,
   usageDelta,
   userInputText,
@@ -304,5 +305,33 @@ test("benchmark reports delayed, temporary, and recovery-erased break-even", () 
   assert.equal(
     cumulativeBreakEven([10, 10], [8, 8], ["release", "continuation"]).sustainedBreakEven,
     true,
+  );
+});
+
+test("benchmark Git preflight ignores dirty SHA and marks mismatches", () => {
+  assert.deepEqual(
+    evaluateGitPreflight({
+      clean: false,
+      actualSha: "newer",
+      expectedRuntimeSha: "expected-runtime",
+      expectedBenchmarkSha: "expected-benchmark",
+    }),
+    {
+      status: "dirty",
+      actualSha: null,
+      expectedRuntimeSha: "expected-runtime",
+      expectedBenchmarkSha: "expected-benchmark",
+      runtimeMatch: null,
+      benchmarkMatch: null,
+    },
+  );
+  assert.equal(
+    evaluateGitPreflight({
+      clean: true,
+      actualSha: "newer",
+      expectedRuntimeSha: "expected-runtime",
+      expectedBenchmarkSha: "expected-benchmark",
+    }).status,
+    "clean_mismatch",
   );
 });
