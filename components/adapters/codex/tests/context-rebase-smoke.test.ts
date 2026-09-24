@@ -152,3 +152,17 @@ test("provider smoke loads canonical estimator aliases from tokenpilot env", asy
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("provider env loader rejects concatenated assignments", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-provider-env-malformed-"));
+  const envFile = join(dir, "tokenpilot.env");
+  try {
+    await writeFile(envFile, "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL=combo-highOPENAI_API_KEY=custom-key\n", "utf8");
+    await assert.rejects(
+      loadProviderEnvFile(envFile),
+      /malformed env assignment.*LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -371,7 +371,7 @@ export async function startDaemon(config: TokenPilotCodexConfig, params?: {
 
 export async function stopDaemon(config: TokenPilotCodexConfig): Promise<DaemonStatus & { stopped: boolean }> {
   const status = await readDaemonStatus(config);
-  if (!status.running || !status.pid || (status.detectedBy !== "health" && !status.pidVerified)) {
+  if (!status.running || !status.pid || !status.pidVerified) {
     if (status.detectedBy === "pid") await rm(status.pidPath, { force: true }).catch(() => undefined);
     return { ...status, stopped: false };
   }

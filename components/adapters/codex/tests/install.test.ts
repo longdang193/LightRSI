@@ -579,7 +579,7 @@ test("installCodexTokenPilot shifts the proxy port when the preferred port is al
   }
 });
 
-test("installCodexTokenPilot stops an existing daemon before resolving the proxy port", async () => {
+test("installCodexTokenPilot preserves an unverified healthy listener before resolving the proxy port", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-install-stop-daemon-"));
   const daemonPort = await reserveUnusedPort();
   let dummy: ReturnType<typeof spawn> | undefined;
@@ -636,9 +636,12 @@ test("installCodexTokenPilot stops an existing daemon before resolving the proxy
     });
 
     const persisted = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
-    assert.equal(persisted.proxyPort, daemonPort);
-    assert.equal(result.baseUrl, `http://127.0.0.1:${daemonPort}/v1`);
-    assert.equal((await readDaemonStatus(persisted)).running, false);
+    assert.notEqual(persisted.proxyPort, daemonPort);
+    assert.equal(result.baseUrl, `http://127.0.0.1:${persisted.proxyPort}/v1`);
+    const status = await readDaemonStatus(persisted);
+    assert.equal(status.running, true);
+    assert.equal(status.pidVerified, false);
+    assert.doesNotThrow(() => process.kill(dummy?.pid ?? 0, 0));
   } finally {
     if (dummy?.pid) {
       try {

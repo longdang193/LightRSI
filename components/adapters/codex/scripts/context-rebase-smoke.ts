@@ -5,6 +5,7 @@ import {
   codexProxyBaseUrl,
   defaultTokenPilotConfigPath,
   loadTokenPilotCodexConfig,
+  validateProviderEnvFile,
 } from "../src/config.js";
 import {
   CODEX_PROVIDER_SMOKE_SCENARIOS,
@@ -66,6 +67,7 @@ async function loadProviderEnvFile(path: string): Promise<void> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
+  validateProviderEnvFile(text, path);
   for (const rawLine of text.replace(/^\uFEFF/u, "").split(/\r?\n/u)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;

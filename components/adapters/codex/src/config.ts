@@ -57,6 +57,34 @@ type NormalizeCodexConfigOptions = {
   configPath?: string;
 };
 
+const PROVIDER_ENV_NAMES = [
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "LIGHTRSI_TASK_STATE_ESTIMATOR_API_KEY",
+  "LIGHTRSI_TASK_STATE_ESTIMATOR_BASE_URL",
+  "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL",
+  "TOKENPILOT_TASK_STATE_ESTIMATOR_API_KEY",
+  "TOKENPILOT_TASK_STATE_ESTIMATOR_BASE_URL",
+  "TOKENPILOT_TASK_STATE_ESTIMATOR_MODEL",
+] as const;
+
+export function validateProviderEnvFile(text: string, path: string): void {
+  for (const rawLine of text.replace(/^\uFEFF/u, "").split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    const separator = line.indexOf("=");
+    if (!line || line.startsWith("#") || separator <= 0) continue;
+    const name = line.slice(0, separator).trim();
+    if (!(PROVIDER_ENV_NAMES as readonly string[]).includes(name)) continue;
+    const value = line.slice(separator + 1);
+    const embeddedName = PROVIDER_ENV_NAMES.find((candidate) => (
+      candidate !== name && value.includes(candidate + "=")
+    ));
+    if (embeddedName) {
+      throw new Error("malformed env assignment in " + path + ": " + embeddedName + " appears inside " + name + " value");
+    }
+  }
+}
+
 export function expandHomePath(value: string): string {
   if (value === "~") return userHomeDirectory();
   if (value.startsWith("~/")) return join(userHomeDirectory(), value.slice(2));
@@ -260,7 +288,10 @@ export function normalizeTokenPilotCodexConfig(
 
 export async function loadTokenPilotCodexConfig(configPath = defaultTokenPilotConfigPath()): Promise<TokenPilotCodexConfig> {
   const envPath = join(dirname(configPath), "tokenpilot.env");
-  if (existsSync(envPath)) loadEnvFile(envPath);
+  if (existsSync(envPath)) {
+    validateProviderEnvFile(await readFile(envPath, "utf8"), envPath);
+    loadEnvFile(envPath);
+  }
   if (!existsSync(configPath)) {
     return normalizeTokenPilotCodexConfig({}, { configPath });
   }

@@ -380,6 +380,33 @@ test("stopDaemon does not kill a live process from a legacy pid file", async () 
   }
 });
 
+test("stopDaemon does not kill a healthy process without verified ownership", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-daemon-unverified-health-"));
+  let unrelated: ReturnType<typeof spawn> | undefined;
+  try {
+    const proxyPort = await reserveUnusedPort();
+    const config = normalizeTokenPilotCodexConfig({ proxyPort, stateDir: join(dir, "state") });
+    await mkdir(config.stateDir, { recursive: true });
+    unrelated = spawn(process.execPath, [
+      "-e",
+      "const http = require('node:http'); const port = Number(process.argv[1]); http.createServer((req, res) => { if (req.url === '/health') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ ok: true, adapter: 'tokenpilot-codex', pid: process.pid })); return; } res.statusCode = 404; res.end(); }).listen(port, '127.0.0.1');",
+      String(proxyPort),
+    ], { stdio: "ignore" });
+    await waitForHealth(proxyPort);
+    await writeFile(daemonPaths(config).pidPath, `${unrelated.pid}\n`, "utf8");
+
+    const result = await stopDaemon(config);
+
+    assert.equal(result.stopped, false);
+    assert.doesNotThrow(() => process.kill(unrelated?.pid ?? 0, 0));
+  } finally {
+    if (unrelated?.pid) {
+      try { process.kill(unrelated.pid, "SIGKILL"); } catch {}
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("stopDaemon stops a verified owner when health is unavailable", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightmem2-codex-daemon-verified-pid-"));
   let daemon: ReturnType<typeof spawn> | undefined;

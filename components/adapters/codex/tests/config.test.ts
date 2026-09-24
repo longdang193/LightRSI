@@ -115,3 +115,27 @@ test("normalizeTokenPilotCodexConfig enables real-provider compatibility learnin
     "real_provider",
   );
 });
+
+test("loadTokenPilotCodexConfig rejects concatenated tokenpilot env assignments", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-config-malformed-env-"));
+  const configPath = join(dir, "tokenpilot.json");
+  const envName = "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL";
+  const savedEnv = process.env[envName];
+  try {
+    delete process.env[envName];
+    await writeFile(configPath, "{}\n", "utf8");
+    await writeFile(
+      join(dir, "tokenpilot.env"),
+      "LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL=combo-highOPENAI_API_KEY=custom-key\n",
+      "utf8",
+    );
+    await assert.rejects(
+      loadTokenPilotCodexConfig(configPath),
+      /malformed env assignment.*LIGHTRSI_TASK_STATE_ESTIMATOR_MODEL/,
+    );
+  } finally {
+    if (savedEnv === undefined) delete process.env[envName];
+    else process.env[envName] = savedEnv;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
