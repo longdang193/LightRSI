@@ -1,7 +1,7 @@
 {
   "experiment": "context-cleaner-stage-b",
   "runtimeSha": "a0813871f81abde8988b7b70ea20b66613f9eef3",
-  "benchmarkSha": "filled-at-execution",
+  "benchmarkSha": "85e3764bd529214d1a7690c587e19b5effbc0ebf",
   "comparison": {
     "keep": "baseline",
     "release": "cleaner"
@@ -52,16 +52,39 @@
     }
   ],
   "provider": {
-    "model": "resolved-at-execution",
+    "name": "9Router",
+    "baseUrl": "http://127.0.0.1:20128/v1",
+    "model": "cx/gpt-5.6-luna",
+    "credentialSource": "centralized-env-file:OPENAI_API_KEY",
     "pricing": {
-      "status": "required-before-live-run",
-      "source": "required-before-live-run",
-      "effectiveDate": "required-before-live-run",
+      "status": "pinned",
+      "source": "9router/open-sse/providers/pricing.js",
+      "sourceCommit": "6efb97904b8497d697a04b5730e75cc7afd48e88",
+      "effectiveDate": "2026-09-03",
+      "inputUsdPerMillion": 1.0,
+      "cachedInputUsdPerMillion": 0.1,
+      "cacheCreationUsdPerMillion": 1.0,
+      "outputUsdPerMillion": 6.0,
+      "reasoningUsdPerMillion": 6.0,
       "currency": "USD"
     }
   },
   "repetitions": 5,
-  "spendingCapUsd": "approved-before-live-run",
+  "spendingCapUsd": 10.0,
+  "pilot": {
+    "repetitions": 1,
+    "spendingCapUsd": 2.0,
+    "rawResultStorage": "local-temp-outside-git"
+  },
+  "thresholds": {
+    "maxProviderErrors": 0,
+    "maxTransportErrors": 0,
+    "maxTimeouts": 0,
+    "maxMissingUsageFields": 0,
+    "maxMissingCacheEvidence": 0,
+    "maxCorrectnessFailures": 0,
+    "maxRuntimeDrift": 0
+  },
   "outcomes": [
     "monetaryCost",
     "taskCorrectness",

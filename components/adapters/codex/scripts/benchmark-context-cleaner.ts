@@ -118,6 +118,12 @@ type UsageSummary = {
   totals: Record<UsageField, number | null>;
 };
 
+export type ProviderPricing = {
+  inputUsdPerMillion: number;
+  cachedInputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+};
+
 type ReleaseMode = "lifecycle" | "one-release";
 
 export type BreakEvenCheckpoint = {
@@ -153,6 +159,7 @@ type TurnResult = {
 
 type RunResult = {
   fixture: FixtureName;
+  releasePosition: StageBFixtureSpec["releasePosition"];
   cacheCondition: CacheCondition;
   recovery: boolean;
   arm: Arm;
@@ -563,10 +570,14 @@ export function providerShapesComparableBeforeRelease(
   baselineShapes: readonly ProviderShape[] | null,
   cleanerLabels: readonly string[],
   cleanerShapes: readonly ProviderShape[] | null,
+  releasePosition: StageBFixtureSpec["releasePosition"] = "late",
 ): boolean {
   if (!baselineShapes || !cleanerShapes) return true;
-  const baselineBoundary = baselineLabels.indexOf("after_release_a");
-  const cleanerBoundary = cleanerLabels.indexOf("after_release_a");
+  const boundaryLabel = releasePosition === "early"
+    ? baselineLabels.find((label) => label.startsWith("noise_before_")) ?? "after_release_a"
+    : "after_release_a";
+  const baselineBoundary = baselineLabels.indexOf(boundaryLabel);
+  const cleanerBoundary = cleanerLabels.indexOf(boundaryLabel);
   if (baselineBoundary < 0 || cleanerBoundary < 0 || baselineBoundary !== cleanerBoundary) return false;
   for (let index = 0; index < baselineBoundary; index += 1) {
     const baseline = baselineShapes[index];
@@ -762,6 +773,7 @@ function runResultFromRequests(params: {
   const completeTiming = params.turns.every((turn) => turn.timing.complete);
   return {
     fixture: params.fixture.name,
+    releasePosition: params.fixture.releasePosition,
     cacheCondition: params.fixture.cacheCondition,
     recovery: params.fixture.recovery,
     arm: params.arm,
@@ -1132,6 +1144,7 @@ function pairedDifferences(runs: RunResult[]) {
           baseline.providerShape,
           run.turns.map((turn) => turn.label),
           run.providerShape,
+          run.releasePosition,
         ),
         turns: run.turns.map((turn) => {
           const baselineTurn = baselineTurns.get(turn.label);
@@ -1165,6 +1178,7 @@ function pairedDifferences(runs: RunResult[]) {
             baseline.providerShape,
             run.turns.map((turn) => turn.label),
             run.providerShape,
+            run.releasePosition,
           )
           ? {
             ...compareProviderUsage(cleanerPostSeedUsage, baselinePostSeedUsage, cleanerPostSeedTurns.map((turn) => turn.label)),
@@ -1246,6 +1260,39 @@ function summarizeUsageValues(
     invalidReasons: [...invalidReasons],
     totals,
   };
+}
+
+export function estimateProviderCost(
+  summary: Pick<UsageSummary, "status" | "totals">,
+  pricing: ProviderPricing,
+): number | null {
+  if (summary.status !== "complete") return null;
+  const inputTokens = summary.totals.inputTokens;
+  const cachedInputTokens = summary.totals.cachedInputTokens;
+  const outputTokens = summary.totals.outputTokens;
+  if (inputTokens === null || cachedInputTokens === null || outputTokens === null) return null;
+  const uncachedInputTokens = inputTokens - cachedInputTokens;
+  return (
+    uncachedInputTokens * pricing.inputUsdPerMillion
+    + cachedInputTokens * pricing.cachedInputUsdPerMillion
+    + outputTokens * pricing.outputUsdPerMillion
+  ) / 1_000_000;
+}
+
+function readProviderPricing(provider: JsonObject): ProviderPricing | null {
+  const value = provider.pricing;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const pricing = value as JsonObject;
+  const inputUsdPerMillion = pricing.inputUsdPerMillion;
+  const cachedInputUsdPerMillion = pricing.cachedInputUsdPerMillion;
+  const outputUsdPerMillion = pricing.outputUsdPerMillion;
+  if (typeof inputUsdPerMillion !== "number"
+    || !Number.isFinite(inputUsdPerMillion)
+    || typeof cachedInputUsdPerMillion !== "number"
+    || !Number.isFinite(cachedInputUsdPerMillion)
+    || typeof outputUsdPerMillion !== "number"
+    || !Number.isFinite(outputUsdPerMillion)) return null;
+  return { inputUsdPerMillion, cachedInputUsdPerMillion, outputUsdPerMillion };
 }
 
 export function usageDelta(
@@ -1384,12 +1431,28 @@ async function main(): Promise<void> {
       }
     }
     const differences = pairedDifferences(runs);
+    const providerUsage = mode === "live"
+      ? {
+        baseline: summarizeProviderUsage(runs.filter((run) => run.arm === "baseline")),
+        cleaner: summarizeProviderUsage(runs.filter((run) => run.arm === "cleaner")),
+      }
+      : null;
+    const pricing = mode === "live" ? readProviderPricing(manifest.provider) : null;
+    const baselineCostUsd = providerUsage && pricing ? estimateProviderCost(providerUsage.baseline, pricing) : null;
+    const cleanerCostUsd = providerUsage && pricing ? estimateProviderCost(providerUsage.cleaner, pricing) : null;
+    const combinedCostUsd = baselineCostUsd !== null && cleanerCostUsd !== null
+      ? baselineCostUsd + cleanerCostUsd
+      : null;
+    const spendingCapUsd = Number(manifest.spendingCapUsd);
+    const underSpendingCap = combinedCostUsd !== null && Number.isFinite(spendingCapUsd)
+      ? combinedCostUsd <= spendingCapUsd
+      : null;
     const executionStatus = runs.length > 0 && runs.every((run) => run.executionStatus === "complete") ? "complete" : runs.length > 0 ? "partial" : "failed";
     const measurementStatus: UsageCompletenessStatus = mode === "mock"
       ? "unavailable"
       : runs.every((run) => run.measurementStatus === "complete") ? "complete" : runs.some((run) => run.measurementStatus === "incomplete") ? "incomplete" : "unavailable";
     const correctnessStatus = runs.length > 0 && runs.every((run) => run.correctnessStatus === "pass") ? "pass" : "fail";
-    const economicStatus = "inconclusive";
+    const economicStatus = underSpendingCap === null ? "inconclusive" : underSpendingCap ? "pass" : "fail";
     passed = runs.length > 0 && runs.every((run) => run.passed) && runs.every((run) => run.turns.every((turn) => turn.timing.complete));
     report = {
       schemaVersion: 2,
@@ -1412,6 +1475,19 @@ async function main(): Promise<void> {
       provider: liveOptions ? { host: new URL(liveOptions.baseUrl).hostname, model: liveOptions.model } : null,
       usage: mode === "live" ? "provider_response_usage_when_present" : "provider_usage_unavailable_for_mock_upstream",
       statuses: { executionStatus, measurementStatus, correctnessStatus, economicStatus },
+      economics: mode === "live"
+        ? {
+          status: economicStatus,
+          pricingStatus: pricing ? "pinned" : "unavailable",
+          calculation: "uncached_input + cached_input + output; cache creation tokens unavailable",
+          baselineCostUsd,
+          cleanerCostUsd,
+          combinedCostUsd,
+          costDeltaUsd: baselineCostUsd !== null && cleanerCostUsd !== null ? cleanerCostUsd - baselineCostUsd : null,
+          spendingCapUsd: Number.isFinite(spendingCapUsd) ? spendingCapUsd : null,
+          underSpendingCap,
+        }
+        : null,
       runs,
       pairedDifferences: differences,
       measurementComparability: {
@@ -1422,12 +1498,7 @@ async function main(): Promise<void> {
       summaryByArm: {
         baseline: summarize(runs.filter((run) => run.arm === "baseline")),
         cleaner: summarize(runs.filter((run) => run.arm === "cleaner")),
-        providerUsage: mode === "live"
-          ? {
-            baseline: summarizeProviderUsage(runs.filter((run) => run.arm === "baseline")),
-            cleaner: summarizeProviderUsage(runs.filter((run) => run.arm === "cleaner")),
-          }
-          : null,
+        providerUsage,
       },
       passed,
     };

@@ -7,6 +7,7 @@ import {
   compareProviderUsage,
   cumulativeBreakEven,
   cumulativeBreakEvenByLabel,
+  estimateProviderCost,
   providerShapesComparableBeforeRelease,
   usageDelta,
   userInputText,
@@ -141,6 +142,31 @@ test("benchmark rejects cache identity drift before Cleaner release", () => {
   );
 });
 
+test("benchmark ignores intentional post-release drift for early Cleaner release", () => {
+  const shape = (inputFingerprint: string): ProviderShape => ({
+    inputBytes: 1,
+    inputFingerprint,
+    userItemCount: 1,
+    replayableItemCount: 1,
+    inputTypeCounts: {},
+    outputItemTypes: [],
+    providerLatencyMs: null,
+    providerHeadersLatencyMs: null,
+  });
+  const labels = ["retained", "release_a", "noise_before_0", "after_release_a"];
+
+  assert.equal(
+    providerShapesComparableBeforeRelease(
+      labels,
+      [shape("same-1"), shape("same-2"), shape("baseline-noise"), shape("baseline")],
+      labels,
+      [shape("same-1"), shape("same-2"), shape("cleaner-noise"), shape("cleaner")],
+      "early",
+    ),
+    true,
+  );
+});
+
 test("benchmark keeps missing provider usage out of economic deltas", () => {
   const baseline = [{ inputTokens: 10, outputTokens: 2, totalTokens: 12, cachedInputTokens: 0 }, null];
   const cleaner = [
@@ -150,6 +176,29 @@ test("benchmark keeps missing provider usage out of economic deltas", () => {
 
   assert.equal(usageDelta(cleaner, baseline, "inputTokens"), null);
   assert.equal(usageDelta(cleaner, [baseline[0]!], "cachedInputTokens"), null);
+});
+
+test("benchmark estimates provider cost from pinned input, cache, and output rates", () => {
+  assert.equal(
+    estimateProviderCost(
+      {
+        status: "complete",
+        totals: { inputTokens: 100, outputTokens: 10, cachedInputTokens: 40 },
+      },
+      { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.1, outputUsdPerMillion: 6 },
+    ),
+    0.000124,
+  );
+  assert.equal(
+    estimateProviderCost(
+      {
+        status: "incomplete",
+        totals: { inputTokens: null, outputTokens: null, cachedInputTokens: null },
+      },
+      { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.1, outputUsdPerMillion: 6 },
+    ),
+    null,
+  );
 });
 
 test("benchmark accepts recorded zero cached tokens", () => {
