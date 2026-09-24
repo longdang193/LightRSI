@@ -863,8 +863,9 @@ async function createBenchmarkSeed(
     };
     await send("retained", fixture.retained);
     await send("release_a", fixture.releaseA);
-    for (const [index, content] of fixture.noiseBefore.entries()) await send(`noise_before_${index}`, content);
-    if (releaseMode === "lifecycle") await send("release_b", fixture.releaseB);
+    if (fixture.releasePosition === "late") {
+      for (const [index, content] of fixture.noiseBefore.entries()) await send(`noise_before_${index}`, content);
+    }
     await runtime.close();
     runtime = undefined;
     await waitForSeedDurability(environment.stateDir, sessionId, turns.length);
@@ -956,8 +957,9 @@ async function runArm(
     if (!seed) {
       await send("retained", fixture.retained);
       await send("release_a", fixture.releaseA);
-      for (const [index, content] of fixture.noiseBefore.entries()) await send(`noise_before_${index}`, content);
-      if (releaseMode === "lifecycle") await send("release_b", fixture.releaseB);
+      if (fixture.releasePosition === "late") {
+        for (const [index, content] of fixture.noiseBefore.entries()) await send(`noise_before_${index}`, content);
+      }
     }
     if (arm === "cleaner") {
       if (seed) {
@@ -978,6 +980,10 @@ async function runArm(
       ])).planId;
       releaseOverheadMs += performance.now() - releaseStartedAt;
     }
+    if (fixture.releasePosition === "early") {
+      for (const [index, content] of fixture.noiseBefore.entries()) await send(`noise_before_${index}`, content);
+    }
+    if (releaseMode === "lifecycle") await send("release_b", fixture.releaseB);
     await send("after_release_a", "AFTER_RELEASE_A", firstReleasePlan);
     if (firstReleasePlan) releaseOverheadMs += durableCompletionWait(turns.at(-1));
     for (const [index, content] of fixture.noiseBetween.entries()) await send(`noise_between_${index}`, content);
