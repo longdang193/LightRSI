@@ -37,6 +37,11 @@ export function registerMemoryFaultRecoverTool(
           type: "string",
           description: "Archive dataKey from a prior [Tool payload trimmed] notice.",
         },
+        mode: {
+          type: "string",
+          enum: ["range", "stats", "search"],
+          description: "Optional recovery rendering mode.",
+        },
         startLine: {
           type: "integer",
           minimum: 1,
@@ -46,6 +51,25 @@ export function registerMemoryFaultRecoverTool(
           type: "integer",
           minimum: 1,
           description: "Optional 1-based end line for partial recovery.",
+        },
+        query: {
+          type: "string",
+          description: "Literal search query when mode is search.",
+        },
+        contextLines: {
+          type: "integer",
+          minimum: 0,
+          description: "Optional number of surrounding lines for search matches.",
+        },
+        maxMatches: {
+          type: "integer",
+          minimum: 1,
+          description: "Optional maximum number of search matches to return.",
+        },
+        maxOutputChars: {
+          type: "integer",
+          minimum: 1,
+          description: "Optional maximum rendered output size.",
         },
         maxScanLines: {
           type: "integer",
@@ -95,8 +119,15 @@ export function registerMemoryFaultRecoverTool(
         ...(dataKey ? { dataKey } : {}),
         ...(artifactRef ? { artifactRef } : {}),
         archive,
+        mode: args?.mode === "range" || args?.mode === "stats" || args?.mode === "search"
+          ? args.mode
+          : undefined,
         startLine: typeof args?.startLine === "number" ? args.startLine : undefined,
         endLine: typeof args?.endLine === "number" ? args.endLine : undefined,
+        query: typeof args?.query === "string" ? args.query : undefined,
+        contextLines: typeof args?.contextLines === "number" ? args.contextLines : undefined,
+        maxMatches: typeof args?.maxMatches === "number" ? args.maxMatches : undefined,
+        maxOutputChars: typeof args?.maxOutputChars === "number" ? args.maxOutputChars : undefined,
         maxScanLines: typeof args?.maxScanLines === "number" ? args.maxScanLines : undefined,
       });
 

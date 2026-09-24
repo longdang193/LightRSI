@@ -177,6 +177,35 @@ test("search reports an honest continuation when scan work is bounded", () => {
   assert.equal(result.details.omittedMatches, 0);
 });
 
+test("search continues at the first unreturned match before advancing the scan", () => {
+  const archive = {
+    schemaVersion: 2,
+    kind: "tool_payload_trim_archive",
+    sessionId: "sess-scan-pagination",
+    segmentId: "seg-scan-pagination",
+    sourcePass: "tool_payload_trim",
+    toolName: "read",
+    dataKey: "repo:file.ts",
+    originalText: "needle one\nneedle two\nneedle three\nneedle four",
+    originalSize: 52,
+    archivedAt: "2026-09-24T00:00:00.000Z",
+  };
+
+  const result = renderRecoveredArchive({
+    archive,
+    mode: "search",
+    query: "needle",
+    contextLines: 0,
+    maxMatches: 1,
+    maxScanLines: 3,
+  });
+
+  assert.deepEqual(result.details.matches?.map((match) => match.line), [1]);
+  assert.equal(result.details.scanComplete, false);
+  assert.equal(result.details.omittedMatches, 2);
+  assert.equal(result.details.nextStartLine, 2);
+});
+
 test("renderRecoveredArchive reports insufficient search budget without a repeated cursor", () => {
   const archive = {
     schemaVersion: 2,

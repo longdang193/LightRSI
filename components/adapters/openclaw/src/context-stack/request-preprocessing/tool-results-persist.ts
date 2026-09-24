@@ -50,6 +50,19 @@ export function applyToolResultPersistPolicy(
     };
   }
 
+  if (outcome.resultMode === "inline-fallback") {
+    return {
+      message: {
+        ...rawMessage,
+        details: helpers.ensureContextSafeDetails(rawMessage.details, {
+          resultMode: outcome.resultMode,
+          originalChars: outcome.originalChars,
+          persisted: false,
+        }),
+      },
+    };
+  }
+
   const toolName = outcome.toolName;
   const payloadKind: ToolPayloadKind = toolName === "exec" || toolName === "bash" ? "stdout" : "blob";
   const reducedPreview = outcome.previewText

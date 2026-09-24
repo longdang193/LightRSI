@@ -73,3 +73,52 @@ test("OpenClaw exact recovery resolves workspace archives from trusted session h
     await rm(stateDir, { recursive: true, force: true });
   }
 });
+
+test("OpenClaw registered recovery forwards bounded search continuation", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-openclaw-search-recovery-"));
+  try {
+    const location = await archiveContent({
+      sessionId: "openclaw-search-session",
+      segmentId: "segment-1",
+      sourcePass: "test",
+      toolName: "read",
+      dataKey: "search-key",
+      originalText: "needle one\nneedle two\nnoise\nneedle three",
+      archiveDir: join(stateDir, "tokenpilot", "tool-result-archives", "openclaw-search-session"),
+    });
+
+    let tool: any;
+    registerMemoryFaultRecoverTool({
+      registerTool(factory: (ctx: any) => any) {
+        tool = factory({ sessionId: "openclaw-search-session" });
+      },
+    }, { stateDir }, { warn() {} });
+
+    const first = await tool.execute("call-1", {
+      artifactRef: location.artifactRef,
+      mode: "search",
+      query: "needle",
+      contextLines: 0,
+      maxMatches: 1,
+      maxScanLines: 3,
+      maxOutputChars: 1_000,
+    });
+    assert.deepEqual(first.details.matches?.map((match: { line: number }) => match.line), [1]);
+    assert.equal(first.details.nextStartLine, 2);
+    assert.equal(first.details.scanComplete, false);
+
+    const second = await tool.execute("call-2", {
+      artifactRef: location.artifactRef,
+      mode: "search",
+      query: "needle",
+      contextLines: 0,
+      maxMatches: 2,
+      startLine: first.details.nextStartLine,
+      maxOutputChars: 1_000,
+    });
+    assert.deepEqual(second.details.matches?.map((match: { line: number }) => match.line), [2, 4]);
+    assert.equal(second.details.resultsComplete, true);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});

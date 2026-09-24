@@ -266,6 +266,7 @@ export function renderRecoveredArchive(params: {
     const renderedLineNumbers = new Set<number>();
     let representedMatches = 0;
     let omittedEvidence = 0;
+    let firstUnreturnedMatchLine: number | undefined;
     for (const match of candidates) {
       const start = Math.max(1, match.line - contextLines);
       const end = Math.min(lineCount, match.line + contextLines);
@@ -307,6 +308,7 @@ export function renderRecoveredArchive(params: {
             },
           };
         }
+        firstUnreturnedMatchLine = match.line;
         break;
       }
       renderedParts.push(omission);
@@ -326,11 +328,9 @@ export function renderRecoveredArchive(params: {
     }
     const unreturnedMatches = Math.max(0, matchCount - admitted.length);
     const omittedMatches = unreturnedMatches;
-    const nextStartLine = !scanComplete
-      ? scanEnd + 1
-      : admitted.length < candidates.length
-      ? candidates[admitted.length]?.line
-      : firstOverflowMatchLine;
+    const nextStartLine = firstUnreturnedMatchLine
+      ?? firstOverflowMatchLine
+      ?? (!scanComplete ? scanEnd + 1 : undefined);
     const outputParts = [
       `[Memory Fault Recovery] Search results for: ${reference}\n`,
       `Query: ${query}\n`,

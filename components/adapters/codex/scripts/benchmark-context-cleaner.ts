@@ -98,6 +98,7 @@ type UpstreamRequest = {
   outputItemTypes: string[];
   outcome: AttemptOutcome;
   failureReason: string | null;
+  reservation?: BenchmarkReservation;
 };
 
 type ProviderUsage = {
@@ -166,6 +167,23 @@ type TurnResult = {
   historyPreparationMs: number;
   serializationMs: number;
   timing: BenchmarkTimingSnapshot;
+  reservation?: BenchmarkReservation;
+};
+
+export type BenchmarkReservation = {
+  pairId: string;
+  arm: Arm | "seed";
+  checkpoint: string;
+  attemptIndex: number;
+  reservedCostUsd: number;
+};
+
+export type BenchmarkReservationLedger = {
+  observedCostUsd: number;
+  outstandingCostUsd: number;
+  stopReason: "spending_cap_reservation_exhausted" | "provider_usage_unavailable" | null;
+  reserve(owner: Omit<BenchmarkReservation, "attemptIndex" | "reservedCostUsd">): BenchmarkReservation | null;
+  settle(reservation: BenchmarkReservation, usage: ProviderUsage | null): void;
 };
 
 type RunResult = {
@@ -190,6 +208,7 @@ type RunResult = {
     failureReason: string | null;
     inputBytes: number;
     providerUsage: ProviderUsage | null;
+    reservation: BenchmarkReservation | null;
   }>;
   executionStatus: "complete" | "partial" | "failed";
   measurementStatus: UsageCompletenessStatus;
@@ -764,7 +783,22 @@ function summarizeAttempt(request: UpstreamRequest, checkpoint: string) {
     failureReason: request.failureReason,
     inputBytes: request.inputBytes,
     providerUsage: request.providerUsage,
+    reservation: request.reservation ?? null,
   };
+}
+
+function settleCapturedReservations(
+  requests: UpstreamRequest[],
+  turns: TurnResult[],
+  reservationLedger: BenchmarkReservationLedger | null,
+  startIndex: number,
+): void {
+  for (const [index, request] of requests.entries()) {
+    request.reservation ??= turns[index]?.reservation;
+    if (index >= startIndex && request.reservation) {
+      reservationLedger?.settle(request.reservation, request.providerUsage);
+    }
+  }
 }
 
 function runResultFromRequests(params: {
@@ -777,8 +811,10 @@ function runResultFromRequests(params: {
   requests: UpstreamRequest[];
   releaseOverheadMs: number;
   passed: boolean;
+  reservationLedger: BenchmarkReservationLedger | null;
   failure?: string;
 }): RunResult {
+  settleCapturedReservations(params.requests, params.turns, params.reservationLedger, params.seedRequestCount);
   const usage = params.mode === "live" ? params.requests.map((request) => request.providerUsage) : null;
   const measurementStatus = params.mode === "live"
     ? summarizeUsageValues(usage, params.requests.length).status
@@ -859,6 +895,8 @@ async function createBenchmarkSeed(
   repetition: number,
   requestTimeoutMs: number,
   liveOptions?: LiveOptions,
+  reservationLedger: BenchmarkReservationLedger | null = null,
+  pairId = `${fixture.name}:${repetition}`,
 ): Promise<BenchmarkSeed> {
   const environment = createTemporaryAcceptanceEnvironment(`lightrsi-cleaner-benchmark-seed-`);
   const upstream = mode === "mock" ? await startUpstream() : undefined;
@@ -875,6 +913,8 @@ async function createBenchmarkSeed(
       allowMockFixtureEvidence: true,
     });
     const send = async (label: string, content: string) => {
+      const reservation = reservationLedger?.reserve({ pairId, arm: "seed", checkpoint: label }) ?? undefined;
+      if (reservationLedger && !reservation) throw new Error(`benchmark dispatch stopped: ${reservationLedger.stopReason}`);
       const sent = await sendTurn({
         runtime: runtime!,
         sessionId,
@@ -885,7 +925,7 @@ async function createBenchmarkSeed(
         requestTimeoutMs,
       });
       history = sent.history;
-      turns.push(sent.result);
+      turns.push({ ...sent.result, reservation });
     };
     await send("retained", fixture.retained);
     await send("release_a", fixture.releaseA);
@@ -897,6 +937,7 @@ async function createBenchmarkSeed(
     await waitForSeedDurability(environment.stateDir, sessionId, turns.length);
     await liveCapture?.close();
     const requests = upstream?.requests ?? liveCapture?.requests ?? [];
+    settleCapturedReservations(requests, turns, reservationLedger, 0);
     await upstream?.close();
     return { stateDir: environment.stateDir, sessionId, history, turns, requests, cleanup: environment.cleanup };
   } catch (error) {
@@ -917,6 +958,8 @@ async function runArm(
   liveOptions?: LiveOptions,
   seed?: BenchmarkSeed,
   requestTimeoutMs = 120_000,
+  reservationLedger: BenchmarkReservationLedger | null = null,
+  pairId = `${fixture.name}:${repetition}`,
 ): Promise<RunResult> {
   const environment = createTemporaryAcceptanceEnvironment(`lightrsi-cleaner-benchmark-${arm}-`);
   if (seed) {
@@ -964,7 +1007,9 @@ async function runArm(
     const controlPlane = createContextCleanerControlPlane({ stateDir: environment.stateDir });
     const bridge = createCodexContextCleanerBridge({ stateDir: environment.stateDir, controlPlane, boundSessionId: sessionId });
     const cleaner = createContextCleanerControlService({ stateDir: environment.stateDir, bridge });
-    const send = async (label: string, content: string, planId?: string) => {
+  const send = async (label: string, content: string, planId?: string) => {
+      const reservation = reservationLedger?.reserve({ pairId, arm, checkpoint: label }) ?? undefined;
+      if (reservationLedger && !reservation) throw new Error(`benchmark dispatch stopped: ${reservationLedger.stopReason}`);
       const sent = await sendTurn({
         runtime: runtime!,
         sessionId,
@@ -978,7 +1023,7 @@ async function runArm(
           : undefined,
       });
       history = sent.history;
-      turns.push(sent.result);
+      turns.push({ ...sent.result, reservation });
     };
     if (!seed) {
       await send("retained", fixture.retained);
@@ -1080,6 +1125,7 @@ async function runArm(
       requests: forwardedRequests,
       releaseOverheadMs,
       passed: true,
+      reservationLedger,
     });
   } catch (error) {
     const failure = error instanceof Error ? error.message : String(error);
@@ -1097,6 +1143,7 @@ async function runArm(
       requests: forwardedRequests,
       releaseOverheadMs,
       passed: false,
+      reservationLedger,
       failure: `${failure}; cleanerTrace=${await cleanerTraceSummary(environment.stateDir)}`,
     });
   } finally {
@@ -1340,6 +1387,47 @@ export function estimateProviderCost(
   ) / 1_000_000;
 }
 
+export function createBenchmarkReservationLedger(params: {
+  spendingCapUsd: number;
+  perAttemptReservationUsd: number;
+  pricing: ProviderPricing | null;
+}): BenchmarkReservationLedger {
+  let nextAttemptIndex = 0;
+  const settledAttempts = new Set<number>();
+  const ledger: BenchmarkReservationLedger = {
+    observedCostUsd: 0,
+    outstandingCostUsd: 0,
+    stopReason: null,
+    reserve(owner) {
+      if (ledger.stopReason) return null;
+      if (ledger.observedCostUsd + ledger.outstandingCostUsd + params.perAttemptReservationUsd > params.spendingCapUsd) {
+        ledger.stopReason = "spending_cap_reservation_exhausted";
+        return null;
+      }
+      ledger.outstandingCostUsd += params.perAttemptReservationUsd;
+      return {
+        ...owner,
+        attemptIndex: nextAttemptIndex++,
+        reservedCostUsd: params.perAttemptReservationUsd,
+      };
+    },
+    settle(reservation, usage) {
+      if (settledAttempts.has(reservation.attemptIndex)) return;
+      settledAttempts.add(reservation.attemptIndex);
+      ledger.outstandingCostUsd = Math.max(0, ledger.outstandingCostUsd - reservation.reservedCostUsd);
+      const cost = params.pricing && usage
+        ? estimateProviderCost(summarizeUsageValues([usage], 1), params.pricing)
+        : null;
+      if (cost === null) {
+        ledger.stopReason ??= "provider_usage_unavailable";
+        return;
+      }
+      ledger.observedCostUsd += cost;
+    },
+  };
+  return ledger;
+}
+
 function readProviderPricing(provider: JsonObject): ProviderPricing | null {
   const value = provider.pricing;
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -1431,7 +1519,7 @@ function summarizeProviderUsage(runs: RunResult[], excludeSeed = false) {
   );
 }
 
-function summarizeSharedSeedUsage(runs: RunResult[]) {
+export function summarizeSharedSeedUsage(runs: RunResult[]) {
   const seedRuns = runs.filter((run) => run.arm === "baseline" && run.seedRequestCount > 0);
   const unavailable = seedRuns.some((run) => run.providerUsage === null);
   const usages = seedRuns.flatMap((run) => run.providerUsage?.slice(0, run.seedRequestCount) ?? []);
@@ -1439,6 +1527,31 @@ function summarizeSharedSeedUsage(runs: RunResult[]) {
     unavailable ? null : usages,
     seedRuns.reduce((total, run) => total + run.seedRequestCount, 0),
   );
+}
+
+function plannedArmProviderAttempts(
+  fixture: StageBFixtureSpec,
+  releaseMode: ReleaseMode,
+  causalPairs: boolean,
+): number {
+  const initialTurns = causalPairs ? 0 : 2;
+  const earlyNoise = fixture.releasePosition === "early" ? fixture.noiseBefore : 0;
+  const lifecycleTurns = releaseMode === "lifecycle" ? 2 : 0;
+  return initialTurns + earlyNoise + lifecycleTurns + 1 + fixture.noiseBetween + 1;
+}
+
+function plannedProviderAttempts(
+  fixtures: StageBFixtureSpec[],
+  repetitions: number,
+  releaseMode: ReleaseMode,
+  causalPairs: boolean,
+): number {
+  return repetitions * fixtures.reduce((total, fixture) => {
+    const seedTurns = causalPairs
+      ? 2 + (fixture.releasePosition === "late" ? fixture.noiseBefore : 0)
+      : 0;
+    return total + seedTurns + (2 * plannedArmProviderAttempts(fixture, releaseMode, causalPairs));
+  }, 0);
 }
 
 async function main(): Promise<void> {
@@ -1472,10 +1585,7 @@ async function main(): Promise<void> {
     const spendingCapUsd = Number(manifest.spendingCapUsd);
     assert.ok(Number.isFinite(spendingCapUsd) && spendingCapUsd > 0, "spendingCapUsd must be positive");
     gitPreflight = readGitPreflight(manifest.runtimeSha, manifest.benchmarkSha);
-    if (gitPreflight.status === "dirty") {
-      throw new Error("benchmark requires a clean git checkout");
-    }
-    if (mode === "live" && gitPreflight.status === "clean_mismatch") {
+    if (mode === "live" && gitPreflight.status !== "clean_match") {
       throw new Error(`live benchmark SHA preflight failed: expected runtime=${manifest.runtimeSha}, benchmark=${manifest.benchmarkSha}, actual=${gitPreflight.actualSha}`);
     }
     let liveOptions: LiveOptions | undefined;
@@ -1496,9 +1606,16 @@ async function main(): Promise<void> {
     const providerIdentityStatus = mode === "mock"
       ? "mock_fixture"
       : manifest.provider.model === liveOptions!.model ? "match" : "mismatch";
-    const plannedDispatches = fixtureNames.length * repetitions * (2 + (causalPairs ? 1 : 0));
-    const reservedDispatchCostUsd = mode === "live" ? spendingCapUsd / plannedDispatches : 0;
-    let reservedCostUsd = 0;
+    const selectedFixtures = manifest.fixtures.filter((fixture) => fixtureNames.includes(fixture.id));
+    const plannedAttempts = plannedProviderAttempts(selectedFixtures, repetitions, releaseMode, causalPairs);
+    const pricing = mode === "live" ? readProviderPricing(manifest.provider) : null;
+    const reservationLedger = mode === "live"
+      ? createBenchmarkReservationLedger({
+        spendingCapUsd,
+        perAttemptReservationUsd: spendingCapUsd / plannedAttempts,
+        pricing,
+      })
+      : null;
     let capStopReason: string | null = null;
     for (const fixtureName of fixtureNames) {
       for (let repetition = 1; repetition <= repetitions; repetition += 1) {
@@ -1509,32 +1626,38 @@ async function main(): Promise<void> {
         let seed: BenchmarkSeed | undefined;
         try {
           if (causalPairs) {
-            if (mode === "live") {
-              const observedCostUsd = estimateProviderCost(
-                summarizeProviderUsage(runs),
-                readProviderPricing(manifest.provider) ?? { inputUsdPerMillion: 0, cachedInputUsdPerMillion: 0, outputUsdPerMillion: 0 },
-              ) ?? 0;
-              if (observedCostUsd + reservedCostUsd + reservedDispatchCostUsd > spendingCapUsd) {
-                capStopReason = "spending_cap_reservation_exhausted";
-                break;
-              }
-              reservedCostUsd += reservedDispatchCostUsd;
+            seed = await createBenchmarkSeed(
+              fixture,
+              releaseMode,
+              mode,
+              repetition,
+              requestTimeoutMs,
+              liveOptions,
+              reservationLedger,
+              `${fixture.name}:${repetition}`,
+            );
+            if (reservationLedger?.stopReason) {
+              capStopReason = reservationLedger.stopReason;
+              break;
             }
-            seed = await createBenchmarkSeed(fixture, releaseMode, mode, repetition, requestTimeoutMs, liveOptions);
           }
           for (const arm of arms) {
-            if (mode === "live") {
-              const observedCostUsd = estimateProviderCost(
-                summarizeProviderUsage(runs),
-                readProviderPricing(manifest.provider) ?? { inputUsdPerMillion: 0, cachedInputUsdPerMillion: 0, outputUsdPerMillion: 0 },
-              ) ?? 0;
-              if (observedCostUsd + reservedCostUsd + reservedDispatchCostUsd > spendingCapUsd) {
-                capStopReason = "spending_cap_reservation_exhausted";
-                break;
-              }
-              reservedCostUsd += reservedDispatchCostUsd;
+            runs.push(await runArm(
+              fixture,
+              releaseMode,
+              arm,
+              repetition,
+              mode,
+              liveOptions,
+              seed,
+              requestTimeoutMs,
+              reservationLedger,
+              `${fixture.name}:${repetition}`,
+            ));
+            if (reservationLedger?.stopReason) {
+              capStopReason = reservationLedger.stopReason;
+              break;
             }
-            runs.push(await runArm(fixture, releaseMode, arm, repetition, mode, liveOptions, seed, requestTimeoutMs));
           }
         } finally {
           seed?.cleanup();
@@ -1544,7 +1667,6 @@ async function main(): Promise<void> {
       if (capStopReason) break;
     }
     const differences = pairedDifferences(runs);
-    const pricing = mode === "live" ? readProviderPricing(manifest.provider) : null;
     const providerUsage = mode === "live"
       ? {
         seed: summarizeSharedSeedUsage(runs),
@@ -1604,7 +1726,8 @@ async function main(): Promise<void> {
            marginalCostDeltaUsd: baselineCostUsd !== null && cleanerCostUsd !== null ? cleanerCostUsd - baselineCostUsd : null,
            spendingCapUsd: Number.isFinite(spendingCapUsd) ? spendingCapUsd : null,
            underSpendingCap,
-           reservedCostUsd,
+           observedCostUsd: reservationLedger?.observedCostUsd ?? null,
+           reservedCostUsd: reservationLedger?.outstandingCostUsd ?? 0,
            capStopReason,
         }
         : null,

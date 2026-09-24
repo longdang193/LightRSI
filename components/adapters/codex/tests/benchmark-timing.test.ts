@@ -7,13 +7,63 @@ import {
   compareProviderUsage,
   cumulativeBreakEven,
   cumulativeBreakEvenByLabel,
+  createBenchmarkReservationLedger,
   estimateProviderCost,
   evaluateGitPreflight,
   providerShapesComparableBeforeRelease,
+  summarizeSharedSeedUsage,
   usageDelta,
   userInputText,
   type ProviderShape,
 } from "../scripts/benchmark-context-cleaner.js";
+
+test("benchmark reservation ledger settles completed provider attempts", () => {
+  const ledger = createBenchmarkReservationLedger({
+    spendingCapUsd: 1,
+    perAttemptReservationUsd: 0.6,
+    pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0, outputUsdPerMillion: 1 },
+  });
+  const reservation = ledger.reserve({ pairId: "pair-1", arm: "baseline", checkpoint: "release" });
+
+  assert.ok(reservation);
+  assert.deepEqual(reservation, {
+    pairId: "pair-1",
+    arm: "baseline",
+    checkpoint: "release",
+    attemptIndex: 0,
+    reservedCostUsd: 0.6,
+  });
+  assert.equal(ledger.outstandingCostUsd, 0.6);
+  ledger.settle(reservation, { inputTokens: 100_000, outputTokens: 0, totalTokens: 100_000, cachedInputTokens: 0 });
+  assert.equal(ledger.observedCostUsd, 0.1);
+  assert.equal(ledger.outstandingCostUsd, 0);
+  assert.ok(ledger.reserve({ pairId: "pair-1", arm: "cleaner", checkpoint: "release" }));
+});
+
+test("benchmark reservation ledger stops after missing provider usage", () => {
+  const ledger = createBenchmarkReservationLedger({
+    spendingCapUsd: 1,
+    perAttemptReservationUsd: 0.6,
+    pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0, outputUsdPerMillion: 1 },
+  });
+  const reservation = ledger.reserve({ pairId: "pair-1", arm: "baseline", checkpoint: "release" });
+
+  assert.ok(reservation);
+  ledger.settle(reservation, null);
+  assert.equal(ledger.stopReason, "provider_usage_unavailable");
+  assert.equal(ledger.reserve({ pairId: "pair-1", arm: "cleaner", checkpoint: "release" }), null);
+});
+
+test("benchmark counts shared seed usage once", () => {
+  const seed = { inputTokens: 10, outputTokens: 1, totalTokens: 11, cachedInputTokens: 0 };
+  const baseline = summarizeSharedSeedUsage([
+    { arm: "baseline", seedRequestCount: 1, providerUsage: [seed, { ...seed, inputTokens: 99 }] } as never,
+    { arm: "cleaner", seedRequestCount: 1, providerUsage: [seed, { ...seed, inputTokens: 88 }] } as never,
+  ]);
+
+  assert.equal(baseline.status, "complete");
+  assert.equal(baseline.totals.inputTokens, 10);
+});
 
 test("summarizes flat request phases without summing overlaps", () => {
   let now = 100;
