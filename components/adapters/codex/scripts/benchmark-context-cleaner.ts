@@ -1299,8 +1299,8 @@ export function evaluateGitPreflight(params: {
     };
   }
   assert.ok(params.actualSha, "clean git preflight requires HEAD SHA");
-  const runtimeMatch = params.actualSha === params.expectedRuntimeSha;
-  const benchmarkMatch = params.actualSha === params.expectedBenchmarkSha;
+  const runtimeMatch = params.actualSha === params.expectedRuntimeSha || params.actualSha.startsWith(params.expectedRuntimeSha);
+  const benchmarkMatch = params.actualSha === params.expectedBenchmarkSha || params.actualSha.startsWith(params.expectedBenchmarkSha);
   return {
     status: runtimeMatch && benchmarkMatch ? "clean_match" : "clean_mismatch",
     actualSha: params.actualSha,

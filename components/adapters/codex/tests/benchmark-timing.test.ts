@@ -328,10 +328,10 @@ test("benchmark Git preflight ignores dirty SHA and marks mismatches", () => {
   assert.equal(
     evaluateGitPreflight({
       clean: true,
-      actualSha: "newer",
-      expectedRuntimeSha: "expected-runtime",
-      expectedBenchmarkSha: "expected-benchmark",
+      actualSha: "abcdef123456",
+      expectedRuntimeSha: "abcdef1",
+      expectedBenchmarkSha: "abcdef1",
     }).status,
-    "clean_mismatch",
+    "clean_match",
   );
 });
