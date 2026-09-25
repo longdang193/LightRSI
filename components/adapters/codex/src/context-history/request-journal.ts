@@ -1,6 +1,9 @@
 import { readCodexContextHistoryJournal } from "./journal-store.js";
 import {
   codexAttachForwardingMetadata,
+  codexForwardingMetadata,
+  codexForwardingFingerprint,
+  codexMatchForwardedPrefix,
   codexStripForwardingMetadata,
   type CodexForwardingAttempt,
   type CodexForwardingScope,
@@ -189,4 +192,40 @@ export async function appendCodexRequestJournalEntry(params: {
     { stateDir: params.stateDir, sessionId: params.sessionId },
     () => appendCodexRequestJournalEntryLocked(params),
   );
+}
+
+export async function findCodexAcceptedInputProjection(params: {
+  stateDir: string;
+  sessionId: string;
+  currentItems: JsonObject[];
+  scope?: CodexForwardingScope;
+  excludeRequestId?: string;
+}): Promise<{ historicalItems: JsonObject[]; acceptedItems: JsonObject[] } | undefined> {
+  const journal = await readCodexContextHistoryJournal(params.stateDir, params.sessionId);
+  if (journal.readError || journal.malformedLineCount > 0 || journal.oversized) return undefined;
+  for (let index = journal.entries.length - 1; index >= 0; index -= 1) {
+    const entry = journal.entries[index];
+    if (entry?.kind !== "request"
+      || entry.requestId === params.excludeRequestId
+      || !entry.acceptedInputItems
+      || entry.acceptedInputItems.length === 0) continue;
+    const match = codexMatchForwardedPrefix({
+      currentItems: params.currentItems,
+      historicalItems: entry.inputItems,
+      scope: params.scope,
+    });
+    if (match.prefixLength === 0 || match.reason || match.prefixLength > entry.acceptedInputItems.length) continue;
+    const valid = entry.inputItems.slice(0, match.prefixLength).every((item, itemIndex) => {
+      const metadata = codexForwardingMetadata(item);
+      const accepted = entry.acceptedInputItems?.[itemIndex];
+      return !metadata?.acceptedFingerprint
+        || (accepted !== undefined && codexForwardingFingerprint(accepted) === metadata.acceptedFingerprint);
+    });
+    if (!valid) continue;
+    return {
+      historicalItems: entry.inputItems.slice(0, match.prefixLength),
+      acceptedItems: entry.acceptedInputItems.slice(0, match.prefixLength),
+    };
+  }
+  return undefined;
 }

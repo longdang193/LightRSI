@@ -7,6 +7,8 @@ import { reserveUnusedPort } from "@lightrsi/host-adapter";
 import { normalizeTokenPilotCodexConfig } from "./config.js";
 import {
   buildCodexEffectiveHistory,
+  buildCodexEffectiveHistoryView,
+  codexForwardingMetadata,
   loadCodexContextHistoryJournal,
   type CodexContextHistoryJournalEntry,
   type JsonObject,
@@ -236,15 +238,32 @@ async function replayDiagnostic(params: {
   headResponseId: string;
 }): Promise<string> {
   try {
-    const history = await buildCodexEffectiveHistory(params);
+    const [history, view, journal] = await Promise.all([
+      buildCodexEffectiveHistory(params),
+      buildCodexEffectiveHistoryView(params),
+      loadCodexContextHistoryJournal(params.stateDir, params.sessionId),
+    ]);
     const deferredTypes = Array.from(new Set(history.deferredItems.map((entry) => (
       typeof entry.item.type === "string" ? entry.item.type : "unknown"
     )))).sort();
+    const requests = journal.filter((entry): entry is Extract<CodexContextHistoryJournalEntry, { kind: "request" }> => (
+      entry.kind === "request"
+    ));
+    const forwardingItems = requests.flatMap((entry) => entry.inputItems);
+    const forwardingMetadataCount = forwardingItems.filter((item) => codexForwardingMetadata(item)).length;
     return [
       `source=${history.source}`,
       `incomplete=${history.incomplete}`,
+      `replayable=${history.replayableItems.length}`,
+      `observationOnly=${history.observationOnlyItems.length}`,
       `deferred=${deferredTypes.join(",") || "none"}`,
-      `unresolved=${history.unresolvedCallIds.length}`,
+      `unresolved=${history.unresolvedCallIds.join(",") || "none"}`,
+      `reasons=${view.reasonCodes.join(",") || "none"}`,
+      `requests=${requests.length}`,
+      `statuses=${requests.map((entry) => entry.status).join(",") || "none"}`,
+      `accepted=${requests.filter((entry) => entry.acceptedInputItems?.length).length}`,
+      `committed=${requests.filter((entry) => entry.committedInputItems?.length).length}`,
+      `forwarding=${forwardingMetadataCount}/${forwardingItems.length}`,
     ].join(";");
   } catch {
     return "history-diagnostic-unavailable";

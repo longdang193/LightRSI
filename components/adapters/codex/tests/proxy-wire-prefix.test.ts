@@ -100,7 +100,7 @@ test("provider wire prefix identity ignores generated message ids", () => {
   assert.equal(first.fullHash, second.fullHash);
 });
 
-test("independent three-round replay records intentional pre-change encoded drift", async () => {
+test("independent three-round replay preserves encoded historical prefix", async () => {
   const firstPayload: any = {
     model: "tokenpilot/gpt-5.4-mini",
     input: [
@@ -187,8 +187,7 @@ test("independent three-round replay records intentional pre-change encoded drif
   });
   assert.ok(second.changedBlocks > 0);
 
-  // Intentional baseline drift: Task 3 will replace this with equality after forwarding provenance exists.
-  assert.notEqual(encodedItemsByStableId(appendOnlyPayload, historicalIds), firstEncodedPrefix);
+  assert.equal(encodedItemsByStableId(appendOnlyPayload, historicalIds), firstEncodedPrefix);
   assert.deepEqual(encodeProviderInput(appendOnlyPayload).find((item: any) => item?.type === "function_call_output" && item?.call_id === "read-3")?.tool_result.headers, {
     "x-round": "read-3",
     nested: { source: "fixture" },

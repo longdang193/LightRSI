@@ -51,7 +51,10 @@ export function codexStripForwardingMetadata(value: JsonObject): JsonObject {
 function itemNativeId(item: JsonObject): string | undefined {
   for (const key of ["id", "item_id", "call_id"]) {
     const value = item[key];
-    if (typeof value === "string" && value.trim()) return `${key}:${value.trim()}`;
+    if (typeof value === "string" && value.trim()) {
+      const type = typeof item.type === "string" && item.type.trim() ? `:${item.type.trim()}` : "";
+      return `${key}:${value.trim()}${type}`;
+    }
   }
   return undefined;
 }

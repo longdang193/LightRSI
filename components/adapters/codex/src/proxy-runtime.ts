@@ -1120,6 +1120,26 @@ export async function startCodexResponsesProxy(params: {
       const prepareStablePrefixForCodex = (nextEnvelope: HostRequestEnvelope) => (
         prepareCodexStablePrefix(nextEnvelope, config)
       );
+      const forwardingScopeForCodex = (nextEnvelope: HostRequestEnvelope): CodexForwardingScope => {
+        const nextPayload = codec.encodeRequest(nextEnvelope) as JsonObject;
+        return {
+          ...(typeof nextEnvelope.metadata?.promptCacheKey === "string"
+            ? { promptCacheKey: nextEnvelope.metadata.promptCacheKey }
+            : typeof nextPayload.prompt_cache_key === "string"
+              ? { promptCacheKey: nextPayload.prompt_cache_key }
+              : {}),
+          ...(typeof nextEnvelope.metadata?.lightrsiCacheContractDigest === "string"
+            ? { cacheContractDigest: nextEnvelope.metadata.lightrsiCacheContractDigest }
+            : {}),
+          endpointId: codexRebaseEndpointIdentity(upstream.baseUrl),
+          ...(typeof nextPayload.previous_response_id === "string"
+            ? { conversationBranch: nextPayload.previous_response_id }
+            : {}),
+          ...(requestJournalEntry && rebaseRequest
+            ? { rebaseEpoch: `epoch-${requestJournalEntry.requestId}` }
+            : {}),
+        };
+      };
       const applyBeforeCallReductionForCodex = async (args: {
         envelope: HostRequestEnvelope;
         codec: any;
@@ -1127,6 +1147,8 @@ export async function startCodexResponsesProxy(params: {
         envelope: args.envelope,
         codec: args.codec,
         config,
+        forwardingScope: forwardingScopeForCodex(args.envelope),
+        requestId: requestJournalEntry?.requestId,
       });
       const prepared = await prepareObservedBeforeCall<CodexReductionSummary>({
         envelope: preparedEnvelope,

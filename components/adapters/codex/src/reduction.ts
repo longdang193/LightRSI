@@ -11,6 +11,13 @@ import {
 import type { ToolExecutionHint } from "@lightrsi/reduction";
 import type { TokenPilotCodexConfig } from "./config.js";
 import { loadCodexSessionSnapshot } from "./session-state.js";
+import {
+  codexAttachForwardingMetadata,
+  codexMatchForwardedPrefix,
+  type CodexForwardingScope,
+} from "./context-history/replayability.js";
+import { findCodexAcceptedInputProjection } from "./context-history/request-journal.js";
+import type { JsonObject } from "./context-history/types.js";
 
 type SegmentBinding = {
   segmentId: string;
@@ -93,6 +100,26 @@ export type CodexReductionSummary = {
   disclosedReadPaths?: string[];
   skippedReason?: string;
 };
+
+type CodexAcceptedInputProjection = {
+  historicalItems: JsonObject[];
+  acceptedItems: JsonObject[];
+};
+
+const MAX_PROCESS_PROJECTIONS = 128;
+
+// ponytail: process-local lookup with bounded LRU eviction; journal remains restart source.
+const processProjections = new Map<string, CodexAcceptedInputProjection>();
+
+function rememberProcessProjection(key: string, projection: CodexAcceptedInputProjection): void {
+  processProjections.delete(key);
+  processProjections.set(key, projection);
+  while (processProjections.size > MAX_PROCESS_PROJECTIONS) {
+    const oldestKey = processProjections.keys().next().value;
+    if (oldestKey === undefined) break;
+    processProjections.delete(oldestKey);
+  }
+}
 
 function normalizeDisclosedReadPaths(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
@@ -388,7 +415,7 @@ function extractUserQuery(item: any): string {
 function buildTurnContext(
   payload: any,
   sessionId: string,
-  options?: { disclosedReadPaths?: string[] },
+  options?: { disclosedReadPaths?: string[]; frozenInputItemCount?: number },
 ): {
   turnCtx: RuntimeTurnContext;
   bindings: SegmentBinding[];
@@ -434,7 +461,10 @@ function buildTurnContext(
       );
       const addBinding = (binding: SegmentBinding): void => {
         bindings.push(binding);
-        if (typeof item.id === "string" && item.id.trim()) frozenSegmentIds.add(binding.segmentId);
+        if ((typeof item.id === "string" && item.id.trim())
+          || itemIndex < (options?.frozenInputItemCount ?? 0)) {
+          frozenSegmentIds.add(binding.segmentId);
+        }
       };
       if (typeof item.output === "string") {
         const id = `input-${itemIndex}-output`;
@@ -762,6 +792,8 @@ export async function applyBeforeCallReductionToPayload(params: {
   payload: any;
   sessionId: string;
   config: TokenPilotCodexConfig;
+  forwardingScope?: CodexForwardingScope;
+  requestId?: string;
 }): Promise<CodexReductionSummary> {
   const { payload, sessionId, config } = params;
   if (!config.modules.reduction || config.proxyMode.pureForward || !Array.isArray(payload?.input)) {
@@ -784,10 +816,40 @@ export async function applyBeforeCallReductionToPayload(params: {
   }
   const startedAt = Date.now();
   try {
+    const originalInput = structuredClone(payload.input) as JsonObject[];
+    const projectionKey = `${config.stateDir}\0${sessionId}`;
+    let projection = processProjections.get(projectionKey);
+    if (projection) rememberProcessProjection(projectionKey, projection);
+    if (!projection) {
+      projection = await findCodexAcceptedInputProjection({
+        stateDir: config.stateDir,
+        sessionId,
+        currentItems: originalInput,
+        scope: params.forwardingScope,
+        excludeRequestId: params.requestId,
+      });
+    }
+    let frozenInputItemCount = 0;
+    if (projection) {
+      const match = codexMatchForwardedPrefix({
+        currentItems: originalInput,
+        historicalItems: projection.historicalItems,
+        scope: params.forwardingScope,
+      });
+      if (!match.reason && match.prefixLength > 0 && match.prefixLength <= projection.acceptedItems.length) {
+        payload.input = originalInput.map((item, index) => index < match.prefixLength
+          ? structuredClone(projection!.acceptedItems[index])
+          : item);
+        frozenInputItemCount = match.prefixLength;
+      } else {
+        projection = undefined;
+      }
+    }
     const snapshot = await loadCodexSessionSnapshot(config.stateDir, sessionId);
     const built = buildTurnContext(payload, sessionId, {
-    disclosedReadPaths: normalizeDisclosedReadPaths(snapshot?.disclosedReadPaths),
-  });
+      disclosedReadPaths: normalizeDisclosedReadPaths(snapshot?.disclosedReadPaths),
+      frozenInputItemCount,
+    });
   const ordinarySegments = built.turnCtx.segments.filter((segment) => !built.frozenSegmentIds.has(segment.id));
   const analyzerInstructions = buildAnalyzerReductionInstructions(ordinarySegments, config);
   const fallbackInstructions = buildCodexFallbackReductionInstructions(ordinarySegments, config);
@@ -931,12 +993,21 @@ export async function applyBeforeCallReductionToPayload(params: {
       report: report.filter((entry) => entry.changed && entry.touchedSegmentIds?.includes(binding.segmentId)),
     });
   }
-  if (changedItems.size > 0) {
+    if (changedItems.size > 0) {
     const stagedInput = payload.input.slice();
     for (const [itemIndex, item] of stagedItems) stagedInput[itemIndex] = item;
     payload.input = stagedInput;
-    if (payload.input !== stagedInput) throw new Error("codex reduction input publication rejected");
-  }
+      if (payload.input !== stagedInput) throw new Error("codex reduction input publication rejected");
+    }
+    rememberProcessProjection(projectionKey, {
+      historicalItems: codexAttachForwardingMetadata({
+        sanitizedItems: payload.input as JsonObject[],
+        originalItems: originalInput,
+        acceptedItems: payload.input as JsonObject[],
+        scope: params.forwardingScope,
+      }),
+      acceptedItems: structuredClone(payload.input) as JsonObject[],
+    });
     return {
       changedItems: changedItems.size,
       changedBlocks,
@@ -985,6 +1056,8 @@ export async function reduceCodexRequestEnvelope(params: {
   envelope: HostRequestEnvelope;
   codec: HostPayloadCodec;
   config: TokenPilotCodexConfig;
+  forwardingScope?: CodexForwardingScope;
+  requestId?: string;
 }): Promise<{
   envelope: HostRequestEnvelope;
   summary: CodexReductionSummary;
@@ -1007,6 +1080,8 @@ export async function reduceCodexRequestEnvelope(params: {
     payload: rawPayload,
     sessionId: params.envelope.session.sessionId,
     config: params.config,
+    forwardingScope: params.forwardingScope,
+    requestId: params.requestId,
   });
   if (summary.changedBlocks === 0) {
     return {

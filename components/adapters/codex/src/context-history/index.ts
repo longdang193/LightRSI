@@ -17,13 +17,17 @@ export type {
   CodexContextHistoryJournalLock,
   CodexContextHistoryJournalTailRecoveryResult,
 } from "./journal-append.js";
-export { appendCodexRequestJournalEntry } from "./request-journal.js";
+export {
+  appendCodexRequestJournalEntry,
+  findCodexAcceptedInputProjection,
+} from "./request-journal.js";
 export { appendCodexResponseJournalEntry } from "./response-journal.js";
 export {
   collectCodexResponseItemsFromStream,
   createCodexResponseItemsCollector,
 } from "./sse-item-collector.js";
 export {
+  codexForwardingMetadata,
   codexReplayabilityForItem,
   isCodexDeferredItem,
   isCodexObservationOnlyItem,
