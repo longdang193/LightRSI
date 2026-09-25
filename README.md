@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Reliable, agent-directed context management for long-running coding agents.</strong>
+  <strong>Compact, recoverable context management for long-running AI coding agents.</strong>
 </p>
 
 <p align="center">
@@ -18,15 +18,25 @@
 
 ## 🌿 About This Fork
 
-This independently maintained fork builds on [LightRSI](https://github.com/zjunlp/LightRSI) and its TokenPilot foundation, with a focus on dependable context management for long-running coding sessions. Codex gets agent-directed release of exact context occurrences; shared runtime work adds provider-compatible forwarding, durable recovery, Windows hardening, and measurable diagnostics.
+AI coding agents repeatedly process large test logs, file contents, and other
+tool outputs during long sessions. That increases token usage and provider cost
+even when much of the information is no longer needed.
+
+This independently maintained fork builds on [LightRSI](https://github.com/zjunlp/LightRSI) and its TokenPilot foundation. It focuses on reducing that overhead while preserving important evidence.
+
+In a paired live evaluation of 120 requests, Compact processing reduced input
+tokens by **60.91%** and estimated provider cost by **35.11%** versus processing
+the same sessions with full, uncompressed tool outputs.
 
 This is **not** a drop-in superset. It carries intentional product and architecture differences from upstream.
 
-> **In short:** TokenPilot keeps useful context small. Context Cleaner lets the
-> agent release specific old messages and tool outputs when they are no longer useful.
+> **In short:** Compact admission reduces oversized observations before they enter
+> active context. Context Cleaner lets the agent release specific old messages and
+> tool outputs when they are no longer useful.
 
 | Area | Original LightRSI | This fork | Why it matters |
 | :-- | :-- | :-- | :-- |
+| Context admission | Existing TokenPilot reduction and context stabilization | Stable, recoverable admission for eligible oversized observations | Lower input usage while preserving exact recovery |
 | Context Cleaner | Groups context by task and asks for approval | Lets the agent release specific messages or tool outputs, then checks them before removal | Less obsolete context without hidden deletion decisions |
 | Context lifecycle | Estimator and task-state management | Session-scoped releases with clear ownership and safety checks | Easier to understand and recover |
 | Codex transport | Local Responses proxy | Preserves provider requests, handles older payloads, retries cache compatibility issues, and records cache usage | Fewer provider-specific failures |
@@ -46,13 +56,37 @@ Upstream attribution remains with [zjunlp/LightRSI](https://github.com/zjunlp/Li
 
 ### 🧭 Forked LightRSI Workflow
 
-The interactive workflow explains the fork in six steps: receive a request, keep useful context, call the provider, save session history, recover the next turn, and inspect health.
+The interactive workflow covers request intake, context admission, provider
+forwarding, session history, restart recovery, and health inspection. Agent-directed
+historical release remains a separate Cleaner path.
 
 <p align="center">
   <img src="./docs/diagrams/forked-lightrsi.workflow.svg" alt="Forked LightRSI workflow" width="100%">
 </p>
 
 [Open the interactive workflow](./docs/diagrams/forked-lightrsi.workflow.html) · [View the Archify source](./docs/diagrams/forked-lightrsi.workflow.json)
+
+<span id='compact-context'/>
+
+## 📦 Compact, Recoverable Context
+
+Coding agents regularly produce large tool outputs: compiler errors, test logs,
+file contents, search results, and command output. Repeating those full
+observations on later requests increases context size and provider cost.
+
+Compact admission reduces eligible observations before they enter active
+context, while retaining the original content for exact recovery.
+
+1. A tool produces an observation.
+2. For eligible large outputs, LightRSI prepares a shorter representation and
+   preserves the original before omitting information.
+3. The AI receives the compact representation and a recovery reference.
+4. Stable admitted history survives supported continuation and restart paths.
+5. The agent retrieves the original when omitted evidence is needed.
+
+Compact admission handles new observations. Context Cleaner handles historical
+information that has become obsolete and releases only occurrences selected by
+the active agent after safety validation.
 
 <span id='context-cleaner'/>
 
@@ -77,6 +111,7 @@ TokenPilot optimizes how context is carried. Context Cleaner executes an agent's
 
 | What changed | Problem solved | Practical impact |
 | :-- | :-- | :-- |
+| Added stable, recoverable Compact admission | Large tool outputs repeatedly consume active context | Lower input usage and estimated provider cost on the evaluated workload |
 | Redesigned Codex Context Cleaner around agent-authorized occurrence release | Competing task-estimation and selection owners | Exact context release with deterministic safety checks |
 | Hardened provider forwarding and Responses compatibility | Provider routes and payload variations | More reliable interoperability |
 | Implemented durable session history and recovery | Runtime interruptions and continuation | Committed context decisions survive restart |
@@ -89,36 +124,66 @@ Evidence: [`components/packages/features/cleaner`](./components/packages/feature
 
 ## 🧪 How We Validate It
 
-This fork includes targeted regression tests and reproducible benchmarks for
-Codex forwarding, occurrence release, session continuation, recovery, and cache
-behavior.
+This fork includes targeted regression tests and benchmarks for Compact
+admission, Codex forwarding, occurrence release, session continuation, recovery,
+and cache behavior.
 
 Cleaner validation covers cumulative continuation, repeated releases, retained
 context, and proxy restart. Performance measurements capture forwarded payload
 size, provider-reported usage when available, and request timing.
 
-Initial live Cleaner A/B runs do not establish consistent provider-token or
-latency savings. Those results guide further optimization; they do not support
-a fork-specific cost-reduction claim yet.
+### Compact Admission — Live Full-Output Comparison
 
-The following results are inherited from upstream TokenPilot research, not
-measurements of this fork:
+The same three sessions were evaluated with full tool outputs and with Compact
+admission enabled. The evaluation used three seeds, 20 continuation turns per
+seed and configuration, and 120 provider requests total through `9Router` using
+the `combo-normal` model.
 
-<p align="center">
-  <strong><span style="font-size:1.35em;">95.7% fewer input tokens</span></strong>
-&nbsp;&nbsp;|&nbsp;&nbsp;
-  <strong><span style="font-size:1.35em;">87.0% lower cost</span></strong><br>
-  <span>vs. Vanilla OpenClaw on Claw-Eval continuous mode</span>
-</p>
+| Metric | Full tool output | Compact | Result |
+| :-- | --: | --: | :-- |
+| Provider requests | 60 | 60 | Same workload |
+| Input tokens | 8,255,954 | 3,227,188 | **60.91% lower** |
+| Estimated provider cost | $1.545276 | $1.002771 | **35.11% lower** |
+| Quality-gate runs | 3/3 | 3/3 | Passed |
+| Tool-call closure | 60/60 | 60/60 | Passed |
 
-<p align="center">
-  <strong><span style="font-size:1.35em;">67.4% fewer input tokens</span></strong>
-&nbsp;&nbsp;|&nbsp;&nbsp;
-  <strong><span style="font-size:1.35em;">61.5% lower cost</span></strong><br>
-  <span>vs. Vanilla OpenClaw on PinchBench continuous mode</span>
-</p>
+Per-seed estimated cost savings were **76.99%**, **27.75%**, and **20.44%**.
+The variation indicates that benefit depends on session content and context
+characteristics.
 
-Fork-specific performance claims should use the reproducible scripts under [`components/adapters/codex/scripts`](./components/adapters/codex/scripts) and [`components/packages/features/stabilizer/scripts`](./components/packages/features/stabilizer/scripts).
+Both configurations passed all three seeded quality evaluations, including all
+six critical-fact checks and 120 tool-call closure checks. Proxy restart was
+exercised after turn 10 in every run, but this benchmark does not independently
+assert restart correctness. Passing these gates does not establish universal
+answer-quality equivalence.
+
+These results apply only to this workload, model, provider, and pinned pricing
+assumptions. They do not establish universal savings across models, providers,
+coding tasks, or session lengths. See the [sanitized benchmark record](./docs/benchmarks/full-compact-live-evaluation.md)
+for pricing assumptions, provenance, and limitations.
+
+### Historical Context Release — Separate Experiment
+
+Historical occurrence release was evaluated independently from Compact
+admission. In an earlier 20-pair live Keep/Release comparison, release reduced
+input tokens by 0.25% but increased estimated marginal provider cost by 11.07%.
+The tested releases disrupted prompt-cache reuse enough to offset their token
+savings. This result does not contradict Compact admission: the two experiments
+change context at different stages.
+
+LightRSI therefore treats historical release as an agent-authorized operation,
+not as an assumed cost optimization.
+
+See [`docs/benchmarks/impact-report.md`](./docs/benchmarks/impact-report.md) for
+the historical measurement scope and limitations.
+
+### Upstream TokenPilot reference results
+
+Inherited TokenPilot research results remain documented in
+[Experimental Results](#experimental-results). They are not measurements of
+this fork.
+
+Existing fork-specific benchmark scripts live under [`components/adapters/codex/scripts`](./components/adapters/codex/scripts) and [`components/packages/features/stabilizer/scripts`](./components/packages/features/stabilizer/scripts). The Compact live result is summarized in the [sanitized benchmark record](./docs/benchmarks/full-compact-live-evaluation.md).
 
 See the benchmark scripts under [`components/adapters/codex/scripts`](./components/adapters/codex/scripts)
 and the recorded results under [`docs/superpowers/plans`](./docs/superpowers/plans).
@@ -142,6 +207,7 @@ LightRSI separates reusable improvement capabilities from shared runtime infrast
 
 * <a href='#fork'>🌿 About This Fork</a>
 * <a href='#fork-workflow'>🧭 Forked LightRSI Workflow</a>
+* <a href='#compact-context'>📦 Compact, Recoverable Context</a>
 * <a href='#context-cleaner'>🧹 Agent-Directed Context Cleaner</a>
 * <a href='#engineering-contributions'>🛠️ What Changed in This Fork</a>
 * <a href='#fork-validation'>🧪 How We Validate It</a>

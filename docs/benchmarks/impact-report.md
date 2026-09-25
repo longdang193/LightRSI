@@ -1,8 +1,9 @@
 # LightRSI Impact Report
 
 **Measurement date:** 2026-09-24
+**Latest update:** 2026-09-25
 **Repository:** LightMem2
-**Commit:** `d6517fd346671d4d2f2cada5c4da58881caba3ef`
+**Baseline report commit:** `d6517fd346671d4d2f2cada5c4da58881caba3ef`
 **Environment:** Windows, Node `v24.15.0`
 
 ## Scope
@@ -16,6 +17,26 @@ This report separates three claims:
 Mock benchmarks do not establish provider token usage, provider cache hits,
 provider latency, provider cost, or full coding-task success.
 
+## Latest Result — Compact Admission
+
+A subsequent three-seed live evaluation at runtime commit
+`111a7494ddb019c80c349ec6346a308d5f0d58c2` compared Compact admission with
+processing the same sessions using full, uncompressed tool outputs. The test
+used `9Router`, model `combo-normal`, 20 turns per seed and configuration, and
+`120` provider requests total.
+
+Compact reduced input tokens by `60.91%` and estimated provider cost by `35.11%`.
+Per-seed estimated cost savings were `76.99%`, `27.75%`, and `20.44%`.
+Both configurations passed all seeded quality checks: `6/6` critical-fact checks
+and `120/120` tool-call closure checks. Proxy restart was exercised after turn
+`10` in every run, but restart-specific correctness was not independently
+asserted by the runner.
+
+See [`full-compact-live-evaluation.md`](./full-compact-live-evaluation.md) for
+pricing assumptions, per-seed measurements, provenance, and limits. This result
+supports a workload-specific Compact admission claim. It does not generalize to
+all models, providers, coding tasks, or session lengths.
+
 ## Current Evidence
 
 | Area | Result | Status |
@@ -28,6 +49,7 @@ provider latency, provider cost, or full coding-task success.
 | Forwarding, nested block, concurrency 16 | p50 `52.798 ms`, p95 `176.031 ms`; no-op reference preserved `16/16` | Measured, exploratory |
 | Context Cleaner mock benchmark | `40` runs, `640` samples per arm, execution complete, correctness pass | Measured |
 | Context Cleaner live Stage B economics | `40` runs, `20` comparable pairs, complete usage/cache/correctness evidence; marginal cost increased `11.07%` | Measured, no savings |
+| Compact admission live evaluation | `3` seeds, `120` provider requests; input tokens reduced `60.91%`; estimated cost reduced `35.11%`; critical-fact and tool-closure checks passed; proxy restart exercised | Measured, workload-specific |
 | Deterministic coding-task pilot | Original `3/3`, fork `3/3` verifier passes across implementation, bug-fix, and recovery/restart tasks; fork used `1,091,844` vs `1,364,321` Codex-reported input tokens (`-19.97%`) | Measured, small pilot |
 | Original-vs-fork provider rebase smoke | Original `5/5` pass; fork `4/5` pass; successful runs saved median `6,471` vs `6,468` input tokens; one fork run had zero replayable items | Measured, limited |
 
@@ -185,21 +207,29 @@ Current evidence supports:
 - Reduced command-aware diagnostic payloads by `92.8–92.9%` while preserving actionable evidence.
 - Achieved approximately `1.1–1.2 ms` median indexed artifact lookup across `1,000` archived entries with exact-content verification.
 - Built reproducible A/B measurement infrastructure for local latency, cache behavior, recovery correctness, provider usage, and break-even economics.
+- Ran a three-seed live Compact admission evaluation with `60.91%` lower input tokens and `35.11%` lower estimated cost on the tested workload; this is not a universal savings claim.
 - Compared original and fork revisions with matched provider rebase smoke; original passed `5/5`, fork passed `4/5`, so no reliability-improvement claim is justified.
 - Ran a three-task original-versus-fork coding pilot with deterministic verifiers; both arms passed `3/3`, while the fork used `19.97%` fewer Codex-reported input tokens in this small sample.
 
-Do not currently claim provider cost reduction, broad coding-task success,
-latency improvement, or fork-versus-upstream superiority. The Context Cleaner
-live run supports a measured `0.25%` input-token reduction but not a savings
-claim. The original-vs-fork smoke shows near-identical token savings on
-successful runs, with one fork failure. The coding pilot has only three tasks
-and uses Codex-reported session usage rather than provider billing.
+Do not claim universal provider cost reduction, broad coding-task success,
+latency improvement, or fork-versus-upstream superiority. Compact admission
+supports a measured cost reduction only for its recorded workload and pricing
+configuration. The Context Cleaner live run supports a measured `0.25%`
+input-token reduction but increased estimated marginal cost by `11.07%`. The
+original-vs-fork smoke shows near-identical token savings on successful runs,
+with one fork failure. The coding pilot has only three tasks and uses
+Codex-reported session usage rather than provider billing.
 
 ## Reproduction and Limits
 
 Raw benchmark output was kept outside Git during execution. Re-run commands
 above from the recorded commit and compare workload, environment, sample count,
 cache state, and provider identity before attributing changes.
+
+The Compact admission result is documented in the sanitized
+[`full-compact-live-evaluation.md`](./full-compact-live-evaluation.md) record.
+The local runner and raw provider responses remain outside Git, so the record
+does not constitute a complete reproduction bundle.
 
 Upstream TokenPilot numbers in `README.md` remain upstream research results and
 are not measurements of this fork. The original-vs-fork smoke above is a local
