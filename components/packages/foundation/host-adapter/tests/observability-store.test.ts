@@ -41,6 +41,18 @@ test("shared trace store appends timestamped event records", async () => {
   }
 });
 
+test("awaiting an enqueued trace waits for durable append", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-trace-await-"));
+  try {
+    await enqueueEventTrace(stateDir, { stage: "proxy_after_call", requestId: "request-trace-a" });
+
+    const raw = await readFile(join(stateDir, "event-trace.jsonl"), "utf8");
+    assert.match(raw, /"stage":"proxy_after_call"/u);
+    assert.match(raw, /"requestId":"request-trace-a"/u);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
 test("event trace queue bounds optional diagnostics and reports failures", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-trace-queue-"));
   const blockedPath = join(stateDir, "blocked");

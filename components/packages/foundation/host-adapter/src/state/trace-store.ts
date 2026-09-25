@@ -12,6 +12,7 @@ type QueuedEventTrace = {
   stateDir: string;
   record: Record<string, unknown>;
   bytes: number;
+  settle: () => void;
 };
 
 const MAX_QUEUED_EVENT_TRACE_RECORDS = 1_024;
@@ -47,6 +48,8 @@ function scheduleEventTraceDrain(): void {
         await appendJsonl(eventTracePath(entry.stateDir), entry.record);
       } catch {
         drainFailures += 1;
+      } finally {
+        entry.settle();
       }
     }
   })().finally(() => {
@@ -58,25 +61,29 @@ function scheduleEventTraceDrain(): void {
 export function enqueueEventTrace(
   stateDir: string,
   payload: Record<string, unknown>,
-): void {
-  const record = { at: new Date().toISOString(), ...payload };
-  let bytes: number;
-  try {
-    bytes = Buffer.byteLength(`${JSON.stringify(record)}\n`, "utf8");
-  } catch {
-    droppedRecords += 1;
-    return;
-  }
-  if (
-    eventTraceQueue.length >= MAX_QUEUED_EVENT_TRACE_RECORDS
-    || queuedBytes + bytes > MAX_QUEUED_EVENT_TRACE_BYTES
-  ) {
-    droppedRecords += 1;
-    return;
-  }
-  eventTraceQueue.push({ stateDir, record, bytes });
-  queuedBytes += bytes;
-  scheduleEventTraceDrain();
+): Promise<void> {
+  return new Promise((resolve) => {
+    const record = { at: new Date().toISOString(), ...payload };
+    let bytes: number;
+    try {
+      bytes = Buffer.byteLength(`${JSON.stringify(record)}\n`, "utf8");
+    } catch {
+      droppedRecords += 1;
+      resolve();
+      return;
+    }
+    if (
+      eventTraceQueue.length >= MAX_QUEUED_EVENT_TRACE_RECORDS
+      || queuedBytes + bytes > MAX_QUEUED_EVENT_TRACE_BYTES
+    ) {
+      droppedRecords += 1;
+      resolve();
+      return;
+    }
+    eventTraceQueue.push({ stateDir, record, bytes, settle: resolve });
+    queuedBytes += bytes;
+    scheduleEventTraceDrain();
+  });
 }
 
 export async function drainEventTraceQueue(): Promise<void> {
