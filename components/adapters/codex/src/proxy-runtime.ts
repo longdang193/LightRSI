@@ -39,6 +39,7 @@ import {
 } from "./responses-codec.js";
 import {
   type CodexReductionSummary,
+  cacheCodexAcceptedInputProjection,
   normalizeResponsesInputForUpstream,
   reduceCodexRequestEnvelope,
 } from "./reduction.js";
@@ -1362,6 +1363,21 @@ export async function startCodexResponsesProxy(params: {
           }));
           const attempt = forwardingAttempts.at(-1);
           if (attempt) attempt.outcome = response.status >= 200 && response.status < 300 ? "completed" : "failed";
+          if (nextPayload === payload
+            && nonStreamRequestStatus({
+              httpStatus: response.status,
+              response: parseJsonObject(response.text),
+            }) === "completed"
+            && Array.isArray(originalPayload.input)
+            && Array.isArray(nextPayload.input)) {
+            cacheCodexAcceptedInputProjection({
+              stateDir: config.stateDir,
+              sessionId,
+              originalItems: originalPayload.input as JsonObject[],
+              acceptedItems: nextPayload.input as JsonObject[],
+              scope: forwardingScope,
+            });
+          }
           return response;
         } catch (error) {
           const attempt = forwardingAttempts.at(-1);

@@ -1,4 +1,4 @@
-import { hashJson } from "./shared.js";
+import { hashJson, sanitizeValue } from "./shared.js";
 import type { JsonObject } from "./types.js";
 
 export const CODEX_FORWARDING_METADATA_KEY = "__lightrsiForwarding";
@@ -39,7 +39,7 @@ function canonicalize(value: unknown): unknown {
 }
 
 export function codexForwardingFingerprint(value: unknown): string {
-  return hashJson(canonicalize(value));
+  return hashJson(canonicalize(sanitizeValue(value)));
 }
 
 export function codexStripForwardingMetadata(value: JsonObject): JsonObject {

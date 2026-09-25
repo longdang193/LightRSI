@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
-import { applyBeforeCallReductionToPayload } from "../src/reduction.js";
+import {
+  applyBeforeCallReductionToPayload,
+  cacheCodexAcceptedInputProjection,
+} from "../src/reduction.js";
 import { computeEncodedProviderWirePrefixDiagnostics } from "../src/proxy-runtime.js";
 import { createCodexResponsesPayloadCodec } from "../src/responses-codec.js";
 
@@ -144,6 +147,7 @@ test("independent three-round replay preserves encoded historical prefix", async
     ],
   };
   const appendOnlyPayload: any = structuredClone(firstPayload);
+  const originalHistoricalItems = structuredClone(firstPayload.input);
   appendOnlyPayload.input.push(
       {
         type: "function_call",
@@ -173,6 +177,12 @@ test("independent three-round replay preserves encoded historical prefix", async
   assert.deepEqual(firstPayload.input[2].tool_result.headers, {
     "x-round": "read-1",
     nested: { source: "fixture" },
+  });
+  cacheCodexAcceptedInputProjection({
+    stateDir: replayConfig.stateDir,
+    sessionId: "replay-wire-session",
+    originalItems: originalHistoricalItems,
+    acceptedItems: firstPayload.input,
   });
 
   const historicalIds = ["read-1", "edit-1", "read-2"];

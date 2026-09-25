@@ -7,6 +7,7 @@ import test, { after, before } from "node:test";
 import { createCodexResponsesPayloadCodec } from "../src/responses-codec.js";
 import {
   applyBeforeCallReductionToPayload,
+  cacheCodexAcceptedInputProjection,
   normalizeResponsesInputForUpstream,
   reduceCodexRequestEnvelope,
 } from "../src/reduction.js";
@@ -216,6 +217,81 @@ test("reduceCodexRequestEnvelope trims large tool output and preserves developer
   assert.equal(reduced.envelope.metadata?.localMarker, "keep");
   assert.notEqual(reduced.envelope.metadata?.inputText, "stale");
   assert.deepEqual((reduced.envelope.rawPayload as any).input, encoded.input);
+});
+
+test("reduceCodexRequestEnvelope publishes a reused compact projection without fresh reduction", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-projection-only-"));
+  const config = normalizeTokenPilotCodexConfig({
+    stateDir,
+    reduction: {
+      triggerMinChars: 256,
+      maxToolChars: 400,
+      passes: {
+        readStateCompaction: false,
+        toolPayloadTrim: true,
+        htmlSlimming: false,
+        execOutputTruncation: true,
+        agentsStartupOptimization: false,
+      },
+    },
+  });
+  const codec = createCodexResponsesPayloadCodec();
+  const scope = { promptCacheKey: "projection-only-cache", endpointId: "endpoint-1", conversationBranch: "branch-1" };
+  const sourcePayload = {
+    model: "tokenpilot/gpt-5.4-mini",
+    input: [
+      { role: "user", content: "inspect output" },
+      { role: "tool", type: "function_call_output", name: "bash", output: `HEAD\n${"line\n".repeat(600)}` },
+    ],
+  };
+  const envelopeForRequest = () => {
+    const envelope = codec.decodeRequest(structuredClone(sourcePayload));
+    return {
+      ...envelope,
+      session: { ...envelope.session, sessionId: "projection-only-session" },
+    };
+  };
+  try {
+    const first = await reduceCodexRequestEnvelope({
+      envelope: envelopeForRequest(),
+      codec,
+      config,
+      forwardingScope: scope,
+      requestId: "projection-only-first",
+    });
+    assert.ok(first.summary.changedBlocks > 0);
+
+    const notYetAccepted = await reduceCodexRequestEnvelope({
+      envelope: envelopeForRequest(),
+      codec,
+      config,
+      forwardingScope: scope,
+      requestId: "projection-only-before-acceptance",
+    });
+    assert.ok(notYetAccepted.summary.changedBlocks > 0);
+
+    cacheCodexAcceptedInputProjection({
+      stateDir,
+      sessionId: "projection-only-session",
+      originalItems: sourcePayload.input,
+      acceptedItems: (codec.encodeRequest(first.envelope) as any).input,
+      scope,
+    });
+
+    const second = await reduceCodexRequestEnvelope({
+      envelope: envelopeForRequest(),
+      codec,
+      config,
+      forwardingScope: scope,
+      requestId: "projection-only-second",
+    });
+    const encoded = codec.encodeRequest(second.envelope) as any;
+
+    assert.equal(second.summary.changedBlocks, 0);
+    assert.ok(String(encoded.input[1].output).length < String(sourcePayload.input[1].output).length);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
 });
 
 test("reduction preserves serialized history items and trims only new tool output", async () => {

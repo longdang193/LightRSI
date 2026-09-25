@@ -90,6 +90,8 @@ export type CodexReductionVisualSegment = {
 export type CodexReductionSummary = {
   changedItems: number;
   changedBlocks: number;
+  projectionReusedItems: number;
+  providerPayloadChanged: boolean;
   savedChars: number;
   beforeChars: number;
   afterChars: number;
@@ -119,6 +121,26 @@ function rememberProcessProjection(key: string, projection: CodexAcceptedInputPr
     if (oldestKey === undefined) break;
     processProjections.delete(oldestKey);
   }
+}
+
+export function cacheCodexAcceptedInputProjection(params: {
+  stateDir: string;
+  sessionId: string;
+  originalItems: JsonObject[];
+  acceptedItems: JsonObject[];
+  scope?: CodexForwardingScope;
+}): void {
+  if (params.originalItems.length === 0 || params.acceptedItems.length === 0) return;
+  const acceptedItems = structuredClone(params.acceptedItems) as JsonObject[];
+  rememberProcessProjection(`${params.stateDir}\0${params.sessionId}`, {
+    historicalItems: codexAttachForwardingMetadata({
+      sanitizedItems: acceptedItems,
+      originalItems: structuredClone(params.originalItems) as JsonObject[],
+      acceptedItems,
+      scope: params.scope,
+    }),
+    acceptedItems,
+  });
 }
 
 function normalizeDisclosedReadPaths(value: unknown): string[] | undefined {
@@ -800,6 +822,8 @@ export async function applyBeforeCallReductionToPayload(params: {
     return {
       changedItems: 0,
       changedBlocks: 0,
+      projectionReusedItems: 0,
+      providerPayloadChanged: false,
       savedChars: 0,
       beforeChars: 0,
       afterChars: 0,
@@ -820,6 +844,26 @@ export async function applyBeforeCallReductionToPayload(params: {
     const projectionKey = `${config.stateDir}\0${sessionId}`;
     let projection = processProjections.get(projectionKey);
     if (projection) rememberProcessProjection(projectionKey, projection);
+    let frozenInputItemCount = 0;
+    const applyProjection = (candidate: CodexAcceptedInputProjection): boolean => {
+      const match = codexMatchForwardedPrefix({
+        currentItems: originalInput,
+        historicalItems: candidate.historicalItems,
+        scope: params.forwardingScope,
+      });
+      if (match.reason || match.prefixLength === 0 || match.prefixLength > candidate.acceptedItems.length) {
+        return false;
+      }
+      payload.input = originalInput.map((item, index) => index < match.prefixLength
+        ? structuredClone(candidate.acceptedItems[index])
+        : item);
+      frozenInputItemCount = match.prefixLength;
+      return true;
+    };
+    if (projection && !applyProjection(projection)) {
+      processProjections.delete(projectionKey);
+      projection = undefined;
+    }
     if (!projection) {
       projection = await findCodexAcceptedInputProjection({
         stateDir: config.stateDir,
@@ -828,22 +872,7 @@ export async function applyBeforeCallReductionToPayload(params: {
         scope: params.forwardingScope,
         excludeRequestId: params.requestId,
       });
-    }
-    let frozenInputItemCount = 0;
-    if (projection) {
-      const match = codexMatchForwardedPrefix({
-        currentItems: originalInput,
-        historicalItems: projection.historicalItems,
-        scope: params.forwardingScope,
-      });
-      if (!match.reason && match.prefixLength > 0 && match.prefixLength <= projection.acceptedItems.length) {
-        payload.input = originalInput.map((item, index) => index < match.prefixLength
-          ? structuredClone(projection!.acceptedItems[index])
-          : item);
-        frozenInputItemCount = match.prefixLength;
-      } else {
-        projection = undefined;
-      }
+      if (projection && !applyProjection(projection)) projection = undefined;
     }
     const snapshot = await loadCodexSessionSnapshot(config.stateDir, sessionId);
     const built = buildTurnContext(payload, sessionId, {
@@ -857,11 +886,13 @@ export async function applyBeforeCallReductionToPayload(params: {
   const turnCtx = withReductionPolicy({ ...built.turnCtx, segments: ordinarySegments }, localInstructions);
   const { bindings } = built;
   const totalChars = turnCtx.segments.reduce((sum, segment) => sum + segment.text.length, 0);
-  if (turnCtx.segments.length === 0 || totalChars < config.reduction.triggerMinChars) {
-    return {
-      changedItems: 0,
-      changedBlocks: 0,
-      savedChars: 0,
+    if (turnCtx.segments.length === 0 || totalChars < config.reduction.triggerMinChars) {
+      return {
+        changedItems: 0,
+        changedBlocks: 0,
+        projectionReusedItems: frozenInputItemCount,
+        providerPayloadChanged: frozenInputItemCount > 0,
+        savedChars: 0,
       beforeChars: totalChars,
       afterChars: totalChars,
       report: [],
@@ -891,6 +922,8 @@ export async function applyBeforeCallReductionToPayload(params: {
     return {
       changedItems: 0,
       changedBlocks: 0,
+      projectionReusedItems: frozenInputItemCount,
+      providerPayloadChanged: frozenInputItemCount > 0,
       savedChars: 0,
       beforeChars: totalChars,
       afterChars: totalChars,
@@ -999,18 +1032,11 @@ export async function applyBeforeCallReductionToPayload(params: {
     payload.input = stagedInput;
       if (payload.input !== stagedInput) throw new Error("codex reduction input publication rejected");
     }
-    rememberProcessProjection(projectionKey, {
-      historicalItems: codexAttachForwardingMetadata({
-        sanitizedItems: payload.input as JsonObject[],
-        originalItems: originalInput,
-        acceptedItems: payload.input as JsonObject[],
-        scope: params.forwardingScope,
-      }),
-      acceptedItems: structuredClone(payload.input) as JsonObject[],
-    });
     return {
       changedItems: changedItems.size,
       changedBlocks,
+      projectionReusedItems: frozenInputItemCount,
+      providerPayloadChanged: frozenInputItemCount > 0 || changedBlocks > 0,
       savedChars,
       beforeChars: totalChars,
       afterChars: Math.max(0, totalChars - savedChars),
@@ -1036,6 +1062,8 @@ export async function applyBeforeCallReductionToPayload(params: {
     return {
       changedItems: 0,
       changedBlocks: 0,
+      projectionReusedItems: 0,
+      providerPayloadChanged: false,
       savedChars: 0,
       beforeChars: 0,
       afterChars: 0,
@@ -1083,7 +1111,7 @@ export async function reduceCodexRequestEnvelope(params: {
     forwardingScope: params.forwardingScope,
     requestId: params.requestId,
   });
-  if (summary.changedBlocks === 0) {
+  if (!summary.providerPayloadChanged) {
     return {
       envelope: params.envelope,
       summary,
