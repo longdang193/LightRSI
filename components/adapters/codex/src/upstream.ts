@@ -519,7 +519,7 @@ export async function requestUpstreamResponses(params: {
   requestId?: string;
   signal?: AbortSignal;
   endpointPath?: string;
-  fallbackPayload?: any;
+  fallbackPayload?: (payload: any) => any;
 }): Promise<UpstreamHttpResponse> {
   let transportFetches = 0;
   let endpointPath = params.endpointPath ?? "/responses";
@@ -539,7 +539,8 @@ export async function requestUpstreamResponses(params: {
   let text = await resp.text();
   if (resp.status === 404 && endpointPath === "/responses/compact") {
     endpointPath = "/responses";
-    resp = await send(params.fallbackPayload ?? payload);
+    payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
+    resp = await send(payload);
     text = await resp.text();
   }
   if (!resp.ok) {
@@ -574,7 +575,7 @@ export async function requestUpstreamResponsesStream(params: {
   requestId?: string;
   signal?: AbortSignal;
   endpointPath?: string;
-  fallbackPayload?: any;
+  fallbackPayload?: (payload: any) => any;
 }): Promise<UpstreamStreamResponse> {
   let transportFetches = 0;
   let endpointPath = params.endpointPath ?? "/responses";
@@ -594,7 +595,8 @@ export async function requestUpstreamResponsesStream(params: {
   if (resp.status === 404 && endpointPath === "/responses/compact") {
     await resp.text();
     endpointPath = "/responses";
-    resp = await send(params.fallbackPayload ?? payload);
+    payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
+    resp = await send(payload);
   }
   if (!resp.ok) {
     const text = await resp.text();

@@ -245,6 +245,109 @@ test("unsupported prompt_cache_options is persisted and retried once without tha
   }
 });
 
+test("compact fallback keeps normalized payload through unsupported-field retry", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-compact-fallback-retry-"));
+  const requests: Array<{ path: string; payload: Record<string, unknown> }> = [];
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    if (req.url === "/v1/models") {
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ data: [{ id: "provider/json-model" }, { id: "provider/stream-model" }] }));
+      return;
+    }
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    requests.push({ path: req.url ?? "", payload });
+    if (req.url === "/v1/responses/compact") {
+      res.statusCode = 404;
+      res.end("not found");
+      return;
+    }
+    if ("prompt_cache_retention" in payload) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: { message: "Unsupported parameter: prompt_cache_retention" } }));
+      return;
+    }
+    res.statusCode = 200;
+    if (payload.stream === true) {
+      res.setHeader("content-type", "text/event-stream");
+      res.end("event: response.completed\n\n");
+    } else {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ status: "completed", output: [] }));
+    }
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const upstream = {
+    name: "9router",
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    wireApi: "responses" as const,
+    requiresOpenAIAuth: false,
+  };
+  const fallbackPayload = (payload: any) => ({
+    ...payload,
+    input: Array.isArray(payload.input)
+      ? payload.input.filter((item: any) => item?.type !== "web_search_call")
+      : payload.input,
+  });
+  try {
+    const json = await requestUpstreamResponses({
+      upstream,
+      stateDir,
+      endpointPath: "/responses/compact",
+      payload: {
+        model: "json-model",
+        prompt_cache_retention: "24h",
+        input: [{ type: "web_search_call", id: "search_json" }],
+      },
+      fallbackPayload,
+    });
+    assert.equal(json.status, 200);
+    assert.equal(json.transportFetches, 3);
+
+    const stream = await requestUpstreamResponsesStream({
+      upstream,
+      stateDir,
+      endpointPath: "/responses/compact",
+      payload: {
+        model: "stream-model",
+        prompt_cache_retention: "24h",
+        stream: true,
+        input: [{ type: "web_search_call", id: "search_stream" }],
+      },
+      fallbackPayload,
+    });
+    for await (const _chunk of stream.stream) {
+    }
+    assert.equal(stream.status, 200);
+    assert.equal(stream.transportFetches, 3);
+
+    for (const offset of [0, 3]) {
+      assert.equal(requests[offset]?.path, "/v1/responses/compact");
+      assert.equal(requests[offset + 1]?.path, "/v1/responses");
+      assert.equal(requests[offset + 2]?.path, "/v1/responses");
+      assert.equal(requests[offset + 1]?.payload.model, `provider/${offset === 0 ? "json-model" : "stream-model"}`);
+      assert.equal(requests[offset + 2]?.payload.model, requests[offset + 1]?.payload.model);
+      assert.equal((requests[offset + 1]?.payload.input as any[])?.some((item) => item?.type === "web_search_call"), false);
+      assert.equal((requests[offset + 2]?.payload.input as any[])?.some((item) => item?.type === "web_search_call"), false);
+      assert.equal("prompt_cache_retention" in (requests[offset + 1]?.payload ?? {}), true);
+      assert.equal("prompt_cache_retention" in (requests[offset + 2]?.payload ?? {}), false);
+    }
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("stream upstream learns unsupported nested prompt_cache_breakpoint and retries without it", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-breakpoint-capability-"));
   const requests: Array<Record<string, unknown>> = [];
