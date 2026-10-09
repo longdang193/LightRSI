@@ -1353,6 +1353,7 @@ export async function startCodexResponsesProxy(params: {
                 : undefined,
             stateDir: config.stateDir,
             signal: requestAbortController.signal,
+            endpointPath: compactRequest ? "/responses/compact" : undefined,
           }));
           const attempt = forwardingAttempts.at(-1);
           if (attempt) attempt.outcome = response.status >= 200 && response.status < 300 ? "completed" : "failed";
@@ -1962,6 +1963,7 @@ export async function startCodexResponsesProxy(params: {
                 : undefined,
             stateDir: config.stateDir,
             signal: requestAbortController.signal,
+            endpointPath: compactRequest ? "/responses/compact" : undefined,
           }));
         } catch (error) {
           const attempt = forwardingAttempts.at(-1);

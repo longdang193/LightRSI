@@ -130,11 +130,11 @@ async function resolveNineRouterPayloadModel(
   return resolvedModel === payload.model ? payload : { ...payload, model: resolvedModel };
 }
 
-function endpointFor(upstream: CodexProviderConfig): string {
+function endpointFor(upstream: CodexProviderConfig, path = "/responses"): string {
   const base = upstream.baseUrl.replace(/\/+$/, "");
-  if (base.endsWith("/v1")) return `${base}/responses`;
-  if (base.endsWith("/v1/responses")) return base;
-  return `${base}/v1/responses`;
+  if (base.endsWith("/v1")) return `${base}${path}`;
+  if (base.endsWith("/v1/responses")) return `${base.slice(0, -"/responses".length)}${path}`;
+  return `${base}/v1${path}`;
 }
 
 function responseText(content: unknown): string {
@@ -239,6 +239,7 @@ async function appendUpstreamTrace(
     requestId?: string;
     upstream: CodexProviderConfig;
     payload: any;
+    endpointPath?: string;
   },
   details: Record<string, unknown>,
 ): Promise<void> {
@@ -247,7 +248,7 @@ async function appendUpstreamTrace(
     await appendTrace(params.stateDir, {
       requestId: params.requestId,
       model: typeof params.payload?.model === "string" ? params.payload.model : null,
-      upstreamEndpointId: codexRebaseEndpointIdentity(endpointFor(params.upstream)),
+      upstreamEndpointId: codexRebaseEndpointIdentity(endpointFor(params.upstream, params.endpointPath)),
       ...details,
     });
   } catch {
@@ -262,6 +263,7 @@ async function sendUpstreamRequest(
     stateDir?: string;
     requestId?: string;
     signal?: AbortSignal;
+    endpointPath?: string;
   },
   payload: any,
   attempt: number,
@@ -269,7 +271,7 @@ async function sendUpstreamRequest(
 ): Promise<Response> {
   const startedAt = performance.now();
   try {
-    const response = await fetch(endpointFor(params.upstream), {
+    const response = await fetch(endpointFor(params.upstream, params.endpointPath), {
       method: "POST",
       headers: requestHeaders(params),
       body: JSON.stringify(payload),
@@ -516,11 +518,13 @@ export async function requestUpstreamResponses(params: {
   stateDir?: string;
   requestId?: string;
   signal?: AbortSignal;
+  endpointPath?: string;
 }): Promise<UpstreamHttpResponse> {
   let transportFetches = 0;
+  let endpointPath = params.endpointPath ?? "/responses";
   const send = (payload: any) => {
     transportFetches += 1;
-    return sendUpstreamRequest(params, payload, transportFetches, false);
+    return sendUpstreamRequest({ ...params, endpointPath }, payload, transportFetches, false);
   };
   let payload = await resolveNineRouterPayloadModel(
     clonePayloadWithoutUnsupportedFields(params.payload, new Set()),
@@ -532,6 +536,11 @@ export async function requestUpstreamResponses(params: {
   payload = clonePayloadWithoutUnsupportedFields(payload, unsupportedFields);
   let resp = await send(payload);
   let text = await resp.text();
+  if (resp.status === 404 && endpointPath === "/responses/compact") {
+    endpointPath = "/responses";
+    resp = await send(payload);
+    text = await resp.text();
+  }
   if (!resp.ok) {
     const unsupportedField = unsupportedOptionalFieldFromText(text);
     if (resp.status !== 401 && resp.status !== 403 && unsupportedField && !unsupportedFields.has(unsupportedField)) {
@@ -563,11 +572,13 @@ export async function requestUpstreamResponsesStream(params: {
   stateDir?: string;
   requestId?: string;
   signal?: AbortSignal;
+  endpointPath?: string;
 }): Promise<UpstreamStreamResponse> {
   let transportFetches = 0;
+  let endpointPath = params.endpointPath ?? "/responses";
   const send = (payload: any) => {
     transportFetches += 1;
-    return sendUpstreamRequest(params, payload, transportFetches, true);
+    return sendUpstreamRequest({ ...params, endpointPath }, payload, transportFetches, true);
   };
   let payload = await resolveNineRouterPayloadModel(
     clonePayloadWithoutUnsupportedFields(params.payload, new Set()),
@@ -578,6 +589,11 @@ export async function requestUpstreamResponsesStream(params: {
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream, resolvedModel);
   payload = clonePayloadWithoutUnsupportedFields(payload, unsupportedFields);
   let resp = await send(payload);
+  if (resp.status === 404 && endpointPath === "/responses/compact") {
+    await resp.text();
+    endpointPath = "/responses";
+    resp = await send(payload);
+  }
   if (!resp.ok) {
     const text = await resp.text();
     const unsupportedField = unsupportedOptionalFieldFromText(text);
