@@ -7,13 +7,12 @@ import test from "node:test";
 import {
   reserveUnusedPort,
   startMockCachingJsonUpstream,
-  startMockJsonUpstream,
 } from "@lightrsi/host-adapter";
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
 
-async function startSseUpstream(options: { compactStatus?: number } = {}) {
+async function startSseUpstream(options: { compactStatus?: number; json?: boolean; rejectStreamField?: boolean } = {}) {
   const port = await reserveUnusedPort();
   const requests: Array<Record<string, unknown>> = [];
   const paths: string[] = [];
@@ -31,8 +30,19 @@ async function startSseUpstream(options: { compactStatus?: number } = {}) {
       res.end("not found");
       return;
     }
-    requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    if (options.rejectStreamField && "stream" in payload) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: { message: "Unsupported parameter: stream" } }));
+      return;
+    }
+    requests.push(payload);
     res.statusCode = 200;
+    if (options.json) {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ id: "resp_compact_json", object: "response", status: "completed", output: [] }));
+      return;
+    }
     res.setHeader("content-type", "text/event-stream");
     res.end([
       `event: response.created\ndata: ${JSON.stringify({
@@ -67,17 +77,10 @@ async function startSseUpstream(options: { compactStatus?: number } = {}) {
   };
 }
 
-test("compact route strips historical web search items on request-only projection", async () => {
+test("compact route preserves native non-stream payload without stream field", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-compact-route-"));
   const proxyPort = await reserveUnusedPort();
-  const upstream = await startMockJsonUpstream({
-    responseBody: {
-      id: "resp_compact_test",
-      object: "response",
-      status: "completed",
-      output: [],
-    },
-  });
+  const upstream = await startSseUpstream({ json: true, rejectStreamField: true });
   const runtime = await startCodexResponsesProxy({
     config: normalizeTokenPilotCodexConfig({
       proxyPort,
@@ -106,7 +109,7 @@ test("compact route strips historical web search items on request-only projectio
 
     assert.equal(response.status, 200);
     assert.equal(upstream.requests.length, 1);
-    assert.equal(upstream.requests[0]?.input?.some((item: any) => item?.type === "web_search_call"), false);
+    assert.equal(upstream.requests[0]?.input?.some((item: any) => item?.type === "web_search_call"), true);
   } finally {
     await runtime.close();
     await upstream.close();

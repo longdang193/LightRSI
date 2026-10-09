@@ -1333,7 +1333,10 @@ export async function startCodexResponsesProxy(params: {
         return response;
       };
       const projectUpstreamPayload = (nextPayload: JsonObject): JsonObject => {
-        return nextPayload;
+        if (!compactRequest || nextPayload.stream !== false) return nextPayload;
+        const projected = cloneJsonObject(nextPayload);
+        delete projected.stream;
+        return projected;
       };
       const compactFallbackPayload = (): ((nextPayload: JsonObject) => JsonObject) | undefined => {
         if (!compactRequest) return undefined;
