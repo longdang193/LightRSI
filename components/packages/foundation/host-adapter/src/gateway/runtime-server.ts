@@ -13,7 +13,7 @@ export type HostGatewayRuntimeServer = {
 
 export async function startHostGatewayRuntimeServer(params: {
   port: number;
-  requestPath: string;
+  requestPath: string | string[];
   basePath?: string;
   healthPayload: unknown;
   handleRoute?(args: {
@@ -56,7 +56,8 @@ export async function startHostGatewayRuntimeServer(params: {
         });
         if (handled) return;
       }
-      if (req.method !== "POST" || pathname !== params.requestPath) {
+      const requestPaths = Array.isArray(params.requestPath) ? params.requestPath : [params.requestPath];
+      if (req.method !== "POST" || !requestPaths.includes(pathname)) {
         sendJsonResponse(res, 404, { error: "not found" });
         return;
       }

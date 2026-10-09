@@ -200,6 +200,12 @@ function cloneJsonObject(value: JsonObject): JsonObject {
   return JSON.parse(JSON.stringify(value)) as JsonObject;
 }
 
+function stripHistoricalWebSearchCalls(input: unknown): unknown {
+  if (!Array.isArray(input)) return input;
+  const retained = input.filter((item) => asJsonObject(item)?.type !== "web_search_call");
+  return retained;
+}
+
 function hashJson(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 24);
 }
@@ -698,7 +704,9 @@ export async function startCodexResponsesProxy(params: {
 
   const runtime = await startHostGatewayRuntimeServer({
     port: config.proxyPort,
-    requestPath: "/v1/responses",
+    requestPath: config.proxyMode.pureForward
+      ? "/v1/responses"
+      : ["/v1/responses", "/v1/responses/compact"],
     basePath: "/v1",
     healthPayload: {
       ok: true,
@@ -743,7 +751,8 @@ export async function startCodexResponsesProxy(params: {
       }
       return true;
     },
-    async handleRequest({ req, res, body }) {
+    async handleRequest({ req, res, pathname, body }) {
+      const compactRequest = pathname === "/v1/responses/compact";
       const inboundPayload = JSON.parse(body) as JsonObject;
       inboundPayload.input = normalizeResponsesInputForUpstream(inboundPayload?.input);
       const inboundPromptCacheKey =
@@ -1323,12 +1332,19 @@ export async function startCodexResponsesProxy(params: {
         if (response.status >= 200 && response.status < 300) successfulGenerations += 1;
         return response;
       };
+      const projectUpstreamPayload = (nextPayload: JsonObject): JsonObject => {
+        if (!compactRequest) return nextPayload;
+        const projected = cloneJsonObject(nextPayload);
+        projected.input = stripHistoricalWebSearchCalls(projected.input);
+        return projected;
+      };
       const sendUpstream = async (nextPayload: JsonObject) => {
-        recordForwardingAttempt(nextPayload);
+        const projectedPayload = projectUpstreamPayload(nextPayload);
+        recordForwardingAttempt(projectedPayload);
         try {
           const response = countUpstreamResponse(await requestUpstreamResponses({
             upstream,
-            payload: nextPayload,
+            payload: projectedPayload,
             requestId,
             inboundAuthorization: authorization,
             lightmem2CacheContractDigest:
@@ -1931,12 +1947,13 @@ export async function startCodexResponsesProxy(params: {
           trackOptionalTask(runOptional());
           return;
         }
-        recordForwardingAttempt(payload);
+        const projectedPayload = projectUpstreamPayload(payload);
+        recordForwardingAttempt(projectedPayload);
         let upstreamResp;
         try {
           upstreamResp = countUpstreamResponse(await requestUpstreamResponsesStream({
             upstream,
-            payload,
+            payload: projectedPayload,
             requestId,
             inboundAuthorization: authorization,
             lightmem2CacheContractDigest:
