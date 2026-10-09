@@ -114,7 +114,7 @@ test("compact route strips historical web search items on request-only projectio
   }
 });
 
-test("compact stream route strips history and preserves completion SSE", async () => {
+test("compact stream route preserves history and native completion SSE", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-compact-stream-"));
   const proxyPort = await reserveUnusedPort();
   const upstream = await startSseUpstream();
@@ -150,7 +150,7 @@ test("compact stream route strips history and preserves completion SSE", async (
     assert.equal(upstream.requests.length, 1);
     assert.deepEqual(upstream.paths, ["/v1/responses/compact"]);
     assert.match(text, /"type":"compaction"/);
-    assert.equal(upstream.requests[0]?.input?.some((item: any) => item?.type === "web_search_call"), false);
+    assert.equal(upstream.requests[0]?.input?.some((item: any) => item?.type === "web_search_call"), true);
   } finally {
     await runtime.close();
     await upstream.close();
@@ -178,11 +178,16 @@ test("compact route falls back when upstream lacks compact endpoint", async () =
     const response = await fetch(`${runtime.baseUrl}/responses/compact`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: "capture-model", stream: true, input: [] }),
+      body: JSON.stringify({
+        model: "capture-model",
+        stream: true,
+        input: [{ type: "web_search_call", id: "search_1", status: "completed" }],
+      }),
     });
     assert.equal(response.status, 200);
     await response.text();
     assert.deepEqual(upstream.paths, ["/v1/responses/compact", "/v1/responses"]);
+    assert.equal(upstream.requests[0]?.input?.some((item: any) => item?.type === "web_search_call"), false);
   } finally {
     await runtime.close();
     await upstream.close();

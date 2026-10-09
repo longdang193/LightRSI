@@ -1333,7 +1333,10 @@ export async function startCodexResponsesProxy(params: {
         return response;
       };
       const projectUpstreamPayload = (nextPayload: JsonObject): JsonObject => {
-        if (!compactRequest) return nextPayload;
+        return nextPayload;
+      };
+      const compactFallbackPayload = (nextPayload: JsonObject): JsonObject | undefined => {
+        if (!compactRequest) return undefined;
         const projected = cloneJsonObject(nextPayload);
         projected.input = stripHistoricalWebSearchCalls(projected.input);
         return projected;
@@ -1354,6 +1357,7 @@ export async function startCodexResponsesProxy(params: {
             stateDir: config.stateDir,
             signal: requestAbortController.signal,
             endpointPath: compactRequest ? "/responses/compact" : undefined,
+            fallbackPayload: compactFallbackPayload(projectedPayload),
           }));
           const attempt = forwardingAttempts.at(-1);
           if (attempt) attempt.outcome = response.status >= 200 && response.status < 300 ? "completed" : "failed";
@@ -1964,6 +1968,7 @@ export async function startCodexResponsesProxy(params: {
             stateDir: config.stateDir,
             signal: requestAbortController.signal,
             endpointPath: compactRequest ? "/responses/compact" : undefined,
+            fallbackPayload: compactFallbackPayload(projectedPayload),
           }));
         } catch (error) {
           const attempt = forwardingAttempts.at(-1);
