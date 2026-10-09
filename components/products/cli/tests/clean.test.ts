@@ -154,6 +154,7 @@ test("clean CLI renders side-effect-free occurrence preview evidence", async () 
         sessionId = id;
         assert.equal(selections[0]?.stableId, "item-1");
         return {
+          evidenceType: "structural" as const,
           selectedOccurrenceCount: 1,
           validatedOccurrenceCount: 1,
           deferredOccurrenceCount: 0,
@@ -177,6 +178,7 @@ test("clean CLI renders side-effect-free occurrence preview evidence", async () 
       backend,
     });
     assert.equal(sessionId, "session-1");
+    assert.match(result.text, /Evidence: structural/);
     assert.match(result.text, /encoded=12 chars \/ 15 bytes/);
     assert.match(result.text, /Transport delta: -4 chars \/ -7 bytes/);
     assert.match(result.text, /Provider cache outcome: unknown/);

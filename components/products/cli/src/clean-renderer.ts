@@ -64,6 +64,7 @@ export type CleanInspectionView = {
 };
 
 export type CleanPreviewView = {
+  evidenceType: "structural";
   selectedOccurrenceCount: number;
   validatedOccurrenceCount: number;
   deferredOccurrenceCount: number;
@@ -140,6 +141,7 @@ export function renderCleanInspection(inspection: CleanInspectionView): string {
 export function renderCleanPreview(preview: CleanPreviewView): string {
   return [
     `Context Cleaner preview: ${preview.baseRevision}`,
+    `Evidence: ${preview.evidenceType}`,
     `Occurrences: selected=${preview.selectedOccurrenceCount} validated=${preview.validatedOccurrenceCount} deferred=${preview.deferredOccurrenceCount} rejected=${preview.rejectedOccurrenceCount}`,
     `Savings: gross=${preview.grossSavedChars} chars; encoded=${preview.netSavedChars ?? "unknown"} chars / ${preview.netSavedBytes ?? "unknown"} bytes`,
     `Transport delta: ${preview.transportDeltaChars ?? "unknown"} chars / ${preview.transportDeltaBytes ?? "unknown"} bytes`,

@@ -37,12 +37,23 @@ import { computeEncodedProviderWirePrefixDiagnostics, startCodexResponsesProxy }
 
 type JsonObject = Record<string, unknown>;
 type Arm = "baseline" | "cleaner";
-type FixtureName = "short/early" | "long/early" | "long/late" | "recovery/early";
+type FixtureName =
+  | "short/early"
+  | "long/early"
+  | "long/late"
+  | "recovery/early"
+  | "requirement-change/late"
+  | "delayed-question/early"
+  | "unexpected-dependency/late"
+  | "recovery-cycle/early"
+  | "stale-reference/late";
+type FixtureScenario = "baseline" | "requirement_change" | "delayed_question" | "unexpected_dependency" | "recovery_cycle" | "stale_reference";
 type CacheCondition = "cold" | "warm";
 type AttemptOutcome = "pending" | "success" | "provider_error" | "transport_error" | "timeout" | "cancelled";
 
 type StageBFixtureSpec = {
   id: FixtureName;
+  scenario?: FixtureScenario;
   releasePosition: "early" | "late";
   cacheCondition: CacheCondition;
   recovery: boolean;
@@ -69,6 +80,7 @@ type StageBManifest = {
 
 type Fixture = {
   name: FixtureName;
+  scenario: FixtureScenario;
   releasePosition: StageBFixtureSpec["releasePosition"];
   cacheCondition: CacheCondition;
   recovery: boolean;
@@ -254,8 +266,16 @@ async function loadStageBManifest(): Promise<{ manifest: StageBManifest; path: s
     try {
       const raw = await readFile(path);
       const manifest = JSON.parse(raw.toString("utf8")) as StageBManifest;
-      assert.equal(manifest.experiment, "context-cleaner-stage-b");
-      assert.ok(manifest.fixtures.length === 4, "Stage B manifest must define four fixtures");
+      assert.ok(
+        manifest.experiment === "context-cleaner-stage-b"
+          || manifest.experiment === "context-cleaner-delayed-recovery",
+        "unsupported context cleaner benchmark experiment",
+      );
+      if (manifest.experiment === "context-cleaner-stage-b") {
+        assert.ok(manifest.fixtures.length === 4, "Stage B manifest must define four fixtures");
+      } else {
+        assert.ok(manifest.fixtures.length >= 5, "delayed-recovery manifest must define five fixtures");
+      }
       assert.ok(manifest.comparison.keep === "baseline" && manifest.comparison.release === "cleaner");
       return { manifest, path };
     } catch (error) {
@@ -274,14 +294,15 @@ function createFixture(name: FixtureName, manifest: StageBManifest): Fixture {
   );
   return {
     name,
+    scenario: spec.scenario ?? "baseline",
     releasePosition: spec.releasePosition,
     cacheCondition: spec.cacheCondition,
     recovery: spec.recovery,
     noiseBefore: makeNoise("NOISE_BEFORE", spec.noiseBefore),
     noiseBetween: makeNoise("NOISE_BETWEEN", spec.noiseBetween),
-    retained: `RETAINED_${name.replace("/", "_")}`,
-    releaseA: `RELEASE_A_${name.replace("/", "_")}`,
-    releaseB: `RELEASE_B_${name.replace("/", "_")}`,
+    retained: `RETAINED_${name.replace("/", "_")}_${spec.scenario ?? "baseline"}`,
+    releaseA: `RELEASE_A_${name.replace("/", "_")}_${spec.scenario ?? "baseline"}`,
+    releaseB: `RELEASE_B_${name.replace("/", "_")}_${spec.scenario ?? "baseline"}`,
   };
 }
 
@@ -1181,7 +1202,7 @@ function summarize(runs: RunResult[]) {
   };
 }
 
-function pairedDifferences(runs: RunResult[]) {
+function pairedDifferences(runs: RunResult[], pricing?: ProviderPricing) {
   const baselineByKey = new Map(
     runs
       .filter((run) => run.arm === "baseline")
@@ -1232,7 +1253,7 @@ function pairedDifferences(runs: RunResult[]) {
                 : 0),
           })),
         ),
-        providerUsage: cleanerPostSeedUsage
+          providerUsage: cleanerPostSeedUsage
           && baselinePostSeedUsage
           && providerShapesComparableBeforeRelease(
             baseline.turns.map((turn) => turn.label),
@@ -1242,7 +1263,13 @@ function pairedDifferences(runs: RunResult[]) {
             run.releasePosition,
           )
           ? {
-            ...compareProviderUsage(cleanerPostSeedUsage, baselinePostSeedUsage, cleanerPostSeedTurns.map((turn) => turn.label)),
+            ...compareProviderUsage(
+              cleanerPostSeedUsage,
+              baselinePostSeedUsage,
+              cleanerPostSeedTurns.map((turn) => turn.label),
+              baselinePostSeedTurns.map((turn) => turn.label),
+              pricing,
+            ),
           }
           : null,
       };
@@ -1252,13 +1279,17 @@ function pairedDifferences(runs: RunResult[]) {
 export function cumulativeBreakEvenByLabel(
   keep: Array<{ label: string; cost: number }>,
   release: Array<{ label: string; cost: number }>,
-): BreakEvenSummary {
-  const labels = [...new Set([...keep, ...release].map((checkpoint) => checkpoint.label))];
+): BreakEvenSummary | null {
+  const keepLabels = keep.map((checkpoint) => checkpoint.label);
+  const releaseLabels = release.map((checkpoint) => checkpoint.label);
+  if (new Set(keepLabels).size !== keepLabels.length || new Set(releaseLabels).size !== releaseLabels.length) return null;
+  if (keepLabels.length !== releaseLabels.length || keepLabels.some((label) => !releaseLabels.includes(label))) return null;
+  const labels = keepLabels;
   const keepByLabel = new Map(keep.map((checkpoint) => [checkpoint.label, checkpoint.cost]));
   const releaseByLabel = new Map(release.map((checkpoint) => [checkpoint.label, checkpoint.cost]));
   return cumulativeBreakEven(
-    labels.map((label) => keepByLabel.get(label) ?? 0),
-    labels.map((label) => releaseByLabel.get(label) ?? 0),
+    labels.map((label) => keepByLabel.get(label)!),
+    labels.map((label) => releaseByLabel.get(label)!),
     labels,
   );
 }
@@ -1460,26 +1491,42 @@ export function compareProviderUsage(
   cleaner: Array<ProviderUsage | null>,
   baseline: Array<ProviderUsage | null>,
   labels: string[],
+  baselineLabels = labels,
+  pricing?: ProviderPricing,
 ) {
   const cleanerSummary = summarizeUsageValues(cleaner, cleaner.length);
   const baselineSummary = summarizeUsageValues(baseline, baseline.length);
-  const comparable = cleanerSummary.status === "complete"
-    && baselineSummary.status === "complete";
-  const checkpointCosts = (usages: Array<ProviderUsage | null>) => usages.map((usage, index) => ({
-    label: labels[index] ?? `provider_attempt_${index}`,
-    cost: usage?.inputTokens ?? 0,
+  const checkpointCosts = (usages: Array<ProviderUsage | null>, checkpointLabels: string[], cost: (usage: ProviderUsage | null) => number) => usages.map((usage, index) => ({
+    label: checkpointLabels[index] ?? `provider_attempt_${index}`,
+    cost: cost(usage),
   }));
+  const inputTokenComparison = cumulativeBreakEvenByLabel(
+    checkpointCosts(baseline, baselineLabels, (usage) => usage?.inputTokens ?? 0),
+    checkpointCosts(cleaner, labels, (usage) => usage?.inputTokens ?? 0),
+  );
+  const estimatedCostComparison = pricing
+    ? cumulativeBreakEvenByLabel(
+      checkpointCosts(baseline, baselineLabels, (usage) => estimateProviderCost(summarizeUsageValues([usage], 1), pricing) ?? 0),
+      checkpointCosts(cleaner, labels, (usage) => estimateProviderCost(summarizeUsageValues([usage], 1), pricing) ?? 0),
+    )
+    : null;
+  const comparable = cleanerSummary.status === "complete"
+    && baselineSummary.status === "complete"
+    && inputTokenComparison !== null
+    && (!pricing || estimatedCostComparison !== null);
+  const invalidReasons = [...new Set([...baselineSummary.invalidReasons, ...cleanerSummary.invalidReasons])];
+  if (inputTokenComparison === null) invalidReasons.push("checkpoint_identity_incomparable");
+  if (pricing && estimatedCostComparison === null) invalidReasons.push("economic_checkpoint_identity_incomparable");
   return {
     status: comparable ? "complete" : cleanerSummary.status === "unavailable" || baselineSummary.status === "unavailable" ? "unavailable" : "incomplete",
     baseline: baselineSummary,
     cleaner: cleanerSummary,
-    invalidReasons: [...new Set([...baselineSummary.invalidReasons, ...cleanerSummary.invalidReasons])],
+    invalidReasons: [...new Set(invalidReasons)],
     inputTokensDelta: comparable ? cleanerSummary.totals.inputTokens! - baselineSummary.totals.inputTokens! : null,
     outputTokensDelta: comparable ? cleanerSummary.totals.outputTokens! - baselineSummary.totals.outputTokens! : null,
     cachedInputTokensDelta: comparable ? cleanerSummary.totals.cachedInputTokens! - baselineSummary.totals.cachedInputTokens! : null,
-    cumulativeInputTokens: comparable
-      ? cumulativeBreakEvenByLabel(checkpointCosts(baseline), checkpointCosts(cleaner))
-      : null,
+    cumulativeInputTokens: comparable ? inputTokenComparison : null,
+    cumulativeEstimatedCostUsd: comparable && pricing ? estimatedCostComparison : null,
   };
 }
 
@@ -1666,7 +1713,7 @@ async function main(): Promise<void> {
       }
       if (capStopReason) break;
     }
-    const differences = pairedDifferences(runs);
+    const differences = pairedDifferences(runs, pricing ?? undefined);
     const providerUsage = mode === "live"
       ? {
         seed: summarizeSharedSeedUsage(runs),
@@ -1689,9 +1736,14 @@ async function main(): Promise<void> {
       : runs.every((run) => run.measurementStatus === "complete") ? "complete" : runs.some((run) => run.measurementStatus === "incomplete") ? "incomplete" : "unavailable";
     const correctnessStatus = runs.length > 0 && runs.every((run) => run.correctnessStatus === "pass") ? "pass" : "fail";
     const comparablePairCount = differences.filter((difference) => difference.measurementComparable).length;
+    const economicallyComparablePairCount = differences.filter((difference) => (
+      difference.measurementComparable
+      && difference.providerUsage?.status === "complete"
+      && (mode !== "live" || difference.providerUsage.cumulativeEstimatedCostUsd !== null)
+    )).length;
     const economicStatus = providerIdentityStatus === "mismatch" || gitPreflight.status !== "clean_match" || measurementStatus !== "complete" || comparablePairCount === 0 || underSpendingCap === null
       ? "inconclusive"
-      : underSpendingCap ? "pass" : "fail";
+      : economicallyComparablePairCount !== comparablePairCount ? "inconclusive" : underSpendingCap ? "pass" : "fail";
     passed = runs.length > 0 && runs.every((run) => run.passed) && runs.every((run) => run.turns.every((turn) => turn.timing.complete));
     report = {
       schemaVersion: 2,

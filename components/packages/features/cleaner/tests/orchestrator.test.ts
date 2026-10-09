@@ -81,6 +81,7 @@ test("release preview validates current fingerprints and writes no Cleaner state
       },
       async previewCleanRelease() {
         return {
+          evidenceType: "structural" as const,
           selectedOccurrenceCount: 1,
           validatedOccurrenceCount: 1,
           deferredOccurrenceCount: 0,
@@ -104,6 +105,7 @@ test("release preview validates current fingerprints and writes no Cleaner state
       fingerprint: "digest-a",
     }]);
     assert.equal(preview.providerCacheOutcome, "changed");
+    assert.equal(preview.evidenceType, "structural");
     assert.deepEqual(await readdir(stateDir), []);
     const fallbackService = createContextCleanerControlService({
       stateDir,
@@ -117,6 +119,7 @@ test("release preview validates current fingerprints and writes no Cleaner state
     assert.equal(fallback.validatedOccurrenceCount, 0);
     assert.equal(fallback.deferredOccurrenceCount, 1);
     assert.equal(fallback.grossSavedChars, 0);
+    assert.equal(fallback.evidenceType, "structural");
     assert.equal(fallback.earliestChangedHistoryItem, undefined);
     await assert.rejects(
       service.previewRelease("session-1", [{ stableId: "item-a", fingerprint: "wrong" }]),

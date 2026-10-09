@@ -45,6 +45,7 @@ export type ContextPressureObservation = {
 };
 
 export type CacheReleasePreview = {
+  evidenceType: "structural";
   selectedOccurrenceCount: number;
   validatedOccurrenceCount: number;
   deferredOccurrenceCount: number;

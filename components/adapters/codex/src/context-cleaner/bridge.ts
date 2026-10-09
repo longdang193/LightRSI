@@ -592,6 +592,7 @@ export function createCodexContextCleanerBridge(params: {
           ? Buffer.byteLength(equivalentBefore, "utf8") - Buffer.byteLength(transportAfter, "utf8")
           : null;
       return {
+        evidenceType: "structural",
         selectedOccurrenceCount: occurrences.length,
         validatedOccurrenceCount: candidate.result.appliedOperationIds.length,
         deferredOccurrenceCount: candidate.result.deferredOperationIds.length,

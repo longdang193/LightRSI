@@ -267,7 +267,7 @@ test("benchmark rejects invalid cached tokens", () => {
   assert.equal(usageDelta(cleaner, baseline, "inputTokens"), null);
 });
 
-test("benchmark compares unequal continuation paths by logical checkpoint", () => {
+test("benchmark rejects unequal continuation paths instead of zero-filling checkpoints", () => {
   const usage = (inputTokens: number) => ({
     inputTokens,
     outputTokens: 2,
@@ -280,13 +280,10 @@ test("benchmark compares unequal continuation paths by logical checkpoint", () =
     ["release", "continuation", "recovery"],
   );
 
-  assert.equal(comparison.status, "complete");
-  assert.equal(comparison.inputTokensDelta, -3);
-  assert.deepEqual(comparison.cumulativeInputTokens?.checkpoints, [
-    { label: "release", keepCost: 10, releaseCost: 7, netSavings: 3 },
-    { label: "continuation", keepCost: 18, releaseCost: 14, netSavings: 4 },
-    { label: "recovery", keepCost: 18, releaseCost: 15, netSavings: 3 },
-  ]);
+  assert.equal(comparison.status, "incomplete");
+  assert.equal(comparison.inputTokensDelta, null);
+  assert.equal(comparison.cumulativeInputTokens, null);
+  assert.ok(comparison.invalidReasons.includes("checkpoint_identity_incomparable"));
 });
 
 test("benchmark keeps incomplete unequal paths inconclusive", () => {
@@ -324,15 +321,66 @@ test("benchmark records transport failures before provider dispatch completes", 
 test("benchmark aligns local costs by checkpoint instead of request count", () => {
   assert.deepEqual(
     cumulativeBreakEvenByLabel(
-      [{ label: "release", cost: 10 }, { label: "continuation", cost: 8 }],
-      [{ label: "release", cost: 7 }, { label: "continuation", cost: 7 }, { label: "recovery", cost: 1 }],
+      [{ label: "release", cost: 10 }, { label: "continuation", cost: 8 }, { label: "recovery", cost: 2 }],
+      [{ label: "continuation", cost: 7 }, { label: "recovery", cost: 1 }, { label: "release", cost: 7 }],
     ).checkpoints,
     [
       { label: "release", keepCost: 10, releaseCost: 7, netSavings: 3 },
       { label: "continuation", keepCost: 18, releaseCost: 14, netSavings: 4 },
-      { label: "recovery", keepCost: 18, releaseCost: 15, netSavings: 3 },
+      { label: "recovery", keepCost: 20, releaseCost: 15, netSavings: 5 },
     ],
   );
+});
+
+test("benchmark rejects missing Keep checkpoints", () => {
+  assert.equal(
+    cumulativeBreakEvenByLabel(
+      [{ label: "release", cost: 10 }],
+      [{ label: "release", cost: 7 }, { label: "recovery", cost: 1 }],
+    ),
+    null,
+  );
+});
+
+test("benchmark rejects missing Release checkpoints", () => {
+  assert.equal(
+    cumulativeBreakEvenByLabel(
+      [{ label: "release", cost: 10 }, { label: "recovery", cost: 2 }],
+      [{ label: "release", cost: 7 }],
+    ),
+    null,
+  );
+});
+
+test("benchmark rejects duplicate checkpoint labels", () => {
+  assert.equal(
+    cumulativeBreakEvenByLabel(
+      [{ label: "release", cost: 10 }, { label: "release", cost: 8 }],
+      [{ label: "release", cost: 7 }, { label: "recovery", cost: 1 }],
+    ),
+    null,
+  );
+});
+
+test("benchmark keeps input-token and estimated-USD break-even separate", () => {
+  const usage = (inputTokens: number, cachedInputTokens: number) => ({
+    inputTokens,
+    outputTokens: 100,
+    totalTokens: inputTokens + 100,
+    cachedInputTokens,
+  });
+  const comparison = compareProviderUsage(
+    [usage(80, 60), usage(70, 50)],
+    [usage(100, 20), usage(90, 10)],
+    ["release", "continuation"],
+    ["release", "continuation"],
+    { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.1, outputUsdPerMillion: 6 },
+  );
+
+  assert.equal(comparison.status, "complete");
+  assert.ok(comparison.cumulativeInputTokens);
+  assert.ok(comparison.cumulativeEstimatedCostUsd);
+  assert.notDeepEqual(comparison.cumulativeInputTokens, comparison.cumulativeEstimatedCostUsd);
 });
 
 test("benchmark reports delayed, temporary, and recovery-erased break-even", () => {

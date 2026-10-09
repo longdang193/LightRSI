@@ -1009,6 +1009,7 @@ test("Codex release preview builds candidate without persistence", async () => {
     assert.equal(preview.deferredOccurrenceCount, 0);
     assert.equal(preview.rejectedOccurrenceCount, 0);
     assert.ok(preview.grossSavedChars > 0);
+    assert.equal(preview.evidenceType, "structural");
     assert.equal(preview.earliestChangedHistoryItem, target.stableId);
     assert.equal(preview.providerCacheOutcome, "unknown");
     assert.ok(preview.netSavedChars != null);
@@ -1081,6 +1082,7 @@ test("Codex release preview reports backend-deferred observation-only items", as
     assert.equal(preview.deferredOccurrenceCount, 1);
     assert.equal(preview.rejectedOccurrenceCount, 0);
     assert.equal(preview.grossSavedChars, 0);
+    assert.equal(preview.evidenceType, "structural");
     assert.equal(preview.netSavedChars, 0);
     assert.equal(preview.netSavedBytes, 0);
     assert.equal(preview.transportDeltaChars, 0);

@@ -189,6 +189,7 @@ export async function previewContextCleanRelease(params: {
     });
   }
   return {
+    evidenceType: "structural",
     selectedOccurrenceCount: selections.length,
     validatedOccurrenceCount: 0,
     deferredOccurrenceCount: selections.length,
