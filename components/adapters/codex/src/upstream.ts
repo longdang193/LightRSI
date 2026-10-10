@@ -622,11 +622,11 @@ export async function requestUpstreamResponses(params: {
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream, resolvedModel);
   payload = clonePayloadWithoutUnsupportedFields(payload, unsupportedFields);
   const compactKey = capabilityKey(params.upstream, resolvedModel);
-  const compactProbeGeneration = endpointPath === "/responses/compact"
-    ? compactCapabilityGeneration(compactKey)
-    : undefined;
   const knownCompactCapability = endpointPath === "/responses/compact"
     ? readCompactCapability(compactKey)
+    : undefined;
+  const compactProbeGeneration = endpointPath === "/responses/compact"
+    ? compactCapabilityGeneration(compactKey)
     : undefined;
   let resp: Response;
   let text: string;
@@ -720,11 +720,11 @@ export async function requestUpstreamResponsesStream(params: {
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream, resolvedModel);
   payload = clonePayloadWithoutUnsupportedFields(payload, unsupportedFields);
   const compactKey = capabilityKey(params.upstream, resolvedModel);
-  const compactProbeGeneration = endpointPath === "/responses/compact"
-    ? compactCapabilityGeneration(compactKey)
-    : undefined;
   const knownCompactCapability = endpointPath === "/responses/compact"
     ? readCompactCapability(compactKey)
+    : undefined;
+  const compactProbeGeneration = endpointPath === "/responses/compact"
+    ? compactCapabilityGeneration(compactKey)
     : undefined;
   let resp: Response;
   if (knownCompactCapability === "unsupported") {

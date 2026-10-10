@@ -915,3 +915,40 @@ test("compact capability expires and evicts oldest entries", async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test("expired unsupported compact capability is refreshed once", async () => {
+  resetCompactCapabilityCache();
+  let compactRequests = 0;
+  const server = createServer(async (req, res) => {
+    if (req.url === "/v1/responses/compact") {
+      compactRequests += 1;
+      res.statusCode = 404;
+      res.end("unsupported");
+      return;
+    }
+    res.statusCode = 200;
+    res.end(JSON.stringify({ status: "completed", output: [] }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const upstream = { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses" as const, requiresOpenAIAuth: false };
+  const originalNow = Date.now;
+  try {
+    await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "ttl-unsupported-model" } });
+    Date.now = () => originalNow() + 24 * 60 * 60 * 1000 + 1;
+    await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "ttl-unsupported-model" } });
+    await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "ttl-unsupported-model" } });
+    assert.equal(compactRequests, 2);
+  } finally {
+    Date.now = originalNow;
+    resetCompactCapabilityCache();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

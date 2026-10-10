@@ -6,6 +6,7 @@ import {
   captureLiveProvider,
   benchmarkRunPassed,
   classifyEconomicStatus,
+  countDispatchedProviderAttempts,
   compareProviderUsage,
   cumulativeBreakEven,
   cumulativeBreakEvenByLabel,
@@ -14,6 +15,7 @@ import {
   evaluateGitPreflight,
   evaluateProviderIdentity,
   providerShapesComparableBeforeRelease,
+  plannedProviderAttempts,
   summarizeSharedSeedUsage,
   scenarioOracle,
   usageDelta,
@@ -67,6 +69,25 @@ test("benchmark counts shared seed usage once", () => {
 
   assert.equal(baseline.status, "complete");
   assert.equal(baseline.totals.inputTokens, 10);
+});
+
+test("benchmark counts shared seed dispatch once", () => {
+  assert.equal(
+    countDispatchedProviderAttempts([
+      { arm: "baseline", upstreamRequestCount: 5, seedRequestCount: 2 } as never,
+      { arm: "cleaner", upstreamRequestCount: 5, seedRequestCount: 2 } as never,
+    ]),
+    8,
+  );
+});
+
+test("benchmark plans shared seed dispatch once", () => {
+  assert.equal(
+    plannedProviderAttempts([
+      { id: "fixture", scenario: "baseline", releasePosition: "late", cacheCondition: "warm", recovery: false, noiseBefore: 1, noiseBetween: 0 },
+    ] as never, 1, "lifecycle", true),
+    11,
+  );
 });
 
 test("summarizes flat request phases without summing overlaps", () => {

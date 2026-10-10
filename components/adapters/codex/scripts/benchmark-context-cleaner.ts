@@ -1779,7 +1779,7 @@ function plannedArmProviderAttempts(
   return initialTurns + earlyNoise + lifecycleTurns + 1 + fixture.noiseBetween + 1 + scenarioTurns;
 }
 
-function plannedProviderAttempts(
+export function plannedProviderAttempts(
   fixtures: StageBFixtureSpec[],
   repetitions: number,
   releaseMode: ReleaseMode,
@@ -1789,8 +1789,13 @@ function plannedProviderAttempts(
     const seedTurns = causalPairs
       ? 2 + (fixture.releasePosition === "late" ? fixture.noiseBefore : 0)
       : 0;
-    return total + (2 * (seedTurns + plannedArmProviderAttempts(fixture, releaseMode, causalPairs)));
+    return total + seedTurns + (2 * plannedArmProviderAttempts(fixture, releaseMode, causalPairs));
   }, 0);
+}
+
+export function countDispatchedProviderAttempts(runs: Array<Pick<RunResult, "arm" | "upstreamRequestCount" | "seedRequestCount">>): number {
+  return runs.reduce((total, run) => total + run.upstreamRequestCount, 0)
+    - runs.reduce((total, run) => total + (run.arm === "cleaner" ? run.seedRequestCount : 0), 0);
 }
 
 async function main(): Promise<void> {
@@ -1933,7 +1938,7 @@ async function main(): Promise<void> {
       ? combinedCostUsd <= spendingCapUsd
       : null;
     const executionStatus = runs.length > 0 && runs.every((run) => run.executionStatus === "complete") ? "complete" : runs.length > 0 ? "partial" : "failed";
-    const dispatchedProviderAttempts = runs.reduce((total, run) => total + run.upstreamRequestCount, 0);
+    const dispatchedProviderAttempts = countDispatchedProviderAttempts(runs);
     if (executionStatus === "complete") assert.equal(dispatchedProviderAttempts, plannedAttempts, "planned provider attempts must match dispatched attempts");
     const measurementStatus: UsageCompletenessStatus = mode === "mock"
       ? "unavailable"
