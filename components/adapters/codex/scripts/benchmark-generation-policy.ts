@@ -25,15 +25,6 @@ const REPLAYABLE_TOOL_ITEM_TYPES = new Set([
   "apply_patch_call_output",
   "tool_search_call",
   "tool_search_output",
-  "web_search_call",
-  "file_search_call",
-  "code_interpreter_call",
-  "image_generation_call",
-  "mcp_call",
-  "mcp_list_tools",
-  "mcp_approval_request",
-  "mcp_approval_response",
-  "additional_tools",
 ]);
 
 export function projectAssistantHistory(items: readonly unknown[]): Record<string, unknown>[] {

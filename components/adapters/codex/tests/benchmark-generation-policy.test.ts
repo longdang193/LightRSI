@@ -16,8 +16,9 @@ test("assistant history projection excludes hidden reasoning and preserves tool 
   const assistant = { type: "message", role: "assistant", content: [{ type: "output_text", text: "done" }] };
   const call = { type: "function_call", call_id: "call-1", name: "bash", arguments: "{}" };
   const output = { type: "function_call_output", call_id: "call-1", output: "ok" };
+  const hostedSearch = { type: "web_search_call", id: "search-1" };
 
-  assert.deepEqual(projectAssistantHistory([reasoning, assistant, call, output]), [assistant, call, output]);
+  assert.deepEqual(projectAssistantHistory([reasoning, assistant, call, output, hostedSearch]), [assistant, call, output]);
 });
 
 test("security fixture requires the exact warning prefix", () => {
