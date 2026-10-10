@@ -85,8 +85,9 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Coordination schema: 2
 - Branch: codex/generation-policy
 - Base commit: 06d1e5f4e0e1ad1b29f108299ac7ba2191d61b58
-- Expected workspace: dirty with implementation, tests, README, and mock Stage A evidence; no implementation commit created
-- Next action: none; live Stage A requires separately authorized clean checkpoint and provider traffic
+- Source checkpoint: `2da97bd` (`feat: add opt-in generation policy`)
+- Expected workspace: clean source checkpoint; generated mock Stage A evidence remains outside the checkpoint
+- Next action: obtain explicit provider/credential approval, then freeze the Stage A manifest and run live measurement
 - Blockers: live provider economics unavailable by authorization gate; Claude Code/OpenClaw reuse deferred until mechanism-specific value passes
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
@@ -109,7 +110,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Applied policy once before stable-prefix preparation on Codex ordinary paths; Compact, context-rewrite/replay control-plane paths, and exact protected structured-output requests bypass it.
 - Added command/status controls, protected payload and tool-history tests, router settings preflight, and mock Stage A artifacts.
 - `pnpm typecheck` passes. `pnpm test` passes on final run. Earlier baseline run exposed a pre-existing cleaner race at `components/packages/features/cleaner/tests/clean-plan-store.test.ts:70`; no new failure reproduced.
-- No live provider traffic, credentials, 9Router mutation, implementation commit, Stage B measurement, Claude Code reuse, or OpenClaw reuse performed.
+- No live provider traffic, credentials, 9Router mutation, Stage B measurement, Claude Code reuse, or OpenClaw reuse performed.
 
 ## Task Breakdown
 
@@ -519,7 +520,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - [ ] Step 0a: Freeze each fixture with input, expected technical facts, expected file/artifact assertions, and executable validator: exact token assertions for code/commands/paths/errors, `JSON.parse` plus schema validation for JSON, deep equality for historical tool payloads, required-warning and ordered-step assertions for security, required-section/fact assertions for detail, test and file-state assertions for engineering, and byte/format assertions for persisted artifacts. Any missing validator evidence blocks promotion as inconclusive.
 - [ ] Step 1: Implement the benchmark runner, package script, fixture validators, and tests; runner must accept `--mock` and `--manifest`, and mock outputs must remain outside checkout until live admission.
 - [ ] Step 2: Run mock baseline and three policy arms; require completed-task correctness and comparable checkpoints before any source checkpoint.
-- [ ] Step 3: Create clean source checkpoint commit after accepted Tasks 1–7 runner code and record its SHA as `sourceCheckpointSha`; do not add manifest or result files to that checkpoint.
+- [x] Step 3: Create clean source checkpoint commit after accepted Tasks 1–7 runner code and record its SHA as `sourceCheckpointSha`; do not add manifest or result files to that checkpoint. Recorded checkpoint: `2da97bd`.
 - [ ] Step 4: Write frozen manifest to an external temporary path outside checkout with `runtimeSha` and `benchmarkSha` both equal to `sourceCheckpointSha`; pass that path to runner, freeze it before first arm, and copy unchanged manifest into `docs/benchmarks/2026-10-10-generation-policy-stage-a-manifest.json` only after measurement.
 - [ ] Step 5: Record input, cached input, cache writes when available, output, reasoning usage, estimated total cost, TTFT, provider duration, end-to-end task time, turns, tool calls, retries, clarifications, failures, malformed JSON/tool calls, changed files, LOC, dependencies, lockfile changes, tests, and policy digest.
 - [ ] Step 6: Measure Ponytail engineering value through narrow temporary fixture-repo Codex CLI runs, collecting git diff/stat, LOC, dependency and lockfile changes, tests, tool calls, turns, usage, and latency. If CLI harness is unavailable, record engineering metrics as unavailable; never infer them from prose.
