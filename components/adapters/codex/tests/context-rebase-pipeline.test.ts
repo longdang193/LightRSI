@@ -1021,6 +1021,72 @@ test("CDR-01 proxy pipeline defers stale mutation plans", async () => {
   }
 });
 
+test("Codex generation policy remains on ordinary continuation requests", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-generation-policy-continuation-"));
+  const upstream = await startSequencedResponsesUpstream();
+  let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  try {
+    const sessionId = "codex-session-generation-policy-continuation";
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir,
+      proxyPort: await reserveFetchPort(),
+      upstreamProvider: "provider-fixture",
+      upstream: {
+        name: "provider-fixture",
+        baseUrl: upstream.baseUrl,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      generationPolicy: {
+        caveman: { enabled: true, level: "full" },
+        ponytail: { enabled: false, level: "full" },
+      },
+      modules: { stabilizer: false, reduction: false },
+      contextRewrite: {
+        enabled: false,
+        providerCompatibilityProbe: "real_provider",
+      },
+    } as any);
+    assert.equal(config.generationPolicy.caveman.enabled, true);
+    runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false) });
+
+    const first = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-fixture",
+        stream: false,
+        instructions: "Original generation instructions.",
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "POLICY_CHAIN_ROOT" }],
+      }),
+    });
+    assert.equal(first.status, 200);
+
+    const second = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-fixture",
+        stream: false,
+        instructions: "Original generation instructions.",
+        previous_response_id: "resp-pipeline-1",
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "POLICY_CHAIN_CONTINUATION" }],
+      }),
+    });
+    assert.equal(second.status, 200);
+    const userRequests = upstream.requests.filter((request) => /POLICY_CHAIN_/u.test(inputText(request)));
+    assert.equal(userRequests.length, 2);
+    assert.match(String(userRequests[0]?.instructions), /\[LightRSI Caveman/u);
+    assert.match(String(userRequests[1]?.instructions), /\[LightRSI Caveman/u);
+  } finally {
+    await runtime?.close();
+    await upstream.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("CDR-06 proxy pipeline falls back and cools down rejected rebases", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-fallback-"));
   const upstream = await startSequencedResponsesUpstream({ rejectRebase: true });

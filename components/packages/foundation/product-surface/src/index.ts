@@ -1,4 +1,5 @@
 export * from "./config.js";
+export * from "./generation-policy.js";
 export * from "./identity.js";
 export * from "./presentation.js";
 export * from "./command-actions.js";
@@ -12,6 +13,7 @@ export * from "./commands/runtime-settings.js";
 export * from "./commands/runtime-stabilizer.js";
 export * from "./commands/runtime-reduction.js";
 export * from "./commands/runtime-eviction.js";
+export * from "./commands/runtime-generation-policy.js";
 export * from "./metrics.js";
 export * from "./module-observability.js";
 export * from "./session-topology.js";

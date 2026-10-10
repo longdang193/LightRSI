@@ -257,6 +257,28 @@ test("createProductSurfaceCommandHandler updates reduction pass and settings det
   assert.equal(bridge.writes.length, 2);
 });
 
+test("createProductSurfaceCommandHandler updates Caveman and Ponytail independently", async () => {
+  const config: Record<string, unknown> = {
+    pluginConfig: {},
+    pluginEntry: {},
+  };
+  const handler = createProductSurfaceCommandHandler({
+    identity: TEST_PRODUCT_SURFACE_IDENTITY,
+    bridge: createTestBridge(config),
+    configAdapter: createTestConfigAdapter(),
+  });
+
+  assert.equal((await handler({ args: "caveman ultra" })).text, "✅ caveman = ultra");
+  assert.equal((await handler({ args: "ponytail off" })).text, "✅ ponytail = off");
+  const policy = (config.pluginConfig as Record<string, unknown>).generationPolicy as Record<string, Record<string, unknown>>;
+  assert.deepEqual(policy, {
+    caveman: { enabled: true, level: "ultra" },
+    ponytail: { enabled: false, level: "full" },
+  });
+  assert.match((await handler({ args: "status" })).text, /- Caveman: ultra/);
+  assert.match((await handler({ args: "status" })).text, /- Ponytail: off/);
+});
+
 test("createProductSurfaceCommandHandler applies reduction mode presets", async () => {
   const config: Record<string, unknown> = {
     pluginConfig: {},

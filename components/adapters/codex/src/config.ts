@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { userHomeDirectory } from "@lightrsi/host-adapter";
+import { normalizeGenerationPolicyConfig, type GenerationPolicyConfig } from "@lightrsi/product-surface";
 import { dirname, join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import type { TaskStateEstimatorApiConfig } from "@lightrsi/eviction";
@@ -39,6 +40,7 @@ export type TokenPilotCodexConfig = {
     // Test/smoke override only. Production rewrite planning must derive this at runtime.
     mutationPlan?: CodexMutationPlan;
   };
+  generationPolicy: GenerationPolicyConfig;
   reduction: {
     triggerMinChars: number;
     maxToolChars: number;
@@ -203,6 +205,7 @@ export function normalizeTokenPilotCodexConfig(
   const modules = asRecord(obj.modules);
   const taskStateEstimator = asRecord(obj.taskStateEstimator);
   const contextRewrite = asRecord(obj.contextRewrite);
+  const generationPolicy = normalizeGenerationPolicyConfig(obj.generationPolicy);
   const reduction = asRecord(obj.reduction);
   const passes = asRecord(reduction.passes);
   const upstream = asRecord(obj.upstream);
@@ -271,6 +274,7 @@ export function normalizeTokenPilotCodexConfig(
         : "real_provider",
       mutationPlan: sanitizeCodexMutationPlan(contextRewrite.mutationPlan),
     },
+    generationPolicy,
     reduction: {
       triggerMinChars: numberValue(reduction.triggerMinChars, 2200, 256, 1_000_000),
       maxToolChars: numberValue(reduction.maxToolChars, 1200, 256, 1_000_000),

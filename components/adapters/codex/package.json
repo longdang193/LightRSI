@@ -40,6 +40,7 @@
     "report-cache-audit:codex": "node --import tsx scripts/report-cache-audit-codex.ts",
     "bench:forwarding": "node --import tsx scripts/benchmark-forwarding.ts",
     "bench:context-cleaner": "node --import tsx scripts/benchmark-context-cleaner.ts",
+    "bench:generation-policy": "node --import tsx scripts/benchmark-generation-policy.ts",
     "smoke:context-rebase:codex": "node --import tsx scripts/context-rebase-smoke.ts",
     "install:codex": "node --import tsx scripts/install-codex.ts",
     "pack:release": "bash ./scripts/pack_release.sh",

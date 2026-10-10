@@ -25,6 +25,8 @@ import type { CacheAuditStructuralCandidate } from "./cache-audit-diagnosis.js";
 export type CacheAuditBaselineKind = "identity" | "request_key" | "session" | "none";
 
 export const DEFAULT_CACHE_AUDIT_ROTATE_BYTES = 32 * 1024 * 1024;
+// shortcut: inspect the newest 256 records, increase when session records can be delayed beyond this window.
+const MAX_CACHE_AUDIT_SESSION_FALLBACK_RECORDS = 256;
 
 export type CacheFrontierAggregate = {
   status: "matched" | "unmatched" | "unknown" | "none";
@@ -316,7 +318,7 @@ export async function readRecentCacheAuditRecordsForSession<T extends CacheAudit
   if (sessionRecords.length > 0) return sessionRecords;
   const records = await readRecentJsonlEntries<T>(
     cacheAuditPath(stateDir),
-    Number.MAX_SAFE_INTEGER,
+    MAX_CACHE_AUDIT_SESSION_FALLBACK_RECORDS,
     (value): value is T => isCacheAuditRecord(value),
   );
   return records.filter((record) => record.sessionId === target).slice(0, Math.max(1, limit));

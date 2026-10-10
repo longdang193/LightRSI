@@ -1104,14 +1104,17 @@ async function createBenchmarkSeed(
   seedDispatchCounter?: { count: number },
 ): Promise<BenchmarkSeed> {
   const environment = createTemporaryAcceptanceEnvironment(`lightrsi-cleaner-benchmark-seed-`);
-  const upstream = mode === "mock" ? await startUpstream() : undefined;
-  const liveCapture = mode === "live" ? captureLiveProvider(liveOptions!.baseUrl) : undefined;
+  let upstream: Awaited<ReturnType<typeof startUpstream>> | undefined;
+  let liveCapture: ReturnType<typeof captureLiveProvider> | undefined;
   const sessionId = `cleaner-benchmark-${fixture.name}-pair-${repetition}`;
-  const config = benchmarkConfig(environment.stateDir, mode, liveOptions, upstream?.baseUrl);
+  let config: ReturnType<typeof benchmarkConfig>;
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   const turns: TurnResult[] = [];
   let history: JsonObject[] = [];
   try {
+    upstream = mode === "mock" ? await startUpstream() : undefined;
+    liveCapture = mode === "live" ? captureLiveProvider(liveOptions!.baseUrl) : undefined;
+    config = benchmarkConfig(environment.stateDir, mode, liveOptions, upstream?.baseUrl);
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
@@ -1168,30 +1171,10 @@ async function runArm(
   pairId = `${fixture.name}:${repetition}`,
 ): Promise<RunResult> {
   const environment = createTemporaryAcceptanceEnvironment(`lightrsi-cleaner-benchmark-${arm}-`);
-  if (seed) {
-    await copyHistoryState(seed.stateDir, environment.stateDir);
-    const clonedSnapshotPath = sessionSnapshotPath(environment.stateDir, seed.sessionId);
-    const clonedSnapshot = await readJsonFile<Record<string, unknown>>(clonedSnapshotPath);
-    if (clonedSnapshot && "transcriptPath" in clonedSnapshot) {
-      delete clonedSnapshot.transcriptPath;
-      await writeJsonFileAtomic(clonedSnapshotPath, clonedSnapshot);
-    }
-    const sourceJournal = await readCodexContextHistoryJournal(seed.stateDir, seed.sessionId);
-    const targetJournal = await readCodexContextHistoryJournal(environment.stateDir, seed.sessionId);
-    assert.deepEqual(targetJournal.entries, sourceJournal.entries, "causal seed journal clone mismatch");
-    const targetSession = await loadCodexSessionSnapshot(environment.stateDir, seed.sessionId);
-    assert.ok(targetSession, "causal seed session clone missing");
-    const targetView = await buildCodexEffectiveHistoryView({
-      stateDir: environment.stateDir,
-      sessionId: seed.sessionId,
-      headResponseId: targetSession.latestResponseId,
-    });
-    assert.equal(targetView.reasonCodes.length, 0, `causal seed clone incomplete: ${targetView.reasonCodes.join(",")}`);
-  }
-  const upstream = mode === "mock" ? await startUpstream(seed?.requests.length ?? 0) : undefined;
-  const liveCapture = mode === "live" ? captureLiveProvider(liveOptions!.baseUrl) : undefined;
+  let upstream: Awaited<ReturnType<typeof startUpstream>> | undefined;
+  let liveCapture: ReturnType<typeof captureLiveProvider> | undefined;
   const sessionId = seed?.sessionId ?? `cleaner-benchmark-${fixture.name}-${arm}-${repetition}`;
-  const config = benchmarkConfig(environment.stateDir, mode, liveOptions, upstream?.baseUrl);
+  let config: ReturnType<typeof benchmarkConfig>;
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
   const turns: TurnResult[] = seed ? structuredClone(seed.turns) : [];
   let history: JsonObject[] = seed ? structuredClone(seed.history) : [];
@@ -1205,6 +1188,29 @@ async function runArm(
     await liveCapture?.close();
   };
   try {
+    if (seed) {
+      await copyHistoryState(seed.stateDir, environment.stateDir);
+      const clonedSnapshotPath = sessionSnapshotPath(environment.stateDir, seed.sessionId);
+      const clonedSnapshot = await readJsonFile<Record<string, unknown>>(clonedSnapshotPath);
+      if (clonedSnapshot && "transcriptPath" in clonedSnapshot) {
+        delete clonedSnapshot.transcriptPath;
+        await writeJsonFileAtomic(clonedSnapshotPath, clonedSnapshot);
+      }
+      const sourceJournal = await readCodexContextHistoryJournal(seed.stateDir, seed.sessionId);
+      const targetJournal = await readCodexContextHistoryJournal(environment.stateDir, seed.sessionId);
+      assert.deepEqual(targetJournal.entries, sourceJournal.entries, "causal seed journal clone mismatch");
+      const targetSession = await loadCodexSessionSnapshot(environment.stateDir, seed.sessionId);
+      assert.ok(targetSession, "causal seed session clone missing");
+      const targetView = await buildCodexEffectiveHistoryView({
+        stateDir: environment.stateDir,
+        sessionId: seed.sessionId,
+        headResponseId: targetSession.latestResponseId,
+      });
+      assert.equal(targetView.reasonCodes.length, 0, `causal seed clone incomplete: ${targetView.reasonCodes.join(",")}`);
+    }
+    upstream = mode === "mock" ? await startUpstream(seed?.requests.length ?? 0) : undefined;
+    liveCapture = mode === "live" ? captureLiveProvider(liveOptions!.baseUrl) : undefined;
+    config = benchmarkConfig(environment.stateDir, mode, liveOptions, upstream?.baseUrl);
     runtime = await startCodexResponsesProxy({
       config,
       logger: createConsoleLogger(false),
