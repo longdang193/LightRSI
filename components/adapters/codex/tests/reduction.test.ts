@@ -294,6 +294,55 @@ test("reduceCodexRequestEnvelope publishes a reused compact projection without f
   }
 });
 
+test("hot accepted projection does not cross response branches", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-projection-branch-"));
+  const config = normalizeTokenPilotCodexConfig({
+    stateDir,
+    reduction: {
+      triggerMinChars: 256,
+      maxToolChars: 400,
+      passes: {
+        readStateCompaction: false,
+        toolPayloadTrim: true,
+        htmlSlimming: false,
+        execOutputTruncation: true,
+        agentsStartupOptimization: false,
+      },
+    },
+  });
+  const sourcePayload = {
+    model: "tokenpilot/gpt-5.4-mini",
+    input: [{
+      type: "function_call_output",
+      call_id: "read-branch",
+      output: `ORIGINAL\n${"line\n".repeat(600)}`,
+    }],
+  };
+  try {
+    cacheCodexAcceptedInputProjection({
+      stateDir,
+      sessionId: "projection-branch-session",
+      originalItems: sourcePayload.input,
+      acceptedItems: [{ ...sourcePayload.input[0], output: "BRANCH_A_ACCEPTED" }],
+      scope: { promptCacheKey: "branch-cache", endpointId: "endpoint-1" },
+      acceptedAtResponseId: "resp-A",
+    } as any);
+
+    const payload: any = structuredClone(sourcePayload);
+    await applyBeforeCallReductionToPayload({
+      payload,
+      sessionId: "projection-branch-session",
+      config,
+      forwardingScope: { promptCacheKey: "branch-cache", endpointId: "endpoint-1" },
+      lineageHeadResponseId: "resp-B",
+    });
+
+    assert.notEqual(payload.input[0].output, "BRANCH_A_ACCEPTED");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("reduction preserves serialized history items and trims only new tool output", async () => {
   const config = normalizeTokenPilotCodexConfig({
     reduction: {

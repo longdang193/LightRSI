@@ -47,6 +47,9 @@ test("CDH-02 forwarded provenance survives reload and stops at missing or diverg
         payloadFingerprint: "payload-fingerprint",
         inputFingerprint: "input-fingerprint",
         outcome: "completed",
+        responseProducing: true,
+        projectionEligible: true,
+        projectionBoundary: "ordinary_admission",
       }],
       status: "completed",
     });
@@ -344,6 +347,9 @@ test("accepted projection replay preserves current fields excluded from sanitize
         payloadFingerprint: "payload",
         inputFingerprint: "input",
         outcome: "completed",
+        responseProducing: true,
+        projectionEligible: true,
+        projectionBoundary: "ordinary_admission",
       }],
       status: "completed",
     });
@@ -375,6 +381,9 @@ test("failed and incomplete attempts never replace latest accepted projection", 
         payloadFingerprint: requestId,
         inputFingerprint: requestId,
         outcome: status,
+        responseProducing: status === "completed",
+        projectionEligible: status === "completed",
+        projectionBoundary: "ordinary_admission",
       }],
       status,
     });
@@ -390,6 +399,37 @@ test("failed and incomplete attempts never replace latest accepted projection", 
       scope,
     });
     assert.equal(projection?.acceptedItems[0]?.output, "accepted output");
+  });
+});
+
+test("journal reload rejects explicitly ineligible release projections", async () => {
+  await withTempState(async (stateDir) => {
+    const input = [{ type: "function_call_output", call_id: "release", output: "release output" }];
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "ineligible-release-session",
+      requestId: "cleaner-release",
+      payload: { input },
+      acceptedInputItems: [{ ...input[0], output: "cleaned release output" }],
+      forwardingAttempts: [{
+        attemptId: "cleaner-release-attempt",
+        payloadFingerprint: "payload",
+        inputFingerprint: "input",
+        outcome: "completed",
+        responseProducing: true,
+        projectionEligible: false,
+        projectionBoundary: "cleaner_release",
+      }],
+      status: "completed",
+    });
+
+    const projection = await findCodexAcceptedInputProjection({
+      stateDir,
+      sessionId: "ineligible-release-session",
+      currentItems: input,
+    });
+
+    assert.equal(projection, undefined);
   });
 });
 

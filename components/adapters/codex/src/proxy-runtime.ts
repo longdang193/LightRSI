@@ -1333,7 +1333,10 @@ export async function startCodexResponsesProxy(params: {
           }
         }
       };
-      const commitSuccessfulForwardingEvidence = (status: CodexJournalStatus): void => {
+      const commitSuccessfulForwardingEvidence = (
+        status: CodexJournalStatus,
+        acceptedAtResponseId?: string,
+      ): void => {
         if (status !== "completed") return;
         const attempt = forwardingAttempts.at(-1);
         const acceptedInputItems = latestForwardedInputItems();
@@ -1344,6 +1347,7 @@ export async function startCodexResponsesProxy(params: {
           originalItems: originalPayload.input as JsonObject[],
           acceptedItems: acceptedInputItems,
           scope: forwardingScope,
+          acceptedAtResponseId,
         });
       };
       const latestForwardedInputItems = (): JsonObject[] | undefined => {
@@ -1624,7 +1628,7 @@ export async function startCodexResponsesProxy(params: {
           collected,
         });
         markLastForwardingAttempt(status);
-        commitSuccessfulForwardingEvidence(status);
+        commitSuccessfulForwardingEvidence(status, collected.responseId);
         const error = status === "failed" && paramsForJournal.rawStreamText
           ? truncateJournalError(paramsForJournal.rawStreamText)
           : undefined;
@@ -1674,7 +1678,10 @@ export async function startCodexResponsesProxy(params: {
         });
         const error = status === "failed" ? truncateJournalError(paramsForJournal.responseText) : undefined;
         markLastForwardingAttempt(status);
-        commitSuccessfulForwardingEvidence(status);
+        commitSuccessfulForwardingEvidence(
+          status,
+          typeof paramsForJournal.response?.id === "string" ? paramsForJournal.response.id : undefined,
+        );
         await appendCodexResponseJournalEntry({
           stateDir: config.stateDir,
           sessionId,
@@ -1951,6 +1958,7 @@ export async function startCodexResponsesProxy(params: {
           httpStatus: paramsForRecord.status,
           collected,
         });
+        markLastForwardingAttempt(requestStatus);
         const auditSnapshot = {
           ...cacheAuditSnapshot,
           frontier: buildCodexCacheFrontier({
@@ -2172,6 +2180,7 @@ export async function startCodexResponsesProxy(params: {
         httpStatus: upstreamResp.status,
         response: responseJson,
       });
+      markLastForwardingAttempt(requestStatus);
       const auditSnapshot = {
         ...cacheAuditSnapshot,
         frontier: buildCodexCacheFrontier({

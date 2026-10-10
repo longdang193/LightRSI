@@ -668,6 +668,16 @@ test("Codex cold and warm requests expose prompt cache hit usage when stable pre
       assert.equal(visual.cacheAuditSummary?.warmHits, 1);
       assert.equal(visual.cacheAuditSummary?.warmMisses, 0);
       assert.equal((visual.recentCacheAudit?.length ?? 0) >= 2, true);
+      const cacheAuditRecords = (await readFile(join(stateDir, "cache-audit.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, any>)
+        .filter((entry) => entry.requestPromptCacheKey === "pk-codex-warm-session-1");
+      assert.deepEqual(
+        cacheAuditRecords.slice(-2).map((entry) => entry.frontier?.status),
+        ["none", "matched"],
+      );
       assert.equal(visual.recentCacheAudit?.[0]?.diagnosis.matchedResult, "warm hit");
       assert.equal((visual.recentCacheAudit?.[0]?.cachedInputTokens ?? 0) > 0, true);
       assert.deepEqual(visual.recentCacheAudit?.[0]?.driftKeys ?? [], []);

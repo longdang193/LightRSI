@@ -106,6 +106,7 @@ export type CodexReductionSummary = {
 type CodexAcceptedInputProjection = {
   historicalItems: JsonObject[];
   acceptedItems: JsonObject[];
+  acceptedAtResponseId?: string;
   bytes?: number;
 };
 
@@ -154,6 +155,7 @@ export function cacheCodexAcceptedInputProjection(params: {
   originalItems: JsonObject[];
   acceptedItems: JsonObject[];
   scope?: CodexForwardingScope;
+  acceptedAtResponseId?: string;
 }): void {
   if (params.originalItems.length === 0 || params.acceptedItems.length === 0) return;
   const acceptedItems = structuredClone(params.acceptedItems) as JsonObject[];
@@ -165,6 +167,7 @@ export function cacheCodexAcceptedInputProjection(params: {
       scope: params.scope,
     }),
     acceptedItems,
+    ...(params.acceptedAtResponseId ? { acceptedAtResponseId: params.acceptedAtResponseId } : {}),
   });
 }
 
@@ -872,6 +875,8 @@ export async function applyBeforeCallReductionToPayload(params: {
     if (projection) rememberProcessProjection(projectionKey, projection);
     let frozenInputItemCount = 0;
     const applyProjection = (candidate: CodexAcceptedInputProjection): boolean => {
+      if (params.lineageHeadResponseId
+        && candidate.acceptedAtResponseId !== params.lineageHeadResponseId) return false;
       const match = codexMatchForwardedPrefix({
         currentItems: originalInput,
         historicalItems: candidate.historicalItems,

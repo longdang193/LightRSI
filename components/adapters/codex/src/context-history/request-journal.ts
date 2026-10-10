@@ -227,7 +227,11 @@ export async function findCodexAcceptedInputProjection(params: {
   scope?: CodexForwardingScope;
   lineageHeadResponseId?: string;
   excludeRequestId?: string;
-}): Promise<{ historicalItems: JsonObject[]; acceptedItems: JsonObject[] } | undefined> {
+}): Promise<{
+  historicalItems: JsonObject[];
+  acceptedItems: JsonObject[];
+  acceptedAtResponseId?: string;
+} | undefined> {
   const journal = await readCodexContextHistoryJournal(params.stateDir, params.sessionId);
   if (journal.readError || journal.malformedLineCount > 0 || journal.oversized) return undefined;
   for (let index = journal.entries.length - 1; index >= 0; index -= 1) {
@@ -238,7 +242,13 @@ export async function findCodexAcceptedInputProjection(params: {
       || !entry.acceptedInputItems
       || entry.acceptedInputItems.length === 0) continue;
     const attempts = entry.inputItems.flatMap((item) => codexForwardingMetadata(item)?.attempts ?? []);
-    if (attempts.length > 0 && !attempts.some((attempt) => attempt.outcome === "completed")) continue;
+    const finalAttempt = attempts.at(-1);
+    if (attempts.length > 0 && (
+      finalAttempt?.outcome !== "completed"
+      || finalAttempt.responseProducing !== true
+      || finalAttempt.projectionEligible !== true
+      || finalAttempt.projectionBoundary !== "ordinary_admission"
+    )) continue;
     if (params.lineageHeadResponseId && entry.acceptedAtResponseId
       && !responseHeadDescendsFrom(journal.entries, params.lineageHeadResponseId, entry.acceptedAtResponseId)) continue;
     const match = codexMatchForwardedPrefix({
@@ -259,6 +269,7 @@ export async function findCodexAcceptedInputProjection(params: {
       acceptedItems: entry.acceptedInputItems.slice(0, match.prefixLength).map((accepted, itemIndex) => (
         codexRestoreAcceptedItem(params.currentItems[itemIndex] ?? {}, accepted)
       )),
+      ...(entry.acceptedAtResponseId ? { acceptedAtResponseId: entry.acceptedAtResponseId } : {}),
     };
   }
   return undefined;

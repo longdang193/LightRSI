@@ -82,6 +82,9 @@ test("stable admission survives cumulative replay, journal reload, and rejects r
         payloadFingerprint: "payload-1",
         inputFingerprint: "input-1",
         outcome: "completed",
+        responseProducing: true,
+        projectionEligible: true,
+        projectionBoundary: "ordinary_admission",
       }],
       status: "completed",
     });

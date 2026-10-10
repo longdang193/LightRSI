@@ -652,6 +652,12 @@ change occurs without complete comparable evidence.
   `13/13`. One earlier full-suite attempt reported a file-level install failure
   without test-level diagnostics; rerun did not reproduce it, so no product
   change was made for that transient harness result.
+- Independent PR review found and reproduced three Important defects. Patched
+  hot projection reuse to require matching response lineage, journal replay to
+  require a final response-producing ordinary eligible attempt, and stream and
+  non-stream frontier calculation to finalize attempt eligibility before audit.
+  Added regressions for branch isolation, rejected Cleaner release evidence,
+  and ordinary cold-then-warm frontier status.
 
 ## Verification
 
