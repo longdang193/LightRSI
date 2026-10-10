@@ -292,3 +292,17 @@ test("selectLatestNonWarmCacheDiagnosisFromCacheAudit returns newest non-warm di
   assert.equal(result?.driftKeys[0], "instructions");
   assert.match(result?.optimizationHint ?? "", /(Session-local|Fingerprint drift|Cold start)/i);
 });
+
+test("selectLatestNonWarmCacheDiagnosisFromCacheAudit forwards unknown provider evidence", () => {
+  const result = selectLatestNonWarmCacheDiagnosisFromCacheAudit([
+    makeCacheAuditRecord({
+      cachedInputTokens: 0,
+      cacheEvidence: "unknown",
+      structuralCandidate: "matched",
+      baselineKind: "identity",
+    }),
+  ]);
+
+  assert.equal(result?.matchedResult, "unknown");
+  assert.match(result?.optimizationHint ?? "", /provider cache evidence is unavailable/i);
+});

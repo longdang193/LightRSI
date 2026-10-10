@@ -649,7 +649,7 @@ function renderDiffBlock(title, beforeText, afterText) {
 
 function findLatestNonWarmCacheAuditEntry(entries) {
   if (!Array.isArray(entries) || entries.length === 0) return null;
-  return entries.find((entry) => entry?.diagnosis?.matchedResult === "cold miss" || entry?.diagnosis?.matchedResult === "cold start") || null;
+  return entries.find((entry) => entry?.diagnosis?.matchedResult === "cold miss" || entry?.diagnosis?.matchedResult === "cold start" || entry?.diagnosis?.matchedResult === "unknown") || null;
 }
 
 function renderCacheAuditPanel(cacheAuditSummary, entries) {
@@ -670,7 +670,9 @@ function renderCacheAuditPanel(cacheAuditSummary, entries) {
   const latestNonWarmHint = latestNonWarm?.diagnosis?.optimizationHint || "(none)";
   const latestNonWarmLabel = latestNonWarm?.diagnosis?.matchedResult === "cold start"
     ? "latest cold start"
-    : "latest cold miss";
+    : latestNonWarm?.diagnosis?.matchedResult === "unknown"
+      ? "latest cache evidence unknown"
+      : "latest cold miss";
   const rewriteCount = Number(
     cacheAuditSummary.responsePromptCacheKeyRewriteCount
     ?? cacheAuditSummary.promptCacheKeyMismatchCount

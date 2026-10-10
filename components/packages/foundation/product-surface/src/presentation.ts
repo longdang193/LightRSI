@@ -54,7 +54,7 @@ export type ProductSurfaceSessionOverviewItem = {
 
 export type ProductSurfaceLatestNonWarmCacheDiagnosis = {
   at?: string;
-  matchedResult: "cold start" | "cold miss";
+  matchedResult: "cold start" | "cold miss" | "unknown";
   driftKeys: string[];
   entropyKinds: string[];
   currentState: string;
@@ -123,7 +123,9 @@ function buildLatestNonWarmDiagnosisLines(
     .filter(Boolean);
   const diagnosisLabel = latestNonWarmCacheDiagnosis.matchedResult === "cold start"
     ? "latest cold start"
-    : "latest cold miss";
+    : latestNonWarmCacheDiagnosis.matchedResult === "unknown"
+      ? "latest cache evidence unknown"
+      : "latest cold miss";
   const lines: string[] = [];
   if (drift.length > 0) {
     lines.push(`- ${diagnosisLabel} drift: ${drift.join(", ")}`);

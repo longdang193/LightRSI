@@ -42,7 +42,7 @@ export type ProductSurfaceCacheAuditContributionSummary = {
 };
 
 export type ProductSurfaceCacheAuditDiagnosis = {
-  matchedResult: "warm hit" | "cold miss" | "cold start" | "unmatched";
+  matchedResult: "warm hit" | "cold miss" | "cold start" | "unknown" | "unmatched";
   rewriteDetected: boolean;
   currentState: string;
   targetState: string;
