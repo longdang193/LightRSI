@@ -189,7 +189,7 @@ export async function runGenerationPolicyLiveRepair(
   if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 5) {
     throw new Error("Live repair repetitions must be an integer from 1 through 5.");
   }
-  const routerPreflight = await readRouterSettingsPreflight(options.routerUrl);
+  const routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey);
   if (routerPreflight.status !== "match") throw new Error(`Router preflight failed: ${routerPreflight.status}.`);
   const rows: GenerationPolicyLiveRepairReport["rows"] = [];
   let providerCalls = 0;
@@ -273,9 +273,12 @@ export function evaluateRouterSettingsPreflight(
 export async function readRouterSettingsPreflight(
   baseUrl: string,
   expected = { cavemanEnabled: false, ponytailEnabled: false },
+  apiKey?: string,
 ): Promise<RouterSettingsPreflight> {
   try {
-    const response = await fetch(`${baseUrl.replace(/\/+$/u, "")}/api/settings`);
+    const response = await fetch(`${baseUrl.replace(/\/+$/u, "")}/api/settings`, {
+      headers: apiKey ? { authorization: `Bearer ${apiKey}` } : undefined,
+    });
     if (!response.ok) return { status: "unknown", source: "unavailable", settings: {} };
     return evaluateRouterSettingsPreflight(await response.json(), expected);
   } catch {
