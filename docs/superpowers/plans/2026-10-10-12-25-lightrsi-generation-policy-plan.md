@@ -85,10 +85,10 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Coordination schema: 2
 - Branch: codex/generation-policy
 - Base commit: 06d1e5f4e0e1ad1b29f108299ac7ba2191d61b58
-- Source checkpoint: pending clean live-repair harness checkpoint
+- Source checkpoint: `f8ed355` (`feat: add bounded live repair harness`)
 - Expected workspace: clean source checkpoint; generated mock Stage A evidence remains outside the checkpoint
-- Next action: create the clean live-repair harness checkpoint, then run only the failed Stage A fixtures; do not run Stage B or expand adapters
-- Blockers: live traffic remains gated on clean checkpoint, router preflight, provider credentials, and spending accounting; Claude Code/OpenClaw reuse remains deferred until mechanism-specific value passes
+- Next action: provide the approved provider key/base URL and router URL, then run only the failed Stage A fixtures; do not run Stage B or expand adapters
+- Blockers: live command fail-closed because `OPENAI_API_KEY`, `LIGHTRSI_BENCHMARK_BASE_URL`, `LIGHTRSI_BENCHMARK_ROUTER_URL`, and model inputs are unavailable; Claude Code/OpenClaw reuse remains deferred until mechanism-specific value passes
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -117,6 +117,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Clean repair checkpoint is `7e20393`; the tracked mock command passes all four arms with zero provider calls. Mock artifacts are preserved outside the checkout under `C:\tmp\lightrsi-generation-policy-stage-a-mock-repair-7e20393`.
 - The tracked benchmark command remains mock-only; no approved external harness was found for the repair rerun. No live traffic was sent from this repair checkpoint.
 - Added an explicit `--live-repair` path to the tracked benchmark runner for only the failed `security` and `multiturn` fixtures; it requires a clean tree, explicit router/API inputs, and writes sanitized evidence outside the checkout.
+- Verified `pnpm --dir components/adapters/codex bench:generation-policy -- --live-repair` fails before provider dispatch when required inputs are absent.
 
 ## Task Breakdown
 
