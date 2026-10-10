@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   requestUpstreamResponses,
   requestUpstreamResponsesStream,
+  resetCompactCapabilityCache,
   resolveModelFromCatalog,
 } from "../src/upstream.js";
 import { drainEventTraceQueue as drainTraceQueue } from "@lightrsi/host-adapter";
@@ -689,5 +690,228 @@ test("upstream traces correlated transport errors with sanitized messages", asyn
     assert.doesNotMatch(JSON.stringify(trace), /secret|api_key|user:/i);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("compact capability shares unsupported fallback across JSON and stream requests", async () => {
+  resetCompactCapabilityCache();
+  const paths: string[] = [];
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    paths.push(req.url ?? "");
+    if (req.url === "/v1/responses/compact") {
+      res.statusCode = 404;
+      res.end("unsupported");
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader("content-type", req.headers.accept === "text/event-stream" ? "text/event-stream" : "application/json");
+    res.end(req.headers.accept === "text/event-stream" ? "event: response.completed\ndata: [DONE]\n\n" : JSON.stringify({ status: "completed", output: [] }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const upstream = { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses" as const, requiresOpenAIAuth: false };
+  const fallbackPayload = (payload: any) => ({ ...payload, fallback: true });
+  try {
+    const json = await requestUpstreamResponses({
+      upstream,
+      endpointPath: "/responses/compact",
+      payload: { model: "shared-model" },
+      fallbackPayload,
+    });
+    const stream = await requestUpstreamResponsesStream({
+      upstream,
+      endpointPath: "/responses/compact",
+      payload: { model: "shared-model", stream: true },
+      fallbackPayload,
+    });
+    for await (const _chunk of stream.stream) {
+    }
+    assert.equal(json.transportFetches, 2);
+    assert.equal(stream.transportFetches, 1);
+    assert.deepEqual(paths, [
+      "/v1/responses/compact",
+      "/v1/responses",
+      "/v1/responses",
+    ]);
+  } finally {
+    resetCompactCapabilityCache();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("compact capability shares supported native path across JSON and stream requests", async () => {
+  resetCompactCapabilityCache();
+  const paths: string[] = [];
+  const server = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+    }
+    paths.push(req.url ?? "");
+    res.statusCode = 200;
+    res.setHeader("content-type", req.headers.accept === "text/event-stream" ? "text/event-stream" : "application/json");
+    res.end(req.headers.accept === "text/event-stream" ? "event: response.completed\ndata: [DONE]\n\n" : JSON.stringify({ status: "completed", output: [] }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const upstream = { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses" as const, requiresOpenAIAuth: false };
+  try {
+    const json = await requestUpstreamResponses({
+      upstream,
+      endpointPath: "/responses/compact",
+      payload: { model: "supported-model" },
+    });
+    const stream = await requestUpstreamResponsesStream({
+      upstream,
+      endpointPath: "/responses/compact",
+      payload: { model: "supported-model", stream: true },
+    });
+    for await (const _chunk of stream.stream) {
+    }
+    assert.equal(json.transportFetches, 1);
+    assert.equal(stream.transportFetches, 1);
+    assert.deepEqual(paths, ["/v1/responses/compact", "/v1/responses/compact"]);
+  } finally {
+    resetCompactCapabilityCache();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("compact capability does not cache non-404 failures and reset forces reprobe", async () => {
+  resetCompactCapabilityCache();
+  let compactRequests = 0;
+  const statuses = [400, 401, 403, 500];
+  const server = createServer(async (_req, res) => {
+    compactRequests += 1;
+    res.statusCode = statuses[Math.min(Math.floor((compactRequests - 1) / 2), statuses.length - 1)]!;
+    res.end("failure");
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const upstream = { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses" as const, requiresOpenAIAuth: false };
+  try {
+    for (const expectedStatus of statuses) {
+      const first = await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "failure-model" } });
+      const second = await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "failure-model" } });
+      assert.equal(first.status, expectedStatus);
+      assert.equal(second.status, expectedStatus);
+    }
+    assert.equal(compactRequests, statuses.length * 2);
+    resetCompactCapabilityCache();
+    const afterReset = await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "failure-model" } });
+    assert.equal(afterReset.status, 500);
+    assert.equal(compactRequests, statuses.length * 2 + 1);
+  } finally {
+    resetCompactCapabilityCache();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("stale compact probe cannot overwrite reset generation", async () => {
+  resetCompactCapabilityCache();
+  let compactRequests = 0;
+  let releaseFirst!: () => void;
+  let firstSeen!: () => void;
+  const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const firstRequest = new Promise<void>((resolve) => { firstSeen = resolve; });
+  const server = createServer(async (req, res) => {
+    if (req.url === "/v1/responses/compact") {
+      compactRequests += 1;
+      if (compactRequests === 1) {
+        firstSeen();
+        await firstGate;
+        res.statusCode = 404;
+        res.end("unsupported");
+        return;
+      }
+      res.statusCode = 200;
+      res.end(JSON.stringify({ status: "completed", output: [] }));
+      return;
+    }
+    res.statusCode = 200;
+    res.end(JSON.stringify({ status: "completed", output: [] }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const upstream = { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses" as const, requiresOpenAIAuth: false };
+  try {
+    const first = requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "race-model" } });
+    await firstRequest;
+    resetCompactCapabilityCache();
+    const second = await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "race-model" } });
+    releaseFirst();
+    const firstResult = await first;
+    const third = await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "race-model" } });
+    assert.equal(second.status, 200);
+    assert.equal(firstResult.status, 200);
+    assert.equal(third.status, 200);
+    assert.equal(compactRequests, 3);
+  } finally {
+    resetCompactCapabilityCache();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("compact capability expires and evicts oldest entries", async () => {
+  resetCompactCapabilityCache();
+  let compactRequests = 0;
+  const server = createServer(async (_req, res) => {
+    compactRequests += 1;
+    res.statusCode = 200;
+    res.end(JSON.stringify({ status: "completed", output: [] }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const upstream = { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses" as const, requiresOpenAIAuth: false };
+  const originalNow = Date.now;
+  try {
+    await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "ttl-model" } });
+    Date.now = () => originalNow() + 24 * 60 * 60 * 1000 + 1;
+    await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "ttl-model" } });
+    Date.now = originalNow;
+    for (let index = 0; index < 65; index += 1) {
+      await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: `eviction-model-${index}` } });
+    }
+    await requestUpstreamResponses({ upstream, endpointPath: "/responses/compact", payload: { model: "eviction-model-0" } });
+    assert.equal(compactRequests, 68);
+  } finally {
+    Date.now = originalNow;
+    resetCompactCapabilityCache();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });

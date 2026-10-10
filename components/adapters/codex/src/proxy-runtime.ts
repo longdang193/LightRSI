@@ -212,6 +212,16 @@ function stripHistoricalWebSearchCalls(input: unknown): unknown {
   return retained;
 }
 
+export function projectCompactPayload(payload: JsonObject, mode: "native" | "fallback"): JsonObject {
+  const projected = { ...payload };
+  if (mode === "native") {
+    delete projected.stream;
+    return projected;
+  }
+  projected.input = stripHistoricalWebSearchCalls(payload.input);
+  return projected;
+}
+
 function hashJson(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 24);
 }
@@ -1482,17 +1492,11 @@ export async function startCodexResponsesProxy(params: {
       };
       const projectUpstreamPayload = (nextPayload: JsonObject): JsonObject => {
         if (!compactRequest || nextPayload.stream !== false) return nextPayload;
-        const projected = cloneJsonObject(nextPayload);
-        delete projected.stream;
-        return projected;
+        return projectCompactPayload(nextPayload, "native");
       };
       const compactFallbackPayload = (): ((nextPayload: JsonObject) => JsonObject) | undefined => {
         if (!compactRequest) return undefined;
-        return (nextPayload) => {
-          const projected = cloneJsonObject(nextPayload);
-          projected.input = stripHistoricalWebSearchCalls(projected.input);
-          return projected;
-        };
+        return (nextPayload) => projectCompactPayload(nextPayload, "fallback");
       };
       const sendUpstream = async (nextPayload: JsonObject) => {
         const projectedPayload = projectUpstreamPayload(nextPayload);

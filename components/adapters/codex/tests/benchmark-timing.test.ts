@@ -4,12 +4,14 @@ import test from "node:test";
 import { createBenchmarkTiming } from "../src/benchmark-timing.js";
 import {
   captureLiveProvider,
+  classifyEconomicStatus,
   compareProviderUsage,
   cumulativeBreakEven,
   cumulativeBreakEvenByLabel,
   createBenchmarkReservationLedger,
   estimateProviderCost,
   evaluateGitPreflight,
+  evaluateProviderIdentity,
   providerShapesComparableBeforeRelease,
   summarizeSharedSeedUsage,
   usageDelta,
@@ -455,5 +457,51 @@ test("benchmark Git preflight ignores dirty SHA and marks mismatches", () => {
       expectedBenchmarkSha: "abcdef1",
     }).status,
     "clean_match",
+  );
+});
+
+test("benchmark provider preflight rejects endpoint and model mismatch", () => {
+  assert.deepEqual(
+    evaluateProviderIdentity({
+      expectedProviderName: "9Router",
+      actualProviderName: "other",
+      expectedModel: "cx/gpt-5.6-luna",
+      actualModel: "other/model",
+      actualBaseUrl: "https://provider.example/v1",
+    }),
+    {
+      status: "mismatch",
+      reasons: ["provider_name_mismatch", "model_mismatch"],
+    },
+  );
+  assert.deepEqual(
+    evaluateProviderIdentity({
+      expectedProviderName: "9Router",
+      actualProviderName: "9Router",
+      expectedModel: "cx/gpt-5.6-luna",
+      actualModel: "cx/gpt-5.6-luna",
+      actualBaseUrl: "https://9router.example/v1",
+    }),
+    { status: "match", reasons: [] },
+  );
+});
+
+test("benchmark separates spending-cap pass from cost break-even failure", () => {
+  assert.deepEqual(
+    classifyEconomicStatus({
+      providerIdentityStatus: "match",
+      gitPreflightStatus: "clean_match",
+      measurementStatus: "complete",
+      comparablePairCount: 1,
+      economicallyComparablePairCount: 1,
+      underSpendingCap: true,
+      baselineCostUsd: 1,
+      cleanerCostUsd: 2,
+    }),
+    {
+      spendingCapStatus: "pass",
+      breakEvenStatus: "fail",
+      economicStatus: "fail",
+    },
   );
 });

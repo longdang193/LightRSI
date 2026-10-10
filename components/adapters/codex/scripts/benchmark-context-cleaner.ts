@@ -5,7 +5,7 @@ import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { performance } from "node:perf_hooks";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
   createContextCleanerControlPlane,
@@ -37,16 +37,7 @@ import { computeEncodedProviderWirePrefixDiagnostics, startCodexResponsesProxy }
 
 type JsonObject = Record<string, unknown>;
 type Arm = "baseline" | "cleaner";
-type FixtureName =
-  | "short/early"
-  | "long/early"
-  | "long/late"
-  | "recovery/early"
-  | "requirement-change/late"
-  | "delayed-question/early"
-  | "unexpected-dependency/late"
-  | "recovery-cycle/early"
-  | "stale-reference/late";
+type FixtureName = string;
 type FixtureScenario = "baseline" | "requirement_change" | "delayed_question" | "unexpected_dependency" | "recovery_cycle" | "stale_reference";
 type CacheCondition = "cold" | "warm";
 type AttemptOutcome = "pending" | "success" | "provider_error" | "transport_error" | "timeout" | "cancelled";
@@ -90,6 +81,72 @@ type Fixture = {
   releaseA: string;
   releaseB: string;
 };
+
+type ScenarioPhase = "before_restart" | "after_restart";
+
+type ScenarioStep = {
+  label: string;
+  content: string;
+};
+
+type ScenarioOracle = {
+  scenario: FixtureScenario;
+  expectedMarkers: string[];
+  observedMarkers: string[];
+  passed: boolean;
+};
+
+const delayedScenarios = new Set<Exclude<FixtureScenario, "baseline">>([
+  "requirement_change",
+  "delayed_question",
+  "unexpected_dependency",
+  "recovery_cycle",
+  "stale_reference",
+]);
+
+function scenarioSteps(scenario: FixtureScenario, phase: ScenarioPhase): ScenarioStep[] {
+  const steps: Record<Exclude<FixtureScenario, "baseline">, Record<ScenarioPhase, ScenarioStep[]>> = {
+    requirement_change: {
+      before_restart: [
+        { label: "scenario_requirement_old", content: "SCENARIO_REQUIREMENT_CHANGE_OLD" },
+        { label: "scenario_requirement_new", content: "SCENARIO_REQUIREMENT_CHANGE_NEW" },
+      ],
+      after_restart: [],
+    },
+    delayed_question: {
+      before_restart: [{ label: "scenario_delayed_question", content: "SCENARIO_DELAYED_QUESTION" }],
+      after_restart: [{ label: "scenario_delayed_answer", content: "SCENARIO_DELAYED_ANSWER" }],
+    },
+    unexpected_dependency: {
+      before_restart: [{ label: "scenario_dependency", content: "SCENARIO_UNEXPECTED_DEPENDENCY" }],
+      after_restart: [{ label: "scenario_dependency_resolved", content: "SCENARIO_DEPENDENCY_RESOLVED" }],
+    },
+    recovery_cycle: {
+      before_restart: [{ label: "scenario_recovery_begin", content: "SCENARIO_RECOVERY_BEGIN" }],
+      after_restart: [{ label: "scenario_recovery_continue", content: "SCENARIO_RECOVERY_CONTINUE" }],
+    },
+    stale_reference: {
+      before_restart: [{ label: "scenario_stale_reference", content: "SCENARIO_STALE_REFERENCE_MISSING" }],
+      after_restart: [{ label: "scenario_stale_reference_rejected", content: "SCENARIO_STALE_REFERENCE_REJECTED" }],
+    },
+  };
+  return scenario === "baseline" ? [] : steps[scenario][phase];
+}
+
+function scenarioOracle(fixture: Fixture, releaseMode: ReleaseMode, userTexts: string[]): ScenarioOracle {
+  const expectedMarkers = [
+    ...scenarioSteps(fixture.scenario, "before_restart").map((step) => step.content),
+    ...(releaseMode === "lifecycle" ? scenarioSteps(fixture.scenario, "after_restart") : []).map((step) => step.content),
+  ];
+  const observedMarkers = expectedMarkers.filter((marker) => userTexts.some((text) => text.includes(marker)));
+  const staleAccepted = userTexts.some((text) => text.includes("SCENARIO_STALE_REFERENCE_ACCEPTED"));
+  return {
+    scenario: fixture.scenario,
+    expectedMarkers,
+    observedMarkers,
+    passed: observedMarkers.length === expectedMarkers.length && !staleAccepted,
+  };
+}
 
 type UpstreamRequest = {
   attemptIndex: number;
@@ -170,6 +227,76 @@ export type GitPreflight = {
   benchmarkMatch: boolean | null;
 };
 
+export type ProviderIdentity = {
+  status: "match" | "mismatch";
+  reasons: string[];
+};
+
+export function evaluateProviderIdentity(params: {
+  expectedProviderName: string;
+  actualProviderName: string | undefined;
+  expectedModel: string;
+  actualModel: string;
+  actualBaseUrl: string;
+  expectedBaseUrl?: string;
+}): ProviderIdentity {
+  const reasons: string[] = [];
+  if (params.actualProviderName !== params.expectedProviderName) reasons.push("provider_name_mismatch");
+  if (params.actualModel !== params.expectedModel) reasons.push("model_mismatch");
+  let actualUrl: URL;
+  try {
+    actualUrl = new URL(params.actualBaseUrl);
+    if (actualUrl.protocol !== "http:" && actualUrl.protocol !== "https:") reasons.push("endpoint_protocol_invalid");
+  } catch {
+    reasons.push("endpoint_invalid");
+    actualUrl = new URL("http://invalid.local");
+  }
+  if (params.expectedBaseUrl) {
+    try {
+      const expectedUrl = new URL(params.expectedBaseUrl);
+      if (expectedUrl.href.replace(/\/+$/u, "") !== actualUrl.href.replace(/\/+$/u, "")) reasons.push("endpoint_mismatch");
+    } catch {
+      reasons.push("expected_endpoint_invalid");
+    }
+  }
+  return { status: reasons.length === 0 ? "match" : "mismatch", reasons };
+}
+
+export type EconomicDecisionStatus = "pass" | "fail" | "inconclusive";
+
+export function classifyEconomicStatus(params: {
+  providerIdentityStatus: "match" | "mismatch";
+  gitPreflightStatus: GitPreflight["status"];
+  measurementStatus: UsageCompletenessStatus;
+  comparablePairCount: number;
+  economicallyComparablePairCount: number;
+  underSpendingCap: boolean | null;
+  baselineCostUsd: number | null;
+  cleanerCostUsd: number | null;
+}): {
+  spendingCapStatus: EconomicDecisionStatus;
+  breakEvenStatus: EconomicDecisionStatus;
+  economicStatus: EconomicDecisionStatus;
+} {
+  const spendingCapStatus: EconomicDecisionStatus = params.underSpendingCap === null
+    ? "inconclusive"
+    : params.underSpendingCap ? "pass" : "fail";
+  const comparable = params.providerIdentityStatus === "match"
+    && params.gitPreflightStatus === "clean_match"
+    && params.measurementStatus === "complete"
+    && params.comparablePairCount > 0
+    && params.economicallyComparablePairCount === params.comparablePairCount
+    && params.baselineCostUsd !== null
+    && params.cleanerCostUsd !== null;
+  const breakEvenStatus: EconomicDecisionStatus = !comparable
+    ? "inconclusive"
+    : params.cleanerCostUsd! <= params.baselineCostUsd! ? "pass" : "fail";
+  const economicStatus: EconomicDecisionStatus = spendingCapStatus === "fail" || breakEvenStatus === "fail"
+    ? "fail"
+    : spendingCapStatus === "pass" && breakEvenStatus === "pass" ? "pass" : "inconclusive";
+  return { spendingCapStatus, breakEvenStatus, economicStatus };
+}
+
 const BENCHMARK_STABLE_INSTRUCTIONS = "Stable benchmark policy. ".repeat(512).trim();
 
 type TurnResult = {
@@ -212,6 +339,7 @@ type RunResult = {
   releaseOverheadMs: number;
   providerUsage: Array<ProviderUsage | null> | null;
   providerShape: ProviderShape[] | null;
+  scenarioOracle: ScenarioOracle;
   seedRequestCount: number;
   attempts: Array<{
     attemptIndex: number;
@@ -256,8 +384,9 @@ export type ProviderShape = {
 
 async function loadStageBManifest(): Promise<{ manifest: StageBManifest; path: string }> {
   const relativePath = join("docs", "superpowers", "experiments", "2026-09-24-context-cleaner-stage-b.json");
+  const explicitPath = process.env.LIGHTRSI_BENCHMARK_MANIFEST?.trim();
   const candidates = [
-    process.env.LIGHTRSI_BENCHMARK_MANIFEST?.trim(),
+    explicitPath ? resolve(explicitPath) : undefined,
     join(process.cwd(), relativePath),
     join(process.cwd(), "..", "..", "..", relativePath),
   ].filter((value): value is string => Boolean(value));
@@ -275,11 +404,20 @@ async function loadStageBManifest(): Promise<{ manifest: StageBManifest; path: s
         assert.ok(manifest.fixtures.length === 4, "Stage B manifest must define four fixtures");
       } else {
         assert.ok(manifest.fixtures.length >= 5, "delayed-recovery manifest must define five fixtures");
+        assert.ok(manifest.fixtures.length === 5, "delayed-recovery manifest must define exactly five fixtures");
+        assert.ok(manifest.fixtures.every((fixture) => fixture.scenario && delayedScenarios.has(fixture.scenario as Exclude<FixtureScenario, "baseline">)), "delayed-recovery manifest scenarios are incomplete");
       }
+      const fixtureIds = manifest.fixtures.map((fixture) => fixture.id.trim());
+      assert.ok(fixtureIds.every(Boolean), "fixture IDs must be non-empty");
+      assert.equal(new Set(fixtureIds).size, fixtureIds.length, "fixture IDs must be unique");
+      assert.ok(manifest.fixtures.every((fixture) => ["early", "late"].includes(fixture.releasePosition)), "fixture release position invalid");
+      assert.ok(manifest.fixtures.every((fixture) => ["cold", "warm"].includes(fixture.cacheCondition)), "fixture cache condition invalid");
+      assert.ok(manifest.fixtures.every((fixture) => typeof fixture.recovery === "boolean" && Number.isInteger(fixture.noiseBefore) && fixture.noiseBefore >= 0 && Number.isInteger(fixture.noiseBetween) && fixture.noiseBetween >= 0), "fixture measurement fields invalid");
       assert.ok(manifest.comparison.keep === "baseline" && manifest.comparison.release === "cleaner");
       return { manifest, path };
     } catch (error) {
       lastError = error;
+      if (explicitPath) break;
     }
   }
   throw new Error(`Stage B manifest unavailable: ${String(lastError)}`);
@@ -824,6 +962,7 @@ function settleCapturedReservations(
 
 function runResultFromRequests(params: {
   fixture: Fixture;
+  releaseMode: ReleaseMode;
   arm: Arm;
   repetition: number;
   mode: BenchmarkMode;
@@ -841,6 +980,7 @@ function runResultFromRequests(params: {
     ? summarizeUsageValues(usage, params.requests.length).status
     : "unavailable";
   const completeTiming = params.turns.every((turn) => turn.timing.complete);
+  const oracle = scenarioOracle(params.fixture, params.releaseMode, params.requests.map(userInputText));
   return {
     fixture: params.fixture.name,
     releasePosition: params.fixture.releasePosition,
@@ -855,11 +995,12 @@ function runResultFromRequests(params: {
     releaseOverheadMs: params.releaseOverheadMs,
     providerUsage: usage,
     providerShape: params.mode === "live" ? params.requests.map(providerShape) : null,
+    scenarioOracle: oracle,
     seedRequestCount: params.seedRequestCount,
     attempts: params.requests.map((request, index) => summarizeAttempt(request, params.turns[index]?.label ?? `provider_attempt_${index}`)),
-    executionStatus: params.passed && completeTiming ? "complete" : params.requests.length > 0 ? "partial" : "failed",
+    executionStatus: params.passed && oracle.passed && completeTiming ? "complete" : params.requests.length > 0 ? "partial" : "failed",
     measurementStatus,
-    correctnessStatus: params.passed ? "pass" : "fail",
+    correctnessStatus: params.passed && oracle.passed ? "pass" : "fail",
     economicStatus: "inconclusive",
     ...(params.failure ? { failure: params.failure } : {}),
   };
@@ -1028,7 +1169,7 @@ async function runArm(
     const controlPlane = createContextCleanerControlPlane({ stateDir: environment.stateDir });
     const bridge = createCodexContextCleanerBridge({ stateDir: environment.stateDir, controlPlane, boundSessionId: sessionId });
     const cleaner = createContextCleanerControlService({ stateDir: environment.stateDir, bridge });
-  const send = async (label: string, content: string, planId?: string) => {
+    const send = async (label: string, content: string, planId?: string) => {
       const reservation = reservationLedger?.reserve({ pairId, arm, checkpoint: label }) ?? undefined;
       if (reservationLedger && !reservation) throw new Error(`benchmark dispatch stopped: ${reservationLedger.stopReason}`);
       const sent = await sendTurn({
@@ -1045,6 +1186,9 @@ async function runArm(
       });
       history = sent.history;
       turns.push({ ...sent.result, reservation });
+    };
+    const runScenarioContinuation = async (phase: ScenarioPhase) => {
+      for (const step of scenarioSteps(fixture.scenario, phase)) await send(step.label, step.content);
     };
     if (!seed) {
       await send("retained", fixture.retained);
@@ -1089,6 +1233,7 @@ async function runArm(
     }
     await send("after_release_b", "AFTER_RELEASE_B", secondReleasePlan);
     if (secondReleasePlan) releaseOverheadMs += durableCompletionWait(turns.at(-1));
+    await runScenarioContinuation("before_restart");
     if (releaseMode === "lifecycle") {
       await runtime.close();
       runtime = await startCodexResponsesProxy({
@@ -1097,6 +1242,7 @@ async function runArm(
         allowMockFixtureEvidence: true,
       });
       await send("after_restart", "AFTER_RESTART");
+      await runScenarioContinuation("after_restart");
     }
     await closeCapture();
     const forwardedRequests = seed
@@ -1138,6 +1284,7 @@ async function runArm(
     }
     return runResultFromRequests({
       fixture,
+      releaseMode,
       arm,
       repetition,
       mode,
@@ -1156,6 +1303,7 @@ async function runArm(
       : upstream?.requests ?? liveCapture?.requests ?? [];
     return runResultFromRequests({
       fixture,
+      releaseMode,
       arm,
       repetition,
       mode,
@@ -1584,7 +1732,9 @@ function plannedArmProviderAttempts(
   const initialTurns = causalPairs ? 0 : 2;
   const earlyNoise = fixture.releasePosition === "early" ? fixture.noiseBefore : 0;
   const lifecycleTurns = releaseMode === "lifecycle" ? 2 : 0;
-  return initialTurns + earlyNoise + lifecycleTurns + 1 + fixture.noiseBetween + 1;
+  const scenarioTurns = scenarioSteps(fixture.scenario ?? "baseline", "before_restart").length
+    + (releaseMode === "lifecycle" ? scenarioSteps(fixture.scenario ?? "baseline", "after_restart").length : 0);
+  return initialTurns + earlyNoise + lifecycleTurns + 1 + fixture.noiseBetween + 1 + scenarioTurns;
 }
 
 function plannedProviderAttempts(
@@ -1597,7 +1747,7 @@ function plannedProviderAttempts(
     const seedTurns = causalPairs
       ? 2 + (fixture.releasePosition === "late" ? fixture.noiseBefore : 0)
       : 0;
-    return total + seedTurns + (2 * plannedArmProviderAttempts(fixture, releaseMode, causalPairs));
+    return total + (2 * (seedTurns + plannedArmProviderAttempts(fixture, releaseMode, causalPairs)));
   }, 0);
 }
 
@@ -1608,6 +1758,8 @@ async function main(): Promise<void> {
   let report: JsonObject;
   let passed = false;
   let gitPreflight: GitPreflight | null = null;
+  let providerIdentityStatus: "mock_fixture" | "match" | "mismatch" = "mock_fixture";
+  let providerIdentityReasons: string[] = [];
   try {
     const manifestInfo = await loadStageBManifest();
     const { manifest } = manifestInfo;
@@ -1647,12 +1799,20 @@ async function main(): Promise<void> {
       const model = process.env.LIGHTRSI_BENCHMARK_MODEL?.trim()
         || providerModelFromEnvironment()
         || "gpt-5.4-mini";
+      const providerIdentity = evaluateProviderIdentity({
+        expectedProviderName: String(manifest.provider.name ?? ""),
+        actualProviderName: configuredProvider.name ?? config.providerName,
+        expectedModel: String(manifest.provider.model ?? ""),
+        actualModel: model,
+        actualBaseUrl: baseUrl,
+        expectedBaseUrl: typeof manifest.provider.baseUrl === "string" ? manifest.provider.baseUrl : undefined,
+      });
+      providerIdentityStatus = providerIdentity.status;
+      providerIdentityReasons = providerIdentity.reasons;
+      assert.equal(providerIdentity.status, "match", `live provider identity mismatch: ${providerIdentity.reasons.join(",")}`);
       assert.ok(process.env.OPENAI_API_KEY?.trim(), "live mode requires provider credentials");
       liveOptions = { baseUrl, model, apiKey: process.env.OPENAI_API_KEY!.trim() };
     }
-    const providerIdentityStatus = mode === "mock"
-      ? "mock_fixture"
-      : manifest.provider.model === liveOptions!.model ? "match" : "mismatch";
     const selectedFixtures = manifest.fixtures.filter((fixture) => fixtureNames.includes(fixture.id));
     const plannedAttempts = plannedProviderAttempts(selectedFixtures, repetitions, releaseMode, causalPairs);
     const pricing = mode === "live" ? readProviderPricing(manifest.provider) : null;
@@ -1731,6 +1891,8 @@ async function main(): Promise<void> {
       ? combinedCostUsd <= spendingCapUsd
       : null;
     const executionStatus = runs.length > 0 && runs.every((run) => run.executionStatus === "complete") ? "complete" : runs.length > 0 ? "partial" : "failed";
+    const dispatchedProviderAttempts = runs.reduce((total, run) => total + run.upstreamRequestCount, 0);
+    if (executionStatus === "complete") assert.equal(dispatchedProviderAttempts, plannedAttempts, "planned provider attempts must match dispatched attempts");
     const measurementStatus: UsageCompletenessStatus = mode === "mock"
       ? "unavailable"
       : runs.every((run) => run.measurementStatus === "complete") ? "complete" : runs.some((run) => run.measurementStatus === "incomplete") ? "incomplete" : "unavailable";
@@ -1741,9 +1903,23 @@ async function main(): Promise<void> {
       && difference.providerUsage?.status === "complete"
       && (mode !== "live" || difference.providerUsage.cumulativeEstimatedCostUsd !== null)
     )).length;
-    const economicStatus = providerIdentityStatus === "mismatch" || gitPreflight.status !== "clean_match" || measurementStatus !== "complete" || comparablePairCount === 0 || underSpendingCap === null
-      ? "inconclusive"
-      : economicallyComparablePairCount !== comparablePairCount ? "inconclusive" : underSpendingCap ? "pass" : "fail";
+    const economicDecision = mode === "live"
+      ? classifyEconomicStatus({
+        providerIdentityStatus: providerIdentityStatus === "match" ? "match" : "mismatch",
+        gitPreflightStatus: gitPreflight.status,
+        measurementStatus,
+        comparablePairCount,
+        economicallyComparablePairCount,
+        underSpendingCap,
+        baselineCostUsd,
+        cleanerCostUsd,
+      })
+      : {
+        spendingCapStatus: "inconclusive" as EconomicDecisionStatus,
+        breakEvenStatus: "inconclusive" as EconomicDecisionStatus,
+        economicStatus: "inconclusive" as EconomicDecisionStatus,
+      };
+    const { economicStatus } = economicDecision;
     passed = runs.length > 0 && runs.every((run) => run.passed) && runs.every((run) => run.turns.every((turn) => turn.timing.complete));
     report = {
       schemaVersion: 2,
@@ -1755,6 +1931,8 @@ async function main(): Promise<void> {
         benchmarkSha: manifest.benchmarkSha,
         manifestPath: manifestInfo.path,
       },
+      plannedProviderAttempts: plannedAttempts,
+      dispatchedProviderAttempts,
       gitPreflight,
       comparison: { keep: "baseline", release: "cleaner" },
       mode,
@@ -1763,26 +1941,30 @@ async function main(): Promise<void> {
       causalPairs,
       repetitions,
       fixtures: fixtureNames.map((name) => manifest.fixtures.find((fixture) => fixture.id === name)),
-       provider: liveOptions ? { host: new URL(liveOptions.baseUrl).hostname, model: liveOptions.model, identityStatus: providerIdentityStatus } : null,
+      provider: liveOptions
+        ? { host: new URL(liveOptions.baseUrl).hostname, model: liveOptions.model, identityStatus: providerIdentityStatus, identityReasons: providerIdentityReasons }
+        : null,
       usage: mode === "live" ? "provider_response_usage_when_present" : "provider_usage_unavailable_for_mock_upstream",
       statuses: { executionStatus, measurementStatus, correctnessStatus, economicStatus },
-      economics: mode === "live"
-        ? {
-          status: economicStatus,
-          pricingStatus: pricing ? "pinned" : "unavailable",
-          calculation: "uncached_input + cached_input + output; cache creation tokens unavailable",
-           baselineCostUsd,
-           cleanerCostUsd,
-           seedCostUsd,
-           combinedCostUsd,
-           marginalCostDeltaUsd: baselineCostUsd !== null && cleanerCostUsd !== null ? cleanerCostUsd - baselineCostUsd : null,
-           spendingCapUsd: Number.isFinite(spendingCapUsd) ? spendingCapUsd : null,
-           underSpendingCap,
-           observedCostUsd: reservationLedger?.observedCostUsd ?? null,
-           reservedCostUsd: reservationLedger?.outstandingCostUsd ?? 0,
-           capStopReason,
-        }
-        : null,
+      economics: {
+        status: economicStatus,
+        spendingCapStatus: economicDecision.spendingCapStatus,
+        breakEvenStatus: economicDecision.breakEvenStatus,
+        pricingStatus: pricing ? "pinned" : "unavailable",
+        calculation: "uncached_input + cached_input + output; cache creation tokens unavailable",
+        baselineCostUsd: mode === "live" ? baselineCostUsd : null,
+        cleanerCostUsd: mode === "live" ? cleanerCostUsd : null,
+        seedCostUsd: mode === "live" ? seedCostUsd : null,
+        combinedCostUsd: mode === "live" ? combinedCostUsd : null,
+        marginalCostDeltaUsd: mode === "live" && baselineCostUsd !== null && cleanerCostUsd !== null
+          ? cleanerCostUsd - baselineCostUsd
+          : null,
+        spendingCapUsd: Number.isFinite(spendingCapUsd) ? spendingCapUsd : null,
+        underSpendingCap: mode === "live" ? underSpendingCap : null,
+        observedCostUsd: mode === "live" ? reservationLedger?.observedCostUsd ?? null : null,
+        reservedCostUsd: mode === "live" ? reservationLedger?.outstandingCostUsd ?? 0 : 0,
+        capStopReason: mode === "live" ? capStopReason : null,
+      },
       runs,
       pairedDifferences: differences,
       measurementComparability: {

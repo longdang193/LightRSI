@@ -10,7 +10,7 @@ import {
 } from "@lightrsi/host-adapter";
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { createConsoleLogger } from "../src/logger.js";
-import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
+import { projectCompactPayload, startCodexResponsesProxy } from "../src/proxy-runtime.js";
 
 async function startSseUpstream(options: { compactStatus?: number; json?: boolean; rejectStreamField?: boolean } = {}) {
   const port = await reserveUnusedPort();
@@ -76,6 +76,26 @@ async function startSseUpstream(options: { compactStatus?: number; json?: boolea
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
+
+test("compact projection uses copy-on-write without cloning retained items", () => {
+  const retained = { type: "message", role: "user" };
+  const historical = { type: "web_search_call", id: "search_1" };
+  const input = [retained, historical];
+  const payload = { model: "fixture", stream: false, input };
+
+  const native = projectCompactPayload(payload, "native");
+  assert.notEqual(native, payload);
+  assert.equal(native.input, input);
+  assert.equal("stream" in native, false);
+  assert.equal(payload.stream, false);
+
+  const fallback = projectCompactPayload(payload, "fallback");
+  assert.notEqual(fallback, payload);
+  assert.notEqual(fallback.input, input);
+  assert.deepEqual(fallback.input, [retained]);
+  assert.equal(fallback.input?.[0], retained);
+  assert.deepEqual(input, [retained, historical]);
+});
 
 test("compact route preserves native non-stream payload without stream field", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-compact-route-"));
