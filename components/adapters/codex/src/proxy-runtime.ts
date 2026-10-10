@@ -25,6 +25,7 @@ import {
 } from "@lightrsi/host-adapter";
 import { configureStatePathResolver } from "@lightrsi/artifact-store";
 import { collectRouterCacheTelemetry } from "./router-cache-telemetry.js";
+import type { RouterCacheTelemetry } from "./router-cache-telemetry.js";
 import type { TokenPilotCodexConfig } from "./config.js";
 import {
   defaultCodexConfigPath,
@@ -69,7 +70,11 @@ import {
 } from "./session-state.js";
 import { snapshotCodexResponsesStream } from "./stream-observer.js";
 import { appendTrace } from "./trace.js";
-import { appendCodexCacheAuditRecord, buildCodexCacheAuditSnapshot } from "./cache-audit.js";
+import {
+  appendCodexCacheAuditRecord,
+  buildCodexCacheAuditSnapshot,
+  buildCodexCacheFrontier,
+} from "./cache-audit.js";
 import { initializeCodexTokenPilotPreset } from "./preset.js";
 import {
   appendCodexRequestJournalEntry,
@@ -444,7 +449,10 @@ function streamRequestStatus(params: {
   if (params.httpStatus < 200 || params.httpStatus >= 300) return "failed";
   if (params.collected.status === "failed") return "failed";
   const sawCompleted = (params.collected.eventTypeCounts["response.completed"] ?? 0) > 0;
-  if (params.collected.status !== "completed" || !sawCompleted) return "incomplete";
+  if (params.collected.status !== "completed"
+    || !sawCompleted
+    || !params.collected.responseId
+    || params.collected.malformedEventCount > 0) return "incomplete";
   return "completed";
 }
 
@@ -1142,9 +1150,6 @@ export async function startCodexResponsesProxy(params: {
             ? { cacheContractDigest: nextEnvelope.metadata.lightrsiCacheContractDigest }
             : {}),
           endpointId: codexRebaseEndpointIdentity(upstream.baseUrl),
-          ...(typeof nextPayload.previous_response_id === "string"
-            ? { conversationBranch: nextPayload.previous_response_id }
-            : {}),
           ...(requestJournalEntry && rebaseRequest
             ? { rebaseEpoch: `epoch-${requestJournalEntry.requestId}` }
             : {}),
@@ -1158,6 +1163,9 @@ export async function startCodexResponsesProxy(params: {
         codec: args.codec,
         config,
         forwardingScope: forwardingScopeForCodex(args.envelope),
+        lineageHeadResponseId: typeof (codec.encodeRequest(args.envelope) as JsonObject).previous_response_id === "string"
+          ? (codec.encodeRequest(args.envelope) as JsonObject).previous_response_id as string
+          : undefined,
         requestId: requestJournalEntry?.requestId,
       });
       const prepared = await prepareObservedBeforeCall<CodexReductionSummary>({
@@ -1248,16 +1256,37 @@ export async function startCodexResponsesProxy(params: {
           ? { cacheContractDigest: prepared.envelope.metadata.lightrsiCacheContractDigest }
           : {}),
         endpointId: codexRebaseEndpointIdentity(upstream.baseUrl),
-        ...(typeof originalPayload.previous_response_id === "string"
-          ? { conversationBranch: originalPayload.previous_response_id }
-          : {}),
         ...(requestJournalEntry && rebaseRequest
           ? { rebaseEpoch: `epoch-${requestJournalEntry.requestId}` }
           : {}),
       };
       const forwardingAttempts: CodexForwardingAttempt[] = [];
       const forwardingAttemptInputs = new Map<string, JsonObject[]>();
+      const forwardingAttemptPayloads = new Map<string, JsonObject>();
+      let observedRouterCacheIdentity: Pick<RouterCacheTelemetry,
+        "routeIdentitySource" | "resolvedModel" | "routeId" | "provider"
+        | "routerCacheNamespace" | "routerCacheFamilyId" | "routerPromptCacheKey"> | null = null;
+      const recordObservedRouterCacheIdentity = (telemetry: RouterCacheTelemetry): void => {
+        observedRouterCacheIdentity = {
+          routeIdentitySource: telemetry.routeIdentitySource,
+          resolvedModel: telemetry.resolvedModel,
+          routeId: telemetry.routeId,
+          provider: telemetry.provider,
+          routerCacheNamespace: telemetry.routerCacheNamespace,
+          routerCacheFamilyId: telemetry.routerCacheFamilyId,
+          routerPromptCacheKey: telemetry.routerPromptCacheKey,
+        };
+      };
       let forwardingAttemptOrdinal = 0;
+      const projectionBoundary = (nextPayload: JsonObject): NonNullable<CodexForwardingAttempt["projectionBoundary"]> => rebaseRequest
+        ? "rebase"
+        : manualCleanerReserved
+          ? "cleaner_release"
+          : compactRequest
+            ? "explicit_compaction"
+            : continuationReplayPayload && typeof nextPayload.previous_response_id !== "string"
+              ? "other_rewrite"
+              : "ordinary_admission";
       const recordForwardingAttempt = (nextPayload: JsonObject): CodexForwardingAttempt => {
         const kind = nextPayload === fallbackPayload
           ? "fallback"
@@ -1272,16 +1301,112 @@ export async function startCodexResponsesProxy(params: {
           inputFingerprint: codexForwardingFingerprint(nextPayload.input ?? null),
           outcome: "pending",
           kind,
+          projectionBoundary: projectionBoundary(nextPayload),
+          projectionEligible: projectionBoundary(nextPayload) === "ordinary_admission",
         };
         forwardingAttempts.push(attempt);
         forwardingAttemptInputs.set(attempt.attemptId, Array.isArray(nextPayload.input)
           ? JSON.parse(JSON.stringify(nextPayload.input)) as JsonObject[]
           : []);
+        forwardingAttemptPayloads.set(attempt.attemptId, JSON.parse(JSON.stringify(nextPayload)) as JsonObject);
         return attempt;
+      };
+      const updateForwardingAttemptEvidence = (
+        attempt: CodexForwardingAttempt,
+        effectivePayload: JsonObject,
+      ): void => {
+        attempt.payloadFingerprint = codexForwardingFingerprint(effectivePayload);
+        attempt.inputFingerprint = codexForwardingFingerprint(effectivePayload.input ?? null);
+        forwardingAttemptInputs.set(attempt.attemptId, Array.isArray(effectivePayload.input)
+          ? JSON.parse(JSON.stringify(effectivePayload.input)) as JsonObject[]
+          : []);
+        forwardingAttemptPayloads.set(attempt.attemptId, JSON.parse(JSON.stringify(effectivePayload)) as JsonObject);
+      };
+      const cacheAuditCompatibilityDigestForLatestAttempt = (): string => {
+        const attempt = forwardingAttempts.at(-1);
+        const effectivePayload = attempt ? forwardingAttemptPayloads.get(attempt.attemptId) : undefined;
+        const cacheRoutingPayload = effectivePayload
+          ?? prepared.envelope.rawPayload as Record<string, unknown>;
+        return codexForwardingFingerprint({
+          model: effectivePayload?.model ?? model,
+          endpoint: codexRebaseEndpointIdentity(upstream.baseUrl),
+          provider: upstreamProviderName,
+          providerWirePrefixHash: effectivePayload
+            ? computeEncodedProviderWirePrefixHash(effectivePayload)
+            : cacheAuditSnapshot.providerWirePrefixHash ?? null,
+          cacheRoutingIdentity: {
+            promptCacheKey: typeof cacheRoutingPayload?.prompt_cache_key === "string"
+              ? cacheRoutingPayload.prompt_cache_key
+              : null,
+            promptCacheRetention: typeof cacheRoutingPayload?.prompt_cache_retention === "string"
+              ? cacheRoutingPayload.prompt_cache_retention
+              : null,
+          },
+          observedRouterCacheIdentity,
+          cacheRelevantOptionFingerprints: cacheRelevantRequestOptionFingerprints(
+            effectivePayload ?? prepared.envelope.rawPayload,
+          ),
+        });
       };
       const markLastForwardingAttempt = (status: CodexJournalStatus): void => {
         const attempt = forwardingAttempts.at(-1);
-        if (attempt) attempt.outcome = status;
+        if (!attempt) return;
+        attempt.outcome = status;
+        attempt.responseProducing = status === "completed";
+        attempt.projectionEligible = status === "completed"
+          && attempt.projectionBoundary === "ordinary_admission";
+      };
+      const applyUpstreamAttempts = (
+        response: { attempts?: Array<{
+          attemptId: string;
+          endpointId: string;
+          resolvedModel: string | null;
+          effectivePayload: unknown;
+          status: number | null;
+          kind: "normal" | "fallback" | "unsupported_retry";
+          outcome: "completed" | "failed" | "incomplete";
+          responseProducing: boolean;
+        }> },
+        initialAttempt: CodexForwardingAttempt,
+      ): void => {
+        for (const [index, transportAttempt] of (response.attempts ?? []).entries()) {
+          const effectivePayload = asJsonObject(transportAttempt.effectivePayload) ?? {};
+           const nextAttempt = index === 0
+             ? initialAttempt
+             : recordForwardingAttempt(effectivePayload);
+           updateForwardingAttemptEvidence(nextAttempt, effectivePayload);
+          nextAttempt.transportAttemptId = transportAttempt.attemptId;
+          nextAttempt.endpointId = transportAttempt.endpointId;
+          nextAttempt.resolvedModel = transportAttempt.resolvedModel ?? undefined;
+          nextAttempt.status = transportAttempt.status;
+          nextAttempt.outcome = transportAttempt.outcome;
+          nextAttempt.responseProducing = false;
+          nextAttempt.projectionEligible = false;
+          if (index > 0) {
+            nextAttempt.kind = transportAttempt.kind === "fallback"
+              ? "fallback"
+              : transportAttempt.kind === "unsupported_retry"
+                ? "normal"
+                : nextAttempt.kind;
+          }
+        }
+      };
+      const commitSuccessfulForwardingEvidence = (
+        status: CodexJournalStatus,
+        acceptedAtResponseId?: string,
+      ): void => {
+        if (status !== "completed") return;
+        const attempt = forwardingAttempts.at(-1);
+        const acceptedInputItems = latestForwardedInputItems();
+        if (!attempt?.projectionEligible || !acceptedInputItems || !Array.isArray(originalPayload.input)) return;
+        cacheCodexAcceptedInputProjection({
+          stateDir: config.stateDir,
+          sessionId,
+          originalItems: originalPayload.input as JsonObject[],
+          acceptedItems: acceptedInputItems,
+          scope: forwardingScope,
+          acceptedAtResponseId,
+        });
       };
       const latestForwardedInputItems = (): JsonObject[] | undefined => {
         const attempt = forwardingAttempts.at(-1);
@@ -1371,7 +1496,7 @@ export async function startCodexResponsesProxy(params: {
       };
       const sendUpstream = async (nextPayload: JsonObject) => {
         const projectedPayload = projectUpstreamPayload(nextPayload);
-        recordForwardingAttempt(projectedPayload);
+        const initialAttempt = recordForwardingAttempt(projectedPayload);
         try {
           const response = countUpstreamResponse(await requestUpstreamResponses({
             upstream,
@@ -1387,23 +1512,7 @@ export async function startCodexResponsesProxy(params: {
             endpointPath: compactRequest ? "/responses/compact" : undefined,
             fallbackPayload: compactFallbackPayload(),
           }));
-          const attempt = forwardingAttempts.at(-1);
-          if (attempt) attempt.outcome = response.status >= 200 && response.status < 300 ? "completed" : "failed";
-          if (nextPayload === payload
-            && nonStreamRequestStatus({
-              httpStatus: response.status,
-              response: parseJsonObject(response.text),
-            }) === "completed"
-            && Array.isArray(originalPayload.input)
-            && Array.isArray(nextPayload.input)) {
-            cacheCodexAcceptedInputProjection({
-              stateDir: config.stateDir,
-              sessionId,
-              originalItems: originalPayload.input as JsonObject[],
-              acceptedItems: nextPayload.input as JsonObject[],
-              scope: forwardingScope,
-            });
-          }
+          applyUpstreamAttempts(response, initialAttempt);
           return response;
         } catch (error) {
           const attempt = forwardingAttempts.at(-1);
@@ -1570,6 +1679,7 @@ export async function startCodexResponsesProxy(params: {
           collected,
         });
         markLastForwardingAttempt(status);
+        commitSuccessfulForwardingEvidence(status, collected.responseId);
         const error = status === "failed" && paramsForJournal.rawStreamText
           ? truncateJournalError(paramsForJournal.rawStreamText)
           : undefined;
@@ -1601,6 +1711,7 @@ export async function startCodexResponsesProxy(params: {
           error,
           forwardingScope,
           forwardingAttempts,
+          acceptedAtResponseId: status === "completed" ? collected.responseId : undefined,
         });
         contextHistoryJournalPersisted = true;
       };
@@ -1618,6 +1729,10 @@ export async function startCodexResponsesProxy(params: {
         });
         const error = status === "failed" ? truncateJournalError(paramsForJournal.responseText) : undefined;
         markLastForwardingAttempt(status);
+        commitSuccessfulForwardingEvidence(
+          status,
+          typeof paramsForJournal.response?.id === "string" ? paramsForJournal.response.id : undefined,
+        );
         await appendCodexResponseJournalEntry({
           stateDir: config.stateDir,
           sessionId,
@@ -1645,6 +1760,10 @@ export async function startCodexResponsesProxy(params: {
           error,
           forwardingScope,
           forwardingAttempts,
+          acceptedAtResponseId: status === "completed"
+            && typeof paramsForJournal.response?.id === "string"
+            ? paramsForJournal.response.id
+            : undefined,
         });
         contextHistoryJournalPersisted = true;
       };
@@ -1878,6 +1997,7 @@ export async function startCodexResponsesProxy(params: {
               responseId: collected.responseId,
               previousResponseId: collected.previousResponseId,
               responsePromptCacheKey: collected.responsePromptCacheKey,
+              responseModel: collected.responseModel,
               rawStreamText: paramsForRecord.rawStreamText ?? "",
             }
           : snapshotCodexResponsesStream(paramsForRecord.rawStreamText ?? "");
@@ -1890,6 +2010,29 @@ export async function startCodexResponsesProxy(params: {
           httpStatus: paramsForRecord.status,
           collected,
         });
+        markLastForwardingAttempt(requestStatus);
+        const routerCacheTelemetry = collectRouterCacheTelemetry({
+          headers: paramsForRecord.headers ?? {},
+          upstreamName: upstream.name,
+          upstreamBaseUrl: upstream.baseUrl,
+          responseModel: snapshot.responseModel,
+          usage: snapshot.usage ?? null,
+          receivedLightmem2CacheContractDigest:
+            prepared.envelope.metadata?.lightrsiCacheContractDigest,
+          lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
+        });
+        recordObservedRouterCacheIdentity(routerCacheTelemetry);
+        const auditSnapshot = {
+          ...cacheAuditSnapshot,
+          frontier: buildCodexCacheFrontier({
+            sessionId,
+            attemptId: forwardingAttempts.at(-1)?.attemptId,
+            compatibilityDigest: cacheAuditCompatibilityDigestForLatestAttempt(),
+            inputItems: latestForwardedInputItems(),
+            eligible: requestStatus === "completed"
+              && forwardingAttempts.at(-1)?.projectionEligible === true,
+          }),
+        };
         if (requestJournalEntry && !contextHistoryJournalPersisted) {
           try {
             await appendStreamContextHistory({
@@ -1941,7 +2084,7 @@ export async function startCodexResponsesProxy(params: {
             }),
             appendCodexCacheAuditRecord({
               stateDir: config.stateDir,
-              snapshot: cacheAuditSnapshot,
+              snapshot: auditSnapshot,
               responsePromptCacheKey: snapshot.responsePromptCacheKey ?? null,
               usage: snapshot.usage ?? null,
               status: paramsForRecord.status,
@@ -1964,15 +2107,7 @@ export async function startCodexResponsesProxy(params: {
               contextRewriteOutcome: contextRewriteOutcome ?? null,
               lightmem2CacheContractDigest:
                 prepared.envelope.metadata?.lightrsiCacheContractDigest ?? null,
-              routerCacheTelemetry: collectRouterCacheTelemetry({
-                headers: paramsForRecord.headers ?? {},
-                upstreamName: upstream.name,
-                upstreamBaseUrl: upstream.baseUrl,
-                usage: snapshot.usage ?? null,
-                receivedLightmem2CacheContractDigest:
-                  prepared.envelope.metadata?.lightrsiCacheContractDigest,
-                lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
-              }),
+              routerCacheTelemetry,
               transportFetches,
               logicalUpstreamSends,
               successfulGenerations,
@@ -1996,7 +2131,7 @@ export async function startCodexResponsesProxy(params: {
           return;
         }
         const projectedPayload = projectUpstreamPayload(payload);
-        recordForwardingAttempt(projectedPayload);
+        const initialAttempt = recordForwardingAttempt(projectedPayload);
         let upstreamResp;
         try {
           upstreamResp = countUpstreamResponse(await requestUpstreamResponsesStream({
@@ -2013,6 +2148,7 @@ export async function startCodexResponsesProxy(params: {
             endpointPath: compactRequest ? "/responses/compact" : undefined,
             fallbackPayload: compactFallbackPayload(),
           }));
+          applyUpstreamAttempts(upstreamResp, initialAttempt);
         } catch (error) {
           const attempt = forwardingAttempts.at(-1);
           if (attempt) attempt.outcome = "failed";
@@ -2095,6 +2231,33 @@ export async function startCodexResponsesProxy(params: {
       let assistantChars = 0;
       let toolCallCount = 0;
       let providerUsage: unknown = null;
+      const requestStatus = nonStreamRequestStatus({
+        httpStatus: upstreamResp.status,
+        response: responseJson,
+      });
+      markLastForwardingAttempt(requestStatus);
+      let routerCacheTelemetry = collectRouterCacheTelemetry({
+        headers: upstreamResp.headers,
+        upstreamName: upstream.name,
+        upstreamBaseUrl: upstream.baseUrl,
+        responseModel: responseJson?.model,
+        usage: providerUsage,
+        receivedLightmem2CacheContractDigest:
+          prepared.envelope.metadata?.lightrsiCacheContractDigest,
+        lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
+      });
+      recordObservedRouterCacheIdentity(routerCacheTelemetry);
+      const auditSnapshot = {
+        ...cacheAuditSnapshot,
+        frontier: buildCodexCacheFrontier({
+          sessionId,
+          attemptId: forwardingAttempts.at(-1)?.attemptId,
+            compatibilityDigest: cacheAuditCompatibilityDigestForLatestAttempt(),
+          inputItems: latestForwardedInputItems(),
+          eligible: requestStatus === "completed"
+            && forwardingAttempts.at(-1)?.projectionEligible === true,
+        }),
+      };
       try {
         const decoded = codec.decodeResponse(responseJson ?? JSON.parse(upstreamResp.text), prepared.envelope);
         responseId = typeof decoded.metadata?.responseId === "string" && decoded.metadata.responseId
@@ -2105,7 +2268,7 @@ export async function startCodexResponsesProxy(params: {
         providerUsage = decoded.usage ?? null;
         await appendCodexCacheAuditRecord({
           stateDir: config.stateDir,
-          snapshot: cacheAuditSnapshot,
+          snapshot: auditSnapshot,
           responsePromptCacheKey:
             typeof decoded.metadata?.promptCacheKey === "string"
               ? decoded.metadata.promptCacheKey
@@ -2116,6 +2279,16 @@ export async function startCodexResponsesProxy(params: {
       } catch {
         // Some upstream error payloads may not match the expected Responses shape.
       }
+      routerCacheTelemetry = collectRouterCacheTelemetry({
+        headers: upstreamResp.headers,
+        upstreamName: upstream.name,
+        upstreamBaseUrl: upstream.baseUrl,
+        responseModel: responseJson?.model,
+        usage: providerUsage,
+        receivedLightmem2CacheContractDigest:
+          prepared.envelope.metadata?.lightrsiCacheContractDigest,
+        lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
+      });
       if (requestJournalEntry && !contextHistoryJournalPersisted) {
         try {
           await appendNonStreamContextHistory({
@@ -2134,10 +2307,7 @@ export async function startCodexResponsesProxy(params: {
           });
         }
       }
-      await finalizeContextRewriteLifecycle(nonStreamRequestStatus({
-        httpStatus: upstreamResp.status,
-        response: responseJson,
-      }));
+      await finalizeContextRewriteLifecycle(requestStatus);
       await recordCodexUxReduction({
         stateDir: config.stateDir,
         sessionId,
@@ -2180,16 +2350,7 @@ export async function startCodexResponsesProxy(params: {
         contextRewriteOutcome: contextRewriteOutcome ?? null,
         lightmem2CacheContractDigest:
           prepared.envelope.metadata?.lightrsiCacheContractDigest ?? null,
-        routerCacheTelemetry: collectRouterCacheTelemetry({
-          headers: upstreamResp.headers,
-          upstreamName: upstream.name,
-          upstreamBaseUrl: upstream.baseUrl,
-          responseModel: responseJson?.model,
-          usage: providerUsage,
-          receivedLightmem2CacheContractDigest:
-            prepared.envelope.metadata?.lightrsiCacheContractDigest,
-          lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
-        }),
+        routerCacheTelemetry,
         transportFetches,
         logicalUpstreamSends,
         successfulGenerations,

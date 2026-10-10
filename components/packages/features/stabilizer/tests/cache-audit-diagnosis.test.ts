@@ -102,3 +102,33 @@ test("diagnoseCacheAudit distinguishes session-local baseline from same-target m
   assert.match(diagnosis.currentState, /session-local/i);
   assert.match(diagnosis.harnessRules.join("\n"), /session-local baseline/i);
 });
+
+test("diagnoseCacheAudit preserves unknown provider evidence", () => {
+  const diagnosis = diagnoseCacheAudit({
+    stablePrefixFingerprint: "fp-unknown",
+    requestPromptCacheKey: "pk-unknown",
+    responsePromptCacheKey: "pk-unknown",
+    cachedInputTokens: 0,
+    cacheEvidence: "unknown",
+    structuralCandidate: "matched",
+    baselineKind: "identity",
+  });
+
+  assert.equal(diagnosis.matchedResult, "unknown");
+  assert.equal(diagnosis.providerCacheEvidence, "unknown");
+  assert.match(diagnosis.currentState, /provider cache evidence is unavailable/i);
+  assert.doesNotMatch(diagnosis.currentState, /^Cold start:|^Cold miss:/i);
+});
+
+test("diagnoseCacheAudit treats null cached input tokens as unknown", () => {
+  const diagnosis = diagnoseCacheAudit({
+    stablePrefixFingerprint: "fp-null",
+    requestPromptCacheKey: "pk-null",
+    responsePromptCacheKey: "pk-null",
+    cachedInputTokens: null,
+    baselineKind: "identity",
+  });
+
+  assert.equal(diagnosis.matchedResult, "unknown");
+  assert.equal(diagnosis.providerCacheEvidence, "unknown");
+});

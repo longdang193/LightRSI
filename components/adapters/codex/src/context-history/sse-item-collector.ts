@@ -18,6 +18,7 @@ type CollectorState = {
   responseId?: string;
   previousResponseId?: string;
   responsePromptCacheKey?: string;
+  responseModel?: string;
   usage?: Record<string, unknown>;
   assistantText: string;
   status: CodexJournalStatus;
@@ -33,6 +34,7 @@ export type CodexSseItemCollectorResult = {
   responseId?: string;
   previousResponseId?: string;
   responsePromptCacheKey?: string;
+  responseModel?: string;
   usage?: Record<string, unknown>;
   assistantText: string;
   status: CodexJournalStatus;
@@ -330,6 +332,7 @@ function responseMetadata(data: JsonObject): {
   responseId?: string;
   previousResponseId?: string;
   responsePromptCacheKey?: string;
+  responseModel?: string;
   usage?: Record<string, unknown>;
   output?: unknown[];
 } {
@@ -349,6 +352,11 @@ function responseMetadata(data: JsonObject): {
       ? response.prompt_cache_key
       : typeof data.prompt_cache_key === "string"
         ? data.prompt_cache_key
+        : undefined,
+    responseModel: typeof response?.model === "string"
+      ? response.model
+      : typeof data.model === "string"
+        ? data.model
         : undefined,
     usage: asJsonObject(response?.usage) ?? asJsonObject(data.usage),
     output: Array.isArray(response?.output) ? response.output : undefined,
@@ -388,6 +396,7 @@ function updateResponseState(state: CollectorState, data: JsonObject, eventType:
   state.responseId = metadata.responseId ?? state.responseId;
   state.previousResponseId = metadata.previousResponseId ?? state.previousResponseId;
   state.responsePromptCacheKey = metadata.responsePromptCacheKey ?? state.responsePromptCacheKey;
+  state.responseModel = metadata.responseModel ?? state.responseModel;
   state.usage = metadata.usage ?? state.usage;
   if (eventType === "response.output_text.delta" || eventType === "response.content_part.delta") {
     state.assistantText += textFromDelta(data.delta);
@@ -561,6 +570,7 @@ function collectorResult(
     responseId: state.responseId,
     previousResponseId: state.previousResponseId,
     responsePromptCacheKey: state.responsePromptCacheKey,
+    responseModel: state.responseModel,
     usage: state.usage,
     assistantText: state.assistantText,
     status: state.status,

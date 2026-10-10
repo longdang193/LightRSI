@@ -57,6 +57,11 @@ export type CacheReleasePreview = {
   transportDeltaBytes?: number | null;
   earliestChangedHistoryItem?: string;
   unchangedPrefixItemCount: number;
+  reusablePrefixBytes?: number | null;
+  reusablePrefixChars?: number | null;
+  structuralFrontier?: "matched" | "unmatched" | "unknown" | "none";
+  structuralRisk?: "low" | "medium" | "high" | "unknown";
+  observedCacheRead?: number | null;
   providerCacheOutcome: "preserved" | "changed" | "unknown";
   baseRevision: string;
 };

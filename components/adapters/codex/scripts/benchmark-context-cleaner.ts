@@ -627,7 +627,7 @@ export function providerShapesComparableBeforeRelease(
   if (!baselineShapes || !cleanerShapes) return true;
   const boundaryLabel = releasePosition === "early"
     ? baselineLabels.find((label) => label.startsWith("noise_before_")) ?? "after_release_a"
-    : "after_release_a";
+    : baselineLabels.includes("release_b") ? "release_b" : "after_release_a";
   const baselineBoundary = baselineLabels.indexOf(boundaryLabel);
   const cleanerBoundary = cleanerLabels.indexOf(boundaryLabel);
   if (baselineBoundary < 0 || cleanerBoundary < 0 || baselineBoundary !== cleanerBoundary) return false;

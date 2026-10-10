@@ -3,6 +3,7 @@ import {
   codexAttachForwardingMetadata,
   codexForwardingMetadata,
   codexForwardingFingerprint,
+  codexRestoreAcceptedItem,
   codexMatchForwardedPrefix,
   codexStripForwardingMetadata,
   type CodexForwardingAttempt,
@@ -102,6 +103,7 @@ async function appendCodexRequestJournalEntryLocked(params: {
   observedAt?: string;
   forwardingScope?: CodexForwardingScope;
   forwardingAttempts?: CodexForwardingAttempt[];
+  acceptedAtResponseId?: string;
 }): Promise<CodexRequestJournalEntry> {
   const requestId = params.requestId ?? requestIdFromPayload(params);
   if (!params.sessionId.trim() || !requestId.trim()) {
@@ -152,6 +154,7 @@ async function appendCodexRequestJournalEntryLocked(params: {
     previousResponseId: existing?.previousResponseId ?? (
       typeof params.payload.previous_response_id === "string" ? params.payload.previous_response_id : undefined
     ),
+    acceptedAtResponseId: existing?.acceptedAtResponseId ?? params.acceptedAtResponseId,
     promptCacheKey: existing?.promptCacheKey ?? (
       typeof params.payload.prompt_cache_key === "string" ? params.payload.prompt_cache_key : undefined
     ),
@@ -187,6 +190,7 @@ export async function appendCodexRequestJournalEntry(params: {
   observedAt?: string;
   forwardingScope?: CodexForwardingScope;
   forwardingAttempts?: CodexForwardingAttempt[];
+  acceptedAtResponseId?: string;
 }): Promise<CodexRequestJournalEntry> {
   return withCodexContextHistoryJournalLock(
     { stateDir: params.stateDir, sessionId: params.sessionId },
@@ -194,21 +198,61 @@ export async function appendCodexRequestJournalEntry(params: {
   );
 }
 
+function responseHeadDescendsFrom(
+  entries: Awaited<ReturnType<typeof readCodexContextHistoryJournal>>["entries"],
+  currentHead: string,
+  acceptedHead: string,
+): boolean {
+  if (currentHead === acceptedHead) return true;
+  const responses = new Map<string, string | undefined>();
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (entry.kind !== "response" || !entry.responseId || entry.status !== "completed") continue;
+    if (responses.has(entry.responseId)) return false;
+    responses.set(entry.responseId, entry.previousResponseId ?? undefined);
+  }
+  let cursor: string | undefined = currentHead;
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    cursor = responses.get(cursor);
+    if (cursor === acceptedHead) return true;
+  }
+  return false;
+}
+
 export async function findCodexAcceptedInputProjection(params: {
   stateDir: string;
   sessionId: string;
   currentItems: JsonObject[];
   scope?: CodexForwardingScope;
+  lineageHeadResponseId?: string;
   excludeRequestId?: string;
-}): Promise<{ historicalItems: JsonObject[]; acceptedItems: JsonObject[] } | undefined> {
+}): Promise<{
+  historicalItems: JsonObject[];
+  acceptedItems: JsonObject[];
+  acceptedAtResponseId?: string;
+} | undefined> {
   const journal = await readCodexContextHistoryJournal(params.stateDir, params.sessionId);
   if (journal.readError || journal.malformedLineCount > 0 || journal.oversized) return undefined;
   for (let index = journal.entries.length - 1; index >= 0; index -= 1) {
     const entry = journal.entries[index];
     if (entry?.kind !== "request"
       || entry.requestId === params.excludeRequestId
+      || entry.status !== "completed"
       || !entry.acceptedInputItems
       || entry.acceptedInputItems.length === 0) continue;
+    const attempts = entry.inputItems.flatMap((item) => codexForwardingMetadata(item)?.attempts ?? []);
+    const finalAttempt = attempts.at(-1);
+    if (attempts.length > 0 && (
+      finalAttempt?.outcome !== "completed"
+      || finalAttempt.responseProducing !== true
+      || finalAttempt.projectionEligible !== true
+      || finalAttempt.projectionBoundary !== "ordinary_admission"
+    )) continue;
+    if (params.lineageHeadResponseId && (
+      !entry.acceptedAtResponseId
+      || !responseHeadDescendsFrom(journal.entries, params.lineageHeadResponseId, entry.acceptedAtResponseId)
+    )) continue;
     const match = codexMatchForwardedPrefix({
       currentItems: params.currentItems,
       historicalItems: entry.inputItems,
@@ -224,8 +268,13 @@ export async function findCodexAcceptedInputProjection(params: {
     if (!valid) continue;
     return {
       historicalItems: entry.inputItems.slice(0, match.prefixLength),
-      acceptedItems: entry.acceptedInputItems.slice(0, match.prefixLength),
+      acceptedItems: entry.acceptedInputItems.slice(0, match.prefixLength).map((accepted, itemIndex) => (
+        codexRestoreAcceptedItem(params.currentItems[itemIndex] ?? {}, accepted)
+      )),
+      ...(entry.acceptedAtResponseId ? { acceptedAtResponseId: entry.acceptedAtResponseId } : {}),
     };
   }
   return undefined;
 }
+
+export { codexRestoreAcceptedItem } from "./replayability.js";

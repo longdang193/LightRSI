@@ -147,9 +147,9 @@ test("benchmark rejects A/B pairs that diverge before Cleaner release", () => {
   assert.equal(
     providerShapesComparableBeforeRelease(
       labels,
-      [shape("same-1"), shape("same-2"), shape("same-3"), shape("cleaner")],
+      [shape("same-1"), shape("baseline-drift"), shape("same-3"), shape("cleaner")],
       labels,
-      [shape("same-1"), shape("same-2"), shape("different"), shape("cleaner")],
+      [shape("same-1"), shape("cleaner-drift"), shape("different"), shape("cleaner")],
     ),
     false,
   );
@@ -190,6 +190,30 @@ test("benchmark rejects cache identity drift before Cleaner release", () => {
       [shape("different-key", "same-wire"), shape("same-key", "same-wire"), shape("cleaner", "cleaner-wire")],
     ),
     false,
+  );
+});
+
+test("benchmark allows expected drift at the late Cleaner release boundary", () => {
+  const shape = (inputFingerprint: string): ProviderShape => ({
+    inputBytes: 1,
+    inputFingerprint,
+    userItemCount: 1,
+    replayableItemCount: 1,
+    inputTypeCounts: {},
+    outputItemTypes: [],
+    providerLatencyMs: null,
+    providerHeadersLatencyMs: null,
+  });
+  const labels = ["retained", "release_a", "release_b", "after_release_a"];
+
+  assert.equal(
+    providerShapesComparableBeforeRelease(
+      labels,
+      [shape("same-1"), shape("same-2"), shape("baseline-release"), shape("baseline-after")],
+      labels,
+      [shape("same-1"), shape("same-2"), shape("cleaner-release"), shape("cleaner-after")],
+    ),
+    true,
   );
 });
 

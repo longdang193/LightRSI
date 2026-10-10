@@ -3,11 +3,16 @@ import type {
   StablePrefixEntropyFinding,
 } from "./stable-prefix-audit.js";
 
+export type CacheAuditOutcome = "hit" | "miss" | "unknown";
+export type CacheAuditStructuralCandidate = "matched" | "unmatched" | "none";
+
 export type CacheAuditDiagnosisInput = {
   stablePrefixFingerprint?: string | null;
   requestPromptCacheKey?: string | null;
   responsePromptCacheKey?: string | null;
   cachedInputTokens?: number | null;
+  cacheEvidence?: CacheAuditOutcome | null;
+  structuralCandidate?: CacheAuditStructuralCandidate | null;
   baselineKind?: "identity" | "request_key" | "session" | "none" | null;
   entropyFindings?: StablePrefixEntropyFinding[] | null;
   driftReasons?: StablePrefixDriftReason[] | null;
@@ -20,7 +25,9 @@ export type CacheAuditKiller = {
 };
 
 export type CacheAuditDiagnosis = {
-  matchedResult: "warm hit" | "cold miss" | "cold start" | "unmatched";
+  matchedResult: "warm hit" | "cold miss" | "cold start" | "unknown" | "unmatched";
+  structuralCandidate: CacheAuditStructuralCandidate;
+  providerCacheEvidence: CacheAuditOutcome;
   rewriteDetected: boolean;
   currentState: string;
   targetState: string;
@@ -52,6 +59,9 @@ function buildOptimizationHint(params: {
   const entropyKinds = entropyFindings.map((item) => item.kind);
   if (matchedResult === "warm hit") {
     return "Warm hit: keep this prefix shape stable and watch for new drift or entropy spikes before changing sanitization.";
+  }
+  if (matchedResult === "unknown") {
+    return "Provider cache evidence is unavailable: preserve request-side stability, but do not classify this turn as a warm hit or cold miss.";
   }
   if (matchedResult === "cold start") {
     return baselineKind === "session"
@@ -94,6 +104,9 @@ function describeCurrentState(params: {
   const entropyKinds = entropyFindings.map((item) => item.kind);
   if (matchedResult === "warm hit") {
     return "Warm hit already happened for this prefix fingerprint.";
+  }
+  if (matchedResult === "unknown") {
+    return "Provider cache evidence is unavailable, so this turn cannot prove a warm hit or cold miss.";
   }
   if (matchedResult === "cold start") {
     return baselineKind === "session"
@@ -145,6 +158,9 @@ function buildActionItems(params: {
     items.push("Keep the canonical stable-prefix text byte-stable across adjacent turns.");
     items.push("Only let dynamic context change; avoid expanding new volatile lines back into the stable prefix.");
     return items;
+  }
+  if (matchedResult === "unknown") {
+    items.push("Collect provider cache telemetry before classifying this turn as a warm hit or cold miss.");
   }
   if (matchedResult === "cold start") {
     items.push("Repeat the same target once more before treating this as a genuine warm-cache miss.");
@@ -247,6 +263,12 @@ export function diagnoseCacheAudit(input?: CacheAuditDiagnosisInput | null): Cac
   const entropyFindings = Array.isArray(input?.entropyFindings) ? input.entropyFindings : [];
   const driftReasons = Array.isArray(input?.driftReasons) ? input.driftReasons : [];
   const baselineKind = input?.baselineKind ?? "none";
+  const providerCacheEvidence = input?.cacheEvidence
+    ?? (input?.cachedInputTokens == null
+      ? "unknown"
+      : Number(input.cachedInputTokens) > 0 ? "hit" : "miss");
+  const structuralCandidate = input?.structuralCandidate
+    ?? (baselineKind === "none" ? "none" : driftReasons.length === 0 ? "matched" : "unmatched");
   const rewriteDetected = Boolean(
     input?.requestPromptCacheKey
       && input?.responsePromptCacheKey
@@ -255,13 +277,18 @@ export function diagnoseCacheAudit(input?: CacheAuditDiagnosisInput | null): Cac
   const matchedResult: CacheAuditDiagnosis["matchedResult"] =
     !input
       ? "unmatched"
-      : Number(input.cachedInputTokens ?? 0) > 0
+      : providerCacheEvidence === "hit"
         ? "warm hit"
-        : baselineKind === "identity" || baselineKind === "request_key"
+        : providerCacheEvidence === "miss"
+          && (baselineKind === "identity" || baselineKind === "request_key")
           ? "cold miss"
+          : providerCacheEvidence === "unknown"
+            ? "unknown"
           : "cold start";
   return {
     matchedResult,
+    structuralCandidate,
+    providerCacheEvidence,
     rewriteDetected,
     currentState: describeCurrentState({
       matchedResult,
@@ -272,6 +299,8 @@ export function diagnoseCacheAudit(input?: CacheAuditDiagnosisInput | null): Cac
     }),
     targetState: matchedResult === "warm hit"
       ? "Target state: keep the same fingerprint and let adjacent turns stay warm."
+      : matchedResult === "unknown"
+        ? "Target state: obtain provider cache evidence before making a warm-hit or cold-miss claim."
       : matchedResult === "cold start"
         ? "Target state: repeat the same request family once so the harness can establish a same-target warm baseline."
         : "Target state: same request cache key + same stable-prefix fingerprint + cached input tokens > 0 on the next adjacent turn.",

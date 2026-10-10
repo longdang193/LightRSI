@@ -15,8 +15,15 @@ export type CodexForwardingAttempt = {
   attemptId: string;
   payloadFingerprint: string;
   inputFingerprint: string;
+  endpointId?: string;
+  resolvedModel?: string;
+  status?: number | null;
+  transportAttemptId?: string;
   outcome: "pending" | "completed" | "failed" | "incomplete";
   kind?: "normal" | "fallback" | "continuation" | "rebase";
+  responseProducing?: boolean;
+  projectionEligible?: boolean;
+  projectionBoundary?: "ordinary_admission" | "explicit_compaction" | "rebase" | "cleaner_release" | "other_rewrite";
 };
 
 export type CodexForwardingMetadata = {
@@ -42,6 +49,10 @@ export function codexForwardingFingerprint(value: unknown): string {
   return hashJson(canonicalize(sanitizeValue(value)));
 }
 
+export function codexWireFingerprint(value: unknown): string {
+  return hashJson(canonicalize(value));
+}
+
 export function codexStripForwardingMetadata(value: JsonObject): JsonObject {
   const clone = JSON.parse(JSON.stringify(value)) as JsonObject;
   delete clone[CODEX_FORWARDING_METADATA_KEY];
@@ -57,6 +68,31 @@ function itemNativeId(item: JsonObject): string | undefined {
     }
   }
   return undefined;
+}
+
+function isSanitizedField(key: string): boolean {
+  return /^(authorization|headers?|api[-_]?key)$/i.test(key);
+}
+
+function restoreSanitizedFields(current: unknown, accepted: unknown): unknown {
+  if (Array.isArray(accepted)) {
+    return accepted.map((value, index) => restoreSanitizedFields(current instanceof Array ? current[index] : undefined, value));
+  }
+  if (!accepted || typeof accepted !== "object") return accepted;
+  const currentObject = current && typeof current === "object" && !Array.isArray(current)
+    ? current as Record<string, unknown>
+    : undefined;
+  const acceptedObject = accepted as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(acceptedObject).flatMap(([key, value]) => {
+    if (!isSanitizedField(key)) return [[key, restoreSanitizedFields(currentObject?.[key], value)]];
+    return currentObject && key in currentObject ? [[key, currentObject[key]]] : [];
+  }).concat(Object.entries(currentObject ?? {})
+    .filter(([key]) => isSanitizedField(key) && !(key in (accepted as Record<string, unknown>)))
+    .map(([key, value]) => [key, value])));
+}
+
+export function codexRestoreAcceptedItem(current: JsonObject, accepted: JsonObject): JsonObject {
+  return restoreSanitizedFields(current, accepted) as JsonObject;
 }
 
 function scopeFingerprint(scope: CodexForwardingScope | undefined): string {

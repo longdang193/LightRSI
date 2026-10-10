@@ -16,7 +16,7 @@ import {
   codexMatchForwardedPrefix,
   type CodexForwardingScope,
 } from "./context-history/replayability.js";
-import { findCodexAcceptedInputProjection } from "./context-history/request-journal.js";
+import { codexRestoreAcceptedItem, findCodexAcceptedInputProjection } from "./context-history/request-journal.js";
 import type { JsonObject } from "./context-history/types.js";
 
 type SegmentBinding = {
@@ -106,21 +106,47 @@ export type CodexReductionSummary = {
 type CodexAcceptedInputProjection = {
   historicalItems: JsonObject[];
   acceptedItems: JsonObject[];
+  acceptedAtResponseId?: string;
+  bytes?: number;
 };
 
 const MAX_PROCESS_PROJECTIONS = 128;
+const MAX_PROCESS_PROJECTION_BYTES = 1_048_576;
 
 // ponytail: process-local lookup with bounded LRU eviction; journal remains restart source.
 const processProjections = new Map<string, CodexAcceptedInputProjection>();
+let processProjectionBytes = 0;
+
+function projectionBytes(projection: CodexAcceptedInputProjection): number {
+  return Buffer.byteLength(JSON.stringify({
+    historicalItems: projection.historicalItems,
+    acceptedItems: projection.acceptedItems,
+  }), "utf8");
+}
 
 function rememberProcessProjection(key: string, projection: CodexAcceptedInputProjection): void {
+  const bytes = projectionBytes(projection);
+  if (bytes > MAX_PROCESS_PROJECTION_BYTES) return;
+  const existing = processProjections.get(key);
+  if (existing) processProjectionBytes -= existing.bytes ?? projectionBytes(existing);
   processProjections.delete(key);
-  processProjections.set(key, projection);
-  while (processProjections.size > MAX_PROCESS_PROJECTIONS) {
+  processProjections.set(key, { ...projection, bytes });
+  processProjectionBytes += bytes;
+  while (processProjections.size > MAX_PROCESS_PROJECTIONS
+    || processProjectionBytes > MAX_PROCESS_PROJECTION_BYTES) {
     const oldestKey = processProjections.keys().next().value;
     if (oldestKey === undefined) break;
+    const oldest = processProjections.get(oldestKey);
+    processProjectionBytes -= oldest?.bytes ?? 0;
     processProjections.delete(oldestKey);
   }
+}
+
+function forgetProcessProjection(key: string): void {
+  const existing = processProjections.get(key);
+  if (!existing) return;
+  processProjectionBytes -= existing.bytes ?? projectionBytes(existing);
+  processProjections.delete(key);
 }
 
 export function cacheCodexAcceptedInputProjection(params: {
@@ -129,6 +155,7 @@ export function cacheCodexAcceptedInputProjection(params: {
   originalItems: JsonObject[];
   acceptedItems: JsonObject[];
   scope?: CodexForwardingScope;
+  acceptedAtResponseId?: string;
 }): void {
   if (params.originalItems.length === 0 || params.acceptedItems.length === 0) return;
   const acceptedItems = structuredClone(params.acceptedItems) as JsonObject[];
@@ -140,6 +167,7 @@ export function cacheCodexAcceptedInputProjection(params: {
       scope: params.scope,
     }),
     acceptedItems,
+    ...(params.acceptedAtResponseId ? { acceptedAtResponseId: params.acceptedAtResponseId } : {}),
   });
 }
 
@@ -815,6 +843,7 @@ export async function applyBeforeCallReductionToPayload(params: {
   sessionId: string;
   config: TokenPilotCodexConfig;
   forwardingScope?: CodexForwardingScope;
+  lineageHeadResponseId?: string;
   requestId?: string;
 }): Promise<CodexReductionSummary> {
   const { payload, sessionId, config } = params;
@@ -845,7 +874,14 @@ export async function applyBeforeCallReductionToPayload(params: {
     let projection = processProjections.get(projectionKey);
     if (projection) rememberProcessProjection(projectionKey, projection);
     let frozenInputItemCount = 0;
-    const applyProjection = (candidate: CodexAcceptedInputProjection): boolean => {
+    const applyProjection = (
+      candidate: CodexAcceptedInputProjection,
+      requireExactLineage = false,
+    ): boolean => {
+      if (params.lineageHeadResponseId && (
+        !candidate.acceptedAtResponseId
+        || (requireExactLineage && candidate.acceptedAtResponseId !== params.lineageHeadResponseId)
+      )) return false;
       const match = codexMatchForwardedPrefix({
         currentItems: originalInput,
         historicalItems: candidate.historicalItems,
@@ -855,13 +891,13 @@ export async function applyBeforeCallReductionToPayload(params: {
         return false;
       }
       payload.input = originalInput.map((item, index) => index < match.prefixLength
-        ? structuredClone(candidate.acceptedItems[index])
+        ? codexRestoreAcceptedItem(item, structuredClone(candidate.acceptedItems[index]))
         : item);
       frozenInputItemCount = match.prefixLength;
       return true;
     };
-    if (projection && !applyProjection(projection)) {
-      processProjections.delete(projectionKey);
+    if (projection && !applyProjection(projection, true)) {
+      forgetProcessProjection(projectionKey);
       projection = undefined;
     }
     if (!projection) {
@@ -870,9 +906,14 @@ export async function applyBeforeCallReductionToPayload(params: {
         sessionId,
         currentItems: originalInput,
         scope: params.forwardingScope,
+        lineageHeadResponseId: params.lineageHeadResponseId,
         excludeRequestId: params.requestId,
       });
-      if (projection && !applyProjection(projection)) projection = undefined;
+      if (projection && !applyProjection(projection)) {
+        projection = undefined;
+      } else if (projection) {
+        rememberProcessProjection(projectionKey, projection);
+      }
     }
     const snapshot = await loadCodexSessionSnapshot(config.stateDir, sessionId);
     const built = buildTurnContext(payload, sessionId, {
@@ -1085,6 +1126,7 @@ export async function reduceCodexRequestEnvelope(params: {
   codec: HostPayloadCodec;
   config: TokenPilotCodexConfig;
   forwardingScope?: CodexForwardingScope;
+  lineageHeadResponseId?: string;
   requestId?: string;
 }): Promise<{
   envelope: HostRequestEnvelope;
@@ -1109,6 +1151,7 @@ export async function reduceCodexRequestEnvelope(params: {
     sessionId: params.envelope.session.sessionId,
     config: params.config,
     forwardingScope: params.forwardingScope,
+    lineageHeadResponseId: params.lineageHeadResponseId,
     requestId: params.requestId,
   });
   if (!summary.providerPayloadChanged) {

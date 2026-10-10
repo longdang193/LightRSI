@@ -12,6 +12,8 @@ export type UpstreamHttpResponse = {
   headers: Record<string, string>;
   text: string;
   transportFetches: number;
+  attempts: UpstreamTransportAttempt[];
+  finalAttempt?: UpstreamTransportAttempt;
 };
 
 export type UpstreamStreamResponse = {
@@ -19,6 +21,19 @@ export type UpstreamStreamResponse = {
   headers: Record<string, string>;
   stream: Readable;
   transportFetches: number;
+  attempts: UpstreamTransportAttempt[];
+  finalAttempt?: UpstreamTransportAttempt;
+};
+
+export type UpstreamTransportAttempt = {
+  attemptId: string;
+  endpointId: string;
+  resolvedModel: string | null;
+  effectivePayload: unknown;
+  status: number | null;
+  kind: "normal" | "fallback" | "unsupported_retry";
+  outcome: "completed" | "failed" | "incomplete";
+  responseProducing: boolean;
 };
 
 type OptionalResponsesField =
@@ -522,10 +537,31 @@ export async function requestUpstreamResponses(params: {
   fallbackPayload?: (payload: any) => any;
 }): Promise<UpstreamHttpResponse> {
   let transportFetches = 0;
+  const attempts: UpstreamTransportAttempt[] = [];
   let endpointPath = params.endpointPath ?? "/responses";
-  const send = (payload: any) => {
+  const send = async (payload: any, kind: UpstreamTransportAttempt["kind"]) => {
     transportFetches += 1;
-    return sendUpstreamRequest({ ...params, endpointPath }, payload, transportFetches, false);
+    const attempt: UpstreamTransportAttempt = {
+      attemptId: `upstream-attempt-${transportFetches}`,
+      endpointId: codexRebaseEndpointIdentity(endpointFor(params.upstream, endpointPath)),
+      resolvedModel: typeof payload?.model === "string" ? payload.model : null,
+      effectivePayload: payload,
+      status: null,
+      kind,
+      outcome: "incomplete",
+      responseProducing: false,
+    };
+    attempts.push(attempt);
+    try {
+      const response = await sendUpstreamRequest({ ...params, endpointPath }, payload, transportFetches, false);
+      attempt.status = response.status;
+      attempt.responseProducing = response.ok;
+      attempt.outcome = response.ok ? "completed" : "failed";
+      return response;
+    } catch (error) {
+      attempt.outcome = "failed";
+      throw error;
+    }
   };
   let payload = await resolveNineRouterPayloadModel(
     clonePayloadWithoutUnsupportedFields(params.payload, new Set()),
@@ -535,12 +571,12 @@ export async function requestUpstreamResponses(params: {
   const resolvedModel = typeof payload?.model === "string" ? payload.model : "";
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream, resolvedModel);
   payload = clonePayloadWithoutUnsupportedFields(payload, unsupportedFields);
-  let resp = await send(payload);
+  let resp = await send(payload, "normal");
   let text = await resp.text();
   if (resp.status === 404 && endpointPath === "/responses/compact") {
     endpointPath = "/responses";
     payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
-    resp = await send(payload);
+    resp = await send(payload, "fallback");
     text = await resp.text();
   }
   if (!resp.ok) {
@@ -552,7 +588,7 @@ export async function requestUpstreamResponses(params: {
         const retryDelayMs = unsupportedRetryDelayMs(text);
         await waitForRetryDelay(retryDelayMs, params.signal);
         payload = downgraded;
-        resp = await send(payload);
+        resp = await send(payload, "unsupported_retry");
         text = await resp.text();
       }
     }
@@ -563,6 +599,8 @@ export async function requestUpstreamResponses(params: {
     headers: headersFrom(resp),
     text,
     transportFetches,
+    attempts,
+    finalAttempt: attempts.at(-1),
   };
 }
 
@@ -578,10 +616,31 @@ export async function requestUpstreamResponsesStream(params: {
   fallbackPayload?: (payload: any) => any;
 }): Promise<UpstreamStreamResponse> {
   let transportFetches = 0;
+  const attempts: UpstreamTransportAttempt[] = [];
   let endpointPath = params.endpointPath ?? "/responses";
-  const send = (payload: any) => {
+  const send = async (payload: any, kind: UpstreamTransportAttempt["kind"]) => {
     transportFetches += 1;
-    return sendUpstreamRequest({ ...params, endpointPath }, payload, transportFetches, true);
+    const attempt: UpstreamTransportAttempt = {
+      attemptId: `upstream-attempt-${transportFetches}`,
+      endpointId: codexRebaseEndpointIdentity(endpointFor(params.upstream, endpointPath)),
+      resolvedModel: typeof payload?.model === "string" ? payload.model : null,
+      effectivePayload: payload,
+      status: null,
+      kind,
+      outcome: "incomplete",
+      responseProducing: false,
+    };
+    attempts.push(attempt);
+    try {
+      const response = await sendUpstreamRequest({ ...params, endpointPath }, payload, transportFetches, true);
+      attempt.status = response.status;
+      attempt.responseProducing = response.ok;
+      attempt.outcome = response.ok ? "completed" : "failed";
+      return response;
+    } catch (error) {
+      attempt.outcome = "failed";
+      throw error;
+    }
   };
   let payload = await resolveNineRouterPayloadModel(
     clonePayloadWithoutUnsupportedFields(params.payload, new Set()),
@@ -591,12 +650,12 @@ export async function requestUpstreamResponsesStream(params: {
   const resolvedModel = typeof payload?.model === "string" ? payload.model : "";
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream, resolvedModel);
   payload = clonePayloadWithoutUnsupportedFields(payload, unsupportedFields);
-  let resp = await send(payload);
+  let resp = await send(payload, "normal");
   if (resp.status === 404 && endpointPath === "/responses/compact") {
     await resp.text();
     endpointPath = "/responses";
     payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
-    resp = await send(payload);
+    resp = await send(payload, "fallback");
   }
   if (!resp.ok) {
     const text = await resp.text();
@@ -608,13 +667,15 @@ export async function requestUpstreamResponsesStream(params: {
         const retryDelayMs = unsupportedRetryDelayMs(text);
         await waitForRetryDelay(retryDelayMs, params.signal);
         payload = downgraded;
-        resp = await send(payload);
+        resp = await send(payload, "unsupported_retry");
       } else {
         return {
           status: resp.status,
           headers: headersFrom(resp),
           stream: Readable.from([text]),
           transportFetches,
+          attempts,
+          finalAttempt: attempts.at(-1),
         };
       }
     } else {
@@ -623,6 +684,8 @@ export async function requestUpstreamResponsesStream(params: {
         headers: headersFrom(resp),
         stream: Readable.from([text]),
         transportFetches,
+        attempts,
+        finalAttempt: attempts.at(-1),
       };
     }
   }
@@ -631,5 +694,7 @@ export async function requestUpstreamResponsesStream(params: {
     headers: headersFrom(resp),
     stream: resp.body ? Readable.fromWeb(resp.body as any) : Readable.from([""]),
     transportFetches,
+    attempts,
+    finalAttempt: attempts.at(-1),
   };
 }

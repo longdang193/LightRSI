@@ -82,6 +82,9 @@ test("stable admission survives cumulative replay, journal reload, and rejects r
         payloadFingerprint: "payload-1",
         inputFingerprint: "input-1",
         outcome: "completed",
+        responseProducing: true,
+        projectionEligible: true,
+        projectionBoundary: "ordinary_admission",
       }],
       status: "completed",
     });
@@ -151,7 +154,7 @@ test("journal reload accepts sanitized forwarding metadata for accepted projecti
 
     assert.ok(projection);
     assert.equal((journal[0].inputItems[0] as any).headers, undefined);
-    assert.equal((projection?.acceptedItems[0] as any).headers, undefined);
+    assert.deepEqual((projection?.acceptedItems[0] as any).headers, input[0].headers);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

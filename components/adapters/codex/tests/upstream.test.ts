@@ -313,6 +313,10 @@ test("compact fallback keeps normalized payload through unsupported-field retry"
     });
     assert.equal(json.status, 200);
     assert.equal(json.transportFetches, 3);
+    assert.equal(json.attempts.length, 3);
+    assert.equal(json.attempts[0]?.responseProducing, false);
+    assert.equal(json.finalAttempt?.responseProducing, true);
+    assert.equal(json.finalAttempt?.kind, "unsupported_retry");
 
     const stream = await requestUpstreamResponsesStream({
       upstream,
@@ -330,6 +334,10 @@ test("compact fallback keeps normalized payload through unsupported-field retry"
     }
     assert.equal(stream.status, 200);
     assert.equal(stream.transportFetches, 3);
+    assert.equal(stream.attempts.length, 3);
+    assert.equal(stream.attempts[0]?.responseProducing, false);
+    assert.equal(stream.finalAttempt?.responseProducing, true);
+    assert.equal(stream.finalAttempt?.kind, "unsupported_retry");
 
     for (const offset of [0, 3]) {
       assert.equal(requests[offset]?.path, "/v1/responses/compact");

@@ -1,0 +1,17 @@
+{
+  "experiment": "stable-prefix-strategy",
+  "mode": "mock",
+  "processProjectionMaxEntries": 128,
+  "processProjectionMaxBytes": 1048576,
+  "hotPathNoiseBand": {
+    "relativePercent": 5,
+    "absoluteMilliseconds": 1
+  },
+  "hotPathAbsoluteThresholdMs": 2,
+  "hotPathRelativeThresholdPercent": 5,
+  "acceptance": {
+    "providerCacheClaims": false,
+    "incompleteEconomics": "inconclusive",
+    "releasePolicy": "unchanged"
+  }
+}

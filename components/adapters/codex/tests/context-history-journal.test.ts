@@ -12,6 +12,7 @@ import {
   buildCodexEffectiveHistory,
   codexContextHistoryJournalPath,
   codexContextHistoryJournalLockPath,
+  findCodexAcceptedInputProjection,
   MAX_CODEX_CONTEXT_HISTORY_JOURNAL_BYTES,
   loadCodexContextHistoryJournal,
   readCodexContextHistoryJournal,
@@ -46,6 +47,9 @@ test("CDH-02 forwarded provenance survives reload and stops at missing or diverg
         payloadFingerprint: "payload-fingerprint",
         inputFingerprint: "input-fingerprint",
         outcome: "completed",
+        responseProducing: true,
+        projectionEligible: true,
+        projectionBoundary: "ordinary_admission",
       }],
       status: "completed",
     });
@@ -315,6 +319,117 @@ test("CDH-01 request journal deduplicates retries after sanitizing volatile inpu
     assert.equal(first.requestId, retry.requestId);
     assert.equal(journal.length, 1);
     assert.doesNotMatch(JSON.stringify(journal[0]), /authorization|Bearer first-token|Bearer second-token/i);
+  });
+});
+
+test("accepted projection replay preserves current fields excluded from sanitized journal", async () => {
+  await withTempState(async (stateDir) => {
+    const scope = { promptCacheKey: "replay-cache", endpointId: "endpoint-1" };
+    const currentItems = [{
+      type: "function_call_output",
+      call_id: "read-1",
+      output: "current input",
+      headers: { authorization: "Bearer current-secret" },
+    }];
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "replay-sanitized-session",
+      requestId: "accepted-request",
+      payload: { input: currentItems },
+      acceptedInputItems: [{
+        ...currentItems[0],
+        output: "accepted reduced input",
+        headers: { authorization: "Bearer accepted-secret" },
+      }],
+      forwardingScope: scope,
+      forwardingAttempts: [{
+        attemptId: "attempt-accepted",
+        payloadFingerprint: "payload",
+        inputFingerprint: "input",
+        outcome: "completed",
+        responseProducing: true,
+        projectionEligible: true,
+        projectionBoundary: "ordinary_admission",
+      }],
+      status: "completed",
+    });
+
+    const projection = await findCodexAcceptedInputProjection({
+      stateDir,
+      sessionId: "replay-sanitized-session",
+      currentItems,
+      scope,
+    });
+    assert.equal(projection?.acceptedItems[0]?.output, "accepted reduced input");
+    assert.deepEqual(projection?.acceptedItems[0]?.headers, currentItems[0]?.headers);
+  });
+});
+
+test("failed and incomplete attempts never replace latest accepted projection", async () => {
+  await withTempState(async (stateDir) => {
+    const scope = { promptCacheKey: "acceptance-cache", endpointId: "endpoint-1" };
+    const originalItems = [{ type: "function_call_output", call_id: "read-1", output: "original" }];
+    const append = (requestId: string, output: string, status: "completed" | "failed" | "incomplete") => appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "acceptance-session",
+      requestId,
+      payload: { input: originalItems },
+      acceptedInputItems: [{ ...originalItems[0], output }],
+      forwardingScope: scope,
+      forwardingAttempts: [{
+        attemptId: `${requestId}-attempt`,
+        payloadFingerprint: requestId,
+        inputFingerprint: requestId,
+        outcome: status,
+        responseProducing: status === "completed",
+        projectionEligible: status === "completed",
+        projectionBoundary: "ordinary_admission",
+      }],
+      status,
+    });
+
+    await append("accepted-request", "accepted output", "completed");
+    await append("failed-request", "failed output", "failed");
+    await append("incomplete-request", "incomplete output", "incomplete");
+
+    const projection = await findCodexAcceptedInputProjection({
+      stateDir,
+      sessionId: "acceptance-session",
+      currentItems: originalItems,
+      scope,
+    });
+    assert.equal(projection?.acceptedItems[0]?.output, "accepted output");
+  });
+});
+
+test("journal reload rejects explicitly ineligible release projections", async () => {
+  await withTempState(async (stateDir) => {
+    const input = [{ type: "function_call_output", call_id: "release", output: "release output" }];
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "ineligible-release-session",
+      requestId: "cleaner-release",
+      payload: { input },
+      acceptedInputItems: [{ ...input[0], output: "cleaned release output" }],
+      forwardingAttempts: [{
+        attemptId: "cleaner-release-attempt",
+        payloadFingerprint: "payload",
+        inputFingerprint: "input",
+        outcome: "completed",
+        responseProducing: true,
+        projectionEligible: false,
+        projectionBoundary: "cleaner_release",
+      }],
+      status: "completed",
+    });
+
+    const projection = await findCodexAcceptedInputProjection({
+      stateDir,
+      sessionId: "ineligible-release-session",
+      currentItems: input,
+    });
+
+    assert.equal(projection, undefined);
   });
 });
 

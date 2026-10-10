@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { summarizeCodexCacheAudit, type CodexCacheAuditRecord } from "../src/cache-audit.js";
+import {
+  buildCodexCacheFrontier,
+  summarizeCodexCacheAudit,
+  type CodexCacheAuditRecord,
+} from "../src/cache-audit.js";
+import { codexWireFingerprint } from "../src/context-history/replayability.js";
 
 function record(overrides: Partial<CodexCacheAuditRecord>): CodexCacheAuditRecord {
   return {
@@ -27,6 +32,116 @@ function record(overrides: Partial<CodexCacheAuditRecord>): CodexCacheAuditRecor
     ...overrides,
   };
 }
+
+test("cache frontier reports append, mutation, and incompatible evidence without digest sequence storage", () => {
+  const sessionId = `frontier-${Date.now()}`;
+  const first = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-1",
+    compatibilityDigest: "compat-1",
+    inputItems: [{ id: "one", type: "message" }],
+    eligible: true,
+  });
+  const append = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-2",
+    compatibilityDigest: "compat-1",
+    inputItems: [{ id: "one", type: "message" }, { id: "two", type: "message" }],
+    eligible: true,
+  });
+  const mutation = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-3",
+    compatibilityDigest: "compat-1",
+    inputItems: [{ id: "changed", type: "message" }],
+    eligible: true,
+  });
+  const incompatible = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-4",
+    compatibilityDigest: "compat-2",
+    inputItems: [{ id: "changed", type: "message" }],
+    eligible: true,
+  });
+  assert.equal(first.status, "none");
+  assert.equal(append.status, "matched");
+  assert.equal(append.appendOnly, true);
+  assert.equal(mutation.changeClass, "mutation");
+  assert.equal(incompatible.changeClass, "incompatible");
+  assert.equal("itemDigests" in append, false);
+});
+
+test("cache frontier bounds session retention and rejects oversized histories", () => {
+  const prefix = `bounded-frontier-${Date.now()}`;
+  const item = [{ id: "item", type: "message" }];
+  const oversized = buildCodexCacheFrontier({
+    sessionId: `${prefix}-oversized`,
+    attemptId: "attempt-oversized",
+    compatibilityDigest: "compat-oversized",
+    inputItems: [{ id: "oversized", type: "message", content: "x".repeat(1_100_000) }],
+    eligible: true,
+  });
+  assert.equal(oversized.status, "unknown");
+
+  for (let index = 0; index < 129; index += 1) {
+    assert.equal(buildCodexCacheFrontier({
+      sessionId: `${prefix}-${index}`,
+      attemptId: `attempt-${index}`,
+      compatibilityDigest: "compat-bounded",
+      inputItems: item,
+      eligible: true,
+    }).status, "none");
+  }
+
+  assert.equal(buildCodexCacheFrontier({
+    sessionId: `${prefix}-0`,
+    attemptId: "attempt-revisited",
+    compatibilityDigest: "compat-bounded",
+    inputItems: item,
+    eligible: true,
+  }).status, "none");
+});
+
+test("cache frontier treats sanitized-field changes as wire mutations", () => {
+  const sessionId = `frontier-sanitized-${Date.now()}`;
+  buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-1",
+    compatibilityDigest: "compat-sanitized",
+    inputItems: [{ id: "item", headers: { authorization: "old" } }],
+    eligible: true,
+  });
+  const mutation = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-2",
+    compatibilityDigest: "compat-sanitized",
+    inputItems: [{ id: "item", headers: { authorization: "new" } }],
+    eligible: true,
+  });
+  assert.equal(mutation.changeClass, "mutation");
+  assert.equal(mutation.firstChangedIndex, 0);
+  assert.equal(mutation.unchangedBytes, 0);
+});
+
+test("cache frontier uses one wire digest domain for incompatible history", () => {
+  const sessionId = `frontier-incompatible-${Date.now()}`;
+  const inputItems = [{ id: "item", headers: { authorization: "secret" } }];
+  buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-1",
+    compatibilityDigest: "compat-1",
+    inputItems,
+    eligible: true,
+  });
+  const incompatible = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-2",
+    compatibilityDigest: "compat-2",
+    inputItems,
+    eligible: true,
+  });
+  assert.equal(incompatible.currentInputDigest, codexWireFingerprint(inputItems));
+});
 
 test("summarizeCodexCacheAudit keeps warm hits stable even when response prompt_cache_key is rewritten", () => {
   const summary = summarizeCodexCacheAudit([
