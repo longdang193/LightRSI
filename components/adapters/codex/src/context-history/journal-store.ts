@@ -137,6 +137,7 @@ function canonicalRequestEntry(
     : jsonObjectArray(candidate.committedInputItems);
   const model = optionalString(candidate.model);
   const previousResponseId = optionalString(candidate.previousResponseId);
+  const acceptedAtResponseId = optionalString(candidate.acceptedAtResponseId);
   const promptCacheKey = optionalString(candidate.promptCacheKey);
   const error = optionalString(candidate.error);
   if (candidate.kind !== "request"
@@ -149,6 +150,7 @@ function canonicalRequestEntry(
     || (candidate.committedInputItems !== undefined && !committedInputItems)
     || (candidate.model !== undefined && !model)
     || (candidate.previousResponseId !== undefined && !previousResponseId)
+    || (candidate.acceptedAtResponseId !== undefined && !acceptedAtResponseId)
     || (candidate.promptCacheKey !== undefined && !promptCacheKey)
     || (candidate.error !== undefined && !error)) {
     return undefined;
@@ -162,6 +164,7 @@ function canonicalRequestEntry(
     ...(model ? { model } : {}),
     stream: candidate.stream,
     ...(previousResponseId ? { previousResponseId } : {}),
+    ...(acceptedAtResponseId ? { acceptedAtResponseId } : {}),
     ...(promptCacheKey ? { promptCacheKey } : {}),
     inputItems,
     ...(acceptedInputItems ? { acceptedInputItems } : {}),

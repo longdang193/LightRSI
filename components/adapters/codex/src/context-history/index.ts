@@ -27,6 +27,7 @@ export {
   createCodexResponseItemsCollector,
 } from "./sse-item-collector.js";
 export {
+  codexRestoreAcceptedItem,
   codexForwardingMetadata,
   codexReplayabilityForItem,
   isCodexDeferredItem,

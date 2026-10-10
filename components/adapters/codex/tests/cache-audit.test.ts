@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { summarizeCodexCacheAudit, type CodexCacheAuditRecord } from "../src/cache-audit.js";
+import {
+  buildCodexCacheFrontier,
+  summarizeCodexCacheAudit,
+  type CodexCacheAuditRecord,
+} from "../src/cache-audit.js";
 
 function record(overrides: Partial<CodexCacheAuditRecord>): CodexCacheAuditRecord {
   return {
@@ -27,6 +31,44 @@ function record(overrides: Partial<CodexCacheAuditRecord>): CodexCacheAuditRecor
     ...overrides,
   };
 }
+
+test("cache frontier reports append, mutation, and incompatible evidence without digest sequence storage", () => {
+  const sessionId = `frontier-${Date.now()}`;
+  const first = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-1",
+    compatibilityDigest: "compat-1",
+    inputItems: [{ id: "one", type: "message" }],
+    eligible: true,
+  });
+  const append = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-2",
+    compatibilityDigest: "compat-1",
+    inputItems: [{ id: "one", type: "message" }, { id: "two", type: "message" }],
+    eligible: true,
+  });
+  const mutation = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-3",
+    compatibilityDigest: "compat-1",
+    inputItems: [{ id: "changed", type: "message" }],
+    eligible: true,
+  });
+  const incompatible = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-4",
+    compatibilityDigest: "compat-2",
+    inputItems: [{ id: "changed", type: "message" }],
+    eligible: true,
+  });
+  assert.equal(first.status, "none");
+  assert.equal(append.status, "matched");
+  assert.equal(append.appendOnly, true);
+  assert.equal(mutation.changeClass, "mutation");
+  assert.equal(incompatible.changeClass, "incompatible");
+  assert.equal("itemDigests" in append, false);
+});
 
 test("summarizeCodexCacheAudit keeps warm hits stable even when response prompt_cache_key is rewritten", () => {
   const summary = summarizeCodexCacheAudit([

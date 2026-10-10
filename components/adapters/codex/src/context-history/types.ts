@@ -24,6 +24,7 @@ export type CodexRequestJournalEntry = {
   model?: string;
   stream: boolean;
   previousResponseId?: string;
+  acceptedAtResponseId?: string;
   promptCacheKey?: string;
   inputItems: JsonObject[];
   acceptedInputItems?: JsonObject[];

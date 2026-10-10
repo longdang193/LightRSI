@@ -22,14 +22,20 @@ export function registerStabilizerProductSurfaceContribution(): void {
       return summarizeCacheAudit(records as Parameters<typeof summarizeCacheAudit>[0]);
     },
     diagnose(record: ProductSurfaceCacheAuditRecord) {
+      const auditRecord = record as ProductSurfaceCacheAuditRecord & {
+        cacheEvidence?: "hit" | "miss" | "unknown";
+        structuralCandidate?: "matched" | "unmatched" | "none";
+      };
       return diagnoseCacheAudit({
-        stablePrefixFingerprint: record.stablePrefixFingerprint,
-        requestPromptCacheKey: record.requestPromptCacheKey,
-        responsePromptCacheKey: record.responsePromptCacheKey,
-        cachedInputTokens: record.cachedInputTokens,
-        baselineKind: record.baselineKind ?? "none",
-        entropyFindings: record.entropyFindings as StablePrefixEntropyFinding[],
-        driftReasons: record.driftReasons as StablePrefixDriftReason[],
+        stablePrefixFingerprint: auditRecord.stablePrefixFingerprint,
+        requestPromptCacheKey: auditRecord.requestPromptCacheKey,
+        responsePromptCacheKey: auditRecord.responsePromptCacheKey,
+        cachedInputTokens: auditRecord.cachedInputTokens,
+        cacheEvidence: auditRecord.cacheEvidence,
+        structuralCandidate: auditRecord.structuralCandidate,
+        baselineKind: auditRecord.baselineKind ?? "none",
+        entropyFindings: auditRecord.entropyFindings as StablePrefixEntropyFinding[],
+        driftReasons: auditRecord.driftReasons as StablePrefixDriftReason[],
       });
     },
   });

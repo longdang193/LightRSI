@@ -76,6 +76,11 @@ export type CleanPreviewView = {
   transportDeltaBytes?: number | null;
   earliestChangedHistoryItem?: string;
   unchangedPrefixItemCount: number;
+  reusablePrefixBytes?: number | null;
+  reusablePrefixChars?: number | null;
+  structuralFrontier?: string;
+  structuralRisk?: string;
+  observedCacheRead?: number | null;
   providerCacheOutcome: string;
   baseRevision: string;
 };
@@ -147,6 +152,9 @@ export function renderCleanPreview(preview: CleanPreviewView): string {
     `Transport delta: ${preview.transportDeltaChars ?? "unknown"} chars / ${preview.transportDeltaBytes ?? "unknown"} bytes`,
     ...(preview.earliestChangedHistoryItem ? [`Earliest changed history item: ${preview.earliestChangedHistoryItem}`] : []),
     `Unchanged prefix items: ${preview.unchangedPrefixItemCount}`,
+    ...(preview.structuralFrontier ? [`Structural frontier: ${preview.structuralFrontier} (${preview.structuralRisk ?? "unknown"})`] : []),
+    ...(preview.reusablePrefixChars !== undefined ? [`Reusable prefix: ${preview.reusablePrefixChars ?? "unknown"} chars / ${preview.reusablePrefixBytes ?? "unknown"} bytes`] : []),
+    ...(preview.observedCacheRead !== undefined ? [`Observed cache read: ${preview.observedCacheRead ?? "unknown"}`] : []),
     `Provider cache outcome: ${preview.providerCacheOutcome}`,
   ].join("\n");
 }

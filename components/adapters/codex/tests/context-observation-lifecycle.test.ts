@@ -151,7 +151,7 @@ test("journal reload accepts sanitized forwarding metadata for accepted projecti
 
     assert.ok(projection);
     assert.equal((journal[0].inputItems[0] as any).headers, undefined);
-    assert.equal((projection?.acceptedItems[0] as any).headers, undefined);
+    assert.deepEqual((projection?.acceptedItems[0] as any).headers, input[0].headers);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

@@ -20,10 +20,27 @@ import {
   diffStablePrefixSerialized,
 } from "./stable-prefix-audit.js";
 import type { StabilizerRequestEnvelope } from "./contracts.js";
+import type { CacheAuditStructuralCandidate } from "./cache-audit-diagnosis.js";
 
 export type CacheAuditBaselineKind = "identity" | "request_key" | "session" | "none";
 
 export const DEFAULT_CACHE_AUDIT_ROTATE_BYTES = 32 * 1024 * 1024;
+
+export type CacheFrontierAggregate = {
+  status: "matched" | "unmatched" | "unknown" | "none";
+  compatibilityDigest?: string | null;
+  previousAttemptId?: string | null;
+  currentAttemptId?: string | null;
+  previousItemCount?: number | null;
+  currentItemCount?: number | null;
+  firstChangedIndex?: number | null;
+  appendOnly?: boolean | null;
+  unchangedBytes?: number | null;
+  unchangedChars?: number | null;
+  currentInputDigest?: string | null;
+  changeClass?: "none" | "append" | "mutation" | "incompatible" | "unknown";
+  componentDrift?: string[];
+};
 
 const auditFileLocks = new Map<string, Promise<void>>();
 
@@ -113,6 +130,9 @@ export type CacheAuditRecord = {
   status: number;
   requestSuccess?: boolean;
   cacheEvidence?: CacheEvidence;
+  structuralCandidate?: CacheAuditStructuralCandidate;
+  providerCacheEvidence?: CacheEvidence;
+  frontier?: CacheFrontierAggregate;
   inputTotal?: number;
   inputUncached?: number;
   cacheRead?: number;
@@ -382,6 +402,7 @@ export function buildCacheAuditSnapshot(params: {
   requestPromptCacheKey?: string | null;
   providerWirePrefixHash?: string | null;
   cacheFamilyId?: string | null;
+  frontier?: CacheFrontierAggregate;
 }): CacheAuditSnapshot {
   const stablePrefixContract = extractStablePrefixContract(params.envelope);
   const serialized = serializeStablePrefixContract(stablePrefixContract);
@@ -397,6 +418,7 @@ export function buildCacheAuditSnapshot(params: {
     cacheFamilyId: typeof params.cacheFamilyId === "string"
       ? params.cacheFamilyId
       : undefined,
+    ...(params.frontier ? { frontier: params.frontier } : {}),
     entropyFindings: auditStablePrefixEntropy(serialized),
     driftReasons: [],
     originalRequestPromptCacheKey:
@@ -470,6 +492,11 @@ export async function appendCacheAuditRecord<T extends CacheAuditRecord>(params:
     status: params.status,
     requestSuccess,
     cacheEvidence: normalizedUsage.evidence,
+    providerCacheEvidence: normalizedUsage.evidence,
+    structuralCandidate: previous
+      ? diffStablePrefixSerialized(compactStablePrefix(previous.stablePrefix), compactedStablePrefix)
+        .length === 0 ? "matched" : "unmatched"
+      : "none",
     ...(normalizedUsage.inputTotal === undefined ? {} : { inputTotal: normalizedUsage.inputTotal }),
     ...(normalizedUsage.inputUncached === undefined ? {} : { inputUncached: normalizedUsage.inputUncached }),
     ...(normalizedUsage.cacheRead === undefined ? {} : { cacheRead: normalizedUsage.cacheRead }),

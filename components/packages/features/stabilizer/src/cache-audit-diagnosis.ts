@@ -3,11 +3,16 @@ import type {
   StablePrefixEntropyFinding,
 } from "./stable-prefix-audit.js";
 
+export type CacheAuditOutcome = "hit" | "miss" | "unknown";
+export type CacheAuditStructuralCandidate = "matched" | "unmatched" | "none";
+
 export type CacheAuditDiagnosisInput = {
   stablePrefixFingerprint?: string | null;
   requestPromptCacheKey?: string | null;
   responsePromptCacheKey?: string | null;
   cachedInputTokens?: number | null;
+  cacheEvidence?: CacheAuditOutcome | null;
+  structuralCandidate?: CacheAuditStructuralCandidate | null;
   baselineKind?: "identity" | "request_key" | "session" | "none" | null;
   entropyFindings?: StablePrefixEntropyFinding[] | null;
   driftReasons?: StablePrefixDriftReason[] | null;
@@ -21,6 +26,8 @@ export type CacheAuditKiller = {
 
 export type CacheAuditDiagnosis = {
   matchedResult: "warm hit" | "cold miss" | "cold start" | "unmatched";
+  structuralCandidate: CacheAuditStructuralCandidate;
+  providerCacheEvidence: CacheAuditOutcome;
   rewriteDetected: boolean;
   currentState: string;
   targetState: string;
@@ -255,13 +262,26 @@ export function diagnoseCacheAudit(input?: CacheAuditDiagnosisInput | null): Cac
   const matchedResult: CacheAuditDiagnosis["matchedResult"] =
     !input
       ? "unmatched"
-      : Number(input.cachedInputTokens ?? 0) > 0
+      : (input.cacheEvidence ?? (input.cachedInputTokens === undefined
+        ? "unknown"
+        : Number(input.cachedInputTokens ?? 0) > 0 ? "hit" : "miss")) === "hit"
         ? "warm hit"
-        : baselineKind === "identity" || baselineKind === "request_key"
+        : (input.cacheEvidence ?? (input.cachedInputTokens === undefined
+          ? "unknown"
+          : Number(input.cachedInputTokens ?? 0) > 0 ? "hit" : "miss")) === "miss"
+          && (baselineKind === "identity" || baselineKind === "request_key")
           ? "cold miss"
           : "cold start";
+  const providerCacheEvidence = input?.cacheEvidence
+    ?? (input?.cachedInputTokens === undefined
+      ? "unknown"
+      : Number(input.cachedInputTokens) > 0 ? "hit" : "miss");
+  const structuralCandidate = input?.structuralCandidate
+    ?? (baselineKind === "none" ? "none" : driftReasons.length === 0 ? "matched" : "unmatched");
   return {
     matchedResult,
+    structuralCandidate,
+    providerCacheEvidence,
     rewriteDetected,
     currentState: describeCurrentState({
       matchedResult,

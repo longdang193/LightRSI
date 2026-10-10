@@ -608,6 +608,13 @@ export function createCodexContextCleanerBridge(params: {
           : null,
         ...(firstChanged >= 0 ? { earliestChangedHistoryItem: historyItems[firstChanged]!.stableId } : {}),
         unchangedPrefixItemCount: firstChanged >= 0 ? firstChanged : historyItems.length,
+        reusablePrefixChars: historyItems
+          .slice(0, firstChanged >= 0 ? firstChanged : historyItems.length)
+          .reduce((sum, item) => sum + item.chars, 0),
+        reusablePrefixBytes: null,
+        structuralFrontier: firstChanged >= 0 && firstChanged < historyItems.length ? "unmatched" : "matched",
+        structuralRisk: candidate.result.deferredOperationIds.length > 0 ? "medium" : "low",
+        observedCacheRead: null,
         providerCacheOutcome: "unknown",
         baseRevision,
       } satisfies CacheReleasePreview;
