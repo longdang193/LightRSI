@@ -204,6 +204,9 @@ async function startSequencedStreamResponsesUpstream(params?: {
       : undefined;
     res.statusCode = 200;
     res.setHeader("content-type", "text/event-stream; charset=utf-8");
+    res.setHeader("x-lightrsi-request-id", "spoofed-request-id");
+    res.setHeader("x-lightrsi-generation-policy-applied", "spoofed-applied");
+    res.setHeader("x-lightrsi-generation-policy-bypass", "spoofed-bypass");
     res.end(params?.incomplete
       ? [
         "event: response.created",
@@ -418,6 +421,10 @@ test("CDR-06 proxy pipeline rebases a non-stream request from effective history"
         retryOriginalRequest: true,
         cooldownMs: 300_000,
         mutationPlan: { operations: [] },
+      },
+      generationPolicy: {
+        caveman: { enabled: true, level: "full" },
+        ponytail: { enabled: false, level: "full" },
       },
     } as any);
     runtime = await startCodexResponsesProxy({
@@ -1062,6 +1069,11 @@ test("Codex generation policy remains on ordinary continuation requests", async 
       }),
     });
     assert.equal(first.status, 200);
+    assert.match(first.headers.get("x-lightrsi-request-id") ?? "", /.+/u);
+    assert.equal(first.headers.get("x-lightrsi-runtime-build-id"), "unavailable");
+    assert.equal(first.headers.get("x-lightrsi-generation-policy-version"), "v2/v2");
+    assert.equal(first.headers.get("x-lightrsi-generation-policy-applied"), "true");
+    assert.equal(first.headers.get("x-lightrsi-generation-policy-bypass"), "null");
 
     const second = await fetch(`${runtime.baseUrl}/responses`, {
       method: "POST",
@@ -1380,6 +1392,11 @@ test("CDR-06 proxy pipeline falls back and cools down rejected stream rebases", 
     });
     const secondText = await second.text();
     assert.equal(second.status, 200);
+    assert.match(second.headers.get("x-lightrsi-request-id") ?? "", /^req-/u);
+    assert.equal(second.headers.get("x-lightrsi-generation-policy-version"), "v2/v2");
+    assert.notEqual(second.headers.get("x-lightrsi-generation-policy-digest"), "spoofed");
+    assert.equal(second.headers.get("x-lightrsi-generation-policy-applied"), "false");
+    assert.equal(second.headers.get("x-lightrsi-generation-policy-bypass"), "rebase");
     assert.match(secondText, /resp-stream-pipeline-3/);
     assert.equal(upstream.requests.length, 3);
     assert.equal("previous_response_id" in (upstream.requests[1] ?? {}), false);

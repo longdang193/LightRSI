@@ -29,7 +29,7 @@ export async function prepareBeforeCall(params: {
   const stableEnvelope = params.helpers?.prepareStablePrefix
     ? params.helpers.prepareStablePrefix(policyEnvelope)
     : policyEnvelope;
-  diagnostics.stablePrefixApplied = stableEnvelope !== params.envelope;
+  diagnostics.stablePrefixApplied = stableEnvelope !== policyEnvelope;
 
   const recovery = injectRecoveryProtocolEnvelope(
     stableEnvelope,

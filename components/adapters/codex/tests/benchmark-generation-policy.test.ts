@@ -19,6 +19,7 @@ import {
   buildMockGenerationPolicyReport,
   compareMatchedStageA,
   evaluateRouterSettingsPreflight,
+  expectedStageAPolicyDigest,
   loadCodexAuthApiKey,
   projectAssistantHistory,
   parseProviderUsage,
@@ -49,6 +50,14 @@ function matchedRow(fixture: StageAFixture, repetition: number, arm: StageAArm =
     retries: 0,
     clarifications: 0,
     usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 0 },
+    policyEvidence: [{
+      requestId: `${arm}-${fixture}-${repetition}`,
+      runtimeBuildId: "fixture-build",
+      generationPolicyVersion: "v2/v2",
+      generationPolicyDigest: expectedStageAPolicyDigest(arm),
+      generationPolicyApplied: arm !== "baseline",
+      generationPolicyBypassReason: arm === "baseline" ? "disabled" : null,
+    }],
     error: null,
   };
 }
@@ -164,6 +173,7 @@ test("matched accounting keeps missing usage unavailable instead of treating it 
       retries: 0,
       clarifications: 0,
       usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: null },
+      policyEvidence: [],
       error: null,
     }],
     pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 },
@@ -208,6 +218,29 @@ test("provider usage parsing retains cached input telemetry", () => {
   });
 });
 
+test("provider usage parsing rejects impossible and non-finite values", () => {
+  assert.equal(parseProviderUsage({ usage: { input_tokens: 10, cached_input_tokens: 11 } }), null);
+  assert.deepEqual(parseProviderUsage({ usage: { input_tokens: Number.NaN, output_tokens: 1 } }), {
+    inputTokens: null,
+    outputTokens: 1,
+    totalTokens: null,
+    cachedInputTokens: null,
+  });
+});
+
+test("multi-turn usage sums known fields without fabricating missing fields", async () => {
+  const { sumUsage } = await import("../scripts/benchmark-generation-policy.ts");
+  assert.deepEqual(sumUsage([
+    { usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 10, reasoningTokens: 4 } },
+    { usage: { inputTokens: 80, outputTokens: null, totalTokens: null, cachedInputTokens: 8 } },
+  ]), {
+    inputTokens: 180,
+    outputTokens: null,
+    totalTokens: null,
+    cachedInputTokens: 18,
+  });
+});
+
 test("matched accounting produces paired baseline deltas and blocks failed arms", () => {
   const rows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [
     {
@@ -247,6 +280,89 @@ test("matched comparison keeps incomplete arms non-comparable", () => {
   assert.equal(caveman.baselineDelta, null);
 });
 
+test("matched comparison leaves unobserved stability unavailable", () => {
+  const rows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [
+    matchedRow(fixture, 0, "baseline"),
+    {
+      ...matchedRow(fixture, 0, "caveman-full"),
+      toolCalls: null,
+      retries: null,
+      clarifications: null,
+    },
+  ]);
+  const comparisons = compareMatchedStageA(rows, 1);
+
+  assert.equal(comparisons.arms["caveman-full"].correctness, "pass");
+  assert.equal(comparisons.arms["caveman-full"].stability, "unavailable");
+});
+
+test("matched comparison rejects unmatched policy evidence", () => {
+  const rows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [
+    matchedRow(fixture, 0, "baseline"),
+    matchedRow(fixture, 0, "caveman-full"),
+  ]);
+  rows[1] = {
+    ...rows[1],
+    policyEvidence: [{
+      ...rows[1].policyEvidence[0]!,
+      requestId: rows[0].policyEvidence[0]!.requestId,
+      runtimeBuildId: "different-build",
+      generationPolicyDigest: expectedStageAPolicyDigest("ponytail-full"),
+    }],
+  };
+  const comparisons = compareMatchedStageA(rows, 1);
+
+  assert.equal(comparisons.arms.baseline.correctness, "unavailable");
+  assert.equal(comparisons.arms["caveman-full"].correctness, "unavailable");
+  assert.equal(comparisons.arms["caveman-full"].economics, "inconclusive");
+});
+
+test("matched comparison rejects unknown runtime identity", () => {
+  const rows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [
+    matchedRow(fixture, 0, "baseline"),
+    matchedRow(fixture, 0, "caveman-full"),
+  ]).map((row) => ({
+    ...row,
+    policyEvidence: row.policyEvidence.map((evidence) => ({
+      ...evidence,
+      runtimeBuildId: "unavailable",
+    })),
+  }));
+  const comparisons = compareMatchedStageA(rows, 1);
+
+  assert.equal(comparisons.arms.baseline.correctness, "unavailable");
+  assert.equal(comparisons.arms["caveman-full"].correctness, "unavailable");
+  assert.equal(comparisons.arms["caveman-full"].economics, "inconclusive");
+});
+
+test("matched comparison rejects partial multi-turn policy evidence", () => {
+  const rows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [
+    matchedRow(fixture, 0, "baseline"),
+    matchedRow(fixture, 0, "caveman-full"),
+  ]);
+  const baselineMultiTurn = rows.find((row) => row.arm === "baseline" && row.fixture === "multiturn")!;
+  const cavemanMultiTurn = rows.find((row) => row.arm === "caveman-full" && row.fixture === "multiturn")!;
+  rows[rows.indexOf(baselineMultiTurn)] = {
+    ...baselineMultiTurn,
+    providerCalls: 2,
+    turns: 2,
+    policyEvidence: [
+      ...baselineMultiTurn.policyEvidence,
+      { ...baselineMultiTurn.policyEvidence[0]!, requestId: "baseline-multiturn-second" },
+    ],
+  };
+  rows[rows.indexOf(cavemanMultiTurn)] = {
+    ...cavemanMultiTurn,
+    providerCalls: 2,
+    turns: 2,
+  };
+  const comparisons = compareMatchedStageA(rows, 1);
+
+  assert.equal(comparisons.arms.baseline.correctness, "pass");
+  assert.equal(comparisons.arms["caveman-full"].correctness, "unavailable");
+  assert.equal(comparisons.arms["caveman-full"].economics, "inconclusive");
+});
+
 test("matched live accounting preserves every failed request attempt", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-matched-failure-accounting-"));
   const originalCwd = process.cwd();
@@ -272,8 +388,12 @@ test("matched live accounting preserves every failed request attempt", async () 
     process.chdir(dir);
 
     let attempts = 0;
+    const requestUrls: string[] = [];
+    const requestBodies: Record<string, unknown>[] = [];
+    const armBaseUrls = Object.fromEntries(STAGE_A_ARMS.map((arm) => [arm, `http://127.0.0.1/${arm}`])) as Record<StageAArm, string>;
     const report = await runGenerationPolicyMatchedLive({
       baseUrl: "http://127.0.0.1:1/v1",
+      armBaseUrls,
       routerUrl: "http://127.0.0.1:1",
       apiKey: "fixture-key",
       model: "fixture-model",
@@ -281,13 +401,22 @@ test("matched live accounting preserves every failed request attempt", async () 
       routerSettingsEvidencePath: evidencePath,
       tokenPilotConfigPath,
       pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 },
-      fetchImpl: async () => {
+      fetchImpl: async (input, init) => {
+        if (String(input).endsWith("/api/settings")) {
+          return new Response(JSON.stringify({ cavemanEnabled: false, ponytailEnabled: false }), { status: 200 });
+        }
         attempts += 1;
+        requestUrls.push(String(input));
+        requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
         throw new Error("transport failure");
       },
     });
 
     assert.equal(attempts, 32);
+    for (const arm of STAGE_A_ARMS) {
+      assert.equal(requestUrls.filter((url) => url.startsWith(armBaseUrls[arm])).length, 8);
+    }
+    assert.ok(requestBodies.every((body) => body.instructions === ""));
     assert.equal(report.matched?.arms.baseline.providerCalls, 8);
     assert.equal(report.matched?.arms.baseline.totalCostUsd, null);
     assert.equal(report.matched?.arms["caveman-full"].economics, "inconclusive");

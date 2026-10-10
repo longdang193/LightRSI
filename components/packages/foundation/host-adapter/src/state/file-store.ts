@@ -144,6 +144,12 @@ export async function appendJsonl(path: string, payload: unknown): Promise<void>
   await appendFile(path, `${JSON.stringify(payload)}\n`, "utf8");
 }
 
+export async function appendJsonlLines(path: string, lines: readonly string[]): Promise<void> {
+  if (lines.length === 0) return;
+  await mkdir(dirname(path), { recursive: true });
+  await appendFile(path, lines.join(""), "utf8");
+}
+
 export async function readRecentJsonlEntries<T>(
   path: string,
   limit = 8,
