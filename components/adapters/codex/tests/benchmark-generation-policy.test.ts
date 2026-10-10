@@ -23,6 +23,7 @@ import {
   projectAssistantHistory,
   parseProviderUsage,
   readRouterSettingsEvidence,
+  readTokenPilotGenerationPolicyPreflight,
   runGenerationPolicyMatchedLive,
   runGenerationPolicyBenchmark,
   runGenerationPolicyStageB,
@@ -233,6 +234,19 @@ test("matched accounting produces paired baseline deltas and blocks failed arms"
   assert.equal(comparisons.decision, "no-promotion");
 });
 
+test("matched comparison keeps incomplete arms non-comparable", () => {
+  const comparisons = compareMatchedStageA([
+    matchedRow("prose", 0, "baseline"),
+    matchedRow("prose", 0, "caveman-full"),
+  ], 1, { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 });
+  const caveman = comparisons.arms["caveman-full"];
+
+  assert.equal(caveman.correctness, "unavailable");
+  assert.equal(caveman.stability, "unavailable");
+  assert.equal(caveman.economics, "inconclusive");
+  assert.equal(caveman.baselineDelta, null);
+});
+
 test("matched live accounting preserves every failed request attempt", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-matched-failure-accounting-"));
   const originalCwd = process.cwd();
@@ -240,13 +254,20 @@ test("matched live accounting preserves every failed request attempt", async () 
     await execFileAsync("git", ["init", "-q"], { cwd: dir });
     await writeFile(join(dir, "fixture.txt"), "clean checkpoint\n", "utf8");
     const evidencePath = join(dir, "router-settings.json");
+    const tokenPilotConfigPath = join(dir, "tokenpilot.json");
     await writeFile(evidencePath, JSON.stringify({
       source: "9router_dashboard",
       status: 200,
       cavemanEnabled: false,
       ponytailEnabled: false,
     }), "utf8");
-    await execFileAsync("git", ["add", "fixture.txt", "router-settings.json"], { cwd: dir });
+    await writeFile(tokenPilotConfigPath, JSON.stringify({
+      generationPolicy: {
+        caveman: { enabled: false, level: "full" },
+        ponytail: { enabled: false, level: "full" },
+      },
+    }), "utf8");
+    await execFileAsync("git", ["add", "fixture.txt", "router-settings.json", "tokenpilot.json"], { cwd: dir });
     await execFileAsync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "fixture"], { cwd: dir });
     process.chdir(dir);
 
@@ -258,6 +279,8 @@ test("matched live accounting preserves every failed request attempt", async () 
       model: "fixture-model",
       repetitions: 1,
       routerSettingsEvidencePath: evidencePath,
+      tokenPilotConfigPath,
+      pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 },
       fetchImpl: async () => {
         attempts += 1;
         throw new Error("transport failure");
@@ -266,6 +289,8 @@ test("matched live accounting preserves every failed request attempt", async () 
 
     assert.equal(attempts, 32);
     assert.equal(report.matched?.arms.baseline.providerCalls, 8);
+    assert.equal(report.matched?.arms.baseline.totalCostUsd, null);
+    assert.equal(report.matched?.arms["caveman-full"].economics, "inconclusive");
     assert.ok(report.rows?.filter((row) => row.arm === "baseline").every((row) => row.providerCalls === 1));
   } finally {
     process.chdir(originalCwd);
@@ -288,6 +313,25 @@ test("router preflight fails closed on unknown or mismatched settings", () => {
   assert.equal(evaluateRouterSettingsPreflight({}, { cavemanEnabled: false, ponytailEnabled: false }).status, "unknown");
   assert.equal(evaluateRouterSettingsPreflight({ cavemanEnabled: true, ponytailEnabled: false }, { cavemanEnabled: false, ponytailEnabled: false }).status, "mismatch");
   assert.equal(evaluateRouterSettingsPreflight({ settings: { cavemanEnabled: false, ponytailEnabled: false, rtk: "off" } }, { cavemanEnabled: false, ponytailEnabled: false }).status, "match");
+});
+
+test("TokenPilot generation policy preflight fails closed unless both policies are disabled", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-tokenpilot-preflight-"));
+  try {
+    const missing = await readTokenPilotGenerationPolicyPreflight(join(dir, "missing.json"));
+    assert.equal(missing.status, "unknown");
+
+    const configPath = join(dir, "tokenpilot.json");
+    await writeFile(configPath, JSON.stringify({ generationPolicy: { caveman: { enabled: true } } }), "utf8");
+    const mismatch = await readTokenPilotGenerationPolicyPreflight(configPath);
+    assert.equal(mismatch.status, "mismatch");
+
+    await writeFile(configPath, JSON.stringify({ generationPolicy: { caveman: { enabled: false }, ponytail: { enabled: false } } }), "utf8");
+    const match = await readTokenPilotGenerationPolicyPreflight(configPath);
+    assert.equal(match.status, "match");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("router dashboard evidence only replaces unavailable settings authentication", () => {
