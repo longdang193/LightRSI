@@ -183,6 +183,57 @@ test("appendCacheAuditRecord stores per-session records and keeps same-key basel
   }
 });
 
+test("session fallback does not scan unbounded global audit history", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-cache-audit-fallback-"));
+  try {
+    const target = envelope({
+      sessionId: "sess-fallback-target",
+      requestPromptCacheKey: "pk-fallback-target",
+      instructions: "Target record",
+    });
+    await appendCacheAuditRecord({
+      stateDir,
+      snapshot: buildCacheAuditSnapshot({
+        envelope: target.envelope,
+        sessionId: target.sessionId,
+        model: "gpt-5.4",
+        stream: false,
+        requestPromptCacheKey: target.requestPromptCacheKey,
+      }),
+      responsePromptCacheKey: target.requestPromptCacheKey,
+      usage: { input_tokens: 100, input_tokens_details: { cached_tokens: 0 } },
+      status: 200,
+    });
+    await rm(
+      join(stateDir, "cache-audit-sessions", `${encodeURIComponent(target.sessionId)}.jsonl`),
+      { force: true },
+    );
+
+    for (let index = 0; index < 300; index += 1) {
+      await appendCacheAuditRecord({
+        stateDir,
+        snapshot: buildCacheAuditSnapshot({
+          envelope: target.envelope,
+          sessionId: `sess-fallback-noise-${index}`,
+          model: "gpt-5.4",
+          stream: false,
+          requestPromptCacheKey: `pk-fallback-noise-${index}`,
+        }),
+        responsePromptCacheKey: null,
+        usage: { input_tokens: 100, input_tokens_details: { cached_tokens: 0 } },
+        status: 200,
+      });
+    }
+
+    assert.deepEqual(
+      await readRecentCacheAuditRecordsForSession(stateDir, target.sessionId, 1),
+      [],
+    );
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("audit records stay bounded and rotate oversized files", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-cache-audit-bounded-"));
   try {

@@ -2,7 +2,7 @@
 artifact_type: plan
 template_id: implementation-plan
 contract_version: "1"
-status: completed
+status: active
 layer: change
 name: lightrsi-generation-policy
 targets:
@@ -85,10 +85,10 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Coordination schema: 2
 - Branch: codex/generation-policy
 - Base commit: 06d1e5f4e0e1ad1b29f108299ac7ba2191d61b58
-- Source checkpoint: `56a2d2e` (`fix: authenticate router settings preflight`)
-- Expected workspace: clean source checkpoint; generated mock Stage A evidence remains outside the checkpoint
-- Next action: obtain authenticated read-only 9Router settings access for the runner, then run only the failed Stage A fixtures; do not run Stage B or expand adapters
-- Blockers: Codex `auth.json` key is available for provider traffic, but 9Router `GET /api/settings` returns `401` for that bearer key. Existing dashboard session shows both Caveman and Ponytail effectively disabled, but runner cannot substitute browser-session evidence; no live generation was sent. Claude Code/OpenClaw reuse remains deferred until mechanism-specific value passes
+- Source checkpoint: `e58a8eb` (`fix: bound live repair requests`)
+- Expected workspace: clean source checkpoint before live traffic; generated mock Stage A evidence and repair output remain outside the checkpoint
+- Next action: create a separately authorized clean checkpoint containing the accepted cache-audit/runtime and benchmark-oracle fixes, then run the five-repetition Stage A repair through `http://127.0.0.1:17667/v1`; do not run Stage B or expand adapters
+- Blockers: Codex `auth.json` key is available for provider traffic, but 9Router `GET /api/settings` returns `401` for that bearer key. Existing sanitized dashboard evidence records Caveman and Ponytail disabled and is accepted only as an explicit limitation fallback. The source tree is intentionally dirty with the accepted follow-up fixes and active plan edits, so the tracked live-repair runner's clean-checkpoint gate blocks the full matrix until a user-authorized checkpoint commit exists. Claude Code/OpenClaw reuse remains deferred until mechanism-specific value passes
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -117,10 +117,17 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Clean repair checkpoint is `7e20393`; the tracked mock command passes all four arms with zero provider calls. Mock artifacts are preserved outside the checkout under `C:\tmp\lightrsi-generation-policy-stage-a-mock-repair-7e20393`.
 - The tracked benchmark command remains mock-only; no approved external harness was found for the repair rerun. No live traffic was sent from this repair checkpoint.
 - Added an explicit `--live-repair` path to the tracked benchmark runner for only the failed `security` and `multiturn` fixtures; it requires a clean tree, explicit router/API inputs, and writes sanitized evidence outside the checkout.
+- Root cause of Stage A slowness was the session cache-audit fallback scanning the full global JSONL history with `Number.MAX_SAFE_INTEGER`; bounded the compatibility tail lookup to 256 records in both the runtime checkout and tracked source, with a regression test for unavailable old history.
+- Updated the multiturn benchmark oracle to accept the requested verification-command families and equivalent omitted-field wording; focused benchmark tests and stabilizer tests pass.
+- Rebuilt and restarted only TokenPilot with the existing config; 9Router remained unchanged. The final one-repetition smoke through `http://127.0.0.1:17667/v1` used `cx/gpt-5.6-luna`, made 12 provider calls, passed all 8 fixture rows, and recorded evidence at `C:\tmp\lightrsi-generation-policy-stage-a-smoke-after-cache-fix-v3.json`. A direct trace showed `proxy_after_call` approximately 70 ms after a 2.03 s upstream response.
 - Verified `pnpm --dir components/adapters/codex bench:generation-policy -- --live-repair` fails before provider dispatch when required inputs are absent.
 - Added in-memory fallback to Codex `auth.json` for the live repair key and authenticated the runner read-only router settings request; focused benchmark tests and Codex typecheck pass.
 - Read-only 9Router preflight at `http://127.0.0.1:20128/api/settings` rejects the API key with `401`; authenticated dashboard response at `C:\tmp\9router-settings-response.network-response` reports both Caveman and Ponytail disabled. Live repair remains blocked rather than bypassing the gate.
 - Bounded live-repair command was attempted with Codex-configured `http://127.0.0.1:17667/v1`, router `http://127.0.0.1:20128`, and model `combo-high`; it failed closed with `Router preflight failed: unknown.` before provider dispatch.
+- Commit `cd94cdc` added the explicit dashboard-evidence fallback; the sanitized evidence file is `C:\tmp\9router-settings-dashboard-evidence.json` and records both router policy flags disabled.
+- Commit `e58a8eb` added a 120-second timeout to each live repair request.
+- A second bounded live-repair command used `http://127.0.0.1:17667/v1`, router `http://127.0.0.1:20128`, model `cx/gpt-5.6-luna`, and the sanitized dashboard evidence. It remained connected to TokenPilot without writing a report and was interrupted after approximately 12 minutes; provider dispatch is unknown and must not be treated as zero traffic.
+- No Stage B measurement or adapter reuse was performed after the interrupted attempt.
 
 ## Task Breakdown
 

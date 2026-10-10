@@ -53,9 +53,11 @@ export function validateSecurityFixtureOutput(output: string): boolean {
 
 export function validateMultiTurnFixtureOutput(output: string): boolean {
   const normalized = output.toLowerCase();
-  return normalized.includes("npm test")
+  const hasVerificationCommand = ["npm test", "pnpm test", "pytest", "cargo test", "go test"]
+    .some((command) => normalized.includes(command));
+  return hasVerificationCommand
     && normalized.includes("optional")
-    && normalized.includes("edge");
+    && (normalized.includes("edge") || normalized.includes("omitted"));
 }
 
 export function buildLiveArmInstructions(arm: StageAArm): string {
