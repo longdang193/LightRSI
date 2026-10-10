@@ -85,10 +85,10 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Coordination schema: 2
 - Branch: codex/generation-policy
 - Base commit: 06d1e5f4e0e1ad1b29f108299ac7ba2191d61b58
-- Source checkpoint: `2da97bd` (`feat: add opt-in generation policy`)
+- Source checkpoint: `7e20393` (`fix: harden generation policy benchmark fixtures`)
 - Expected workspace: clean source checkpoint; generated mock Stage A evidence remains outside the checkpoint
-- Next action: create a clean repair checkpoint, then rerun only the failed Stage A fixtures through the approved live harness; do not run Stage B or expand adapters
-- Blockers: live Stage A completed under the spending cap but failed correctness/stability gates; Claude Code/OpenClaw reuse deferred until mechanism-specific value passes
+- Next action: restore or check in the approved live harness, then rerun only the failed Stage A fixtures; do not run Stage B or expand adapters
+- Blockers: the tracked benchmark runner remains mock-only and no approved external live harness is currently available; no further provider traffic is authorized from this checkpoint; Claude Code/OpenClaw reuse remains deferred until mechanism-specific value passes
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -99,7 +99,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 | Task 4 | complete | current | lead | Task 3 | Codex contract and streaming/retry tests | 554 Codex tests pass; policy contract suite passes |
 | Task 5 | complete | current | lead | Task 4 | command/status and router preflight tests | independent commands/status pass; router preflight fails closed |
 | Task 6 | complete | current | lead | Tasks 4–5 | local/mock contract matrix | Codex policy contract matrix passes |
-| Task 7 | complete | current | lead | Task 6 | Stage A completed-task benchmark | live matrix ran with router preflight match; correctness/stability failed, economics inconclusive |
+| Task 7 | complete | current | lead | Task 6 | Stage A completed-task benchmark | live matrix failed correctness/stability; repair contract verified; rerun blocked by unavailable approved live harness |
 | Task 8 | skipped | current | lead | Task 7 mechanism-specific pass gate | Stage B intensity benchmark | skipped because Stage A economics are inconclusive |
 | Task 9 | complete | current | lead | Task 8 or documented Stage A decision | immutable promotion/economics evidence | mock artifacts, README, defaults, and no-promotion decision reconciled |
 | Task 10 | deferred | current | lead | Task 9 mechanism-specific correctness and value gate | Claude/OpenClaw reuse tests | deferred; inconclusive mechanisms remain Codex-only |
@@ -114,7 +114,8 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - All four arms failed the accepted correctness/stability gate because the security fixture intermittently omitted the required warning wording and the multi-turn fixture intermittently exhausted its response budget before producing a final answer; live economics remain inconclusive and no promotion is allowed.
 - A bounded repair retry passed 35/40 targeted fixture runs but did not establish a clean 100% gate; no Stage B measurement, Claude Code reuse, or OpenClaw reuse performed.
 - Tracked the harness repair contract: multi-turn replay must retain assistant messages and tool-call items while excluding hidden reasoning items; the security fixture now requires the exact `Security warning:` prefix. Focused benchmark tests, Codex typecheck, and all 556 Codex tests pass.
-- The tracked benchmark command remains mock-only; any live rerun must use an approved external harness that consumes these contracts or be checked in before traffic. No live traffic was sent from this repair checkpoint.
+- Clean repair checkpoint is `7e20393`; the tracked mock command passes all four arms with zero provider calls. Mock artifacts are preserved outside the checkout under `C:\tmp\lightrsi-generation-policy-stage-a-mock-repair-7e20393`.
+- The tracked benchmark command remains mock-only; no approved external harness was found for the repair rerun. No live traffic was sent from this repair checkpoint.
 
 ## Task Breakdown
 
