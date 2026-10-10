@@ -101,6 +101,7 @@ type LiveRepairOptions = {
   apiKey: string;
   model: string;
   repetitions?: number;
+  routerSettingsEvidencePath?: string;
   fetchImpl?: typeof fetch;
 };
 
@@ -189,7 +190,10 @@ export async function runGenerationPolicyLiveRepair(
   if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 5) {
     throw new Error("Live repair repetitions must be an integer from 1 through 5.");
   }
-  const routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey);
+  let routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey);
+  if (routerPreflight.status !== "match" && options.routerSettingsEvidencePath) {
+    routerPreflight = await readRouterSettingsEvidence(options.routerSettingsEvidencePath);
+  }
   if (routerPreflight.status !== "match") throw new Error(`Router preflight failed: ${routerPreflight.status}.`);
   const rows: GenerationPolicyLiveRepairReport["rows"] = [];
   let providerCalls = 0;
@@ -239,8 +243,9 @@ export type GenerationPolicyBenchmarkReport = {
 
 export type RouterSettingsPreflight = {
   status: "match" | "mismatch" | "unknown";
-  source: "settings_api" | "unavailable";
+  source: "settings_api" | "dashboard_evidence" | "unavailable";
   settings: Record<string, boolean | string | null>;
+  limitation?: string;
 };
 
 const REQUIRED_ROUTER_SETTINGS = ["cavemanEnabled", "ponytailEnabled"] as const;
@@ -281,6 +286,23 @@ export async function readRouterSettingsPreflight(
     });
     if (!response.ok) return { status: "unknown", source: "unavailable", settings: {} };
     return evaluateRouterSettingsPreflight(await response.json(), expected);
+  } catch {
+    return { status: "unknown", source: "unavailable", settings: {} };
+  }
+}
+
+export async function readRouterSettingsEvidence(path: string): Promise<RouterSettingsPreflight> {
+  try {
+    const payload = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    if (payload.source !== "9router_dashboard" || payload.status !== 200) {
+      return { status: "unknown", source: "unavailable", settings: {} };
+    }
+    const evaluated = evaluateRouterSettingsPreflight(payload, { cavemanEnabled: false, ponytailEnabled: false });
+    return {
+      ...evaluated,
+      source: "dashboard_evidence",
+      limitation: "machine-readable settings authentication unavailable; using existing authenticated dashboard evidence",
+    };
   } catch {
     return { status: "unknown", source: "unavailable", settings: {} };
   }
@@ -329,7 +351,13 @@ async function main(): Promise<void> {
     if (!baseUrl || !routerUrl || !apiKey || !model) {
       throw new Error("Live repair requires LIGHTRSI_BENCHMARK_BASE_URL, LIGHTRSI_BENCHMARK_ROUTER_URL, OPENAI_API_KEY, and a model.");
     }
-    const report = await runGenerationPolicyLiveRepair({ baseUrl, routerUrl, apiKey, model });
+    const report = await runGenerationPolicyLiveRepair({
+      baseUrl,
+      routerUrl,
+      apiKey,
+      model,
+      routerSettingsEvidencePath: process.env.LIGHTRSI_BENCHMARK_ROUTER_SETTINGS_EVIDENCE?.trim(),
+    });
     const outputPath = process.env.LIGHTRSI_BENCHMARK_OUTPUT?.trim()
       || resolve(tmpdir(), "lightrsi-generation-policy-stage-a-repair.json");
     await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);

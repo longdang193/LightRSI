@@ -12,6 +12,7 @@ import {
   evaluateRouterSettingsPreflight,
   loadCodexAuthApiKey,
   projectAssistantHistory,
+  readRouterSettingsEvidence,
   runGenerationPolicyBenchmark,
   validateSecurityFixtureOutput,
   validateMultiTurnFixtureOutput,
@@ -77,6 +78,25 @@ test("live repair reads Codex auth.json without persisting the key", async () =>
   try {
     await writeFile(authPath, JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "fixture-key" }), "utf8");
     assert.equal(await loadCodexAuthApiKey(authPath), "fixture-key");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("router dashboard evidence is explicit and preserves the preflight limitation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-router-evidence-"));
+  const evidencePath = join(dir, "settings.json");
+  try {
+    await writeFile(evidencePath, JSON.stringify({
+      source: "9router_dashboard",
+      status: 200,
+      cavemanEnabled: false,
+      ponytailEnabled: false,
+    }), "utf8");
+    const result = await readRouterSettingsEvidence(evidencePath);
+    assert.equal(result.status, "match");
+    assert.equal(result.source, "dashboard_evidence");
+    assert.match(result.limitation ?? "", /authentication unavailable/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
