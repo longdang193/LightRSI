@@ -30,6 +30,7 @@ import { installCodexTokenPilot } from "../src/install.js";
 import { processCodexHookEvent } from "../src/hooks-handler.js";
 import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
+import { codexForwardingFingerprint, codexForwardingMetadata } from "../src/context-history/replayability.js";
 
 test("Codex host e2e wires install, proxy reduction, report/visual, and MCP recovery together", async () => {
   await withTempHome("lightrsi-codex-e2e-", async (homeDir) => {
@@ -435,6 +436,117 @@ test("Codex streaming requests persist response-session mapping before the next 
         assert.equal(bindings[0]?.responseId, "resp-stream-1");
         assert.equal(bindings[1]?.responseId, "resp-turn-2");
         assert.equal(requests[1]?.previous_response_id, "resp-stream-1");
+
+        const sessionIds = await readdir(join(stateDir, "context-history", "codex", "sessions"));
+        const journal = (await readFile(
+          join(stateDir, "context-history", "codex", "sessions", sessionIds[0] ?? "", "journal.jsonl"),
+          "utf8",
+        )).trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
+          kind: string;
+          status: string;
+          inputItems?: Record<string, unknown>[];
+        });
+        const latestRequest = [...journal].reverse().find((entry) => entry.kind === "request" && entry.status === "completed");
+        const attempts = latestRequest?.inputItems?.flatMap((item) => codexForwardingMetadata(item)?.attempts ?? []) ?? [];
+        assert.ok(attempts.some((attempt) => attempt.outcome === "completed"
+          && attempt.projectionEligible === true
+          && attempt.projectionBoundary === "ordinary_admission"));
+      } finally {
+        await runtime.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+});
+
+test("Codex cached unsupported input fields record effective transport evidence", async () => {
+  await withTempHome("lightrsi-codex-breakpoint-evidence-", async (homeDir) => {
+    const proxyPort = await reserveUnusedPort();
+    const upstreamPort = await reserveUnusedPort();
+    const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
+    const codexConfigPath = defaultCodexConfigPath();
+    const tokenPilotConfigPath = defaultTokenPilotConfigPath();
+    const requests: Array<Record<string, unknown>> = [];
+    const upstream = createHttpServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+      const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+      requests.push(payload);
+      const hasBreakpoint = JSON.stringify(payload).includes("prompt_cache_breakpoint");
+      if (hasBreakpoint) {
+        res.statusCode = 400;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ error: { message: "Unsupported parameter: prompt_cache_breakpoint" } }));
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ id: `resp-breakpoint-${requests.length}`, output: [] }));
+    });
+    await new Promise<void>((resolve, reject) => {
+      upstream.once("error", reject);
+      upstream.listen(upstreamPort, "127.0.0.1", () => { upstream.off("error", reject); resolve(); });
+    });
+    try {
+      await writeTokenPilotCodexConfig(normalizeTokenPilotCodexConfig({
+        proxyPort,
+        stateDir,
+        upstreamProvider: "OpenAI",
+        upstream: {
+          name: "OpenAI",
+          baseUrl: `http://127.0.0.1:${upstreamPort}/v1`,
+          wireApi: "responses",
+          requiresOpenAIAuth: true,
+        },
+      }), tokenPilotConfigPath);
+      const config = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
+      const runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false), codexConfigPath });
+      try {
+        const makeRequest = () => fetch(`${runtime.baseUrl}/responses`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "tokenpilot/gpt-5.4-mini",
+            input: [{
+              role: "developer",
+              content: [{ type: "input_text", text: "stable", prompt_cache_breakpoint: { mode: "explicit" } }],
+            }],
+          }),
+        });
+        assert.equal((await makeRequest()).status, 200);
+        assert.equal((await makeRequest()).status, 200);
+        assert.equal(requests.length, 3);
+        assert.equal(JSON.stringify(requests[0]).includes("prompt_cache_breakpoint"), true);
+        assert.equal(JSON.stringify(requests[1]).includes("prompt_cache_breakpoint"), false);
+        assert.equal(JSON.stringify(requests[2]).includes("prompt_cache_breakpoint"), false);
+
+        const sessionIds = await readdir(join(stateDir, "context-history", "codex", "sessions"));
+        const completedRequests = (await Promise.all(sessionIds.map(async (sessionId) => {
+          const journal = (await readFile(
+            join(stateDir, "context-history", "codex", "sessions", sessionId, "journal.jsonl"),
+            "utf8",
+          )).trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
+            kind: string;
+            status: string;
+            inputItems?: Record<string, unknown>[];
+          });
+          return journal.filter((entry) => entry.kind === "request" && entry.status === "completed");
+        }))).flat();
+        const attemptsFor = (entry: { inputItems?: Record<string, unknown>[] }) =>
+          entry.inputItems?.map((item) => codexForwardingMetadata(item)?.attempts)
+            .find((attempts): attempts is NonNullable<ReturnType<typeof codexForwardingMetadata>>["attempts"] => Boolean(attempts))
+          ?? [];
+        const retriedRequest = completedRequests.find((entry) => {
+          const attempts = attemptsFor(entry);
+          return attempts.length >= 2;
+        });
+        const retriedAttempts = retriedRequest ? attemptsFor(retriedRequest) : [];
+        assert.notEqual(retriedAttempts[0]?.inputFingerprint, retriedAttempts.at(-1)?.inputFingerprint);
+        const cachedRequest = completedRequests.find((entry) => attemptsFor(entry).length === 1);
+        const cachedAttempts = cachedRequest ? attemptsFor(cachedRequest) : [];
+        assert.equal(cachedAttempts.length, 1);
+        assert.equal(cachedAttempts[0]?.inputFingerprint, codexForwardingFingerprint(requests[2]?.input ?? null));
       } finally {
         await runtime.close();
       }

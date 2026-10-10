@@ -1,6 +1,6 @@
 import type { HostRequestEnvelope } from "@lightrsi/host-adapter";
 import type { JsonObject } from "./context-history/types.js";
-import { codexForwardingFingerprint } from "./context-history/replayability.js";
+import { codexForwardingFingerprint, codexWireFingerprint } from "./context-history/replayability.js";
 import { dedupeCodexStableDeveloperMessages } from "./stable-prefix.js";
 import {
   appendCacheAuditRecord,
@@ -64,7 +64,7 @@ export function buildCodexCacheFrontier(params: {
       compatibilityDigest,
       currentAttemptId: params.attemptId ?? null,
       currentItemCount: inputItems.length,
-      currentInputDigest: codexForwardingFingerprint(inputItems),
+      currentInputDigest: codexWireFingerprint(inputItems),
       changeClass: "unknown",
     };
   }
@@ -74,7 +74,7 @@ export function buildCodexCacheFrontier(params: {
       compatibilityDigest,
       currentAttemptId: params.attemptId,
       currentItemCount: inputItems.length,
-      currentInputDigest: codexForwardingFingerprint(inputItems),
+      currentInputDigest: codexWireFingerprint(inputItems),
       changeClass: "unknown",
     };
   }
@@ -91,7 +91,7 @@ export function buildCodexCacheFrontier(params: {
       compatibilityDigest,
       currentAttemptId: params.attemptId,
       currentItemCount: inputItems.length,
-      currentInputDigest: codexForwardingFingerprint(inputItems),
+      currentInputDigest: codexWireFingerprint(inputItems),
       changeClass: "none",
     };
   }
@@ -118,8 +118,8 @@ export function buildCodexCacheFrontier(params: {
       componentDrift: ["compatibility"],
     };
   }
-  const previousDigests = previous.items.map(codexForwardingFingerprint);
-  const currentDigests = inputItems.map(codexForwardingFingerprint);
+  const previousDigests = previous.items.map(codexWireFingerprint);
+  const currentDigests = inputItems.map(codexWireFingerprint);
   let firstChangedIndex = 0;
   while (firstChangedIndex < previousDigests.length
     && firstChangedIndex < currentDigests.length
@@ -153,7 +153,7 @@ export function buildCodexCacheFrontier(params: {
     appendOnly,
     unchangedBytes,
     unchangedChars,
-    currentInputDigest: codexForwardingFingerprint(inputItems),
+    currentInputDigest: codexWireFingerprint(inputItems),
     changeClass: unchanged ? "none" : appendOnly ? "append" : "mutation",
     componentDrift: unchanged ? [] : appendOnly ? ["history_append"] : ["history"],
   };

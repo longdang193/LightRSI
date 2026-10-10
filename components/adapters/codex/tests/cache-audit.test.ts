@@ -101,6 +101,27 @@ test("cache frontier bounds session retention and rejects oversized histories", 
   }).status, "none");
 });
 
+test("cache frontier treats sanitized-field changes as wire mutations", () => {
+  const sessionId = `frontier-sanitized-${Date.now()}`;
+  buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-1",
+    compatibilityDigest: "compat-sanitized",
+    inputItems: [{ id: "item", headers: { authorization: "old" } }],
+    eligible: true,
+  });
+  const mutation = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-2",
+    compatibilityDigest: "compat-sanitized",
+    inputItems: [{ id: "item", headers: { authorization: "new" } }],
+    eligible: true,
+  });
+  assert.equal(mutation.changeClass, "mutation");
+  assert.equal(mutation.firstChangedIndex, 0);
+  assert.equal(mutation.unchangedBytes, 0);
+});
+
 test("summarizeCodexCacheAudit keeps warm hits stable even when response prompt_cache_key is rewritten", () => {
   const summary = summarizeCodexCacheAudit([
     record({

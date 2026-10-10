@@ -49,6 +49,10 @@ export function codexForwardingFingerprint(value: unknown): string {
   return hashJson(canonicalize(sanitizeValue(value)));
 }
 
+export function codexWireFingerprint(value: unknown): string {
+  return hashJson(canonicalize(value));
+}
+
 export function codexStripForwardingMetadata(value: JsonObject): JsonObject {
   const clone = JSON.parse(JSON.stringify(value)) as JsonObject;
   delete clone[CODEX_FORWARDING_METADATA_KEY];

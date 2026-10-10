@@ -1259,14 +1259,14 @@ export async function startCodexResponsesProxy(params: {
       const forwardingAttempts: CodexForwardingAttempt[] = [];
       const forwardingAttemptInputs = new Map<string, JsonObject[]>();
       let forwardingAttemptOrdinal = 0;
-      const projectionBoundary: NonNullable<CodexForwardingAttempt["projectionBoundary"]> = rebaseRequest
+      const projectionBoundary = (nextPayload: JsonObject): NonNullable<CodexForwardingAttempt["projectionBoundary"]> => rebaseRequest
         ? "rebase"
         : manualCleanerReserved
           ? "cleaner_release"
-          : continuationReplayPayload
-            ? "other_rewrite"
-            : compactRequest
-              ? "explicit_compaction"
+          : compactRequest
+            ? "explicit_compaction"
+            : continuationReplayPayload && typeof nextPayload.previous_response_id !== "string"
+              ? "other_rewrite"
               : "ordinary_admission";
       const recordForwardingAttempt = (nextPayload: JsonObject): CodexForwardingAttempt => {
         const kind = nextPayload === fallbackPayload
@@ -1282,14 +1282,24 @@ export async function startCodexResponsesProxy(params: {
           inputFingerprint: codexForwardingFingerprint(nextPayload.input ?? null),
           outcome: "pending",
           kind,
-          projectionBoundary,
-          projectionEligible: projectionBoundary === "ordinary_admission",
+          projectionBoundary: projectionBoundary(nextPayload),
+          projectionEligible: projectionBoundary(nextPayload) === "ordinary_admission",
         };
         forwardingAttempts.push(attempt);
         forwardingAttemptInputs.set(attempt.attemptId, Array.isArray(nextPayload.input)
           ? JSON.parse(JSON.stringify(nextPayload.input)) as JsonObject[]
           : []);
         return attempt;
+      };
+      const updateForwardingAttemptEvidence = (
+        attempt: CodexForwardingAttempt,
+        effectivePayload: JsonObject,
+      ): void => {
+        attempt.payloadFingerprint = codexForwardingFingerprint(effectivePayload);
+        attempt.inputFingerprint = codexForwardingFingerprint(effectivePayload.input ?? null);
+        forwardingAttemptInputs.set(attempt.attemptId, Array.isArray(effectivePayload.input)
+          ? JSON.parse(JSON.stringify(effectivePayload.input)) as JsonObject[]
+          : []);
       };
       const markLastForwardingAttempt = (status: CodexJournalStatus): void => {
         const attempt = forwardingAttempts.at(-1);
@@ -1314,9 +1324,10 @@ export async function startCodexResponsesProxy(params: {
       ): void => {
         for (const [index, transportAttempt] of (response.attempts ?? []).entries()) {
           const effectivePayload = asJsonObject(transportAttempt.effectivePayload) ?? {};
-          const nextAttempt = index === 0
-            ? initialAttempt
-            : recordForwardingAttempt(effectivePayload);
+           const nextAttempt = index === 0
+             ? initialAttempt
+             : recordForwardingAttempt(effectivePayload);
+           updateForwardingAttemptEvidence(nextAttempt, effectivePayload);
           nextAttempt.transportAttemptId = transportAttempt.attemptId;
           nextAttempt.endpointId = transportAttempt.endpointId;
           nextAttempt.resolvedModel = transportAttempt.resolvedModel ?? undefined;
