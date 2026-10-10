@@ -2041,6 +2041,7 @@ async function main(): Promise<void> {
     };
   } catch (error) {
     const failure = error instanceof Error ? error.message : String(error);
+    dispatchedProviderAttempts = countDispatchedProviderAttempts(runs);
     let pairedForReport: unknown[] = [];
     try {
       pairedForReport = pairedDifferences(runs);
