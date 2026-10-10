@@ -113,7 +113,7 @@ export function buildCodexCacheFrontier(params: {
       appendOnly: false,
       unchangedBytes: 0,
       unchangedChars: 0,
-      currentInputDigest: codexForwardingFingerprint(inputItems),
+      currentInputDigest: codexWireFingerprint(inputItems),
       changeClass: "incompatible",
       componentDrift: ["compatibility"],
     };

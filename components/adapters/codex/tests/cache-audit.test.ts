@@ -5,6 +5,7 @@ import {
   summarizeCodexCacheAudit,
   type CodexCacheAuditRecord,
 } from "../src/cache-audit.js";
+import { codexWireFingerprint } from "../src/context-history/replayability.js";
 
 function record(overrides: Partial<CodexCacheAuditRecord>): CodexCacheAuditRecord {
   return {
@@ -120,6 +121,26 @@ test("cache frontier treats sanitized-field changes as wire mutations", () => {
   assert.equal(mutation.changeClass, "mutation");
   assert.equal(mutation.firstChangedIndex, 0);
   assert.equal(mutation.unchangedBytes, 0);
+});
+
+test("cache frontier uses one wire digest domain for incompatible history", () => {
+  const sessionId = `frontier-incompatible-${Date.now()}`;
+  const inputItems = [{ id: "item", headers: { authorization: "secret" } }];
+  buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-1",
+    compatibilityDigest: "compat-1",
+    inputItems,
+    eligible: true,
+  });
+  const incompatible = buildCodexCacheFrontier({
+    sessionId,
+    attemptId: "attempt-2",
+    compatibilityDigest: "compat-2",
+    inputItems,
+    eligible: true,
+  });
+  assert.equal(incompatible.currentInputDigest, codexWireFingerprint(inputItems));
 });
 
 test("summarizeCodexCacheAudit keeps warm hits stable even when response prompt_cache_key is rewritten", () => {

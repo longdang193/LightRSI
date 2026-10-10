@@ -556,6 +556,142 @@ test("Codex cached unsupported input fields record effective transport evidence"
   });
 });
 
+test("Codex incomplete stream without response ID cannot promote projection", async () => {
+  await withTempHome("lightrsi-codex-incomplete-stream-id-", async (homeDir) => {
+    const proxyPort = await reserveUnusedPort();
+    const upstreamPort = await reserveUnusedPort();
+    const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
+    const codexConfigPath = defaultCodexConfigPath();
+    const tokenPilotConfigPath = defaultTokenPilotConfigPath();
+    const upstream = createHttpServer(async (_req, res) => {
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/event-stream; charset=utf-8");
+      res.end("event: response.completed\ndata: {}\n\nevent: done\ndata: [DONE]\n\n");
+    });
+    await new Promise<void>((resolve, reject) => {
+      upstream.once("error", reject);
+      upstream.listen(upstreamPort, "127.0.0.1", () => { upstream.off("error", reject); resolve(); });
+    });
+    try {
+      await writeTokenPilotCodexConfig(normalizeTokenPilotCodexConfig({
+        proxyPort,
+        stateDir,
+        upstreamProvider: "OpenAI",
+        upstream: {
+          name: "OpenAI",
+          baseUrl: `http://127.0.0.1:${upstreamPort}/v1`,
+          wireApi: "responses",
+          requiresOpenAIAuth: true,
+        },
+      }), tokenPilotConfigPath);
+      const config = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
+      const runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false), codexConfigPath });
+      try {
+        const response = await fetch(`${runtime.baseUrl}/responses`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "tokenpilot/gpt-5.4-mini",
+            stream: true,
+            input: [{ role: "user", content: "incomplete" }],
+          }),
+        });
+        assert.equal(response.status, 200);
+        await response.text();
+        const sessionIds = await readdir(join(stateDir, "context-history", "codex", "sessions"));
+        const journal = (await readFile(
+          join(stateDir, "context-history", "codex", "sessions", sessionIds[0] ?? "", "journal.jsonl"),
+          "utf8",
+        )).trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
+          kind: string;
+          status: string;
+          inputItems?: Record<string, unknown>[];
+        });
+        const request = [...journal].reverse().find((entry) => entry.kind === "request");
+        assert.equal(request?.status, "incomplete");
+        const attempts = request?.inputItems?.map((item) => codexForwardingMetadata(item)?.attempts)
+          .find((value): value is NonNullable<ReturnType<typeof codexForwardingMetadata>>["attempts"] => Boolean(value)) ?? [];
+        assert.equal(attempts.at(-1)?.projectionEligible, false);
+      } finally {
+        await runtime.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+});
+
+test("Codex cache frontier records transport option downgrade", async () => {
+  await withTempHome("lightrsi-codex-frontier-downgrade-", async (homeDir) => {
+    const proxyPort = await reserveUnusedPort();
+    const upstreamPort = await reserveUnusedPort();
+    const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
+    const codexConfigPath = defaultCodexConfigPath();
+    const tokenPilotConfigPath = defaultTokenPilotConfigPath();
+    const requests: Array<Record<string, unknown>> = [];
+    const upstream = createHttpServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+      const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+      requests.push(payload);
+      if (requests.length === 2 && "prompt_cache_options" in payload) {
+        res.statusCode = 400;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ error: { message: "Unsupported parameter: prompt_cache_options" } }));
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ id: `resp-frontier-${requests.length}`, output: [] }));
+    });
+    await new Promise<void>((resolve, reject) => {
+      upstream.once("error", reject);
+      upstream.listen(upstreamPort, "127.0.0.1", () => { upstream.off("error", reject); resolve(); });
+    });
+    try {
+      await writeTokenPilotCodexConfig(normalizeTokenPilotCodexConfig({
+        proxyPort,
+        stateDir,
+        upstreamProvider: "OpenAI",
+        upstream: {
+          name: "OpenAI",
+          baseUrl: `http://127.0.0.1:${upstreamPort}/v1`,
+          wireApi: "responses",
+          requiresOpenAIAuth: true,
+        },
+      }), tokenPilotConfigPath);
+      const config = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
+      const runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false), codexConfigPath });
+      try {
+        const makeRequest = () => fetch(`${runtime.baseUrl}/responses`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "tokenpilot/gpt-5.4-mini",
+            prompt_cache_key: "frontier-session",
+            prompt_cache_options: { retention: "24h" },
+            input: [{ role: "user", content: "frontier" }],
+          }),
+        });
+        assert.equal((await makeRequest()).status, 200);
+        assert.equal((await makeRequest()).status, 200);
+        assert.equal(requests.length, 3);
+        const records = (await readFile(join(stateDir, "cache-audit.jsonl"), "utf8"))
+          .trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
+            frontier?: { status?: string; changeClass?: string };
+          });
+        const frontierRecords = records.map((record) => record.frontier);
+        assert.ok(frontierRecords.some((frontier) => frontier?.status === "unmatched"
+          && frontier.changeClass === "incompatible"), JSON.stringify(frontierRecords));
+      } finally {
+        await runtime.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+});
+
 test("Codex streaming client abort settles context-history journal as incomplete", async () => {
   await withTempHome("lightrsi-codex-stream-abort-journal-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();

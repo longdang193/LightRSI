@@ -448,7 +448,7 @@ function streamRequestStatus(params: {
   if (params.httpStatus < 200 || params.httpStatus >= 300) return "failed";
   if (params.collected.status === "failed") return "failed";
   const sawCompleted = (params.collected.eventTypeCounts["response.completed"] ?? 0) > 0;
-  if (params.collected.status !== "completed" || !sawCompleted) return "incomplete";
+  if (params.collected.status !== "completed" || !sawCompleted || !params.collected.responseId) return "incomplete";
   return "completed";
 }
 
@@ -1258,6 +1258,7 @@ export async function startCodexResponsesProxy(params: {
       };
       const forwardingAttempts: CodexForwardingAttempt[] = [];
       const forwardingAttemptInputs = new Map<string, JsonObject[]>();
+      const forwardingAttemptPayloads = new Map<string, JsonObject>();
       let forwardingAttemptOrdinal = 0;
       const projectionBoundary = (nextPayload: JsonObject): NonNullable<CodexForwardingAttempt["projectionBoundary"]> => rebaseRequest
         ? "rebase"
@@ -1289,6 +1290,7 @@ export async function startCodexResponsesProxy(params: {
         forwardingAttemptInputs.set(attempt.attemptId, Array.isArray(nextPayload.input)
           ? JSON.parse(JSON.stringify(nextPayload.input)) as JsonObject[]
           : []);
+        forwardingAttemptPayloads.set(attempt.attemptId, JSON.parse(JSON.stringify(nextPayload)) as JsonObject);
         return attempt;
       };
       const updateForwardingAttemptEvidence = (
@@ -1300,6 +1302,20 @@ export async function startCodexResponsesProxy(params: {
         forwardingAttemptInputs.set(attempt.attemptId, Array.isArray(effectivePayload.input)
           ? JSON.parse(JSON.stringify(effectivePayload.input)) as JsonObject[]
           : []);
+        forwardingAttemptPayloads.set(attempt.attemptId, JSON.parse(JSON.stringify(effectivePayload)) as JsonObject);
+      };
+      const cacheAuditCompatibilityDigestForLatestAttempt = (): string => {
+        const attempt = forwardingAttempts.at(-1);
+        const effectivePayload = attempt ? forwardingAttemptPayloads.get(attempt.attemptId) : undefined;
+        return codexForwardingFingerprint({
+          model: effectivePayload?.model ?? model,
+          endpoint: codexRebaseEndpointIdentity(upstream.baseUrl),
+          provider: upstreamProviderName,
+          providerWirePrefixHash: cacheAuditSnapshot.providerWirePrefixHash ?? null,
+          cacheRelevantOptionFingerprints: cacheRelevantRequestOptionFingerprints(
+            effectivePayload ?? prepared.envelope.rawPayload,
+          ),
+        });
       };
       const markLastForwardingAttempt = (status: CodexJournalStatus): void => {
         const attempt = forwardingAttempts.at(-1);
@@ -1391,13 +1407,6 @@ export async function startCodexResponsesProxy(params: {
           typeof prepared.envelope.metadata?.cacheFamilyId === "string"
             ? prepared.envelope.metadata.cacheFamilyId
             : null,
-      });
-      const cacheAuditCompatibilityDigest = codexForwardingFingerprint({
-        model,
-        endpoint: codexRebaseEndpointIdentity(upstream.baseUrl),
-        provider: upstreamProviderName,
-        providerWirePrefixHash: cacheAuditSnapshot.providerWirePrefixHash ?? null,
-        cacheRelevantOptionFingerprints: cacheRelevantRequestOptionFingerprints(prepared.envelope.rawPayload),
       });
       await appendTrace(config.stateDir, {
         stage: "proxy_before_call",
@@ -1975,7 +1984,7 @@ export async function startCodexResponsesProxy(params: {
           frontier: buildCodexCacheFrontier({
             sessionId,
             attemptId: forwardingAttempts.at(-1)?.attemptId,
-            compatibilityDigest: cacheAuditCompatibilityDigest,
+            compatibilityDigest: cacheAuditCompatibilityDigestForLatestAttempt(),
             inputItems: latestForwardedInputItems(),
             eligible: requestStatus === "completed"
               && forwardingAttempts.at(-1)?.projectionEligible === true,
@@ -2197,7 +2206,7 @@ export async function startCodexResponsesProxy(params: {
         frontier: buildCodexCacheFrontier({
           sessionId,
           attemptId: forwardingAttempts.at(-1)?.attemptId,
-          compatibilityDigest: cacheAuditCompatibilityDigest,
+            compatibilityDigest: cacheAuditCompatibilityDigestForLatestAttempt(),
           inputItems: latestForwardedInputItems(),
           eligible: requestStatus === "completed"
             && forwardingAttempts.at(-1)?.projectionEligible === true,
