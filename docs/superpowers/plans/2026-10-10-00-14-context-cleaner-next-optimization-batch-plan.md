@@ -12,6 +12,7 @@ targets:
   - components/adapters/codex/src/proxy-runtime.ts
   - components/adapters/codex/tests/compaction-route.test.ts
   - components/adapters/codex/tests/upstream.test.ts
+  - components/adapters/codex/tests/benchmark-timing.test.ts
   - .github/workflows/ci.yml
 ---
 
@@ -86,7 +87,7 @@ approvals and force-push blocked.
 
 ## Baseline Evidence
 
-- Current clean base: 7e6c20724ea692428b1392120c087c331c942490 on main.
+- Current clean base: 5c95c6dbd0accf5bf206f5b4bab01c41f4543967 on main.
 - Prior 9Router artifact: C:\tmp\lightrsi-9router-stage-b-live-retry2.json.
 - Prior result: baseline $0.5443128, Cleaner $0.5664016, delta +$0.0220888 (+4.06%); Cleaner input tokens down 7,856 and cached input tokens down 33,792. Cache loss dominates input reduction.
 - Prior targeted provider artifact: C:\tmp\lightrsi-9router-targeted.json.
@@ -103,6 +104,7 @@ approvals and force-push blocked.
 - Shallow projection never mutates input or nested input items.
 - Ordinary /responses requests never strip historical web-search items.
 - Live economics are inconclusive when provider usage, cache evidence, correctness, provider identity, clean-SHA state, or pair comparability is incomplete.
+- An explicit benchmark manifest override resolves to an absolute path and fails closed when unreadable; loader never falls back to another manifest.
 
 ## Task Breakdown
 
@@ -115,7 +117,7 @@ approvals and force-push blocked.
 - Implement one centralized continuation and oracle path while preserving generic arm lifecycle.
 
 **Template Profile:**
-- Controller-selected: unresolved while task is pending
+- Controller-selected: none (lead controller)
 - Selection basis: benchmark semantics and correctness require repository-aware reasoning; lead resolves profile before activation.
 
 **Validator Profile:**
@@ -135,7 +137,7 @@ approvals and force-push blocked.
 
 **Files And Symbols:**
 - Inspect: components/adapters/codex/scripts/benchmark-context-cleaner.ts:FixtureName, FixtureScenario, StageBFixtureSpec, StageBManifest, Fixture, createFixture, runArm, loadStageBManifest
-- Modify: components/adapters/codex/scripts/benchmark-context-cleaner.ts:FixtureName, StageBFixtureSpec, Fixture, createFixture, runArm, new scenario continuation/oracle helper
+- Modify: components/adapters/codex/scripts/benchmark-context-cleaner.ts:FixtureName, StageBFixtureSpec, Fixture, createFixture, runArm, plannedArmProviderAttempts, plannedProviderAttempts, explicit manifest loading, new scenario continuation/oracle helper
 - Modify: docs/superpowers/experiments/2026-10-09-context-cleaner-delayed-recovery.json:fixtures
 - Verify: both paths above
 
@@ -148,18 +150,20 @@ approvals and force-push blocked.
 - Stop for: provider traffic, credential changes, Git commit or push, changed semantics outside five named scenarios, or destructive cleanup.
 
 **Steps:**
-- [ ] Change fixture ID storage and selection to manifest strings; validate non-empty unique IDs, release/cache/recovery fields, and finite scenarios at manifest load.
-- [ ] Add one centralized scenario continuation helper and call it from runArm() at common post-release continuation boundary.
-- [ ] Encode superseding requirement, delayed evidence question, delayed dependency on released evidence, recover-continue-no-loop, and explicit stale/missing reference failure.
-- [ ] Evaluate scenario-specific oracle predicates against forwarded markers, recovery results, and post-restart state; fail when scenario silently follows ordinary release behavior.
-- [ ] Validate JSON manifest, force-track canonical path, and keep provider pricing and five fixture definitions in one source.
+- [x] Change fixture ID storage and selection to manifest strings; validate non-empty unique IDs, release/cache/recovery fields, and finite scenarios at manifest load.
+- [x] Add one centralized scenario continuation helper and call it from runArm() at common post-release continuation boundary.
+- [x] Encode superseding requirement, delayed evidence question, delayed dependency on released evidence, recover-continue-no-loop, and explicit stale/missing reference failure.
+- [x] Evaluate scenario-specific oracle predicates against forwarded markers, recovery results, and post-restart state; fail when scenario silently follows ordinary release behavior.
+- [x] Derive plannedArmProviderAttempts and plannedProviderAttempts from same dispatcher/accounting inputs used to reserve provider attempts; record planned versus dispatched attempts for every scenario, release mode, and causal-pair setting.
+- [x] Make explicit manifest override fail closed on read/parse error; never fall back to default Stage B manifest.
+- [x] Validate JSON manifest, force-track canonical path, and keep provider pricing and five fixture definitions in one source.
 
 **Verification:**
-- [ ] pnpm --dir components/adapters/codex run typecheck
+- [x] pnpm --dir components/adapters/codex run typecheck
 - Expected: TypeScript passes with no new diagnostics.
-- [ ] node --import tsx -e "const m=JSON.parse(require('node:fs').readFileSync('docs/superpowers/experiments/2026-10-09-context-cleaner-delayed-recovery.json','utf8')); if(m.fixtures.length!==5) throw new Error('fixture count'); if(new Set(m.fixtures.map(x=>x.id)).size!==5) throw new Error('fixture IDs'); console.log('manifest ok')"
+- [x] node --import tsx -e "const m=JSON.parse(require('node:fs').readFileSync('docs/superpowers/experiments/2026-10-09-context-cleaner-delayed-recovery.json','utf8')); if(m.fixtures.length!==5) throw new Error('fixture count'); if(new Set(m.fixtures.map(x=>x.id)).size!==5) throw new Error('fixture IDs'); console.log('manifest ok')"
 - Expected: prints manifest ok.
-- [ ] $env:LIGHTRSI_BENCHMARK_MODE='mock'; $env:LIGHTRSI_BENCHMARK_MANIFEST='docs/superpowers/experiments/2026-10-09-context-cleaner-delayed-recovery.json'; $env:LIGHTRSI_BENCHMARK_REPETITIONS='1'; $env:LIGHTRSI_BENCHMARK_OUTPUT='C:\tmp\lightrsi-delayed-recovery-mock.json'; pnpm --dir components/adapters/codex run bench:context-cleaner
+- [x] $manifest=(Resolve-Path 'docs/superpowers/experiments/2026-10-09-context-cleaner-delayed-recovery.json').Path; $env:LIGHTRSI_BENCHMARK_MODE='mock'; $env:LIGHTRSI_BENCHMARK_MANIFEST=$manifest; $env:LIGHTRSI_BENCHMARK_REPETITIONS='1'; $env:LIGHTRSI_BENCHMARK_OUTPUT='C:\tmp\lightrsi-delayed-recovery-mock.json'; pnpm --dir components/adapters/codex run bench:context-cleaner
 - Expected: all five scenarios reach their own oracle and stale reference is not silently accepted.
 
 **Exit Criteria:**
@@ -168,13 +172,13 @@ approvals and force-push blocked.
 ### Task 2: Prove benchmark semantics locally and prepare live evidence
 
 **Purpose:**
-- Establish fresh mock correctness before runtime optimization and define clean-SHA-bound 9Router gate.
+- Establish fresh mock correctness before runtime optimization and define clean-SHA-bound 9Router gate without issuing provider traffic.
 
 **Task Function:**
-- Run reproducible mock proof, inspect completeness, and prepare per-run manifest copy without weakening preflight.
+- Run reproducible mock proof, inspect completeness, and record live-run preconditions without issuing provider traffic.
 
 **Template Profile:**
-- Controller-selected: unresolved while task is pending
+- Controller-selected: none (lead controller)
 - Selection basis: evidence interpretation spans correctness, provider usage, and economics.
 
 **Validator Profile:**
@@ -184,6 +188,7 @@ approvals and force-push blocked.
 **Specification Coverage:**
 - Mock correctness proves scenario semantics.
 - Live evidence requires complete provider usage, cache evidence, correctness, recovery cost, pricing, and economic break-even.
+- Spending-cap compliance and economic break-even are separate report facts; positive Cleaner cost delta is never economic pass.
 - Clean-SHA mismatch remains explicit stop.
 
 **Required Skills:**
@@ -192,33 +197,37 @@ approvals and force-push blocked.
 - skill-verification-before-completion
 
 **Files And Symbols:**
-- Inspect: components/adapters/codex/scripts/benchmark-context-cleaner.ts:report assembly, readGitPreflight, evaluateGitPreflight, provider usage and economic status
+- Inspect: components/adapters/codex/scripts/benchmark-context-cleaner.ts:report assembly, readGitPreflight, evaluateGitPreflight, provider identity preflight, provider usage and economic status
+- Modify: components/adapters/codex/scripts/benchmark-context-cleaner.ts:explicit manifest loading, provider identity preflight, and separate spending/break-even status
+- Modify: components/adapters/codex/tests/benchmark-timing.test.ts:provider mismatch and economic classification regressions
 - Inspect: docs/superpowers/experiments/2026-10-09-context-cleaner-delayed-recovery.json:measurement, provider, pricing, acceptance
-- Verify: C:\tmp\lightrsi-delayed-recovery-mock.json, C:\tmp\lightrsi-delayed-recovery-live.json, C:\tmp\lightrsi-delayed-recovery-live-manifest.json
+- Verify: C:\tmp\lightrsi-delayed-recovery-mock.json
 
 **Dependencies:**
 - Task 1 complete with mock scenario oracles passing.
-- Runtime and benchmark code must be committed and clean before live economics.
+- Live traffic is deferred to Task 5 after Tasks 1 through 4 and a separately authorized clean tested commit handoff.
 
 **Authority:**
-- Preauthorized local actions: run mock mode, inspect JSON reports, create temporary manifest copy outside worktree, and record evidence paths.
-- Stop for: any provider request, credential loading, spending above manifest cap, dirty worktree, SHA mismatch, provider model mismatch, or incomplete usage/correctness evidence.
+- Preauthorized local actions: edit benchmark loader/preflight/report classification and focused tests, run mock mode, inspect JSON reports, record live-run preconditions, and record evidence paths.
+- Stop for: any provider request or credential loading during Task 2, failed mock correctness, or scope expansion. Dirty-worktree, SHA, provider identity, spending-cap, and complete-usage gates apply to Task 5 live execution.
 
 **Steps:**
-- [ ] Run one-repetition mock proof with tracked manifest and output C:\tmp\lightrsi-delayed-recovery-mock.json.
-- [ ] Assert executionStatus=complete, correctnessStatus=pass, five fixture IDs, five scenario oracle passes, and recovery result.
-- [ ] After accepted code exists in a clean tested commit, copy tracked manifest to C:\tmp\lightrsi-delayed-recovery-live-manifest.json, set both SHA fields to exact HEAD, and preserve provider/model/pricing.
-- [ ] With separate provider authorization, run five repetitions through 9Router and write C:\tmp\lightrsi-delayed-recovery-live.json.
-- [ ] Classify pass, fail, or inconclusive from report fields; never equate input-token reduction with lower provider cost.
+- [x] Make explicit manifest loading fail closed; validate resolved provider endpoint and model before dispatch; separate spending-cap status from break-even status; add focused regressions.
+- [x] Run one-repetition mock proof with tracked manifest and output C:\tmp\lightrsi-delayed-recovery-mock.json.
+- [x] Assert statuses.executionStatus=complete, statuses.correctnessStatus=pass, five unique fixture IDs, five scenario oracle passes, recovery result, and experiment.manifestPath equals resolved tracked manifest.
+- [x] Record required clean-SHA, endpoint, model, credential, cap, usage, cache-evidence, correctness, and paired-checkpoint gates for Task 5; do not materialize a live manifest or issue provider traffic here.
+- [x] Confirm mock report exposes separate spending-cap and break-even facts; never equate input-token reduction with lower provider cost.
 
 **Verification:**
-- [ ] $env:LIGHTRSI_BENCHMARK_MODE='mock'; $env:LIGHTRSI_BENCHMARK_MANIFEST='docs/superpowers/experiments/2026-10-09-context-cleaner-delayed-recovery.json'; $env:LIGHTRSI_BENCHMARK_REPETITIONS='1'; $env:LIGHTRSI_BENCHMARK_OUTPUT='C:\tmp\lightrsi-delayed-recovery-mock.json'; pnpm --dir components/adapters/codex run bench:context-cleaner
+- [x] pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/benchmark-timing.test.ts
+- Expected: provider mismatch cannot dispatch; spending-cap and break-even statuses stay distinct.
+- [x] $manifest=(Resolve-Path 'docs/superpowers/experiments/2026-10-09-context-cleaner-delayed-recovery.json').Path; $env:LIGHTRSI_BENCHMARK_MODE='mock'; $env:LIGHTRSI_BENCHMARK_MANIFEST=$manifest; $env:LIGHTRSI_BENCHMARK_REPETITIONS='1'; $env:LIGHTRSI_BENCHMARK_OUTPUT='C:\tmp\lightrsi-delayed-recovery-mock.json'; pnpm --dir components/adapters/codex run bench:context-cleaner
 - Expected: zero exit; complete execution and passing scenario correctness.
-- [ ] Live command after explicit provider authorization: $env:LIGHTRSI_BENCHMARK_MODE='live'; $env:LIGHTRSI_BENCHMARK_MANIFEST='C:\tmp\lightrsi-delayed-recovery-live-manifest.json'; $env:LIGHTRSI_BENCHMARK_REPETITIONS='5'; $env:LIGHTRSI_BENCHMARK_OUTPUT='C:\tmp\lightrsi-delayed-recovery-live.json'; pnpm --dir components/adapters/codex run bench:context-cleaner
-- Expected: only clean matching SHA with complete usage and comparable pairs produces economic pass or fail; all other outcomes inconclusive.
+- [x] node --import tsx -e "const {resolve}=require('node:path'); const r=JSON.parse(require('node:fs').readFileSync('C:\\tmp\\lightrsi-delayed-recovery-mock.json','utf8')); const ids=r.fixtures?.map((f)=>f.id)??[]; const expected=new Set(['requirement-change/late','delayed-question/early','unexpected-dependency/late','recovery-cycle/early','stale-reference/late']); if(r.experiment?.manifestPath!==resolve('docs/superpowers/experiments/2026-10-09-context-cleaner-delayed-recovery.json')||r.statuses?.executionStatus!=='complete'||r.statuses?.correctnessStatus!=='pass'||ids.length!==5||new Set(ids).size!==5||ids.some((id)=>!expected.has(id))) throw new Error('mock evidence incomplete'); console.log('mock evidence ok')"
+- Expected: nested statuses, exact manifest path, and exact five fixture IDs pass.
 
 **Exit Criteria:**
-- Mock semantics proven locally. Live evidence complete and classified, or blocked with exact guard/provider/evidence reason.
+- Mock semantics proven locally; live evidence remains deferred to Task 5 and is later classified or blocked with exact guard/provider/evidence reason.
 
 ### Task 3: Cache compact endpoint capability in process memory
 
@@ -229,7 +238,7 @@ approvals and force-push blocked.
 - Extend existing upstream capability handling with bounded process-local compact status shared by JSON and streaming requests.
 
 **Template Profile:**
-- Controller-selected: unresolved while task is pending
+- Controller-selected: none (lead controller)
 - Selection basis: transport fallback has retry, timeout, and provider error edges.
 
 **Validator Profile:**
@@ -239,8 +248,9 @@ approvals and force-push blocked.
 **Specification Coverage:**
 - Key by capabilityKey(upstream, model).
 - Cache compact 404 as unsupported and compact 2xx as supported only.
-- Do not cache 400, 401, 403, timeout, or 5xx.
+- Do not cache 400, 401, 403, timeout, or 5xx; non-cacheable failures preserve existing state.
 - Known unsupported goes directly fallback; supported stays native; restart reprobes.
+- Concurrent cold probes may duplicate; serialize state updates by probe-generation completion, let first qualifying completion win, and do not let later concurrent results overwrite known state until TTL expiry.
 
 **Required Skills:**
 - skill-backend-verification
@@ -261,16 +271,18 @@ approvals and force-push blocked.
 - Stop for: persistent state/schema changes, changed status classification, provider traffic, credential changes, or unrelated upstream refactors.
 
 **Steps:**
-- [ ] Add compact status map beside existing process-local maps, keyed by capabilityKey and bounded by CAPABILITY_TTL_MS and existing entry limit.
-- [ ] Route known unsupported directly to /responses with existing fallback transformation; keep unknown status probing compact.
-- [ ] Record unsupported after compact 404 and supported after compact 2xx; leave unknown after every other failure or timeout.
-- [ ] Apply same state transitions to JSON and stream functions; preserve transport-fetch counts and retries.
-- [ ] Add loopback tests for first 404 plus second direct fallback, first 2xx plus second native compact, and non-cacheable 400/401/403/5xx.
+- [x] Add compact status map beside existing process-local maps, keyed by capabilityKey and bounded by CAPABILITY_TTL_MS and existing entry limit.
+- [x] Route known unsupported directly to /responses with existing fallback transformation; keep unknown status probing compact.
+- [x] Record unsupported after compact 404 and supported after compact 2xx; non-cacheable results do not modify current state.
+- [x] Bind each qualifying update to still-current probe generation; invalidate generations on TTL expiry, eviction, and reset so old completions cannot repopulate or overwrite newer state.
+- [x] Apply same state transitions to JSON and stream functions; preserve transport-fetch counts and retries.
+- [x] Add loopback tests for first 404 plus second direct fallback, first 2xx plus second native compact, and non-cacheable 400/401/403/5xx.
+- [x] Add focused interleaving tests for concurrent JSON/stream probes, TTL expiry reprobe, bounded eviction, timeout preservation, and restart/reset reprobe; assert first qualifying completion wins, stale generations cannot repopulate state, and duplicate cold probes are allowed.
 
 **Verification:**
-- [ ] pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/upstream.test.ts tests/compaction-route.test.ts
+- [x] pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/upstream.test.ts tests/compaction-route.test.ts
 - Expected: focused suite passes; unsupported makes one compact probe total, supported remains native, non-cacheable errors reprobe.
-- [ ] pnpm --dir components/adapters/codex run typecheck
+- [x] pnpm --dir components/adapters/codex run typecheck
 - Expected: no TypeScript diagnostics.
 
 **Exit Criteria:**
@@ -285,7 +297,7 @@ approvals and force-push blocked.
 - Replace only compact projection clones with copy-on-write top-level objects and new filtered input array.
 
 **Template Profile:**
-- Controller-selected: unresolved while task is pending
+- Controller-selected: none (lead controller)
 - Selection basis: performance-sensitive transformation with strict immutability contract.
 
 **Validator Profile:**
@@ -318,18 +330,18 @@ approvals and force-push blocked.
 - Stop for: global clone replacement, public API expansion beyond narrow projection test seam, changed normal-route filtering, or provider traffic.
 
 **Steps:**
-- [ ] Add the smallest narrow projection seam needed to test copy-on-write, or keep closures private if route tests observe the contract directly.
-- [ ] Replace native compact JSON clone with top-level spread plus deletion on copy.
-- [ ] Replace fallback JSON clone with top-level spread plus stripHistoricalWebSearchCalls(payload.input); retain nested item references.
-- [ ] Assert output identity, new fallback input array, unchanged original input, and unchanged retained nested items.
-- [ ] Keep cloneJsonObject for rebase and replay callers; compare local serialization/projection timing on same payload fixture.
+- [x] Add the smallest narrow projection seam needed to test copy-on-write, or keep closures private if route tests observe the contract directly.
+- [x] Replace native compact JSON clone with top-level spread plus deletion on copy.
+- [x] Replace fallback JSON clone with top-level spread plus stripHistoricalWebSearchCalls(payload.input); retain nested item references.
+- [x] Assert output identity, new fallback input array, unchanged original input, and unchanged retained nested items.
+- [x] Keep cloneJsonObject for rebase and replay callers; compare local serialization/projection timing on same payload fixture.
 
 **Verification:**
-- [ ] pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/compaction-route.test.ts tests/upstream.test.ts
+- [x] pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/compaction-route.test.ts tests/upstream.test.ts
 - Expected: native, fallback, continuation, stream, and retry tests pass; immutability assertions pass.
-- [ ] pnpm --dir components/adapters/codex run typecheck
+- [x] pnpm --dir components/adapters/codex run typecheck
 - Expected: no TypeScript diagnostics.
-- [ ] git diff --check
+- [x] git diff --check
 - Expected: no whitespace errors.
 
 **Exit Criteria:**
@@ -344,7 +356,7 @@ approvals and force-push blocked.
 - Execute approved live benchmark, preserve raw capture, and compare token, cache, latency, recovery, and cost outcomes.
 
 **Template Profile:**
-- Controller-selected: unresolved while task is pending
+- Controller-selected: none (lead controller)
 - Selection basis: external provider economics and clean-SHA evidence require explicit review.
 
 **Validator Profile:**
@@ -375,17 +387,20 @@ approvals and force-push blocked.
 - Stop for: provider request without explicit approval, missing credentials, dirty worktree, SHA mismatch, model mismatch, cap stop, incomplete raw usage, or failed scenario correctness.
 
 **Steps:**
-- [ ] Confirm adapter tests, typecheck, mock benchmark, and clean status before provider traffic.
-- [ ] Materialize temporary manifest with exact clean HEAD, 9Router model cx/gpt-5.6-luna, existing pricing, five repetitions, causal pairs, and $10.00 cap.
-- [ ] Run live benchmark through configured 9Router endpoint and preserve JSON report request bodies, provider usage, response headers, and output item types in runs[].requests[].
-- [ ] Verify every raw response has usage, every parsed request has usage, cache evidence exists, all scenario oracles pass, and paired checkpoints form bijection.
-- [ ] Compare tokens, cache, latency, recovery overhead, and estimated cost against C:\tmp\lightrsi-9router-stage-b-live-retry2.json; classify incomplete evidence inconclusive.
+- [x] Confirm adapter tests, typecheck, mock benchmark, and clean status before provider traffic.
+- [x] Materialize temporary manifest with exact clean HEAD, 9Router model cx/gpt-5.6-luna, approved 9Router base URL, existing pricing, five repetitions, causal pairs, and $10.00 cap.
+- [x] Set LIGHTRSI_BENCHMARK_MODEL='cx/gpt-5.6-luna' and LIGHTRSI_BENCHMARK_BASE_URL to approved 9Router URL; resolve both before dispatch.
+- [x] Set LIGHTRSI_BENCHMARK_RELEASE_MODE='lifecycle', LIGHTRSI_BENCHMARK_ARM_ORDER='alternating', and LIGHTRSI_BENCHMARK_CAUSAL_PAIRS='true'; clear LIGHTRSI_BENCHMARK_FIXTURES so manifest fixture IDs remain authoritative.
+- [x] Validate resolved controls and exact unique fixture ID set before dispatch; report recorded five fixtures and five repetitions.
+- [x] Run live benchmark through configured 9Router endpoint and preserve provider usage, cache identity, response timing, and output item types in per-run provider records.
+- [x] Verify every raw response has usage, every parsed request has usage, cache evidence exists, all scenario oracles pass, and paired checkpoints form bijection.
+- [x] Compare tokens, cache, latency, recovery overhead, and estimated cost against C:\tmp\lightrsi-9router-stage-b-live-retry2.json; report spending-cap status separately and classify positive Cleaner cost delta as break-even failure.
 
 **Verification:**
-- [ ] $env:LIGHTRSI_BENCHMARK_MODE='live'; $env:LIGHTRSI_BENCHMARK_MANIFEST='C:\tmp\lightrsi-delayed-recovery-live-manifest.json'; $env:LIGHTRSI_BENCHMARK_REPETITIONS='5'; $env:LIGHTRSI_BENCHMARK_OUTPUT='C:\tmp\lightrsi-delayed-recovery-live.json'; pnpm --dir components/adapters/codex run bench:context-cleaner
+- [x] Live command completed with explicit credentials file `C:\Users\HOANG PHI LONG DANG\.codex\tokenpilot.env`, model `cx/gpt-5.6-luna`, endpoint `http://127.0.0.1:17667/v1`, temporary manifest `C:\tmp\lightrsi-20261010-next-optimization-9router-manifest.json`, repetitions `5`, and report `C:\tmp\lightrsi-20261010-next-optimization-9router.json`.
 - Expected: success only when clean-SHA and provider guards pass; report includes complete usage, cache, correctness, recovery, pricing, and economic status.
-- [ ] node --import tsx -e "const r=JSON.parse(require('node:fs').readFileSync('C:\\tmp\\lightrsi-delayed-recovery-live.json','utf8')); if(r.executionStatus!=='complete'||r.correctnessStatus!=='pass') throw new Error('live evidence incomplete'); console.log(r.economicStatus)"
-- Expected: prints pass, fail, or inconclusive from report.
+- [x] Parsed `C:\tmp\lightrsi-20261010-next-optimization-9router.json`: `executionStatus=complete`, `measurementStatus=complete`, `correctnessStatus=pass`, `economicStatus=fail`, provider usage complete, cache evidence present, five fixtures, five repetitions, and positive Cleaner cost delta not mislabeled pass.
+- Expected: reads nested status fields, confirms exact fixture/control contract and five repetitions, and rejects positive Cleaner cost mislabeled as economic pass.
 
 **Exit Criteria:**
 - Live 9Router evidence is preserved and classified, or task records exact blocking condition without claiming economic success.
@@ -399,7 +414,7 @@ approvals and force-push blocked.
 - Inspect current rules, then publish one minimal ruleset only after explicit external-write authorization.
 
 **Template Profile:**
-- Controller-selected: unresolved while task is pending
+- Controller-selected: none (lead controller)
 - Selection basis: external repository policy write requires authorization and exact target verification.
 
 **Validator Profile:**
@@ -451,7 +466,7 @@ approvals and force-push blocked.
 - Run final focused checks, inspect diff, and record outcomes and deferrals in this plan.
 
 **Template Profile:**
-- Controller-selected: unresolved while task is pending
+- Controller-selected: none (lead controller)
 - Selection basis: final proof spans benchmark, transport, performance, and external-gate status.
 
 **Validator Profile:**
@@ -482,22 +497,30 @@ approvals and force-push blocked.
 - Stop for: failed required proof, unrecorded scope changes, stale task claims, provider retry, external writes, commit, push, or merge.
 
 **Steps:**
-- [ ] Run focused adapter tests and adapter typecheck.
-- [ ] Run mock delayed-recovery benchmark and inspect five scenario oracles.
-- [ ] Run repository contract and whitespace checks.
-- [ ] Review plan once for exact path, symbol, dependency, authority, and verification consistency; fix plan defects inline.
-- [ ] Record live-provider and GitHub outcomes as verified, blocked, or inconclusive; do not change proposed status to completed.
+- [x] Run focused adapter tests and adapter typecheck.
+- [x] Run mock delayed-recovery benchmark and inspect five scenario oracles.
+- [x] Run repository contract and whitespace checks.
+- [x] Review plan once for exact path, symbol, dependency, authority, and verification consistency; fix plan defects inline.
+- [x] Record live-provider and GitHub outcomes as verified, blocked, or inconclusive; do not change proposed status to completed.
+
+**Execution Record:**
+- Tasks 1 through 4 complete. Focused adapter tests pass: 49 tests. Adapter typecheck passes. Mock benchmark passes all five scenario oracles with 320 planned and 320 dispatched attempts; report exposes separate spending-cap and break-even statuses as inconclusive without provider usage.
+- Task 5 live proof completed at clean SHA 878e2f049e735342603a36823133baa0c8255805. Artifact: C:\tmp\lightrsi-20261010-next-optimization-9router.json. Summary: C:\tmp\lightrsi-9router-next-optimization-summary.json. 50 runs completed; execution and measurement complete; all 50 scenario oracles pass; provider usage complete for seed, baseline, and Cleaner; all 25 pairs comparable; spending cap passes; economic break-even fails.
+- Live delta: Cleaner uses 2,015 fewer input tokens (-0.0810%), 94,208 fewer cached-input tokens (-4.4894%), and 686 more output tokens. Pinned estimate rises from $0.6432892 to $0.7301774, delta +$0.0868882 (+13.5069%). Root cause is provider-prefix cache loss at Cleaner release checkpoints plus higher model output after changed context; no code patch can honestly claim economic pass.
+- Probe found endpoint-gate weakness: delayed-recovery manifest omitted provider.baseUrl, so expected endpoint comparison was optional. Patched manifest, made expectedBaseUrl mandatory in live identity preflight, recorded resolved baseUrl in report, and added focused regression proof. Full live artifact predates this guard-only patch; optimization evidence remains valid, guard patch has fresh local proof.
+- Task 6 blocked: no GitHub ruleset write or merge action authorized in this execution. Repository contract validation reports pre-existing failures in unrelated historical plans; current plan no longer appears among reported profile errors.
+- Plan remains `status: proposed` until live 9Router evidence and external protection read-back are completed or explicitly accepted as blocked.
 
 **Verification:**
-- [ ] pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/upstream.test.ts tests/compaction-route.test.ts
+- [x] pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/upstream.test.ts tests/compaction-route.test.ts tests/benchmark-timing.test.ts
 - Expected: focused adapter suites pass.
-- [ ] pnpm --dir components/adapters/codex run typecheck
+- [x] pnpm --dir components/adapters/codex run typecheck
 - Expected: adapter typecheck passes.
-- [ ] $env:LIGHTRSI_BENCHMARK_MODE='mock'; $env:LIGHTRSI_BENCHMARK_MANIFEST='docs/superpowers/experiments/2026-10-09-context-cleaner-delayed-recovery.json'; $env:LIGHTRSI_BENCHMARK_REPETITIONS='1'; $env:LIGHTRSI_BENCHMARK_OUTPUT='C:\tmp\lightrsi-delayed-recovery-mock.json'; pnpm --dir components/adapters/codex run bench:context-cleaner
+- [x] $manifest=(Resolve-Path 'docs/superpowers/experiments/2026-10-09-context-cleaner-delayed-recovery.json').Path; $env:LIGHTRSI_BENCHMARK_MODE='mock'; $env:LIGHTRSI_BENCHMARK_MANIFEST=$manifest; $env:LIGHTRSI_BENCHMARK_REPETITIONS='1'; $env:LIGHTRSI_BENCHMARK_OUTPUT='C:\tmp\lightrsi-delayed-recovery-mock.json'; pnpm --dir components/adapters/codex run bench:context-cleaner
 - Expected: mock report remains complete and all scenario oracles pass.
-- [ ] git diff --check
+- [x] git diff --check
 - Expected: no whitespace errors.
-- [ ] python "$HOME/.agents/project-os/scripts/validate_repo_contracts.py" --repo-root . --fast
+- [x] python "$HOME/.agents/project-os/scripts/validate_repo_contracts.py" --repo-root . --fast
 - Expected: repository contract validation passes or reports only pre-existing unrelated findings.
 
 **Exit Criteria:**
@@ -505,7 +528,7 @@ approvals and force-push blocked.
 
 ## Verification
 
-- pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/upstream.test.ts tests/compaction-route.test.ts
+- pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/upstream.test.ts tests/compaction-route.test.ts tests/benchmark-timing.test.ts
 - pnpm --dir components/adapters/codex run typecheck
 - Mock delayed-recovery benchmark with tracked manifest and five scenario oracles.
 - Full five-repetition 9Router benchmark with temporary clean-SHA manifest when explicitly authorized.

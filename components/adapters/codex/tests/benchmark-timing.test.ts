@@ -4,14 +4,20 @@ import test from "node:test";
 import { createBenchmarkTiming } from "../src/benchmark-timing.js";
 import {
   captureLiveProvider,
+  benchmarkRunPassed,
+  classifyEconomicStatus,
+  countDispatchedProviderAttempts,
   compareProviderUsage,
   cumulativeBreakEven,
   cumulativeBreakEvenByLabel,
   createBenchmarkReservationLedger,
   estimateProviderCost,
   evaluateGitPreflight,
+  evaluateProviderIdentity,
   providerShapesComparableBeforeRelease,
+  plannedProviderAttempts,
   summarizeSharedSeedUsage,
+  scenarioOracle,
   usageDelta,
   userInputText,
   type ProviderShape,
@@ -63,6 +69,47 @@ test("benchmark counts shared seed usage once", () => {
 
   assert.equal(baseline.status, "complete");
   assert.equal(baseline.totals.inputTokens, 10);
+});
+
+test("benchmark counts shared seed dispatch once", () => {
+  assert.equal(
+    countDispatchedProviderAttempts([
+      { arm: "baseline", upstreamRequestCount: 5, seedRequestCount: 2 } as never,
+      { arm: "cleaner", upstreamRequestCount: 5, seedRequestCount: 2 } as never,
+    ]),
+    8,
+  );
+});
+
+test("benchmark keeps cleaner seed dispatch when baseline pair is missing", () => {
+  assert.equal(
+    countDispatchedProviderAttempts([
+      { arm: "cleaner", upstreamRequestCount: 5, seedRequestCount: 2 } as never,
+    ]),
+    5,
+  );
+});
+
+test("benchmark keeps unaccounted seed dispatch when arm setup fails", () => {
+  assert.equal(countDispatchedProviderAttempts([], 2), 2);
+});
+
+test("benchmark plans shared seed dispatch once", () => {
+  assert.equal(
+    plannedProviderAttempts([
+      { id: "fixture", scenario: "baseline", releasePosition: "late", cacheCondition: "warm", recovery: false, noiseBefore: 1, noiseBetween: 0 },
+    ] as never, 1, "lifecycle", true),
+    11,
+  );
+});
+
+test("benchmark plans late noise per arm without causal seed", () => {
+  assert.equal(
+    plannedProviderAttempts([
+      { id: "late", scenario: "requirement_change", releasePosition: "late", cacheCondition: "warm", recovery: false, noiseBefore: 12, noiseBetween: 8 },
+    ] as never, 1, "lifecycle", false),
+    56,
+  );
 });
 
 test("summarizes flat request phases without summing overlaps", () => {
@@ -191,6 +238,50 @@ test("benchmark rejects cache identity drift before Cleaner release", () => {
     ),
     false,
   );
+});
+
+test("scenario oracle checks phase order instead of cumulative marker presence", () => {
+  const fixture = { scenario: "delayed_question" } as never;
+  assert.equal(
+    scenarioOracle(fixture, "lifecycle", [
+      "SCENARIO_DELAYED_QUESTION",
+      "AFTER_RESTART",
+      "SCENARIO_DELAYED_ANSWER",
+    ]).passed,
+    true,
+  );
+  assert.equal(
+    scenarioOracle(fixture, "lifecycle", [
+      "SCENARIO_DELAYED_QUESTION",
+      "SCENARIO_DELAYED_ANSWER",
+      "AFTER_RESTART",
+    ]).passed,
+    false,
+  );
+});
+
+test("benchmark run cannot pass when scenario oracle fails", () => {
+  assert.equal(
+    benchmarkRunPassed({ transportPassed: true, scenarioPassed: false, timingComplete: true }),
+    false,
+  );
+});
+
+test("benchmark economics stay inconclusive when correctness fails", () => {
+  const result = classifyEconomicStatus({
+    providerIdentityStatus: "match",
+    gitPreflightStatus: "clean_match",
+    measurementStatus: "complete",
+    correctnessStatus: "fail",
+    executionStatus: "complete",
+    comparablePairCount: 1,
+    economicallyComparablePairCount: 1,
+    underSpendingCap: true,
+    baselineCostUsd: 1,
+    cleanerCostUsd: 0.5,
+  });
+  assert.equal(result.breakEvenStatus, "inconclusive");
+  assert.equal(result.economicStatus, "inconclusive");
 });
 
 test("benchmark allows expected drift at the late Cleaner release boundary", () => {
@@ -455,5 +546,55 @@ test("benchmark Git preflight ignores dirty SHA and marks mismatches", () => {
       expectedBenchmarkSha: "abcdef1",
     }).status,
     "clean_match",
+  );
+});
+
+test("benchmark provider preflight rejects endpoint and model mismatch", () => {
+  assert.deepEqual(
+    evaluateProviderIdentity({
+      expectedProviderName: "9Router",
+      actualProviderName: "other",
+      expectedModel: "cx/gpt-5.6-luna",
+      actualModel: "other/model",
+      actualBaseUrl: "https://provider.example/v1",
+      expectedBaseUrl: "https://expected.example/v1",
+    }),
+    {
+      status: "mismatch",
+      reasons: ["provider_name_mismatch", "model_mismatch", "endpoint_mismatch"],
+    },
+  );
+  assert.deepEqual(
+    evaluateProviderIdentity({
+      expectedProviderName: "9Router",
+      actualProviderName: "9Router",
+      expectedModel: "cx/gpt-5.6-luna",
+      actualModel: "cx/gpt-5.6-luna",
+      actualBaseUrl: "https://9router.example/v1",
+      expectedBaseUrl: "https://9router.example/v1",
+    }),
+    { status: "match", reasons: [] },
+  );
+});
+
+test("benchmark separates spending-cap pass from cost break-even failure", () => {
+  assert.deepEqual(
+    classifyEconomicStatus({
+      providerIdentityStatus: "match",
+      gitPreflightStatus: "clean_match",
+      measurementStatus: "complete",
+      correctnessStatus: "pass",
+      executionStatus: "complete",
+      comparablePairCount: 1,
+      economicallyComparablePairCount: 1,
+      underSpendingCap: true,
+      baselineCostUsd: 1,
+      cleanerCostUsd: 2,
+    }),
+    {
+      spendingCapStatus: "pass",
+      breakEvenStatus: "fail",
+      economicStatus: "fail",
+    },
   );
 });

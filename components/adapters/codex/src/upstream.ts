@@ -67,6 +67,9 @@ const modelCatalogInflight = new Map<string, Promise<string[]>>();
 const capabilityCache = new Map<string, { expiresAt: number; fields: Set<OptionalResponsesField> }>();
 const capabilityInflight = new Map<string, Promise<Set<OptionalResponsesField>>>();
 const MAX_CAPABILITY_CACHE_ENTRIES = 64;
+type CompactCapabilityStatus = "supported" | "unsupported";
+const compactCapabilityCache = new Map<string, { expiresAt: number; generation: number; status: CompactCapabilityStatus }>();
+let compactCapabilityGenerationEpoch = 0;
 
 export function resolveModelFromCatalog(model: string, availableModels: string[]): string {
   const normalizedModel = model.trim();
@@ -435,6 +438,51 @@ function capabilityKey(upstream: CodexProviderConfig, model: string): string {
   return `${endpointFor(upstream)}::${upstream.wireApi ?? "responses"}::${model}`;
 }
 
+function compactCapabilityGeneration(key: string): number {
+  void key;
+  return compactCapabilityGenerationEpoch;
+}
+
+function invalidateCompactCapability(key: string): void {
+  compactCapabilityGenerationEpoch += 1;
+  compactCapabilityCache.delete(key);
+}
+
+function readCompactCapability(key: string): CompactCapabilityStatus | undefined {
+  const cached = compactCapabilityCache.get(key);
+  if (!cached) return undefined;
+  if (cached.expiresAt <= Date.now()) {
+    invalidateCompactCapability(key);
+    return undefined;
+  }
+  return cached.status;
+}
+
+function rememberCompactCapability(
+  key: string,
+  generation: number,
+  status: CompactCapabilityStatus,
+): void {
+  if (compactCapabilityGeneration(key) !== generation) return;
+  const current = compactCapabilityCache.get(key);
+  if (current && current.expiresAt > Date.now()) return;
+  compactCapabilityCache.set(key, {
+    expiresAt: Date.now() + CAPABILITY_TTL_MS,
+    generation,
+    status,
+  });
+  while (compactCapabilityCache.size > MAX_CAPABILITY_CACHE_ENTRIES) {
+    const oldest = compactCapabilityCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    invalidateCompactCapability(oldest);
+  }
+}
+
+export function resetCompactCapabilityCache(): void {
+  compactCapabilityGenerationEpoch += 1;
+  compactCapabilityCache.clear();
+}
+
 async function loadUnsupportedOptionalFields(
   stateDir: string | undefined,
   upstream: CodexProviderConfig,
@@ -571,13 +619,32 @@ export async function requestUpstreamResponses(params: {
   const resolvedModel = typeof payload?.model === "string" ? payload.model : "";
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream, resolvedModel);
   payload = clonePayloadWithoutUnsupportedFields(payload, unsupportedFields);
-  let resp = await send(payload, "normal");
-  let text = await resp.text();
-  if (resp.status === 404 && endpointPath === "/responses/compact") {
+  const compactKey = capabilityKey(params.upstream, resolvedModel);
+  const knownCompactCapability = endpointPath === "/responses/compact"
+    ? readCompactCapability(compactKey)
+    : undefined;
+  const compactProbeGeneration = endpointPath === "/responses/compact"
+    ? compactCapabilityGeneration(compactKey)
+    : undefined;
+  let resp: Response;
+  let text: string;
+  if (knownCompactCapability === "unsupported") {
     endpointPath = "/responses";
     payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
     resp = await send(payload, "fallback");
     text = await resp.text();
+  } else {
+    resp = await send(payload, "normal");
+    text = await resp.text();
+    if (endpointPath === "/responses/compact" && resp.status === 404) {
+      rememberCompactCapability(compactKey, compactProbeGeneration!, "unsupported");
+      endpointPath = "/responses";
+      payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
+      resp = await send(payload, "fallback");
+      text = await resp.text();
+    } else if (endpointPath === "/responses/compact" && resp.status >= 200 && resp.status < 300) {
+      rememberCompactCapability(compactKey, compactProbeGeneration!, "supported");
+    }
   }
   if (!resp.ok) {
     const unsupportedField = unsupportedOptionalFieldFromText(text);
@@ -650,12 +717,29 @@ export async function requestUpstreamResponsesStream(params: {
   const resolvedModel = typeof payload?.model === "string" ? payload.model : "";
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream, resolvedModel);
   payload = clonePayloadWithoutUnsupportedFields(payload, unsupportedFields);
-  let resp = await send(payload, "normal");
-  if (resp.status === 404 && endpointPath === "/responses/compact") {
-    await resp.text();
+  const compactKey = capabilityKey(params.upstream, resolvedModel);
+  const knownCompactCapability = endpointPath === "/responses/compact"
+    ? readCompactCapability(compactKey)
+    : undefined;
+  const compactProbeGeneration = endpointPath === "/responses/compact"
+    ? compactCapabilityGeneration(compactKey)
+    : undefined;
+  let resp: Response;
+  if (knownCompactCapability === "unsupported") {
     endpointPath = "/responses";
     payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
     resp = await send(payload, "fallback");
+  } else {
+    resp = await send(payload, "normal");
+    if (endpointPath === "/responses/compact" && resp.status === 404) {
+      await resp.text();
+      rememberCompactCapability(compactKey, compactProbeGeneration!, "unsupported");
+      endpointPath = "/responses";
+      payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
+      resp = await send(payload, "fallback");
+    } else if (endpointPath === "/responses/compact" && resp.status >= 200 && resp.status < 300) {
+      rememberCompactCapability(compactKey, compactProbeGeneration!, "supported");
+    }
   }
   if (!resp.ok) {
     const text = await resp.text();
