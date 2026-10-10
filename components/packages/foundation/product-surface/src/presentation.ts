@@ -16,6 +16,11 @@ import {
   formatOnOff,
   getNestedValue,
 } from "./config.js";
+import {
+  CAVEMAN_POLICY_VERSION,
+  PONYTAIL_POLICY_VERSION,
+  normalizeGenerationPolicyConfig,
+} from "./generation-policy.js";
 
 export type ProductSurfaceLatestUxEffect = {
   sessionId?: string;
@@ -236,6 +241,8 @@ export function formatProductHelp(identity: ProductSurfaceIdentity, section?: st
     `${command} stabilizer ...`,
     `${command} reduction ...`,
     `${command} eviction ...`,
+    `${command} caveman <off|lite|full|ultra>`,
+    `${command} ponytail <off|lite|full|ultra>`,
     "",
     "Core modules:",
     "- Prefix Stabilization: prompt stability and dynamic context target",
@@ -263,6 +270,7 @@ export function summarizeProductStatus(
 ): string {
   const entry = adapter.pluginEntryRecord(cfg);
   const pluginCfg = adapter.pluginConfigRecord(cfg);
+  const generationPolicy = normalizeGenerationPolicyConfig(pluginCfg?.generationPolicy);
   const stabilizerEnabled = getNestedValue(pluginCfg, ["modules", "stabilizer"]);
   const reductionEnabled = getNestedValue(pluginCfg, ["modules", "reduction"]);
   const evictionEnabled = Boolean(getNestedValue(pluginCfg, ["modules", "eviction"])) && Boolean(getNestedValue(pluginCfg, ["eviction", "enabled"]));
@@ -295,6 +303,9 @@ export function summarizeProductStatus(
     `- reduction: ${formatOnOff(reductionEnabled)}`,
     `- lifecycle eviction: ${formatOnOff(evictionEnabled)}`,
     `- task-state estimator: ${formatOnOff(estimatorEnabled)}`,
+    `- Caveman: ${generationPolicy.caveman.enabled ? generationPolicy.caveman.level : "off"}`,
+    `- Ponytail: ${generationPolicy.ponytail.enabled ? generationPolicy.ponytail.level : "off"}`,
+    `- generation policy: ${CAVEMAN_POLICY_VERSION}/${PONYTAIL_POLICY_VERSION}`,
     `- details: ${formatOnOff(getNestedValue(pluginCfg, ["ux", "details"]))}`,
     `- proxyAutostart: ${formatOnOff(pluginCfg?.proxyAutostart)}`,
     `- proxyPort: ${formatDisplayValue(pluginCfg?.proxyPort)}`,

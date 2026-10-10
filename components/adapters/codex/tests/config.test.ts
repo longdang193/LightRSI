@@ -25,6 +25,23 @@ test("normalizeTokenPilotCodexConfig applies stable defaults", () => {
   assert.equal(config.taskStateEstimator.baseUrl, undefined);
   assert.equal(config.taskStateEstimator.requestTimeoutMs, undefined);
   assert.equal(config.taskStateEstimator.inputMode, undefined);
+  assert.deepEqual(config.generationPolicy, {
+    caveman: { enabled: false, level: "full" },
+    ponytail: { enabled: false, level: "full" },
+  });
+});
+
+test("normalizeTokenPilotCodexConfig normalizes independent generation policy settings", () => {
+  const config = normalizeTokenPilotCodexConfig({
+    generationPolicy: {
+      caveman: { enabled: true, level: "ultra" },
+      ponytail: { enabled: "true", level: "invalid" },
+    },
+  });
+  assert.deepEqual(config.generationPolicy, {
+    caveman: { enabled: true, level: "ultra" },
+    ponytail: { enabled: false, level: "full" },
+  });
 });
 test("codexProxyBaseUrl uses canonical loopback port", () => {
   assert.equal(codexProxyBaseUrl({ proxyPort: 17667 }), "http://127.0.0.1:17667/v1");

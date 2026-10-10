@@ -20,9 +20,15 @@ export async function prepareBeforeCall(params: {
   diagnostics: BeforeCallDiagnostics;
 }> {
   const diagnostics: BeforeCallDiagnostics = { notes: [] };
-  const stableEnvelope = params.helpers?.prepareStablePrefix
-    ? params.helpers.prepareStablePrefix(params.envelope)
+  const policyEnvelope = params.helpers?.applyGenerationPolicy
+    ? params.helpers.applyGenerationPolicy(params.envelope)
     : params.envelope;
+  if (params.helpers?.applyGenerationPolicy) {
+    diagnostics.generationPolicyApplied = policyEnvelope !== params.envelope;
+  }
+  const stableEnvelope = params.helpers?.prepareStablePrefix
+    ? params.helpers.prepareStablePrefix(policyEnvelope)
+    : policyEnvelope;
   diagnostics.stablePrefixApplied = stableEnvelope !== params.envelope;
 
   const recovery = injectRecoveryProtocolEnvelope(

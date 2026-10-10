@@ -7,6 +7,7 @@ export async function prepareBeforeCallWithReductionSummary<TReductionSummary>(p
   envelope: HostRequestEnvelope;
   codec: HostPayloadCodec;
   config?: { mode?: "conservative" | "normal" | "aggressive" };
+  applyGenerationPolicy?(envelope: HostRequestEnvelope): HostRequestEnvelope;
   prepareStablePrefix(envelope: HostRequestEnvelope): HostRequestEnvelope;
   applyBeforeCallReduction(args: {
     envelope: HostRequestEnvelope;
@@ -18,6 +19,7 @@ export async function prepareBeforeCallWithReductionSummary<TReductionSummary>(p
     envelope: params.envelope,
     config: params.config,
     helpers: {
+      applyGenerationPolicy: params.applyGenerationPolicy,
       prepareStablePrefix: params.prepareStablePrefix,
       async applyBeforeCallReduction(nextEnvelope) {
         const reduced = await params.applyBeforeCallReduction({

@@ -161,6 +161,7 @@ export async function prepareObservedBeforeCall<TReductionSummary>(params: {
   codec: HostPayloadCodec;
   config?: { mode?: "conservative" | "normal" | "aggressive" };
   prepareStablePrefix(envelope: HostRequestEnvelope): HostRequestEnvelope;
+  applyGenerationPolicy?(envelope: HostRequestEnvelope): HostRequestEnvelope;
   applyBeforeCallReduction(args: {
     envelope: HostRequestEnvelope;
     codec: HostPayloadCodec;
@@ -183,6 +184,7 @@ export async function prepareObservedBeforeCall<TReductionSummary>(params: {
     envelope: params.envelope,
     codec: params.codec,
     config: params.config,
+    applyGenerationPolicy: params.applyGenerationPolicy,
     prepareStablePrefix: params.prepareStablePrefix,
     applyBeforeCallReduction: params.applyBeforeCallReduction,
   });

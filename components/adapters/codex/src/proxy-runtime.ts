@@ -6,6 +6,7 @@ import { once } from "node:events";
 import { performance } from "node:perf_hooks";
 import { Readable, Transform } from "node:stream";
 import {
+  applyGenerationPolicy,
   findFirstMessageText,
   prepareObservedBeforeCall,
 } from "@lightrsi/product-surface";
@@ -1148,6 +1149,11 @@ export async function startCodexResponsesProxy(params: {
       const prepareStablePrefixForCodex = (nextEnvelope: HostRequestEnvelope) => (
         prepareCodexStablePrefix(nextEnvelope, config)
       );
+      const applyGenerationPolicyForCodex = (nextEnvelope: HostRequestEnvelope) => (
+        compactRequest || rebaseRequest || continuationReplayRequest
+          ? nextEnvelope
+          : applyGenerationPolicy(nextEnvelope, config.generationPolicy)
+      );
       const forwardingScopeForCodex = (nextEnvelope: HostRequestEnvelope): CodexForwardingScope => {
         const nextPayload = codec.encodeRequest(nextEnvelope) as JsonObject;
         return {
@@ -1182,6 +1188,7 @@ export async function startCodexResponsesProxy(params: {
         envelope: preparedEnvelope,
         codec,
         config: { mode: "normal" },
+        applyGenerationPolicy: applyGenerationPolicyForCodex,
         prepareStablePrefix: prepareStablePrefixForCodex,
         applyBeforeCallReduction: applyBeforeCallReductionForCodex,
         observability: {
@@ -1236,6 +1243,7 @@ export async function startCodexResponsesProxy(params: {
           envelope,
           codec,
           config: { mode: "normal" },
+          applyGenerationPolicy: applyGenerationPolicyForCodex,
           prepareStablePrefix: prepareStablePrefixForCodex,
           applyBeforeCallReduction: applyBeforeCallReductionForCodex,
         });
@@ -1250,6 +1258,7 @@ export async function startCodexResponsesProxy(params: {
           envelope: continuationEnvelope,
           codec,
           config: { mode: "normal" },
+          applyGenerationPolicy: applyGenerationPolicyForCodex,
           prepareStablePrefix: prepareStablePrefixForCodex,
           applyBeforeCallReduction: applyBeforeCallReductionForCodex,
         });

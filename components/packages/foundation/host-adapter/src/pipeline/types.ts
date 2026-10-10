@@ -20,6 +20,7 @@ export type ReductionSkippedResult = {
 };
 
 export type BeforeCallDiagnostics = {
+  generationPolicyApplied?: boolean;
   stablePrefixApplied?: boolean;
   recoveryInjected?: boolean;
   reductionApplied?: boolean;
@@ -63,6 +64,7 @@ export type HostBeforeCallReductionOrchestrator = {
 };
 
 export type HostPipelineHelpers = {
+  applyGenerationPolicy?(envelope: HostRequestEnvelope): HostRequestEnvelope;
   prepareStablePrefix?(envelope: HostRequestEnvelope): HostRequestEnvelope;
   injectRecoveryProtocol?(envelope: HostRequestEnvelope): HostRequestEnvelope;
   applyBeforeCallReduction?(envelope: HostRequestEnvelope): Promise<HostRequestEnvelope> | HostRequestEnvelope;
