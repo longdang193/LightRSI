@@ -49,7 +49,7 @@ export function projectAssistantHistory(items: readonly unknown[]): Record<strin
 
 export function validateSecurityFixtureOutput(output: string): boolean {
   if (!output.trimStart().startsWith("Security warning:")) return false;
-  const normalized = output.toLowerCase().replace(/\s+/gu, " ");
+  const normalized = output.toLowerCase().replace(/[*_`]/gu, "").replace(/\s+/gu, " ");
   const negation = "(?:do not|don['’]t|never|should not|shouldn['’]t|must not|mustn['’]t)";
   const negatedMitigationPrefix = `\\b${negation}\\s+(?:\\w+\\s+){0,3}`;
   if (new RegExp(`${negatedMitigationPrefix}validat\\w*\\b.{0,120}\\ballow[- ]?list\\b`, "u").test(normalized)
