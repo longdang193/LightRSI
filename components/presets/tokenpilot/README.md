@@ -153,6 +153,8 @@ lightrsi codex doctor
 lightrsi codex mode normal
 lightrsi codex reduction status
 lightrsi codex stabilizer target user
+lightrsi codex caveman <off|lite|full|ultra>
+lightrsi codex ponytail <off|lite|full|ultra>
 ```
 
 Recommended first-run order for Codex:

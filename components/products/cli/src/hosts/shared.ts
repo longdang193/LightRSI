@@ -236,6 +236,8 @@ export function formatRestrictedHostHelp(params: {
     `lightrsi ${params.cliHostName} mode <conservative|normal>`,
     `lightrsi ${params.cliHostName} stabilizer ...`,
     `lightrsi ${params.cliHostName} reduction ...`,
+    `lightrsi ${params.cliHostName} caveman <off|lite|full|ultra>`,
+    `lightrsi ${params.cliHostName} ponytail <off|lite|full|ultra>`,
     "",
     `Not supported on ${params.displayName} yet:`,
     "- settings ...",
@@ -401,6 +403,10 @@ export function createRestrictedHostCommandHandler(params: {
       return { text: `Usage: lightrsi ${params.cliHostName} mode <conservative|normal>` };
     }
 
+    if (action === "caveman" || action === "ponytail") {
+      return sharedHandler(ctx);
+    }
+
     if (action === "settings") {
       return { text: `${params.displayName} does not expose shared runtime settings yet.` };
     }
@@ -425,7 +431,7 @@ export function createRestrictedHostCommandHandler(params: {
     }
 
     return {
-      text: `Unsupported ${params.displayName} command. Supported commands: status, report, doctor, visual, mode <conservative|normal>, reduction ..., stabilizer on|off|target.`,
+      text: `Unsupported ${params.displayName} command. Supported commands: status, report, doctor, visual, mode <conservative|normal>, reduction ..., stabilizer on|off|target, caveman <off|lite|full|ultra>, ponytail <off|lite|full|ultra>.`,
     };
   };
 }
