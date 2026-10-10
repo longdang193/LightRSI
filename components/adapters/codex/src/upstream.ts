@@ -69,7 +69,7 @@ const capabilityInflight = new Map<string, Promise<Set<OptionalResponsesField>>>
 const MAX_CAPABILITY_CACHE_ENTRIES = 64;
 type CompactCapabilityStatus = "supported" | "unsupported";
 const compactCapabilityCache = new Map<string, { expiresAt: number; generation: number; status: CompactCapabilityStatus }>();
-const compactCapabilityGenerations = new Map<string, number>();
+let compactCapabilityGenerationEpoch = 0;
 
 export function resolveModelFromCatalog(model: string, availableModels: string[]): string {
   const normalizedModel = model.trim();
@@ -439,14 +439,12 @@ function capabilityKey(upstream: CodexProviderConfig, model: string): string {
 }
 
 function compactCapabilityGeneration(key: string): number {
-  const generation = compactCapabilityGenerations.get(key);
-  if (generation !== undefined) return generation;
-  compactCapabilityGenerations.set(key, 0);
-  return 0;
+  void key;
+  return compactCapabilityGenerationEpoch;
 }
 
 function invalidateCompactCapability(key: string): void {
-  compactCapabilityGenerations.set(key, compactCapabilityGeneration(key) + 1);
+  compactCapabilityGenerationEpoch += 1;
   compactCapabilityCache.delete(key);
 }
 
@@ -481,7 +479,7 @@ function rememberCompactCapability(
 }
 
 export function resetCompactCapabilityCache(): void {
-  for (const key of compactCapabilityGenerations.keys()) invalidateCompactCapability(key);
+  compactCapabilityGenerationEpoch += 1;
   compactCapabilityCache.clear();
 }
 

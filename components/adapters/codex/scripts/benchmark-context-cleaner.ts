@@ -1813,6 +1813,8 @@ async function main(): Promise<void> {
   const runs: RunResult[] = [];
   let report: JsonObject;
   let passed = false;
+  let plannedAttempts = 0;
+  let dispatchedProviderAttempts = 0;
   let gitPreflight: GitPreflight | null = null;
   let providerIdentityStatus: "mock_fixture" | "match" | "mismatch" = "mock_fixture";
   let providerIdentityReasons: string[] = [];
@@ -1870,7 +1872,7 @@ async function main(): Promise<void> {
       liveOptions = { baseUrl, model, apiKey: process.env.OPENAI_API_KEY!.trim() };
     }
     const selectedFixtures = manifest.fixtures.filter((fixture) => fixtureNames.includes(fixture.id));
-    const plannedAttempts = plannedProviderAttempts(selectedFixtures, repetitions, releaseMode, causalPairs);
+    plannedAttempts = plannedProviderAttempts(selectedFixtures, repetitions, releaseMode, causalPairs);
     const pricing = mode === "live" ? readProviderPricing(manifest.provider) : null;
     const reservationLedger = mode === "live"
       ? createBenchmarkReservationLedger({
@@ -1929,6 +1931,7 @@ async function main(): Promise<void> {
       }
       if (capStopReason) break;
     }
+    dispatchedProviderAttempts = countDispatchedProviderAttempts(runs);
     const differences = pairedDifferences(runs, pricing ?? undefined);
     const providerUsage = mode === "live"
       ? {
@@ -1947,7 +1950,6 @@ async function main(): Promise<void> {
       ? combinedCostUsd <= spendingCapUsd
       : null;
     const executionStatus = runs.length > 0 && runs.every((run) => run.executionStatus === "complete") ? "complete" : runs.length > 0 ? "partial" : "failed";
-    const dispatchedProviderAttempts = countDispatchedProviderAttempts(runs);
     if (executionStatus === "complete") assert.equal(dispatchedProviderAttempts, plannedAttempts, "planned provider attempts must match dispatched attempts");
     const measurementStatus: UsageCompletenessStatus = mode === "mock"
       ? "unavailable"
@@ -2056,6 +2058,8 @@ async function main(): Promise<void> {
         economicStatus: "inconclusive",
       },
       gitPreflight,
+      plannedProviderAttempts: plannedAttempts,
+      dispatchedProviderAttempts,
       runs,
       pairedDifferences: pairedForReport,
       failure,
