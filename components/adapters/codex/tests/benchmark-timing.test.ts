@@ -90,8 +90,8 @@ test("benchmark keeps cleaner seed dispatch when baseline pair is missing", () =
   );
 });
 
-test("benchmark keeps completed seed dispatch when seed fails before arms", () => {
-  assert.equal(countDispatchedProviderAttempts([], 1), 1);
+test("benchmark keeps unaccounted seed dispatch when arm setup fails", () => {
+  assert.equal(countDispatchedProviderAttempts([], 2), 2);
 });
 
 test("benchmark plans shared seed dispatch once", () => {

@@ -1909,8 +1909,10 @@ async function main(): Promise<void> {
               `${fixture.name}:${repetition}`,
               seedDispatchCounter,
             );
+            seedDispatchCounter.count = seed.requests.length;
             if (reservationLedger?.stopReason) {
               capStopReason = reservationLedger.stopReason;
+              failedSeedProviderAttempts = seedDispatchCounter.count;
               break;
             }
           }
@@ -1933,7 +1935,8 @@ async function main(): Promise<void> {
             }
           }
         } catch (error) {
-          failedSeedProviderAttempts = seedDispatchCounter.count;
+          const pairHasRun = runs.some((run) => run.fixture === fixture.name && run.repetition === repetition);
+          failedSeedProviderAttempts = pairHasRun ? 0 : seedDispatchCounter.count;
           throw error;
         } finally {
           seed?.cleanup();
