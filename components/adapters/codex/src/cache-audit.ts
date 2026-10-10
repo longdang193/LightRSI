@@ -17,14 +17,35 @@ import {
 export type CodexCacheAuditRecord = CacheAuditRecord;
 export type CodexCacheAuditSummary = CacheAuditSummary;
 
-const frontierHistory = new Map<string, {
+type FrontierHistoryEntry = {
   compatibilityDigest: string;
   attemptId: string;
   items: JsonObject[];
-}>();
+  bytes: number;
+};
+
+const frontierHistory = new Map<string, FrontierHistoryEntry>();
+const MAX_FRONTIER_ENTRIES = 128;
+const MAX_FRONTIER_BYTES = 1_048_576;
+let frontierHistoryBytes = 0;
 
 function itemBytes(item: JsonObject): number {
   return Buffer.byteLength(JSON.stringify(item), "utf8");
+}
+
+function rememberFrontier(sessionId: string, entry: FrontierHistoryEntry): void {
+  const previous = frontierHistory.get(sessionId);
+  if (previous) frontierHistoryBytes -= previous.bytes;
+  frontierHistory.delete(sessionId);
+  frontierHistory.set(sessionId, entry);
+  frontierHistoryBytes += entry.bytes;
+  while (frontierHistory.size > MAX_FRONTIER_ENTRIES || frontierHistoryBytes > MAX_FRONTIER_BYTES) {
+    const oldestSessionId = frontierHistory.keys().next().value;
+    if (oldestSessionId === undefined) break;
+    const oldest = frontierHistory.get(oldestSessionId);
+    frontierHistoryBytes -= oldest?.bytes ?? 0;
+    frontierHistory.delete(oldestSessionId);
+  }
 }
 
 export function buildCodexCacheFrontier(params: {
@@ -36,6 +57,7 @@ export function buildCodexCacheFrontier(params: {
 }): CacheFrontierAggregate {
   const compatibilityDigest = params.compatibilityDigest ?? null;
   const inputItems = params.inputItems ?? [];
+  const inputBytes = inputItems.reduce((sum, item) => sum + itemBytes(item), 0);
   if (!params.eligible || !compatibilityDigest || !params.attemptId) {
     return {
       status: "unknown",
@@ -46,12 +68,23 @@ export function buildCodexCacheFrontier(params: {
       changeClass: "unknown",
     };
   }
+  if (inputBytes > MAX_FRONTIER_BYTES) {
+    return {
+      status: "unknown",
+      compatibilityDigest,
+      currentAttemptId: params.attemptId,
+      currentItemCount: inputItems.length,
+      currentInputDigest: codexForwardingFingerprint(inputItems),
+      changeClass: "unknown",
+    };
+  }
   const previous = frontierHistory.get(params.sessionId);
   if (!previous) {
-    frontierHistory.set(params.sessionId, {
+    rememberFrontier(params.sessionId, {
       compatibilityDigest,
       attemptId: params.attemptId,
       items: structuredClone(inputItems),
+      bytes: inputBytes,
     });
     return {
       status: "none",
@@ -63,10 +96,11 @@ export function buildCodexCacheFrontier(params: {
     };
   }
   if (previous.compatibilityDigest !== compatibilityDigest) {
-    frontierHistory.set(params.sessionId, {
+    rememberFrontier(params.sessionId, {
       compatibilityDigest,
       attemptId: params.attemptId,
       items: structuredClone(inputItems),
+      bytes: inputBytes,
     });
     return {
       status: "unmatched",
@@ -102,10 +136,11 @@ export function buildCodexCacheFrontier(params: {
   const unchangedChars = inputItems
     .slice(0, firstChangedIndex)
     .reduce((sum, item) => sum + JSON.stringify(item).length, 0);
-  frontierHistory.set(params.sessionId, {
+  rememberFrontier(params.sessionId, {
     compatibilityDigest,
     attemptId: params.attemptId,
     items: structuredClone(inputItems),
+    bytes: inputBytes,
   });
   return {
     status: "matched",

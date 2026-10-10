@@ -13,6 +13,10 @@ import {
 } from "../src/reduction.js";
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { loadCodexSessionSnapshot, upsertCodexSessionSnapshot } from "../src/session-state.js";
+import {
+  appendCodexRequestJournalEntry,
+  appendCodexResponseJournalEntry,
+} from "../src/context-history/index.js";
 
 const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
@@ -338,6 +342,119 @@ test("hot accepted projection does not cross response branches", async () => {
     });
 
     assert.notEqual(payload.input[0].output, "BRANCH_A_ACCEPTED");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("journal projection reuses a proven ancestor on descendant response head", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-projection-descendant-"));
+  const config = normalizeTokenPilotCodexConfig({
+    stateDir,
+    reduction: {
+      triggerMinChars: 256,
+      maxToolChars: 400,
+      passes: {
+        readStateCompaction: false,
+        toolPayloadTrim: true,
+        htmlSlimming: false,
+        execOutputTruncation: true,
+        agentsStartupOptimization: false,
+      },
+    },
+  });
+  const input = [{
+    type: "function_call_output",
+    call_id: "read-descendant",
+    output: `ORIGINAL\n${"line\n".repeat(600)}`,
+  }];
+  try {
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "projection-descendant-session",
+      response: { id: "resp-A", output: [] },
+      status: "completed",
+    });
+    await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "projection-descendant-session",
+      previousResponseId: "resp-A",
+      response: { id: "resp-B", output: [] },
+      status: "completed",
+    });
+    await appendCodexRequestJournalEntry({
+      stateDir,
+      sessionId: "projection-descendant-session",
+      requestId: "ancestor-request",
+      payload: { input },
+      acceptedInputItems: [{ ...input[0], output: "ANCESTOR_ACCEPTED" }],
+      acceptedAtResponseId: "resp-A",
+      forwardingAttempts: [{
+        attemptId: "ancestor-attempt",
+        payloadFingerprint: "payload",
+        inputFingerprint: "input",
+        outcome: "completed",
+        responseProducing: true,
+        projectionEligible: true,
+        projectionBoundary: "ordinary_admission",
+      }],
+      status: "completed",
+    });
+
+    const payload: any = { model: "tokenpilot/gpt-5.4-mini", input: structuredClone(input) };
+    await applyBeforeCallReductionToPayload({
+      payload,
+      sessionId: "projection-descendant-session",
+      config,
+      lineageHeadResponseId: "resp-B",
+    });
+
+    assert.equal(payload.input[0].output, "ANCESTOR_ACCEPTED");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("hot accepted projection keeps current sanitized fields", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-projection-sanitized-hot-"));
+  const config = normalizeTokenPilotCodexConfig({
+    stateDir,
+    reduction: { triggerMinChars: 256, maxToolChars: 400 },
+  });
+  const original = {
+    type: "function_call_output",
+    call_id: "read-sanitized-hot",
+    output: `ORIGINAL\n${"line\n".repeat(600)}`,
+  };
+  try {
+    cacheCodexAcceptedInputProjection({
+      stateDir,
+      sessionId: "projection-sanitized-hot-session",
+      originalItems: [{ ...original, headers: { authorization: "current-A" } }],
+      acceptedItems: [{ ...original, output: "ACCEPTED", headers: { authorization: "cached-A" } }],
+    });
+
+    const replacement: any = {
+      model: "tokenpilot/gpt-5.4-mini",
+      input: [{ ...original, headers: { authorization: "current-B" } }],
+    };
+    await applyBeforeCallReductionToPayload({
+      payload: replacement,
+      sessionId: "projection-sanitized-hot-session",
+      config,
+    });
+    assert.deepEqual(replacement.input[0].headers, { authorization: "current-B" });
+
+    const removed: any = {
+      model: "tokenpilot/gpt-5.4-mini",
+      input: [{ ...original }],
+    };
+    await applyBeforeCallReductionToPayload({
+      payload: removed,
+      sessionId: "projection-sanitized-hot-session",
+      config,
+    });
+    assert.equal("headers" in removed.input[0], false);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

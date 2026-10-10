@@ -78,10 +78,11 @@ function restoreSanitizedFields(current: unknown, accepted: unknown): unknown {
   const currentObject = current && typeof current === "object" && !Array.isArray(current)
     ? current as Record<string, unknown>
     : undefined;
-  return Object.fromEntries(Object.entries(accepted as Record<string, unknown>).map(([key, value]) => [
-    key,
-    restoreSanitizedFields(currentObject?.[key], value),
-  ]).concat(Object.entries(currentObject ?? {})
+  const acceptedObject = accepted as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(acceptedObject).flatMap(([key, value]) => {
+    if (!isSanitizedField(key)) return [[key, restoreSanitizedFields(currentObject?.[key], value)]];
+    return currentObject && key in currentObject ? [[key, currentObject[key]]] : [];
+  }).concat(Object.entries(currentObject ?? {})
     .filter(([key]) => isSanitizedField(key) && !(key in (accepted as Record<string, unknown>)))
     .map(([key, value]) => [key, value])));
 }

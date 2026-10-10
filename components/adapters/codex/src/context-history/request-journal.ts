@@ -249,8 +249,10 @@ export async function findCodexAcceptedInputProjection(params: {
       || finalAttempt.projectionEligible !== true
       || finalAttempt.projectionBoundary !== "ordinary_admission"
     )) continue;
-    if (params.lineageHeadResponseId && entry.acceptedAtResponseId
-      && !responseHeadDescendsFrom(journal.entries, params.lineageHeadResponseId, entry.acceptedAtResponseId)) continue;
+    if (params.lineageHeadResponseId && (
+      !entry.acceptedAtResponseId
+      || !responseHeadDescendsFrom(journal.entries, params.lineageHeadResponseId, entry.acceptedAtResponseId)
+    )) continue;
     const match = codexMatchForwardedPrefix({
       currentItems: params.currentItems,
       historicalItems: entry.inputItems,

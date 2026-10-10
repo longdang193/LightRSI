@@ -70,6 +70,37 @@ test("cache frontier reports append, mutation, and incompatible evidence without
   assert.equal("itemDigests" in append, false);
 });
 
+test("cache frontier bounds session retention and rejects oversized histories", () => {
+  const prefix = `bounded-frontier-${Date.now()}`;
+  const item = [{ id: "item", type: "message" }];
+  const oversized = buildCodexCacheFrontier({
+    sessionId: `${prefix}-oversized`,
+    attemptId: "attempt-oversized",
+    compatibilityDigest: "compat-oversized",
+    inputItems: [{ id: "oversized", type: "message", content: "x".repeat(1_100_000) }],
+    eligible: true,
+  });
+  assert.equal(oversized.status, "unknown");
+
+  for (let index = 0; index < 129; index += 1) {
+    assert.equal(buildCodexCacheFrontier({
+      sessionId: `${prefix}-${index}`,
+      attemptId: `attempt-${index}`,
+      compatibilityDigest: "compat-bounded",
+      inputItems: item,
+      eligible: true,
+    }).status, "none");
+  }
+
+  assert.equal(buildCodexCacheFrontier({
+    sessionId: `${prefix}-0`,
+    attemptId: "attempt-revisited",
+    compatibilityDigest: "compat-bounded",
+    inputItems: item,
+    eligible: true,
+  }).status, "none");
+});
+
 test("summarizeCodexCacheAudit keeps warm hits stable even when response prompt_cache_key is rewritten", () => {
   const summary = summarizeCodexCacheAudit([
     record({

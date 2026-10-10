@@ -874,9 +874,14 @@ export async function applyBeforeCallReductionToPayload(params: {
     let projection = processProjections.get(projectionKey);
     if (projection) rememberProcessProjection(projectionKey, projection);
     let frozenInputItemCount = 0;
-    const applyProjection = (candidate: CodexAcceptedInputProjection): boolean => {
-      if (params.lineageHeadResponseId
-        && candidate.acceptedAtResponseId !== params.lineageHeadResponseId) return false;
+    const applyProjection = (
+      candidate: CodexAcceptedInputProjection,
+      requireExactLineage = false,
+    ): boolean => {
+      if (params.lineageHeadResponseId && (
+        !candidate.acceptedAtResponseId
+        || (requireExactLineage && candidate.acceptedAtResponseId !== params.lineageHeadResponseId)
+      )) return false;
       const match = codexMatchForwardedPrefix({
         currentItems: originalInput,
         historicalItems: candidate.historicalItems,
@@ -891,7 +896,7 @@ export async function applyBeforeCallReductionToPayload(params: {
       frozenInputItemCount = match.prefixLength;
       return true;
     };
-    if (projection && !applyProjection(projection)) {
+    if (projection && !applyProjection(projection, true)) {
       forgetProcessProjection(projectionKey);
       projection = undefined;
     }
