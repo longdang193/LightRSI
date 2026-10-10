@@ -468,10 +468,11 @@ test("benchmark provider preflight rejects endpoint and model mismatch", () => {
       expectedModel: "cx/gpt-5.6-luna",
       actualModel: "other/model",
       actualBaseUrl: "https://provider.example/v1",
+      expectedBaseUrl: "https://expected.example/v1",
     }),
     {
       status: "mismatch",
-      reasons: ["provider_name_mismatch", "model_mismatch"],
+      reasons: ["provider_name_mismatch", "model_mismatch", "endpoint_mismatch"],
     },
   );
   assert.deepEqual(
@@ -481,6 +482,7 @@ test("benchmark provider preflight rejects endpoint and model mismatch", () => {
       expectedModel: "cx/gpt-5.6-luna",
       actualModel: "cx/gpt-5.6-luna",
       actualBaseUrl: "https://9router.example/v1",
+      expectedBaseUrl: "https://9router.example/v1",
     }),
     { status: "match", reasons: [] },
   );

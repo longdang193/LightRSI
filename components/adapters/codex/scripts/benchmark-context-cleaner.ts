@@ -238,7 +238,7 @@ export function evaluateProviderIdentity(params: {
   expectedModel: string;
   actualModel: string;
   actualBaseUrl: string;
-  expectedBaseUrl?: string;
+  expectedBaseUrl: string;
 }): ProviderIdentity {
   const reasons: string[] = [];
   if (params.actualProviderName !== params.expectedProviderName) reasons.push("provider_name_mismatch");
@@ -251,13 +251,11 @@ export function evaluateProviderIdentity(params: {
     reasons.push("endpoint_invalid");
     actualUrl = new URL("http://invalid.local");
   }
-  if (params.expectedBaseUrl) {
-    try {
-      const expectedUrl = new URL(params.expectedBaseUrl);
-      if (expectedUrl.href.replace(/\/+$/u, "") !== actualUrl.href.replace(/\/+$/u, "")) reasons.push("endpoint_mismatch");
-    } catch {
-      reasons.push("expected_endpoint_invalid");
-    }
+  try {
+    const expectedUrl = new URL(params.expectedBaseUrl);
+    if (expectedUrl.href.replace(/\/+$/u, "") !== actualUrl.href.replace(/\/+$/u, "")) reasons.push("endpoint_mismatch");
+  } catch {
+    reasons.push("expected_endpoint_invalid");
   }
   return { status: reasons.length === 0 ? "match" : "mismatch", reasons };
 }
@@ -1805,7 +1803,7 @@ async function main(): Promise<void> {
         expectedModel: String(manifest.provider.model ?? ""),
         actualModel: model,
         actualBaseUrl: baseUrl,
-        expectedBaseUrl: typeof manifest.provider.baseUrl === "string" ? manifest.provider.baseUrl : undefined,
+        expectedBaseUrl: String(manifest.provider.baseUrl ?? ""),
       });
       providerIdentityStatus = providerIdentity.status;
       providerIdentityReasons = providerIdentity.reasons;
@@ -1942,7 +1940,7 @@ async function main(): Promise<void> {
       repetitions,
       fixtures: fixtureNames.map((name) => manifest.fixtures.find((fixture) => fixture.id === name)),
       provider: liveOptions
-        ? { host: new URL(liveOptions.baseUrl).hostname, model: liveOptions.model, identityStatus: providerIdentityStatus, identityReasons: providerIdentityReasons }
+        ? { baseUrl: liveOptions.baseUrl, host: new URL(liveOptions.baseUrl).hostname, model: liveOptions.model, identityStatus: providerIdentityStatus, identityReasons: providerIdentityReasons }
         : null,
       usage: mode === "live" ? "provider_response_usage_when_present" : "provider_usage_unavailable_for_mock_upstream",
       statuses: { executionStatus, measurementStatus, correctnessStatus, economicStatus },
