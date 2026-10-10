@@ -51,8 +51,9 @@ export function validateSecurityFixtureOutput(output: string): boolean {
   if (!output.trimStart().startsWith("Security warning:")) return false;
   const normalized = output.toLowerCase().replace(/\s+/gu, " ");
   const negation = "(?:do not|don['’]t|never|should not|shouldn['’]t|must not|mustn['’]t)";
-  if (new RegExp(`\\b${negation}\\s+validat\\w*\\b.{0,120}\\ballow[- ]?list\\b`, "u").test(normalized)
-    || new RegExp(`\\b${negation}\\s+confine\\b.{0,120}\\bintended\\b.{0,80}\\bdirector\\w*\\b`, "u").test(normalized)) return false;
+  const negatedMitigationPrefix = `\\b${negation}\\s+(?:\\w+\\s+){0,3}`;
+  if (new RegExp(`${negatedMitigationPrefix}validat\\w*\\b.{0,120}\\ballow[- ]?list\\b`, "u").test(normalized)
+    || new RegExp(`${negatedMitigationPrefix}confine\\b.{0,120}\\bintended\\b.{0,80}\\bdirector\\w*\\b`, "u").test(normalized)) return false;
   const mitigationPositions = [
     /\bvalidat\w*\b.{0,120}\ballow[- ]?list\b/u,
     /\bconfine\b.{0,120}\bintended\b.{0,80}\bdirector\w*\b/u,

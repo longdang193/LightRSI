@@ -1150,7 +1150,7 @@ export async function startCodexResponsesProxy(params: {
         prepareCodexStablePrefix(nextEnvelope, config)
       );
       const applyGenerationPolicyForCodex = (nextEnvelope: HostRequestEnvelope) => (
-        compactRequest || rebaseRequest || continuationReplayRequest
+        compactRequest || rebaseRequest
           ? nextEnvelope
           : applyGenerationPolicy(nextEnvelope, config.generationPolicy)
       );
