@@ -4,6 +4,7 @@ import test from "node:test";
 import { createBenchmarkTiming } from "../src/benchmark-timing.js";
 import {
   captureLiveProvider,
+  benchmarkRunPassed,
   classifyEconomicStatus,
   compareProviderUsage,
   cumulativeBreakEven,
@@ -14,6 +15,7 @@ import {
   evaluateProviderIdentity,
   providerShapesComparableBeforeRelease,
   summarizeSharedSeedUsage,
+  scenarioOracle,
   usageDelta,
   userInputText,
   type ProviderShape,
@@ -193,6 +195,50 @@ test("benchmark rejects cache identity drift before Cleaner release", () => {
     ),
     false,
   );
+});
+
+test("scenario oracle checks phase order instead of cumulative marker presence", () => {
+  const fixture = { scenario: "delayed_question" } as never;
+  assert.equal(
+    scenarioOracle(fixture, "lifecycle", [
+      "SCENARIO_DELAYED_QUESTION",
+      "AFTER_RESTART",
+      "SCENARIO_DELAYED_ANSWER",
+    ]).passed,
+    true,
+  );
+  assert.equal(
+    scenarioOracle(fixture, "lifecycle", [
+      "SCENARIO_DELAYED_QUESTION",
+      "SCENARIO_DELAYED_ANSWER",
+      "AFTER_RESTART",
+    ]).passed,
+    false,
+  );
+});
+
+test("benchmark run cannot pass when scenario oracle fails", () => {
+  assert.equal(
+    benchmarkRunPassed({ transportPassed: true, scenarioPassed: false, timingComplete: true }),
+    false,
+  );
+});
+
+test("benchmark economics stay inconclusive when correctness fails", () => {
+  const result = classifyEconomicStatus({
+    providerIdentityStatus: "match",
+    gitPreflightStatus: "clean_match",
+    measurementStatus: "complete",
+    correctnessStatus: "fail",
+    executionStatus: "complete",
+    comparablePairCount: 1,
+    economicallyComparablePairCount: 1,
+    underSpendingCap: true,
+    baselineCostUsd: 1,
+    cleanerCostUsd: 0.5,
+  });
+  assert.equal(result.breakEvenStatus, "inconclusive");
+  assert.equal(result.economicStatus, "inconclusive");
 });
 
 test("benchmark allows expected drift at the late Cleaner release boundary", () => {
@@ -494,6 +540,8 @@ test("benchmark separates spending-cap pass from cost break-even failure", () =>
       providerIdentityStatus: "match",
       gitPreflightStatus: "clean_match",
       measurementStatus: "complete",
+      correctnessStatus: "pass",
+      executionStatus: "complete",
       comparablePairCount: 1,
       economicallyComparablePairCount: 1,
       underSpendingCap: true,

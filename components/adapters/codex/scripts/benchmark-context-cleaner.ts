@@ -133,18 +133,37 @@ function scenarioSteps(scenario: FixtureScenario, phase: ScenarioPhase): Scenari
   return scenario === "baseline" ? [] : steps[scenario][phase];
 }
 
-function scenarioOracle(fixture: Fixture, releaseMode: ReleaseMode, userTexts: string[]): ScenarioOracle {
+export function scenarioOracle(fixture: Fixture, releaseMode: ReleaseMode, userTexts: string[]): ScenarioOracle {
   const expectedMarkers = [
     ...scenarioSteps(fixture.scenario, "before_restart").map((step) => step.content),
     ...(releaseMode === "lifecycle" ? scenarioSteps(fixture.scenario, "after_restart") : []).map((step) => step.content),
   ];
   const observedMarkers = expectedMarkers.filter((marker) => userTexts.some((text) => text.includes(marker)));
   const staleAccepted = userTexts.some((text) => text.includes("SCENARIO_STALE_REFERENCE_ACCEPTED"));
+  const restartIndex = userTexts.findIndex((text) => text.includes("AFTER_RESTART"));
+  const beforeRestartPassed = scenarioSteps(fixture.scenario, "before_restart").every((step) => {
+    const index = userTexts.findIndex((text) => text.includes(step.content));
+    return index >= 0 && (releaseMode !== "lifecycle" || restartIndex < 0 || index < restartIndex);
+  });
+  const afterRestartPassed = releaseMode !== "lifecycle" || (
+    restartIndex >= 0
+    && scenarioSteps(fixture.scenario, "after_restart").every((step) => {
+      const index = userTexts.findIndex((text) => text.includes(step.content));
+      return index > restartIndex;
+    })
+  );
+  const requirementChangeOrder = fixture.scenario !== "requirement_change"
+    || userTexts.findIndex((text) => text.includes("SCENARIO_REQUIREMENT_CHANGE_OLD"))
+      < userTexts.findIndex((text) => text.includes("SCENARIO_REQUIREMENT_CHANGE_NEW"));
   return {
     scenario: fixture.scenario,
     expectedMarkers,
     observedMarkers,
-    passed: observedMarkers.length === expectedMarkers.length && !staleAccepted,
+    passed: observedMarkers.length === expectedMarkers.length
+      && beforeRestartPassed
+      && afterRestartPassed
+      && requirementChangeOrder
+      && !staleAccepted,
   };
 }
 
@@ -262,10 +281,20 @@ export function evaluateProviderIdentity(params: {
 
 export type EconomicDecisionStatus = "pass" | "fail" | "inconclusive";
 
+export function benchmarkRunPassed(params: {
+  transportPassed: boolean;
+  scenarioPassed: boolean;
+  timingComplete: boolean;
+}): boolean {
+  return params.transportPassed && params.scenarioPassed && params.timingComplete;
+}
+
 export function classifyEconomicStatus(params: {
   providerIdentityStatus: "match" | "mismatch";
   gitPreflightStatus: GitPreflight["status"];
   measurementStatus: UsageCompletenessStatus;
+  correctnessStatus: "pass" | "fail" | "unavailable";
+  executionStatus: "complete" | "partial" | "failed";
   comparablePairCount: number;
   economicallyComparablePairCount: number;
   underSpendingCap: boolean | null;
@@ -282,6 +311,8 @@ export function classifyEconomicStatus(params: {
   const comparable = params.providerIdentityStatus === "match"
     && params.gitPreflightStatus === "clean_match"
     && params.measurementStatus === "complete"
+    && params.correctnessStatus === "pass"
+    && params.executionStatus === "complete"
     && params.comparablePairCount > 0
     && params.economicallyComparablePairCount === params.comparablePairCount
     && params.baselineCostUsd !== null
@@ -944,6 +975,14 @@ function summarizeAttempt(request: UpstreamRequest, checkpoint: string) {
   };
 }
 
+function latestUserInputText(request: UpstreamRequest): string {
+  const input = request.body.input;
+  if (!Array.isArray(input)) return JSON.stringify(input ?? request.body);
+  const userItems = input.filter((item): item is JsonObject => Boolean(item && typeof item === "object" && (item as JsonObject).role === "user"));
+  const item = userItems.at(-1);
+  return item ? JSON.stringify(item.content ?? item) : "";
+}
+
 function settleCapturedReservations(
   requests: UpstreamRequest[],
   turns: TurnResult[],
@@ -978,7 +1017,12 @@ function runResultFromRequests(params: {
     ? summarizeUsageValues(usage, params.requests.length).status
     : "unavailable";
   const completeTiming = params.turns.every((turn) => turn.timing.complete);
-  const oracle = scenarioOracle(params.fixture, params.releaseMode, params.requests.map(userInputText));
+  const oracle = scenarioOracle(params.fixture, params.releaseMode, params.requests.map(latestUserInputText));
+  const passed = benchmarkRunPassed({
+    transportPassed: params.passed,
+    scenarioPassed: oracle.passed,
+    timingComplete: completeTiming,
+  });
   return {
     fixture: params.fixture.name,
     releasePosition: params.fixture.releasePosition,
@@ -986,7 +1030,7 @@ function runResultFromRequests(params: {
     recovery: params.fixture.recovery,
     arm: params.arm,
     repetition: params.repetition,
-    passed: params.passed,
+    passed,
     upstreamRequestCount: params.requests.length,
     turns: params.turns,
     localInputBytes: params.requests.map((request) => request.inputBytes),
@@ -996,7 +1040,7 @@ function runResultFromRequests(params: {
     scenarioOracle: oracle,
     seedRequestCount: params.seedRequestCount,
     attempts: params.requests.map((request, index) => summarizeAttempt(request, params.turns[index]?.label ?? `provider_attempt_${index}`)),
-    executionStatus: params.passed && oracle.passed && completeTiming ? "complete" : params.requests.length > 0 ? "partial" : "failed",
+    executionStatus: passed ? "complete" : params.requests.length > 0 ? "partial" : "failed",
     measurementStatus,
     correctnessStatus: params.passed && oracle.passed ? "pass" : "fail",
     economicStatus: "inconclusive",
@@ -1906,6 +1950,8 @@ async function main(): Promise<void> {
         providerIdentityStatus: providerIdentityStatus === "match" ? "match" : "mismatch",
         gitPreflightStatus: gitPreflight.status,
         measurementStatus,
+        correctnessStatus,
+        executionStatus,
         comparablePairCount,
         economicallyComparablePairCount,
         underSpendingCap,
