@@ -1,6 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
+
+import { resolveCavemanPolicy, resolvePonytailPolicy } from "@lightrsi/product-surface";
+import { loadProviderEnvFile, providerModelFromEnvironment } from "./context-rebase-smoke.js";
 
 export const STAGE_A_ARMS = ["baseline", "caveman-full", "ponytail-full", "both-full"] as const;
 export type StageAArm = typeof STAGE_A_ARMS[number];
@@ -9,6 +13,9 @@ export const SECURITY_FIXTURE_PROMPT = [
   "Your response must begin with exactly `Security warning:`.",
   "Include three ordered mitigations: validate against an allowlist, confine the path to the intended directory, and do not execute untrusted files.",
 ].join(" ");
+
+const MULTI_TURN_FIXTURE_PROMPT = "Implement a small validator change. First explain the verification command and one edge-case test for an optional field. Keep the answer actionable.";
+const MULTI_TURN_FIXTURE_FOLLOW_UP = "Now give the final concise implementation checklist, retaining the verification command and the optional-field edge case.";
 
 const REPLAYABLE_TOOL_ITEM_TYPES = new Set([
   "function_call",
@@ -41,6 +48,161 @@ export function projectAssistantHistory(items: readonly unknown[]): Record<strin
 
 export function validateSecurityFixtureOutput(output: string): boolean {
   return output.trimStart().startsWith("Security warning:");
+}
+
+export function validateMultiTurnFixtureOutput(output: string): boolean {
+  const normalized = output.toLowerCase();
+  return normalized.includes("npm test")
+    && normalized.includes("optional")
+    && normalized.includes("edge");
+}
+
+export function buildLiveArmInstructions(arm: StageAArm): string {
+  const blocks: string[] = [];
+  if (arm === "caveman-full" || arm === "both-full") {
+    blocks.push(`[LightRSI Caveman v1 / full]\n${resolveCavemanPolicy("full")}`);
+  }
+  if (arm === "ponytail-full" || arm === "both-full") {
+    blocks.push(`[LightRSI Ponytail v1 / full]\n${resolvePonytailPolicy("full")}`);
+  }
+  return blocks.join("\n\n");
+}
+
+type ProviderUsage = {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+};
+
+export type GenerationPolicyLiveRepairReport = {
+  experiment: string;
+  mode: "live-repair";
+  sourceSha: string;
+  sourceTreeStatus: "clean" | "dirty";
+  model: string;
+  repetitions: number;
+  routerPreflight: RouterSettingsPreflight;
+  providerCalls: number;
+  rows: Array<{
+    arm: StageAArm;
+    fixture: "security" | "multiturn";
+    repetition: number;
+    passed: boolean;
+    outputChars: number;
+    usage: ProviderUsage | null;
+    error: string | null;
+  }>;
+  decision: "no-promotion";
+};
+
+type LiveRepairOptions = {
+  baseUrl: string;
+  routerUrl: string;
+  apiKey: string;
+  model: string;
+  repetitions?: number;
+  fetchImpl?: typeof fetch;
+};
+
+function providerUsage(value: unknown): ProviderUsage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const usage = (value as Record<string, unknown>).usage;
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
+  const record = usage as Record<string, unknown>;
+  const numberValue = (candidate: unknown): number | null => typeof candidate === "number" && Number.isFinite(candidate) ? candidate : null;
+  return {
+    inputTokens: numberValue(record.input_tokens ?? record.prompt_tokens),
+    outputTokens: numberValue(record.output_tokens ?? record.completion_tokens),
+    totalTokens: numberValue(record.total_tokens),
+  };
+}
+
+function responseText(value: Record<string, unknown>): string {
+  if (typeof value.output_text === "string") return value.output_text;
+  if (!Array.isArray(value.output)) return "";
+  return value.output.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const content = (item as Record<string, unknown>).content;
+    if (!Array.isArray(content)) return [];
+    return content.flatMap((part) => {
+      if (!part || typeof part !== "object" || Array.isArray(part)) return [];
+      const text = (part as Record<string, unknown>).text;
+      return typeof text === "string" ? [text] : [];
+    });
+  }).join("");
+}
+
+async function runLiveRequest(
+  options: LiveRepairOptions,
+  instructions: string,
+  input: readonly unknown[],
+): Promise<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null }> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const response = await fetchImpl(`${options.baseUrl.replace(/\/+$/u, "")}/responses`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${options.apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: options.model,
+      store: false,
+      stream: false,
+      max_output_tokens: 1800,
+      instructions,
+      input,
+    }),
+  });
+  const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok) throw new Error(`provider_status:${response.status}`);
+  const output = Array.isArray(body.output) ? body.output : [];
+  return {
+    text: responseText(body),
+    history: projectAssistantHistory(output),
+    usage: providerUsage(body),
+  };
+}
+
+export async function runGenerationPolicyLiveRepair(
+  options: LiveRepairOptions,
+): Promise<GenerationPolicyLiveRepairReport> {
+  const sourceSha = gitOutput(["rev-parse", "HEAD"]);
+  const sourceTreeStatus = gitOutput(["status", "--porcelain"]) ? "dirty" : "clean";
+  if (sourceTreeStatus !== "clean") throw new Error("Live repair requires a clean source checkpoint.");
+  const repetitions = options.repetitions ?? 5;
+  if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 5) {
+    throw new Error("Live repair repetitions must be an integer from 1 through 5.");
+  }
+  const routerPreflight = await readRouterSettingsPreflight(options.routerUrl);
+  if (routerPreflight.status !== "match") throw new Error(`Router preflight failed: ${routerPreflight.status}.`);
+  const rows: GenerationPolicyLiveRepairReport["rows"] = [];
+  let providerCalls = 0;
+  for (const arm of STAGE_A_ARMS) {
+    const instructions = buildLiveArmInstructions(arm);
+    for (let repetition = 0; repetition < repetitions; repetition += 1) {
+      try {
+        providerCalls += 1;
+        const security = await runLiveRequest(options, instructions, [{ role: "user", content: SECURITY_FIXTURE_PROMPT }]);
+        rows.push({ arm, fixture: "security", repetition, passed: validateSecurityFixtureOutput(security.text), outputChars: security.text.length, usage: security.usage, error: null });
+      } catch (error) {
+        rows.push({ arm, fixture: "security", repetition, passed: false, outputChars: 0, usage: null, error: error instanceof Error ? error.message : "provider_error" });
+      }
+      try {
+        providerCalls += 1;
+        const first = await runLiveRequest(options, instructions, [{ role: "user", content: MULTI_TURN_FIXTURE_PROMPT }]);
+        providerCalls += 1;
+        const second = await runLiveRequest(options, instructions, [
+          { role: "user", content: MULTI_TURN_FIXTURE_PROMPT },
+          ...first.history,
+          { role: "user", content: MULTI_TURN_FIXTURE_FOLLOW_UP },
+        ]);
+        rows.push({ arm, fixture: "multiturn", repetition, passed: validateMultiTurnFixtureOutput(second.text), outputChars: second.text.length, usage: second.usage, error: null });
+      } catch (error) {
+        rows.push({ arm, fixture: "multiturn", repetition, passed: false, outputChars: 0, usage: null, error: error instanceof Error ? error.message : "provider_error" });
+      }
+    }
+  }
+  return { experiment: "lightrsi-generation-policy-stage-a-repair", mode: "live-repair", sourceSha, sourceTreeStatus, model: options.model, repetitions, routerPreflight, providerCalls, rows, decision: "no-promotion" };
 }
 
 export type GenerationPolicyBenchmarkReport = {
@@ -138,6 +300,23 @@ export async function runGenerationPolicyBenchmark(options?: { mock?: boolean })
 }
 
 async function main(): Promise<void> {
+  if (process.argv.includes("--live-repair")) {
+    const initialCwd = process.env.INIT_CWD?.trim() || process.cwd();
+    await loadProviderEnvFile(process.env.LIGHTRSI_BENCHMARK_CREDENTIALS_FILE?.trim() || resolve(initialCwd, ".env"));
+    const baseUrl = process.env.LIGHTRSI_BENCHMARK_BASE_URL?.trim() || process.env.OPENAI_BASE_URL?.trim();
+    const routerUrl = process.env.LIGHTRSI_BENCHMARK_ROUTER_URL?.trim();
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    const model = process.env.LIGHTRSI_BENCHMARK_MODEL?.trim() || providerModelFromEnvironment();
+    if (!baseUrl || !routerUrl || !apiKey || !model) {
+      throw new Error("Live repair requires LIGHTRSI_BENCHMARK_BASE_URL, LIGHTRSI_BENCHMARK_ROUTER_URL, OPENAI_API_KEY, and a model.");
+    }
+    const report = await runGenerationPolicyLiveRepair({ baseUrl, routerUrl, apiKey, model });
+    const outputPath = process.env.LIGHTRSI_BENCHMARK_OUTPUT?.trim()
+      || resolve(tmpdir(), "lightrsi-generation-policy-stage-a-repair.json");
+    await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ ...report, outputPath }, null, 2)}\n`);
+    return;
+  }
   const mock = process.argv.includes("--mock");
   const report = await runGenerationPolicyBenchmark({ mock });
   const root = resolve(process.cwd(), "../../..");

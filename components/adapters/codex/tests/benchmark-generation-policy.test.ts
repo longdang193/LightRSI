@@ -4,11 +4,13 @@ import test from "node:test";
 import {
   SECURITY_FIXTURE_PROMPT,
   STAGE_A_ARMS,
+  buildLiveArmInstructions,
   buildMockGenerationPolicyReport,
   evaluateRouterSettingsPreflight,
   projectAssistantHistory,
   runGenerationPolicyBenchmark,
   validateSecurityFixtureOutput,
+  validateMultiTurnFixtureOutput,
 } from "../scripts/benchmark-generation-policy.ts";
 
 test("assistant history projection excludes hidden reasoning and preserves tool closure", () => {
@@ -25,6 +27,19 @@ test("security fixture requires the exact warning prefix", () => {
   assert.match(SECURITY_FIXTURE_PROMPT, /must begin with exactly `Security warning:`/u);
   assert.equal(validateSecurityFixtureOutput("Security warning: validate paths before use."), true);
   assert.equal(validateSecurityFixtureOutput("Warning: validate paths before use."), false);
+});
+
+test("live repair instructions preserve independent arm composition", () => {
+  assert.equal(buildLiveArmInstructions("baseline"), "");
+  assert.match(buildLiveArmInstructions("caveman-full"), /LightRSI Caveman/u);
+  assert.doesNotMatch(buildLiveArmInstructions("caveman-full"), /LightRSI Ponytail/u);
+  assert.match(buildLiveArmInstructions("both-full"), /LightRSI Caveman/u);
+  assert.match(buildLiveArmInstructions("both-full"), /LightRSI Ponytail/u);
+});
+
+test("multi-turn fixture validator requires the requested engineering facts", () => {
+  assert.equal(validateMultiTurnFixtureOutput("Run npm test. Add an edge case test for an optional field."), true);
+  assert.equal(validateMultiTurnFixtureOutput("The implementation is complete."), false);
 });
 
 test("mock generation policy benchmark reports contract evidence without provider calls", async () => {

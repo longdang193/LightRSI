@@ -85,10 +85,10 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Coordination schema: 2
 - Branch: codex/generation-policy
 - Base commit: 06d1e5f4e0e1ad1b29f108299ac7ba2191d61b58
-- Source checkpoint: `7e20393` (`fix: harden generation policy benchmark fixtures`)
+- Source checkpoint: pending clean live-repair harness checkpoint
 - Expected workspace: clean source checkpoint; generated mock Stage A evidence remains outside the checkpoint
-- Next action: restore or check in the approved live harness, then rerun only the failed Stage A fixtures; do not run Stage B or expand adapters
-- Blockers: the tracked benchmark runner remains mock-only and no approved external live harness is currently available; no further provider traffic is authorized from this checkpoint; Claude Code/OpenClaw reuse remains deferred until mechanism-specific value passes
+- Next action: create the clean live-repair harness checkpoint, then run only the failed Stage A fixtures; do not run Stage B or expand adapters
+- Blockers: live traffic remains gated on clean checkpoint, router preflight, provider credentials, and spending accounting; Claude Code/OpenClaw reuse remains deferred until mechanism-specific value passes
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -116,6 +116,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Tracked the harness repair contract: multi-turn replay must retain assistant messages and tool-call items while excluding hidden reasoning items; the security fixture now requires the exact `Security warning:` prefix. Focused benchmark tests, Codex typecheck, and all 556 Codex tests pass.
 - Clean repair checkpoint is `7e20393`; the tracked mock command passes all four arms with zero provider calls. Mock artifacts are preserved outside the checkout under `C:\tmp\lightrsi-generation-policy-stage-a-mock-repair-7e20393`.
 - The tracked benchmark command remains mock-only; no approved external harness was found for the repair rerun. No live traffic was sent from this repair checkpoint.
+- Added an explicit `--live-repair` path to the tracked benchmark runner for only the failed `security` and `multiturn` fixtures; it requires a clean tree, explicit router/API inputs, and writes sanitized evidence outside the checkout.
 
 ## Task Breakdown
 
