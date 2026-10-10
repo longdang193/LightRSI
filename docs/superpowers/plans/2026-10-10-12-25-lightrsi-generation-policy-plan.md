@@ -101,7 +101,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 | Task 6 | complete | current | lead | Tasks 4–5 | local/mock contract matrix | Codex policy contract matrix passes |
 | Task 7 | complete | current | lead | Task 6 | Stage A completed-task benchmark | cache-fix repair completed 60 calls without timeout; baseline and Caveman Full passed 10/10, Ponytail Full passed 8/10, Both Full passed 9/10; no promotion |
 | Task 8 | complete | current | lead | User-approved exploratory exception after Task 7 | Stage B intensity benchmark | six independent arms passed correctness; economics/stability inconclusive; no promotion |
-| Task 9 | complete | current | lead | Task 8 or documented Stage A decision | immutable promotion/economics evidence | mock artifacts, README, defaults, and no-promotion decision reconciled |
+| Task 9 | complete | current | lead | Task 8 or documented Stage A decision | immutable promotion/economics evidence | original Caveman v1 and Ponytail v1 retained; no intensity, default-on, or adapter promotion |
 | Task 10 | deferred | current | lead | Task 9 mechanism-specific correctness and value gate | Claude/OpenClaw reuse tests | deferred; inconclusive mechanisms remain Codex-only |
 
 ### Execution Outcome
@@ -120,6 +120,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Added the exploratory Stage B intensity harness with isolated Caveman/Ponytail Lite, Full, and Ultra arms, shared workload fingerprints, no-promotion mock output, and an explicit live path that reuses the existing clean-checkpoint and router-preflight gates.
 - Ran the approved Stage B independent sweeps from checkpoint `a8dd9d3b`: all six arms passed the two-fixture correctness oracle, each used 15 provider calls across five repetitions, and no router settings changed. Mean latency ranged from 4052.5 ms (Caveman Ultra) to 5077.2 ms (Caveman Lite); economics and stability remain inconclusive because Stage B intentionally has no baseline arm.
 - Existing TokenPilot cache-audit telemetry after the run recorded 43 router telemetry events and 43 configured-gateway identity events, but 0 safe-header and 0 exact route/provider/cache identity events; exact router-side identity remains unavailable.
+- Final promotion decision: retain the original Caveman v1 and Ponytail v1 policy versions; leave both features opt-in and disabled by default, promote no Lite/Ultra intensity variant, and keep Claude Code/OpenClaw reuse deferred.
 - Root cause of Stage A slowness was the session cache-audit fallback scanning the full global JSONL history with `Number.MAX_SAFE_INTEGER`; bounded the compatibility tail lookup to 256 records in both the runtime checkout and tracked source, with a regression test for unavailable old history.
 - Updated the multiturn benchmark oracle to accept the requested verification-command families and equivalent omitted-field wording; focused benchmark tests and stabilizer tests pass.
 - Rebuilt and restarted only TokenPilot with the existing config; 9Router remained unchanged. The final one-repetition smoke through `http://127.0.0.1:17667/v1` used `cx/gpt-5.6-luna`, made 12 provider calls, passed all 8 fixture rows, and recorded evidence at `C:\tmp\lightrsi-generation-policy-stage-a-smoke-after-cache-fix-v3.json`. A direct trace showed `proxy_after_call` approximately 70 ms after a 2.03 s upstream response.
@@ -652,10 +653,10 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Stop for: changing enabled defaults, publishing claims from incomplete evidence, or modifying Cleaner behavior.
 
 **Steps:**
-- [ ] Step 1: Record arm outcomes, workload pins, preflight state, correctness results, economics, latency, and promotion decision.
-- [ ] Step 2: Keep normalized level full while leaving both features disabled unless separately approved default-on change exists.
-- [ ] Step 3: Document Compact/Cleaner/Caveman/Ponytail ownership and explicit no-build list; state Cleaner economics remain unverified or failed where evidence says so.
-- [ ] Step 4: Reconcile README claims with source and dated experiment artifacts.
+- [x] Step 1: Record arm outcomes, workload pins, preflight state, correctness results, economics, latency, and promotion decision.
+- [x] Step 2: Keep normalized level full while leaving both features disabled unless separately approved default-on change exists.
+- [x] Step 3: Document Compact/Cleaner/Caveman/Ponytail ownership and explicit no-build list; state Cleaner economics remain unverified or failed where evidence says so.
+- [x] Step 4: Reconcile README claims with source and dated experiment artifacts.
 
 **Verification:**
 - [ ] pnpm typecheck

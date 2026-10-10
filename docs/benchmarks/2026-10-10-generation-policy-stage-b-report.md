@@ -13,4 +13,5 @@
 - Post-run TokenPilot cache audit: 43 router telemetry events, 43 configured-gateway identity events, 0 safe-header events, and 0 exact route/provider/cache identity events. Exact router-side identity was unavailable.
 - Provider traffic completed through TokenPilot at `http://127.0.0.1:17667/v1` with router `http://127.0.0.1:20128` and model `cx/gpt-5.6-luna`.
 - The exploratory exception does not authorize promotion, default changes, or adapter expansion.
+- Final promotion decision: retain the original Caveman v1 and Ponytail v1 policy versions; promote no new intensity variant or adapter reuse.
 - Decision: no promotion.
