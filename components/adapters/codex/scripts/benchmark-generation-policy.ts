@@ -16,6 +16,7 @@ export const SECURITY_FIXTURE_PROMPT = [
 
 const MULTI_TURN_FIXTURE_PROMPT = "Implement a small validator change. First explain the verification command and one edge-case test for an optional field. Keep the answer actionable.";
 const MULTI_TURN_FIXTURE_FOLLOW_UP = "Now give the final concise implementation checklist, retaining the verification command and the optional-field edge case.";
+const LIVE_REQUEST_TIMEOUT_MS = 120_000;
 
 const REPLAYABLE_TOOL_ITEM_TYPES = new Set([
   "function_call",
@@ -161,6 +162,7 @@ async function runLiveRequest(
       authorization: `Bearer ${options.apiKey}`,
       "content-type": "application/json",
     },
+    signal: AbortSignal.timeout(LIVE_REQUEST_TIMEOUT_MS),
     body: JSON.stringify({
       model: options.model,
       store: false,
