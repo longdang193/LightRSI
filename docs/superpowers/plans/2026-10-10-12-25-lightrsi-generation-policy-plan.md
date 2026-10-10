@@ -85,10 +85,10 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Coordination schema: 2
 - Branch: codex/generation-policy
 - Base commit: 06d1e5f4e0e1ad1b29f108299ac7ba2191d61b58
-- Source checkpoint: `f8ed355` (`feat: add bounded live repair harness`)
+- Source checkpoint: `56a2d2e` (`fix: authenticate router settings preflight`)
 - Expected workspace: clean source checkpoint; generated mock Stage A evidence remains outside the checkpoint
-- Next action: provide the approved provider key/base URL and router URL, then run only the failed Stage A fixtures; do not run Stage B or expand adapters
-- Blockers: live command fail-closed because `OPENAI_API_KEY`, `LIGHTRSI_BENCHMARK_BASE_URL`, `LIGHTRSI_BENCHMARK_ROUTER_URL`, and model inputs are unavailable; Claude Code/OpenClaw reuse remains deferred until mechanism-specific value passes
+- Next action: obtain authenticated read-only 9Router settings access for the runner, then run only the failed Stage A fixtures; do not run Stage B or expand adapters
+- Blockers: Codex `auth.json` key is available for provider traffic, but 9Router `GET /api/settings` returns `401` for that bearer key. Existing dashboard session shows both Caveman and Ponytail effectively disabled, but runner cannot substitute browser-session evidence; no live generation was sent. Claude Code/OpenClaw reuse remains deferred until mechanism-specific value passes
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -118,6 +118,8 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - The tracked benchmark command remains mock-only; no approved external harness was found for the repair rerun. No live traffic was sent from this repair checkpoint.
 - Added an explicit `--live-repair` path to the tracked benchmark runner for only the failed `security` and `multiturn` fixtures; it requires a clean tree, explicit router/API inputs, and writes sanitized evidence outside the checkout.
 - Verified `pnpm --dir components/adapters/codex bench:generation-policy -- --live-repair` fails before provider dispatch when required inputs are absent.
+- Added in-memory fallback to Codex `auth.json` for the live repair key and authenticated the runner read-only router settings request; focused benchmark tests and Codex typecheck pass.
+- Read-only 9Router preflight at `http://127.0.0.1:20128/api/settings` rejects the API key with `401`; authenticated dashboard response at `C:\tmp\9router-settings-response.network-response` reports both Caveman and Ponytail disabled. Live repair remains blocked rather than bypassing the gate.
 
 ## Task Breakdown
 
