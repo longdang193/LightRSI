@@ -62,6 +62,24 @@ cached-input price, plus output tokens × output price.
 
 Passing these checks does not establish universal answer-quality equivalence.
 
+## Post-merge real-session smoke
+
+**Measurement date:** 2026-10-10
+**Runtime commit:** `726df36bb86a10273d1dd5178bef2d57a5cdd951`
+**Boundary:** restarted local Codex proxy at `http://127.0.0.1:17667/v1`
+**Provider:** `9Router`
+**Artifact:** `C:\tmp\lightrsi-real-session-compact-smoke-20261010-v4.json`
+
+- Two bounded Responses requests completed with HTTP `200`.
+- Proxy restart occurred between requests; continuation completed with the
+  same session and a valid response chain.
+- Tool payload reduction applied on the first request: `9,523` characters
+  saved, one item and one block changed.
+- Tool-call closure input remained present; raw prompt, provider response,
+  response ID, and authorization data were not persisted in the artifact.
+- This smoke proves runtime wiring, reduction application, and restart
+  continuity. It is not a new multi-seed economics or answer-quality study.
+
 ## Limits
 
 This is one controlled workload using one provider, model, pricing schedule, and

@@ -1,7 +1,7 @@
 # LightRSI Impact Report
 
 **Measurement date:** 2026-09-24
-**Latest update:** 2026-09-25
+**Latest update:** 2026-10-10
 **Repository:** LightMem2
 **Baseline report commit:** `d6517fd346671d4d2f2cada5c4da58881caba3ef`
 **Environment:** Windows, Node `v24.15.0`
@@ -50,6 +50,7 @@ all models, providers, coding tasks, or session lengths.
 | Context Cleaner mock benchmark | `40` runs, `640` samples per arm, execution complete, correctness pass | Measured |
 | Context Cleaner live Stage B economics | `40` runs, `20` comparable pairs, complete usage/cache/correctness evidence; marginal cost increased `11.07%` | Measured, no savings |
 | Compact admission live evaluation | `3` seeds, `120` provider requests; input tokens reduced `60.91%`; estimated cost reduced `35.11%`; critical-fact and tool-closure checks passed; proxy restart exercised | Measured, workload-specific |
+| Post-merge Compact runtime smoke | `2` bounded `9Router` requests across proxy restart; `2/2` HTTP `200`; session continuity passed; `9,523` tool-payload characters reduced | Measured, wiring/continuity only |
 | Deterministic coding-task pilot | Original `3/3`, fork `3/3` verifier passes across implementation, bug-fix, and recovery/restart tasks; fork used `1,091,844` vs `1,364,321` Codex-reported input tokens (`-19.97%`) | Measured, small pilot |
 | Original-vs-fork provider rebase smoke | Original `5/5` pass; fork `4/5` pass; successful runs saved median `6,471` vs `6,468` input tokens; one fork run had zero replayable items | Measured, limited |
 
