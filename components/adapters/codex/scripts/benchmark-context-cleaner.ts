@@ -1101,6 +1101,7 @@ async function createBenchmarkSeed(
   liveOptions?: LiveOptions,
   reservationLedger: BenchmarkReservationLedger | null = null,
   pairId = `${fixture.name}:${repetition}`,
+  seedDispatchCounter?: { count: number },
 ): Promise<BenchmarkSeed> {
   const environment = createTemporaryAcceptanceEnvironment(`lightrsi-cleaner-benchmark-seed-`);
   const upstream = mode === "mock" ? await startUpstream() : undefined;
@@ -1145,6 +1146,7 @@ async function createBenchmarkSeed(
     await upstream?.close();
     return { stateDir: environment.stateDir, sessionId, history, turns, requests, cleanup: environment.cleanup };
   } catch (error) {
+    if (seedDispatchCounter) seedDispatchCounter.count = upstream?.requests.length ?? liveCapture?.requests.length ?? 0;
     await runtime?.close();
     await liveCapture?.close();
     await upstream?.close();
@@ -1793,7 +1795,10 @@ export function plannedProviderAttempts(
   }, 0);
 }
 
-export function countDispatchedProviderAttempts(runs: Array<Pick<RunResult, "arm" | "fixture" | "repetition" | "upstreamRequestCount" | "seedRequestCount">>): number {
+export function countDispatchedProviderAttempts(
+  runs: Array<Pick<RunResult, "arm" | "fixture" | "repetition" | "upstreamRequestCount" | "seedRequestCount">>,
+  failedSeedRequestCount = 0,
+): number {
   const completePairs = new Set(
     runs
       .filter((run) => run.arm === "baseline")
@@ -1804,7 +1809,7 @@ export function countDispatchedProviderAttempts(runs: Array<Pick<RunResult, "arm
       run.arm === "cleaner" && completePairs.has(`${run.fixture}:${run.repetition}`)
         ? run.seedRequestCount
         : 0
-    ), 0);
+    ), 0) + failedSeedRequestCount;
 }
 
 async function main(): Promise<void> {
@@ -1815,6 +1820,7 @@ async function main(): Promise<void> {
   let passed = false;
   let plannedAttempts = 0;
   let dispatchedProviderAttempts = 0;
+  let failedSeedProviderAttempts = 0;
   let gitPreflight: GitPreflight | null = null;
   let providerIdentityStatus: "mock_fixture" | "match" | "mismatch" = "mock_fixture";
   let providerIdentityReasons: string[] = [];
@@ -1889,6 +1895,7 @@ async function main(): Promise<void> {
           : ["baseline", "cleaner"];
         const fixture = createFixture(fixtureName, manifest);
         let seed: BenchmarkSeed | undefined;
+        const seedDispatchCounter = { count: 0 };
         try {
           if (causalPairs) {
             seed = await createBenchmarkSeed(
@@ -1900,6 +1907,7 @@ async function main(): Promise<void> {
               liveOptions,
               reservationLedger,
               `${fixture.name}:${repetition}`,
+              seedDispatchCounter,
             );
             if (reservationLedger?.stopReason) {
               capStopReason = reservationLedger.stopReason;
@@ -1924,6 +1932,9 @@ async function main(): Promise<void> {
               break;
             }
           }
+        } catch (error) {
+          failedSeedProviderAttempts = seedDispatchCounter.count;
+          throw error;
         } finally {
           seed?.cleanup();
         }
@@ -2041,7 +2052,7 @@ async function main(): Promise<void> {
     };
   } catch (error) {
     const failure = error instanceof Error ? error.message : String(error);
-    dispatchedProviderAttempts = countDispatchedProviderAttempts(runs);
+    dispatchedProviderAttempts = countDispatchedProviderAttempts(runs, failedSeedProviderAttempts);
     let pairedForReport: unknown[] = [];
     try {
       pairedForReport = pairedDifferences(runs);
