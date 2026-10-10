@@ -556,7 +556,7 @@ test("Codex cached unsupported input fields record effective transport evidence"
   });
 });
 
-test("Codex incomplete stream without response ID cannot promote projection", async () => {
+test("Codex malformed completed stream cannot promote projection", async () => {
   await withTempHome("lightrsi-codex-incomplete-stream-id-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const upstreamPort = await reserveUnusedPort();
@@ -566,7 +566,7 @@ test("Codex incomplete stream without response ID cannot promote projection", as
     const upstream = createHttpServer(async (_req, res) => {
       res.statusCode = 200;
       res.setHeader("content-type", "text/event-stream; charset=utf-8");
-      res.end("event: response.completed\ndata: {}\n\nevent: done\ndata: [DONE]\n\n");
+      res.end("event: response.output_text.delta\ndata: {\"delta\":\n\nevent: response.completed\ndata: {\"response\":{\"id\":\"resp-malformed\"}}\n\nevent: done\ndata: [DONE]\n\n");
     });
     await new Promise<void>((resolve, reject) => {
       upstream.once("error", reject);
@@ -634,10 +634,10 @@ test("Codex cache frontier records transport option downgrade", async () => {
       for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
       const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
       requests.push(payload);
-      if (requests.length === 2 && "prompt_cache_options" in payload) {
+      if (requests.length === 2 && JSON.stringify(payload).includes("prompt_cache_breakpoint")) {
         res.statusCode = 400;
         res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ error: { message: "Unsupported parameter: prompt_cache_options" } }));
+        res.end(JSON.stringify({ error: { message: "Unsupported parameter: prompt_cache_breakpoint" } }));
         return;
       }
       res.statusCode = 200;
@@ -670,12 +670,22 @@ test("Codex cache frontier records transport option downgrade", async () => {
             model: "tokenpilot/gpt-5.4-mini",
             prompt_cache_key: "frontier-session",
             prompt_cache_options: { retention: "24h" },
-            input: [{ role: "user", content: "frontier" }],
+            input: [{
+              role: "developer",
+              content: [{
+                type: "input_text",
+                text: "frontier",
+                prompt_cache_breakpoint: { mode: "explicit" },
+              }],
+            }],
           }),
         });
         assert.equal((await makeRequest()).status, 200);
         assert.equal((await makeRequest()).status, 200);
         assert.equal(requests.length, 3);
+        assert.equal(JSON.stringify(requests[0]).includes("prompt_cache_breakpoint"), true);
+        assert.equal(JSON.stringify(requests[1]).includes("prompt_cache_breakpoint"), true);
+        assert.equal(JSON.stringify(requests[2]).includes("prompt_cache_breakpoint"), false);
         const records = (await readFile(join(stateDir, "cache-audit.jsonl"), "utf8"))
           .trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
             frontier?: { status?: string; changeClass?: string };

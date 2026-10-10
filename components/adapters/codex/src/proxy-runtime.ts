@@ -448,7 +448,10 @@ function streamRequestStatus(params: {
   if (params.httpStatus < 200 || params.httpStatus >= 300) return "failed";
   if (params.collected.status === "failed") return "failed";
   const sawCompleted = (params.collected.eventTypeCounts["response.completed"] ?? 0) > 0;
-  if (params.collected.status !== "completed" || !sawCompleted || !params.collected.responseId) return "incomplete";
+  if (params.collected.status !== "completed"
+    || !sawCompleted
+    || !params.collected.responseId
+    || params.collected.malformedEventCount > 0) return "incomplete";
   return "completed";
 }
 
@@ -1311,7 +1314,9 @@ export async function startCodexResponsesProxy(params: {
           model: effectivePayload?.model ?? model,
           endpoint: codexRebaseEndpointIdentity(upstream.baseUrl),
           provider: upstreamProviderName,
-          providerWirePrefixHash: cacheAuditSnapshot.providerWirePrefixHash ?? null,
+          providerWirePrefixHash: effectivePayload
+            ? computeEncodedProviderWirePrefixHash(effectivePayload)
+            : cacheAuditSnapshot.providerWirePrefixHash ?? null,
           cacheRelevantOptionFingerprints: cacheRelevantRequestOptionFingerprints(
             effectivePayload ?? prepared.envelope.rawPayload,
           ),
