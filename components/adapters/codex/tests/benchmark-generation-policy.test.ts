@@ -93,6 +93,10 @@ test("multi-turn fixture validator requires the requested engineering facts", ()
   assert.equal(validateMultiTurnFixtureOutput("The implementation is complete."), false);
 });
 
+test("multi-turn fixture validator rejects a clarification refusal", () => {
+  assert.equal(validateMultiTurnFixtureOutput("Please provide the repository or validator\nfile first. Verification should use pytest, and add an edge-case test for an optional field."), false);
+});
+
 test("mock generation policy benchmark reports contract evidence without provider calls", async () => {
   const report = await runGenerationPolicyBenchmark({ mock: true });
   assert.deepEqual(Object.keys(report.arms), STAGE_A_ARMS);

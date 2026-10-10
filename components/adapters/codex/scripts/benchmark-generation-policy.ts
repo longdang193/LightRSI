@@ -89,7 +89,9 @@ export function validateSecurityFixtureOutput(output: string): boolean {
 }
 
 export function validateMultiTurnFixtureOutput(output: string): boolean {
-  const normalized = output.toLowerCase();
+  const normalized = output.toLowerCase().replace(/\s+/gu, " ");
+  const asksForContext = /(?:\b(?:please\s+)?(?:provide|share|send)\b|\b(?:i\s+)?need\b).{0,120}\b(?:repository|repo|validator|file|details|context)\b/u.test(normalized);
+  if (asksForContext) return false;
   const hasVerificationCommand = ["npm test", "pnpm test", "pytest", "cargo test", "go test"]
     .some((command) => normalized.includes(command));
   return hasVerificationCommand
