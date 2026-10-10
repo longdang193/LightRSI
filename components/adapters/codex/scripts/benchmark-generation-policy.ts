@@ -4,6 +4,53 @@ import { dirname, resolve } from "node:path";
 
 export const STAGE_A_ARMS = ["baseline", "caveman-full", "ponytail-full", "both-full"] as const;
 export type StageAArm = typeof STAGE_A_ARMS[number];
+export const SECURITY_FIXTURE_PROMPT = [
+  "Explain the security risk of accepting an untrusted file path.",
+  "Your response must begin with exactly `Security warning:`.",
+  "Include three ordered mitigations: validate against an allowlist, confine the path to the intended directory, and do not execute untrusted files.",
+].join(" ");
+
+const REPLAYABLE_TOOL_ITEM_TYPES = new Set([
+  "function_call",
+  "function_call_output",
+  "custom_tool_call",
+  "custom_tool_call_output",
+  "computer_call",
+  "computer_call_output",
+  "local_shell_call",
+  "local_shell_call_output",
+  "shell_call",
+  "shell_call_output",
+  "apply_patch_call",
+  "apply_patch_call_output",
+  "tool_search_call",
+  "tool_search_output",
+  "web_search_call",
+  "file_search_call",
+  "code_interpreter_call",
+  "image_generation_call",
+  "mcp_call",
+  "mcp_list_tools",
+  "mcp_approval_request",
+  "mcp_approval_response",
+  "additional_tools",
+]);
+
+export function projectAssistantHistory(items: readonly unknown[]): Record<string, unknown>[] {
+  return items.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    const type = typeof record.type === "string" ? record.type : "";
+    const role = typeof record.role === "string" ? record.role : "";
+    const replayable = type === "message" && role === "assistant"
+      || REPLAYABLE_TOOL_ITEM_TYPES.has(type);
+    return replayable ? [structuredClone(record)] : [];
+  });
+}
+
+export function validateSecurityFixtureOutput(output: string): boolean {
+  return output.trimStart().startsWith("Security warning:");
+}
 
 export type GenerationPolicyBenchmarkReport = {
   experiment: string;

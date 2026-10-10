@@ -2,11 +2,29 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  SECURITY_FIXTURE_PROMPT,
   STAGE_A_ARMS,
   buildMockGenerationPolicyReport,
   evaluateRouterSettingsPreflight,
+  projectAssistantHistory,
   runGenerationPolicyBenchmark,
+  validateSecurityFixtureOutput,
 } from "../scripts/benchmark-generation-policy.ts";
+
+test("assistant history projection excludes hidden reasoning and preserves tool closure", () => {
+  const reasoning = { type: "reasoning", encrypted_content: "secret" };
+  const assistant = { type: "message", role: "assistant", content: [{ type: "output_text", text: "done" }] };
+  const call = { type: "function_call", call_id: "call-1", name: "bash", arguments: "{}" };
+  const output = { type: "function_call_output", call_id: "call-1", output: "ok" };
+
+  assert.deepEqual(projectAssistantHistory([reasoning, assistant, call, output]), [assistant, call, output]);
+});
+
+test("security fixture requires the exact warning prefix", () => {
+  assert.match(SECURITY_FIXTURE_PROMPT, /must begin with exactly `Security warning:`/u);
+  assert.equal(validateSecurityFixtureOutput("Security warning: validate paths before use."), true);
+  assert.equal(validateSecurityFixtureOutput("Warning: validate paths before use."), false);
+});
 
 test("mock generation policy benchmark reports contract evidence without provider calls", async () => {
   const report = await runGenerationPolicyBenchmark({ mock: true });
