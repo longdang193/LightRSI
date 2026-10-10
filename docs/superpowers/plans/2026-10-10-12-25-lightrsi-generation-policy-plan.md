@@ -120,6 +120,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Verified `pnpm --dir components/adapters/codex bench:generation-policy -- --live-repair` fails before provider dispatch when required inputs are absent.
 - Added in-memory fallback to Codex `auth.json` for the live repair key and authenticated the runner read-only router settings request; focused benchmark tests and Codex typecheck pass.
 - Read-only 9Router preflight at `http://127.0.0.1:20128/api/settings` rejects the API key with `401`; authenticated dashboard response at `C:\tmp\9router-settings-response.network-response` reports both Caveman and Ponytail disabled. Live repair remains blocked rather than bypassing the gate.
+- Bounded live-repair command was attempted with Codex-configured `http://127.0.0.1:17667/v1`, router `http://127.0.0.1:20128`, and model `combo-high`; it failed closed with `Router preflight failed: unknown.` before provider dispatch.
 
 ## Task Breakdown
 
