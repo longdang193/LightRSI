@@ -14,6 +14,7 @@ import {
   projectAssistantHistory,
   readRouterSettingsEvidence,
   runGenerationPolicyBenchmark,
+  shouldUseRouterSettingsEvidenceFallback,
   validateSecurityFixtureOutput,
   validateMultiTurnFixtureOutput,
 } from "../scripts/benchmark-generation-policy.ts";
@@ -30,7 +31,9 @@ test("assistant history projection excludes hidden reasoning and preserves tool 
 
 test("security fixture requires the exact warning prefix", () => {
   assert.match(SECURITY_FIXTURE_PROMPT, /must begin with exactly `Security warning:`/u);
-  assert.equal(validateSecurityFixtureOutput("Security warning: validate paths before use."), true);
+  assert.equal(validateSecurityFixtureOutput("Security warning: validate the path against an allowlist; confine it to the intended directory; do not execute untrusted files."), true);
+  assert.equal(validateSecurityFixtureOutput("Security warning:"), false);
+  assert.equal(validateSecurityFixtureOutput("Security warning: confine the path to the intended directory; validate against an allowlist; do not execute untrusted files."), false);
   assert.equal(validateSecurityFixtureOutput("Warning: validate paths before use."), false);
 });
 
@@ -54,7 +57,7 @@ test("mock generation policy benchmark reports contract evidence without provide
   assert.deepEqual(Object.keys(report.arms), STAGE_A_ARMS);
   assert.equal(report.liveEconomics, "inconclusive");
   assert.equal(report.decision, "no-promotion");
-  assert.ok(Object.values(report.arms).every((arm) => arm.correctness === "pass" && arm.stability === "pass" && arm.providerCalls === 0));
+  assert.ok(Object.values(report.arms).every((arm) => arm.correctness === "unavailable" && arm.stability === "unavailable" && arm.providerCalls === 0));
 });
 
 test("mock report stays deterministic apart from repository state", () => {
@@ -72,6 +75,13 @@ test("router preflight fails closed on unknown or mismatched settings", () => {
   assert.equal(evaluateRouterSettingsPreflight({}, { cavemanEnabled: false, ponytailEnabled: false }).status, "unknown");
   assert.equal(evaluateRouterSettingsPreflight({ cavemanEnabled: true, ponytailEnabled: false }, { cavemanEnabled: false, ponytailEnabled: false }).status, "mismatch");
   assert.equal(evaluateRouterSettingsPreflight({ settings: { cavemanEnabled: false, ponytailEnabled: false, rtk: "off" } }, { cavemanEnabled: false, ponytailEnabled: false }).status, "match");
+});
+
+test("router dashboard evidence only replaces unavailable settings authentication", () => {
+  const evidence = { status: "match" as const, source: "dashboard_evidence" as const, settings: {} };
+  assert.equal(shouldUseRouterSettingsEvidenceFallback({ status: "unknown", source: "unavailable", settings: {} }, evidence), true);
+  assert.equal(shouldUseRouterSettingsEvidenceFallback({ status: "mismatch", source: "settings_api", settings: { cavemanEnabled: true, ponytailEnabled: false } }, evidence), false);
+  assert.equal(shouldUseRouterSettingsEvidenceFallback({ status: "unknown", source: "settings_api", settings: {} }, evidence), false);
 });
 
 test("live repair reads Codex auth.json without persisting the key", async () => {

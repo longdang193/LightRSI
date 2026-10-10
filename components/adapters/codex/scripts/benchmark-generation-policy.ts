@@ -48,7 +48,16 @@ export function projectAssistantHistory(items: readonly unknown[]): Record<strin
 }
 
 export function validateSecurityFixtureOutput(output: string): boolean {
-  return output.trimStart().startsWith("Security warning:");
+  if (!output.trimStart().startsWith("Security warning:")) return false;
+  const normalized = output.toLowerCase().replace(/\s+/gu, " ");
+  const mitigationPositions = [
+    /\bvalidat\w*\b.{0,120}\ballow[- ]?list\b/u,
+    /\b(?:confine|restrict|limit)\b.{0,120}\b(?:intended|target|allowed)\b.{0,80}\bdirector\w*\b/u,
+    /\b(?:do not|don't|never)\s+execut\w*\b.{0,80}\buntrusted\s+files?\b/u,
+  ].map((pattern) => normalized.search(pattern));
+  return mitigationPositions.every((position) => position >= 0)
+    && mitigationPositions[0] < mitigationPositions[1]
+    && mitigationPositions[1] < mitigationPositions[2];
 }
 
 export function validateMultiTurnFixtureOutput(output: string): boolean {
@@ -195,8 +204,11 @@ export async function runGenerationPolicyLiveRepair(
     throw new Error("Live repair repetitions must be an integer from 1 through 5.");
   }
   let routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey);
-  if (routerPreflight.status !== "match" && options.routerSettingsEvidencePath) {
-    routerPreflight = await readRouterSettingsEvidence(options.routerSettingsEvidencePath);
+  if (routerPreflight.status === "unknown" && routerPreflight.source === "unavailable" && options.routerSettingsEvidencePath) {
+    const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath);
+    if (shouldUseRouterSettingsEvidenceFallback(routerPreflight, dashboardEvidence)) {
+      routerPreflight = dashboardEvidence;
+    }
   }
   if (routerPreflight.status !== "match") throw new Error(`Router preflight failed: ${routerPreflight.status}.`);
   const rows: GenerationPolicyLiveRepairReport["rows"] = [];
@@ -312,6 +324,15 @@ export async function readRouterSettingsEvidence(path: string): Promise<RouterSe
   }
 }
 
+export function shouldUseRouterSettingsEvidenceFallback(
+  primary: RouterSettingsPreflight,
+  evidence: RouterSettingsPreflight,
+): boolean {
+  return primary.status === "unknown"
+    && primary.source === "unavailable"
+    && evidence.status !== "unknown";
+}
+
 function gitOutput(args: string[]): string {
   return execFileSync("git", args, { encoding: "utf8" }).trim();
 }
@@ -320,8 +341,8 @@ export function buildMockGenerationPolicyReport(): GenerationPolicyBenchmarkRepo
   const sourceSha = gitOutput(["rev-parse", "HEAD"]);
   const sourceTreeStatus = gitOutput(["status", "--porcelain"]) ? "dirty" : "clean";
   const arms = Object.fromEntries(STAGE_A_ARMS.map((arm) => [arm, {
-    correctness: "pass",
-    stability: "pass",
+    correctness: "unavailable",
+    stability: "unavailable",
     economics: "inconclusive",
     providerCalls: 0,
   }])) as GenerationPolicyBenchmarkReport["arms"];
@@ -391,7 +412,7 @@ async function main(): Promise<void> {
     `- Mode: ${report.mode}`,
     `- Source SHA: ${report.sourceSha}`,
     `- Source tree: ${report.sourceTreeStatus}`,
-    "- Mock contract evidence: all arms pass correctness and stability; provider calls = 0.",
+    "- Mock contract evidence: correctness and stability are unavailable in this report; provider calls = 0.",
     "- Live provider economics: inconclusive; no live traffic authorized.",
     `- Router preflight: ${report.routerPreflight.status}; source=${report.routerPreflight.source}.`,
     "- Decision: no promotion.",
