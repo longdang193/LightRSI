@@ -12,6 +12,17 @@ import { loadProviderEnvFile, providerModelFromEnvironment } from "./context-reb
 
 export const STAGE_A_ARMS = ["baseline", "caveman-full", "ponytail-full", "both-full"] as const;
 export type StageAArm = typeof STAGE_A_ARMS[number];
+export const STAGE_A_WORKLOAD = {
+  fixtures: ["prose", "code", "json", "tool-history", "security", "detail", "multiturn", "artifact"] as const,
+  requestShape: "responses",
+  repetitions: 5,
+} as const;
+export type StageAFixture = typeof STAGE_A_WORKLOAD.fixtures[number];
+type StageAWorkload = {
+  fixtures: typeof STAGE_A_WORKLOAD.fixtures;
+  requestShape: "responses";
+  repetitions: number;
+};
 export const STAGE_B_ARMS = [
   "caveman-lite",
   "caveman-full",
@@ -120,6 +131,57 @@ type ProviderUsage = {
   inputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+  cachedInputTokens: number | null;
+};
+
+export type ProviderPricing = {
+  inputUsdPerMillion: number;
+  cachedInputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+};
+
+export type MatchedStageARow = {
+  arm: StageAArm;
+  fixture: StageAFixture;
+  repetition: number;
+  passed: boolean;
+  outputChars: number;
+  latencyMs: number | null;
+  providerCalls: number;
+  turns: number;
+  toolCalls: number;
+  retries: number;
+  clarifications: number;
+  usage: ProviderUsage | null;
+  error: string | null;
+};
+
+type MatchedStageAArmSummary = {
+  correctness: "pass" | "fail" | "unavailable";
+  stability: "pass" | "fail" | "unavailable";
+  economics: "pass" | "fail" | "inconclusive";
+  engineeringValue: "unavailable";
+  providerCalls: number;
+  completedTasks: number;
+  totalCostUsd: number | null;
+  completedTaskCostUsd: number | null;
+  medianLatencyMs: number | null;
+  baselineDelta: {
+    costUsd: number | null;
+    latencyMs: number | null;
+    providerCalls: number | null;
+    turns: number | null;
+    toolCalls: number | null;
+    retries: number | null;
+    clarifications: number | null;
+  } | null;
+};
+
+export type MatchedStageAReport = {
+  workload: StageAWorkload;
+  arms: Record<StageAArm, MatchedStageAArmSummary>;
+  decision: "no-promotion" | "promotion-candidate";
+  liveEconomics: "inconclusive" | "pass" | "fail";
 };
 
 export type GenerationPolicyLiveRepairReport = {
@@ -153,6 +215,10 @@ type LiveRepairOptions = {
   fetchImpl?: typeof fetch;
 };
 
+type MatchedStageALiveOptions = LiveRepairOptions & {
+  pricing?: ProviderPricing;
+};
+
 export async function loadCodexAuthApiKey(
   authPath = resolve(homedir(), ".codex", "auth.json"),
 ): Promise<string | undefined> {
@@ -169,16 +235,143 @@ export async function loadCodexAuthApiKey(
     : undefined;
 }
 
-function providerUsage(value: unknown): ProviderUsage | null {
+export function parseProviderUsage(value: unknown): ProviderUsage | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const usage = (value as Record<string, unknown>).usage;
   if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
   const record = usage as Record<string, unknown>;
   const numberValue = (candidate: unknown): number | null => typeof candidate === "number" && Number.isFinite(candidate) ? candidate : null;
+  const details = record.input_tokens_details ?? record.prompt_tokens_details;
+  const detailRecord = details && typeof details === "object" && !Array.isArray(details)
+    ? details as Record<string, unknown>
+    : {};
   return {
     inputTokens: numberValue(record.input_tokens ?? record.prompt_tokens),
     outputTokens: numberValue(record.output_tokens ?? record.completion_tokens),
     totalTokens: numberValue(record.total_tokens),
+    cachedInputTokens: numberValue(
+      record.cached_input_tokens
+      ?? record.cache_read_input_tokens
+      ?? record.prompt_cache_hit_tokens
+      ?? detailRecord.cached_tokens,
+    ),
+  };
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1]! + sorted[middle]!) / 2
+    : sorted[middle]!;
+}
+
+function sumMetric(rows: MatchedStageARow[], selector: (row: MatchedStageARow) => number): number {
+  return rows.reduce((total, row) => total + selector(row), 0);
+}
+
+function rowCost(row: MatchedStageARow, pricing: ProviderPricing): number | null {
+  const usage = row.usage;
+  if (!usage || usage.inputTokens === null || usage.cachedInputTokens === null || usage.outputTokens === null) return null;
+  const uncachedInputTokens = usage.inputTokens - usage.cachedInputTokens;
+  if (uncachedInputTokens < 0) return null;
+  return (
+    uncachedInputTokens * pricing.inputUsdPerMillion
+    + usage.cachedInputTokens * pricing.cachedInputUsdPerMillion
+    + usage.outputTokens * pricing.outputUsdPerMillion
+  ) / 1_000_000;
+}
+
+export function summarizeMatchedStageAArm(params: {
+  arm: StageAArm;
+  repetitions: number;
+  rows: MatchedStageARow[];
+  pricing?: ProviderPricing;
+}): MatchedStageAArmSummary {
+  const fixtureCount = new Set(params.rows.map((row) => row.fixture)).size;
+  const expectedRows = params.repetitions * fixtureCount;
+  const completeRows = expectedRows > 0 && params.rows.length === expectedRows;
+  const completedTasks = params.rows.filter((row) => row.passed && row.error === null).length;
+  const costs = params.pricing ? params.rows.map((row) => rowCost(row, params.pricing!)) : [];
+  const totalCostUsd = params.pricing && costs.every((cost): cost is number => cost !== null)
+    ? costs.reduce((total, cost) => total + cost, 0)
+    : null;
+  return {
+    correctness: completeRows ? params.rows.every((row) => row.passed && row.error === null) ? "pass" : "fail" : "unavailable",
+    stability: "unavailable",
+    economics: "inconclusive",
+    engineeringValue: "unavailable",
+    providerCalls: sumMetric(params.rows, (row) => row.providerCalls),
+    completedTasks,
+    totalCostUsd,
+    completedTaskCostUsd: totalCostUsd !== null && completedTasks > 0 ? totalCostUsd / completedTasks : null,
+    medianLatencyMs: median(params.rows.flatMap((row) => row.latencyMs === null ? [] : [row.latencyMs])),
+    baselineDelta: null,
+  };
+}
+
+export function compareMatchedStageA(
+  rows: MatchedStageARow[],
+  repetitions: number,
+  pricing?: ProviderPricing,
+): MatchedStageAReport {
+  const summaries = Object.fromEntries(STAGE_A_ARMS.map((arm) => {
+    const armRows = rows.filter((row) => row.arm === arm);
+    return [arm, summarizeMatchedStageAArm({ arm, repetitions, rows: armRows, pricing })];
+  })) as Record<StageAArm, MatchedStageAArmSummary>;
+  const baselineRows = rows.filter((row) => row.arm === "baseline");
+  const baseline = summaries.baseline;
+  for (const arm of STAGE_A_ARMS) {
+    if (arm === "baseline") continue;
+    const summary = summaries[arm];
+    const armRows = rows.filter((row) => row.arm === arm);
+    const rowsComparable = armRows.length === baselineRows.length && armRows.length > 0;
+    const stabilityPass = rowsComparable
+      && armRows.every((row) => {
+        const baselineRow = baselineRows.find((candidate) => candidate.fixture === row.fixture && candidate.repetition === row.repetition);
+        return baselineRow !== undefined
+          && row.providerCalls <= baselineRow.providerCalls
+          && row.turns <= baselineRow.turns
+          && row.toolCalls <= baselineRow.toolCalls
+          && row.retries <= baselineRow.retries
+          && row.clarifications <= baselineRow.clarifications;
+      });
+    const armCost = summary.totalCostUsd;
+    const baselineCost = baseline.totalCostUsd;
+    const latencyDelta = summary.medianLatencyMs !== null && baseline.medianLatencyMs !== null
+      ? summary.medianLatencyMs - baseline.medianLatencyMs
+      : null;
+    summary.stability = rowsComparable ? stabilityPass ? "pass" : "fail" : "unavailable";
+    summary.economics = armCost === null || baselineCost === null
+      ? "inconclusive"
+      : armCost < baselineCost || (armCost === baselineCost && latencyDelta !== null && latencyDelta <= 0)
+        ? "pass"
+        : "fail";
+    summary.baselineDelta = {
+      costUsd: rowsComparable && armCost !== null && baselineCost !== null ? armCost - baselineCost : null,
+      latencyMs: rowsComparable ? latencyDelta : null,
+      providerCalls: rowsComparable ? summary.providerCalls - baseline.providerCalls : null,
+      turns: rowsComparable ? sumMetric(armRows, (row) => row.turns) - sumMetric(baselineRows, (row) => row.turns) : null,
+      toolCalls: rowsComparable ? sumMetric(armRows, (row) => row.toolCalls) - sumMetric(baselineRows, (row) => row.toolCalls) : null,
+      retries: rowsComparable ? sumMetric(armRows, (row) => row.retries) - sumMetric(baselineRows, (row) => row.retries) : null,
+      clarifications: rowsComparable ? sumMetric(armRows, (row) => row.clarifications) - sumMetric(baselineRows, (row) => row.clarifications) : null,
+    };
+  }
+  const promotedArms = STAGE_A_ARMS.filter((arm) => arm !== "baseline").every((arm) => {
+    const summary = summaries[arm];
+    return summary.correctness === "pass"
+      && summary.stability === "pass"
+      && summary.economics === "pass"
+      && summary.engineeringValue !== "unavailable";
+  });
+  return {
+    workload: { ...STAGE_A_WORKLOAD, repetitions },
+    arms: summaries,
+    decision: promotedArms ? "promotion-candidate" : "no-promotion",
+    liveEconomics: STAGE_A_ARMS.slice(1).some((arm) => summaries[arm].economics === "inconclusive")
+      ? "inconclusive"
+      : promotedArms ? "pass" : "fail",
   };
 }
 
@@ -225,7 +418,202 @@ async function runLiveRequest(
   return {
     text: responseText(body),
     history: projectAssistantHistory(output),
-    usage: providerUsage(body),
+    usage: parseProviderUsage(body),
+  };
+}
+
+function stageAFixturePrompt(fixture: StageAFixture): string {
+  switch (fixture) {
+    case "prose":
+      return "Explain input validation in two short paragraphs. Include the exact terms boundary validation and actionable error.";
+    case "code":
+      return "Give a concise implementation checklist. Preserve the exact command `pnpm test`, path `src/validator.ts`, and identifier `optionalField`.";
+    case "json":
+      return "Return only valid JSON with exactly these string keys: status set to ready, and schemaVersion set to 1. Do not wrap it in Markdown.";
+    case "tool-history":
+      return "Use the historical tool result exactly as provided. Confirm the exact marker TOOL_RESULT_ALPHA and do not invent a different result.";
+    case "security":
+      return SECURITY_FIXTURE_PROMPT;
+    case "detail":
+      return "Explain a safe validator change with exactly these sections: Assumptions, Implementation, Verification. Include one failure case and one test command.";
+    case "multiturn":
+      return MULTI_TURN_FIXTURE_PROMPT;
+    case "artifact":
+      return "Return a persisted artifact payload beginning with `--- artifact.md ---`, followed by a Markdown heading `# Validation Plan` and one verification command.";
+  }
+}
+
+function validateStageAFixtureOutput(fixture: StageAFixture, output: string): boolean {
+  const normalized = output.toLowerCase();
+  switch (fixture) {
+    case "prose":
+      return normalized.includes("boundary validation") && normalized.includes("actionable error");
+    case "code":
+      return output.includes("pnpm test") && output.includes("src/validator.ts") && output.includes("optionalField");
+    case "json": {
+      try {
+        const parsed = JSON.parse(output) as Record<string, unknown>;
+        return Object.keys(parsed).length === 2 && parsed.status === "ready" && parsed.schemaVersion === "1";
+      } catch {
+        return false;
+      }
+    }
+    case "tool-history":
+      return output.includes("TOOL_RESULT_ALPHA");
+    case "security":
+      return validateSecurityFixtureOutput(output);
+    case "detail":
+      return ["assumptions", "implementation", "verification"].every((section) => normalized.includes(section))
+        && normalized.includes("test");
+    case "multiturn":
+      return validateMultiTurnFixtureOutput(output);
+    case "artifact":
+      return output.startsWith("--- artifact.md ---") && output.includes("# Validation Plan") && normalized.includes("test");
+  }
+}
+
+function stageAFixtureInput(fixture: StageAFixture): readonly unknown[] {
+  if (fixture === "tool-history") {
+    return [
+      { role: "user", content: stageAFixturePrompt(fixture) },
+      { type: "function_call", call_id: "fixture-call", name: "read_fixture", arguments: "{\"path\":\"fixture.txt\"}" },
+      { type: "function_call_output", call_id: "fixture-call", output: "TOOL_RESULT_ALPHA" },
+    ];
+  }
+  return [{ role: "user", content: stageAFixturePrompt(fixture) }];
+}
+
+function sumUsage(responses: Array<{ usage: ProviderUsage | null }>): ProviderUsage | null {
+  const usages = responses.map((response) => response.usage);
+  if (usages.some((usage) => usage === null)) return null;
+  const values = usages as ProviderUsage[];
+  return {
+    inputTokens: values.every((usage) => usage.inputTokens !== null)
+      ? values.reduce((total, usage) => total + usage.inputTokens!, 0)
+      : null,
+    outputTokens: values.every((usage) => usage.outputTokens !== null)
+      ? values.reduce((total, usage) => total + usage.outputTokens!, 0)
+      : null,
+    totalTokens: values.every((usage) => usage.totalTokens !== null)
+      ? values.reduce((total, usage) => total + usage.totalTokens!, 0)
+      : null,
+    cachedInputTokens: values.every((usage) => usage.cachedInputTokens !== null)
+      ? values.reduce((total, usage) => total + usage.cachedInputTokens!, 0)
+      : null,
+  };
+}
+
+async function runMatchedFixture(
+  options: MatchedStageALiveOptions,
+  instructions: string,
+  fixture: StageAFixture,
+): Promise<{
+  passed: boolean;
+  outputChars: number;
+  latencyMs: number;
+  providerCalls: number;
+  turns: number;
+  toolCalls: number;
+  retries: number;
+  clarifications: number;
+  usage: ProviderUsage | null;
+}> {
+  const started = Date.now();
+  const responses: Array<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null }> = [];
+  const first = await runLiveRequest(options, instructions, stageAFixtureInput(fixture));
+  responses.push(first);
+  if (fixture === "multiturn") {
+    responses.push(await runLiveRequest(options, instructions, [
+      { role: "user", content: MULTI_TURN_FIXTURE_PROMPT },
+      ...first.history,
+      { role: "user", content: MULTI_TURN_FIXTURE_FOLLOW_UP },
+    ]));
+  }
+  const finalText = responses[responses.length - 1]!.text;
+  return {
+    passed: validateStageAFixtureOutput(fixture, finalText),
+    outputChars: finalText.length,
+    latencyMs: Date.now() - started,
+    providerCalls: responses.length,
+    turns: responses.length,
+    toolCalls: fixture === "tool-history" ? 1 : 0,
+    retries: 0,
+    clarifications: 0,
+    usage: sumUsage(responses),
+  };
+}
+
+function rotatedStageAArms(repetition: number): readonly StageAArm[] {
+  const offset = repetition % STAGE_A_ARMS.length;
+  return [...STAGE_A_ARMS.slice(offset), ...STAGE_A_ARMS.slice(0, offset)];
+}
+
+export async function runGenerationPolicyMatchedLive(
+  options: MatchedStageALiveOptions,
+): Promise<GenerationPolicyBenchmarkReport> {
+  const sourceSha = gitOutput(["rev-parse", "HEAD"]);
+  const sourceTreeStatus = gitOutput(["status", "--porcelain"]) ? "dirty" : "clean";
+  if (sourceTreeStatus !== "clean") throw new Error("Matched live benchmark requires a clean source checkpoint.");
+  const repetitions = options.repetitions ?? STAGE_A_WORKLOAD.repetitions;
+  if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > STAGE_A_WORKLOAD.repetitions) {
+    throw new Error(`Matched Stage A repetitions must be an integer from 1 through ${STAGE_A_WORKLOAD.repetitions}.`);
+  }
+  let routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey);
+  if (routerPreflight.status === "unknown" && routerPreflight.source === "unavailable" && options.routerSettingsEvidencePath) {
+    const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath);
+    if (shouldUseRouterSettingsEvidenceFallback(routerPreflight, dashboardEvidence)) routerPreflight = dashboardEvidence;
+  }
+  if (routerPreflight.status !== "match") throw new Error(`Router preflight failed: ${routerPreflight.status}.`);
+
+  const rows: MatchedStageARow[] = [];
+  for (let repetition = 0; repetition < repetitions; repetition += 1) {
+    for (const arm of rotatedStageAArms(repetition)) {
+      const instructions = buildLiveArmInstructions(arm);
+      for (const fixture of STAGE_A_WORKLOAD.fixtures) {
+        try {
+          const result = await runMatchedFixture(options, instructions, fixture);
+          rows.push({ arm, fixture, repetition, ...result, error: null });
+        } catch (error) {
+          rows.push({
+            arm,
+            fixture,
+            repetition,
+            passed: false,
+            outputChars: 0,
+            latencyMs: null,
+            providerCalls: fixture === "multiturn" ? 1 : 0,
+            turns: fixture === "multiturn" ? 1 : 0,
+            toolCalls: fixture === "tool-history" ? 1 : 0,
+            retries: 0,
+            clarifications: 0,
+            usage: null,
+            error: error instanceof Error ? error.message : "provider_error",
+          });
+        }
+      }
+    }
+  }
+  const matched = compareMatchedStageA(rows, repetitions, options.pricing);
+  return {
+    experiment: "lightrsi-generation-policy-stage-a-matched",
+    mode: "live",
+    sourceSha,
+    sourceTreeStatus,
+    model: options.model,
+    repetitions,
+    workload: { ...STAGE_A_WORKLOAD, repetitions },
+    arms: Object.fromEntries(STAGE_A_ARMS.map((arm) => [arm, {
+      correctness: matched.arms[arm].correctness,
+      stability: matched.arms[arm].stability,
+      economics: matched.arms[arm].economics,
+      providerCalls: matched.arms[arm].providerCalls,
+    }])) as GenerationPolicyBenchmarkReport["arms"],
+    liveEconomics: matched.liveEconomics,
+    routerPreflight,
+    decision: matched.decision,
+    rows,
+    matched,
+    routerTelemetry: { source: "tokenpilot-event-trace", exactIdentity: "unavailable" },
   };
 }
 
@@ -291,6 +679,15 @@ export type GenerationPolicyBenchmarkReport = {
   liveEconomics: "inconclusive" | "pass" | "fail";
   routerPreflight: RouterSettingsPreflight;
   decision: "no-promotion" | "promotion-candidate";
+  model?: string;
+  repetitions?: number;
+  workload?: StageAWorkload;
+  rows?: MatchedStageARow[];
+  matched?: MatchedStageAReport;
+  routerTelemetry?: {
+    source: "tokenpilot-event-trace";
+    exactIdentity: "available" | "unavailable";
+  };
 };
 
 export type GenerationPolicyStageBReport = {
@@ -543,6 +940,12 @@ export function buildMockGenerationPolicyReport(): GenerationPolicyBenchmarkRepo
     liveEconomics: "inconclusive",
     routerPreflight: { status: "unknown", source: "unavailable", settings: {} },
     decision: "no-promotion",
+    model: "unavailable",
+    repetitions: STAGE_A_WORKLOAD.repetitions,
+    workload: STAGE_A_WORKLOAD,
+    rows: [],
+    matched: compareMatchedStageA([], STAGE_A_WORKLOAD.repetitions),
+    routerTelemetry: { source: "tokenpilot-event-trace", exactIdentity: "unavailable" },
   };
 }
 
@@ -577,6 +980,39 @@ async function main(): Promise<void> {
     process.stdout.write(`${JSON.stringify({ ...report, outputPath }, null, 2)}\n`);
     return;
   }
+  if (process.argv.includes("--matched-live")) {
+    const initialCwd = process.env.INIT_CWD?.trim() || process.cwd();
+    await loadProviderEnvFile(process.env.LIGHTRSI_BENCHMARK_CREDENTIALS_FILE?.trim() || resolve(initialCwd, ".env"));
+    const baseUrl = process.env.LIGHTRSI_BENCHMARK_BASE_URL?.trim() || process.env.OPENAI_BASE_URL?.trim();
+    const routerUrl = process.env.LIGHTRSI_BENCHMARK_ROUTER_URL?.trim();
+    const apiKey = process.env.OPENAI_API_KEY?.trim() || await loadCodexAuthApiKey();
+    const model = process.env.LIGHTRSI_BENCHMARK_MODEL?.trim() || providerModelFromEnvironment();
+    if (!baseUrl || !routerUrl || !apiKey || !model) {
+      throw new Error("Matched live execution requires LIGHTRSI_BENCHMARK_BASE_URL, LIGHTRSI_BENCHMARK_ROUTER_URL, OPENAI_API_KEY, and a model.");
+    }
+    const pricingValues = [
+      process.env.LIGHTRSI_BENCHMARK_INPUT_USD_PER_MILLION,
+      process.env.LIGHTRSI_BENCHMARK_CACHED_INPUT_USD_PER_MILLION,
+      process.env.LIGHTRSI_BENCHMARK_OUTPUT_USD_PER_MILLION,
+    ].map((value) => value === undefined ? null : Number(value));
+    const pricing = pricingValues.every((value): value is number => value !== null && Number.isFinite(value) && value >= 0)
+      ? { inputUsdPerMillion: pricingValues[0], cachedInputUsdPerMillion: pricingValues[1], outputUsdPerMillion: pricingValues[2] }
+      : undefined;
+    const report = await runGenerationPolicyMatchedLive({
+      baseUrl,
+      routerUrl,
+      apiKey,
+      model,
+      pricing,
+      repetitions: Number(process.env.LIGHTRSI_BENCHMARK_REPETITIONS ?? STAGE_A_WORKLOAD.repetitions),
+      routerSettingsEvidencePath: process.env.LIGHTRSI_BENCHMARK_ROUTER_SETTINGS_EVIDENCE?.trim(),
+    });
+    const outputPath = process.env.LIGHTRSI_BENCHMARK_OUTPUT?.trim()
+      || resolve(tmpdir(), "lightrsi-generation-policy-stage-a-matched.json");
+    await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ ...report, outputPath }, null, 2)}\n`);
+    return;
+  }
   if (process.argv.includes("--stage-b")) {
     let report: GenerationPolicyStageBReport;
     if (process.argv.includes("--mock")) {
@@ -601,9 +1037,10 @@ async function main(): Promise<void> {
       });
     }
     const root = resolve(process.cwd(), "../../..");
-    const manifestPath = resolve(root, "docs/benchmarks/2026-10-10-generation-policy-stage-b-manifest.json");
-    const resultsPath = resolve(root, "docs/benchmarks/2026-10-10-generation-policy-stage-b-results.json");
-    const reportPath = resolve(root, "docs/benchmarks/2026-10-10-generation-policy-stage-b-report.md");
+    const outputRoot = report.mode === "mock" ? tmpdir() : resolve(root, "docs/benchmarks");
+    const manifestPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-b-manifest.json");
+    const resultsPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-b-results.json");
+    const reportPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-b-report.md");
     await mkdir(dirname(manifestPath), { recursive: true });
     await writeFile(manifestPath, `${JSON.stringify({
       experiment: report.experiment,
@@ -626,7 +1063,9 @@ async function main(): Promise<void> {
       `- Source tree: ${report.sourceTreeStatus}`,
       `- Workload: ${report.workload.fixtures.join(", ")}; repetitions=${report.repetitions}.`,
       "- Caveman and Ponytail were swept independently; no combined cross-product was run.",
-      "- Mock contract evidence: correctness, stability, and economics are unavailable; provider calls = 0.",
+      report.mode === "mock"
+        ? "- Mock contract evidence: correctness, stability, and economics are unavailable; provider calls = 0."
+        : "- Live Stage B economics remain exploratory and are not a promotion gate because no baseline arm was run.",
       "- The exploratory exception does not authorize promotion, default changes, or adapter expansion.",
       "- Decision: no promotion.",
       "",
@@ -637,9 +1076,10 @@ async function main(): Promise<void> {
   const mock = process.argv.includes("--mock");
   const report = await runGenerationPolicyBenchmark({ mock });
   const root = resolve(process.cwd(), "../../..");
-  const manifestPath = resolve(root, "docs/benchmarks/2026-10-10-generation-policy-stage-a-manifest.json");
-  const resultsPath = resolve(root, "docs/benchmarks/2026-10-10-generation-policy-stage-a-results.json");
-  const reportPath = resolve(root, "docs/benchmarks/2026-10-10-generation-policy-stage-a-report.md");
+  const outputRoot = report.mode === "mock" ? tmpdir() : resolve(root, "docs/benchmarks");
+  const manifestPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-a-manifest.json");
+  const resultsPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-a-results.json");
+  const reportPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-a-report.md");
   await mkdir(dirname(manifestPath), { recursive: true });
   await writeFile(manifestPath, `${JSON.stringify({
     experiment: report.experiment,

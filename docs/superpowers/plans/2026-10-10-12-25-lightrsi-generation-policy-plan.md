@@ -719,6 +719,17 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 **Exit Criteria:**
 - Claude Code and OpenClaw consume shared policy implementation only for mechanisms with Codex correctness, stability, and measurable-value passes; failed or inconclusive mechanisms remain Codex-only.
 
+## Reopened Matched Benchmark Follow-Up
+
+The prior Stage B evidence is exploratory only because it omitted a baseline arm. The matched baseline-vs-intensity decision is reopened without changing 9Router or promoting any policy.
+
+- Root cause confirmed: `benchmark-generation-policy.ts` modeled only the two-fixture Stage B sweep, had no paired baseline reducer, and discarded cached-input usage fields, so completed-task cost and stability deltas could not be computed safely.
+- Root-cause patch: add the eight-fixture Stage A workload, retain cached-input telemetry, compute paired baseline deltas for cost/latency/calls/turns/tools/retries/clarifications, and fail closed when usage is incomplete.
+- Adjacent report defect patched: generated live Stage B reports no longer label their evidence as mock evidence; they state that economics remain exploratory because the baseline arm is absent.
+- Mock artifact defect patched: `--mock` now writes manifest/results/report files under the temporary directory instead of dirtying the checkout.
+- Focused regression proof: benchmark tests cover workload identity, cached-token parsing, missing-usage inconclusive economics, and failed-arm no-promotion behavior; Codex typecheck passes.
+- Next live gate: create the separately authorized clean checkpoint, freeze the external manifest, then run one matched Stage A smoke through TokenPilot `http://127.0.0.1:17667/v1` with unchanged 9Router state before the bounded five-repetition run.
+
 ## Verification
 
 - pnpm --dir components/packages/foundation/host-adapter typecheck

@@ -7,17 +7,21 @@ import test from "node:test";
 import {
   SECURITY_FIXTURE_PROMPT,
   STAGE_A_ARMS,
+  STAGE_A_WORKLOAD,
   STAGE_B_ARMS,
   buildLiveArmInstructions,
   buildStageBArmInstructions,
   buildMockStageBReport,
   buildMockGenerationPolicyReport,
+  compareMatchedStageA,
   evaluateRouterSettingsPreflight,
   loadCodexAuthApiKey,
   projectAssistantHistory,
+  parseProviderUsage,
   readRouterSettingsEvidence,
   runGenerationPolicyBenchmark,
   runGenerationPolicyStageB,
+  summarizeMatchedStageAArm,
   shouldUseRouterSettingsEvidenceFallback,
   validateSecurityFixtureOutput,
   validateMultiTurnFixtureOutput,
@@ -95,6 +99,81 @@ test("mock generation policy benchmark reports contract evidence without provide
   assert.equal(report.liveEconomics, "inconclusive");
   assert.equal(report.decision, "no-promotion");
   assert.ok(Object.values(report.arms).every((arm) => arm.correctness === "unavailable" && arm.stability === "unavailable" && arm.providerCalls === 0));
+});
+
+test("matched Stage A freezes the eight-fixture workload across every arm", () => {
+  assert.deepEqual(STAGE_A_WORKLOAD.fixtures, [
+    "prose",
+    "code",
+    "json",
+    "tool-history",
+    "security",
+    "detail",
+    "multiturn",
+    "artifact",
+  ]);
+  assert.equal(STAGE_A_WORKLOAD.repetitions, 5);
+  assert.equal(STAGE_A_WORKLOAD.requestShape, "responses");
+  assert.equal(new Set(STAGE_A_ARMS.map(() => JSON.stringify(STAGE_A_WORKLOAD))).size, 1);
+});
+
+test("matched accounting keeps missing usage unavailable instead of treating it as zero", () => {
+  const summary = summarizeMatchedStageAArm({
+    arm: "baseline",
+    repetitions: 1,
+    rows: [{
+      arm: "baseline",
+      fixture: "prose",
+      repetition: 0,
+      passed: true,
+      outputChars: 10,
+      latencyMs: 20,
+      providerCalls: 1,
+      turns: 1,
+      toolCalls: 0,
+      retries: 0,
+      clarifications: 0,
+      usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: null },
+      error: null,
+    }],
+    pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 },
+  });
+
+  assert.equal(summary.totalCostUsd, null);
+  assert.equal(summary.completedTaskCostUsd, null);
+  assert.equal(summary.economics, "inconclusive");
+});
+
+test("provider usage parsing retains cached input telemetry", () => {
+  assert.deepEqual(parseProviderUsage({
+    usage: {
+      input_tokens: 120,
+      output_tokens: 30,
+      total_tokens: 150,
+      input_tokens_details: { cached_tokens: 80 },
+    },
+  }), {
+    inputTokens: 120,
+    outputTokens: 30,
+    totalTokens: 150,
+    cachedInputTokens: 80,
+  });
+});
+
+test("matched accounting produces paired baseline deltas and blocks failed arms", () => {
+  const rows = [
+    { arm: "baseline" as const, fixture: "prose" as const, repetition: 0, passed: true, outputChars: 100, latencyMs: 100, providerCalls: 1, turns: 1, toolCalls: 0, retries: 0, clarifications: 0, usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 0 }, error: null },
+    { arm: "caveman-full" as const, fixture: "prose" as const, repetition: 0, passed: false, outputChars: 80, latencyMs: 80, providerCalls: 1, turns: 1, toolCalls: 0, retries: 0, clarifications: 0, usage: { inputTokens: 80, outputTokens: 10, totalTokens: 90, cachedInputTokens: 0 }, error: null },
+  ];
+  const comparisons = compareMatchedStageA(rows, 1, { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 });
+  const caveman = comparisons.arms["caveman-full"];
+
+  assert.equal(comparisons.workload.repetitions, 1);
+  assert.equal(caveman.correctness, "fail");
+  assert.equal(caveman.economics, "pass");
+  assert.equal(caveman.baselineDelta?.latencyMs, -20);
+  assert.equal(caveman.baselineDelta?.providerCalls, 0);
+  assert.equal(comparisons.decision, "no-promotion");
 });
 
 test("mock report stays deterministic apart from repository state", () => {
