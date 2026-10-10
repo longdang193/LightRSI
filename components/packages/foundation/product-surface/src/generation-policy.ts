@@ -15,8 +15,16 @@ export type GenerationPolicyConfig = {
   ponytail: GenerationPolicyFeatureConfig;
 };
 
-export const CAVEMAN_POLICY_VERSION = "v1";
-export const PONYTAIL_POLICY_VERSION = "v1";
+export type CompiledGenerationPolicy = {
+  config: GenerationPolicyConfig;
+  block: string;
+  digest: string | null;
+  version: string;
+};
+
+export const CAVEMAN_POLICY_VERSION = "v2";
+export const PONYTAIL_POLICY_VERSION = "v2";
+export const GENERATION_POLICY_CONTRACT_VERSION = "v2";
 
 export const DEFAULT_GENERATION_POLICY_CONFIG: GenerationPolicyConfig = {
   caveman: { enabled: false, level: "full" },
@@ -34,6 +42,8 @@ const PONYTAIL_POLICY_TEXT: Record<GenerationPolicyLevel, string> = {
   full: "Enforce YAGNI: inspect existing flow, reuse existing code, use stdlib, native features, installed dependencies, then minimum new implementation. Keep requested commands and verification steps concrete; never replace them with placeholders.",
   ultra: "Use deletion-first extreme YAGNI. Challenge unnecessary machinery. Minimize files, abstractions, and code while completing required behavior.",
 };
+
+const SHARED_PROTECTION_CLAUSE = "Preserve correctness, required detail, executable commands, identifiers, paths, numbers, and safety constraints.";
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -62,9 +72,20 @@ export function isProtectedGenerationPolicyRequest(rawPayload: unknown): boolean
 
 function policyBlock(config: GenerationPolicyConfig): string {
   const blocks: string[] = [];
-  if (config.caveman.enabled) blocks.push(`[LightRSI Caveman ${CAVEMAN_POLICY_VERSION} / ${config.caveman.level}]\n${CAVEMAN_POLICY_TEXT[config.caveman.level]}`);
-  if (config.ponytail.enabled) blocks.push(`[LightRSI Ponytail ${PONYTAIL_POLICY_VERSION} / ${config.ponytail.level}]\n${PONYTAIL_POLICY_TEXT[config.ponytail.level]}`);
+  if (config.caveman.enabled) blocks.push(`[LightRSI Caveman ${CAVEMAN_POLICY_VERSION} / ${config.caveman.level}]\n${CAVEMAN_POLICY_TEXT[config.caveman.level]} ${SHARED_PROTECTION_CLAUSE}`);
+  if (config.ponytail.enabled) blocks.push(`[LightRSI Ponytail ${PONYTAIL_POLICY_VERSION} / ${config.ponytail.level}]\n${PONYTAIL_POLICY_TEXT[config.ponytail.level]} ${SHARED_PROTECTION_CLAUSE}`);
   return blocks.join("\n\n");
+}
+
+export function compileGenerationPolicy(rawConfig: unknown): CompiledGenerationPolicy {
+  const config = normalizeGenerationPolicyConfig(rawConfig);
+  const block = policyBlock(config);
+  return {
+    config,
+    block,
+    digest: block ? `sha256:${sha256(JSON.stringify({ contractVersion: GENERATION_POLICY_CONTRACT_VERSION, block }))}` : null,
+    version: `${CAVEMAN_POLICY_VERSION}/${PONYTAIL_POLICY_VERSION}`,
+  };
 }
 
 export function resolveCavemanPolicy(level: GenerationPolicyLevel): string {
@@ -77,24 +98,23 @@ export function resolvePonytailPolicy(level: GenerationPolicyLevel): string {
 
 export function applyGenerationPolicy(
   envelope: HostRequestEnvelope,
-  rawConfig: GenerationPolicyConfig,
+  policy: GenerationPolicyConfig | CompiledGenerationPolicy,
 ): HostRequestEnvelope {
-  const config = normalizeGenerationPolicyConfig(rawConfig);
-  if ((!config.caveman.enabled && !config.ponytail.enabled)
+  const compiled = "block" in policy ? policy : compileGenerationPolicy(policy);
+  if (!compiled.block
     || isProtectedGenerationPolicyRequest(envelope.rawPayload)
     || envelope.metadata?.generationPolicyApplied === true) return envelope;
-  const block = policyBlock(config);
-  if (!block) return envelope;
-  const instructions = envelope.instructions ? `${envelope.instructions}\n\n${block}` : block;
-  const digest = sha256(JSON.stringify({ instructions, tools: envelope.tools ?? null, metadata: envelope.metadata ?? null }));
+  const instructions = envelope.instructions?.includes(compiled.block)
+    ? envelope.instructions
+    : envelope.instructions ? `${envelope.instructions}\n\n${compiled.block}` : compiled.block;
   return {
     ...envelope,
     instructions,
     metadata: {
       ...envelope.metadata,
       generationPolicyApplied: true,
-      generationPolicyDigest: `sha256:${digest}`,
-      generationPolicyVersion: `${CAVEMAN_POLICY_VERSION}/${PONYTAIL_POLICY_VERSION}`,
+      generationPolicyDigest: compiled.digest,
+      generationPolicyVersion: compiled.version,
     },
   };
 }

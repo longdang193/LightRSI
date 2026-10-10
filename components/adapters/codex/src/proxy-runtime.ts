@@ -7,7 +7,9 @@ import { performance } from "node:perf_hooks";
 import { Readable, Transform } from "node:stream";
 import {
   applyGenerationPolicy,
+  compileGenerationPolicy,
   findFirstMessageText,
+  isProtectedGenerationPolicyRequest,
   prepareObservedBeforeCall,
 } from "@lightrsi/product-surface";
 import {
@@ -478,6 +480,27 @@ function activeMutationPlan(config: TokenPilotCodexConfig): CodexMutationPlan | 
   return plan && plan.operations.length > 0 ? plan : undefined;
 }
 
+type GenerationPolicyTrace = {
+  runtimeBuildId: string;
+  generationPolicyVersion: string;
+  generationPolicyDigest: string | null;
+  generationPolicyApplied: boolean;
+  generationPolicyBypassReason: string | null;
+};
+
+function setGenerationPolicyEvidenceHeaders(
+  res: import("node:http").ServerResponse,
+  requestId: string,
+  trace: GenerationPolicyTrace,
+): void {
+  res.setHeader("x-lightrsi-request-id", requestId);
+  res.setHeader("x-lightrsi-runtime-build-id", trace.runtimeBuildId);
+  res.setHeader("x-lightrsi-generation-policy-version", trace.generationPolicyVersion);
+  res.setHeader("x-lightrsi-generation-policy-digest", trace.generationPolicyDigest ?? "null");
+  res.setHeader("x-lightrsi-generation-policy-applied", String(trace.generationPolicyApplied));
+  res.setHeader("x-lightrsi-generation-policy-bypass", trace.generationPolicyBypassReason ?? "null");
+}
+
 function canAttemptCodexRebase(params: {
   config: TokenPilotCodexConfig;
   payload: JsonObject;
@@ -655,6 +678,8 @@ export async function startCodexResponsesProxy(params: {
   if (!config.enabled) {
     throw new Error("TokenPilot Codex adapter is disabled by config");
   }
+  const compiledGenerationPolicy = compileGenerationPolicy(config.generationPolicy);
+  const runtimeBuildId = process.env.LIGHTRSI_BUILD_ID?.trim() || "unavailable";
   configureStatePathResolver(createStaticStatePathResolver({
     hostId: "codex",
     displayName: "Codex",
@@ -1152,7 +1177,7 @@ export async function startCodexResponsesProxy(params: {
       const applyGenerationPolicyForCodex = (nextEnvelope: HostRequestEnvelope) => (
         compactRequest || rebaseRequest
           ? nextEnvelope
-          : applyGenerationPolicy(nextEnvelope, config.generationPolicy)
+          : applyGenerationPolicy(nextEnvelope, compiledGenerationPolicy)
       );
       const forwardingScopeForCodex = (nextEnvelope: HostRequestEnvelope): CodexForwardingScope => {
         const nextPayload = codec.encodeRequest(nextEnvelope) as JsonObject;
@@ -1231,6 +1256,30 @@ export async function startCodexResponsesProxy(params: {
           },
         },
       });
+      const generationPolicyBypassReason = prepared.diagnostics.generationPolicyApplied === true
+        ? undefined
+        : rebaseRequest
+          ? "rebase"
+          : compactRequest
+            ? "explicit_compaction"
+            : isProtectedGenerationPolicyRequest(prepared.envelope.rawPayload)
+              ? "structured_output"
+              : prepared.envelope.metadata?.generationPolicyApplied === true
+                ? "already_applied"
+                : compiledGenerationPolicy.digest === null
+                  ? "disabled"
+                  : "unavailable";
+      prepared.diagnostics.generationPolicyVersion = compiledGenerationPolicy.version;
+      prepared.diagnostics.generationPolicyDigest = compiledGenerationPolicy.digest;
+      prepared.diagnostics.generationPolicyBypassReason = generationPolicyBypassReason;
+      prepared.diagnostics.runtimeBuildId = runtimeBuildId;
+      const generationPolicyTrace: GenerationPolicyTrace = {
+        runtimeBuildId,
+        generationPolicyVersion: prepared.diagnostics.generationPolicyVersion,
+        generationPolicyDigest: prepared.diagnostics.generationPolicyDigest,
+        generationPolicyApplied: prepared.diagnostics.generationPolicyApplied === true,
+        generationPolicyBypassReason: prepared.diagnostics.generationPolicyBypassReason ?? null,
+      };
       const reductionSummary = prepared.reductionSummary;
       syncPayloadFromEnvelope(payload, prepared.envelope, codec);
       payload.input = normalizeResponsesInputForUpstream(payload?.input);
@@ -1463,6 +1512,7 @@ export async function startCodexResponsesProxy(params: {
         requestId,
         sessionId,
         model,
+        ...generationPolicyTrace,
         stream: payload.stream === true,
         stablePrefixApplied: prepared.diagnostics.stablePrefixApplied === true,
         recoveryInjected: prepared.diagnostics.recoveryInjected === true,
@@ -2105,6 +2155,7 @@ export async function startCodexResponsesProxy(params: {
             }),
             appendTrace(config.stateDir, {
               stage: "proxy_after_call",
+              ...generationPolicyTrace,
               requestId,
               sessionId,
               model,
@@ -2134,6 +2185,7 @@ export async function startCodexResponsesProxy(params: {
           const upstreamResp = await sendRebasedOrCurrentPayload();
           res.statusCode = upstreamResp.status;
           setForwardResponseHeaders(res, upstreamResp.headers, "text/event-stream; charset=utf-8");
+          setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace);
           const runOptional = await recordStreamResponse({
             status: upstreamResp.status,
             rawStreamText: upstreamResp.text,
@@ -2169,6 +2221,7 @@ export async function startCodexResponsesProxy(params: {
         }
         res.statusCode = upstreamResp.status;
         setForwardResponseHeaders(res, upstreamResp.headers, "text/event-stream; charset=utf-8");
+        setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace);
         let responseChars = 0;
         const collector = createCodexResponseItemsCollector();
         let terminal = false;
@@ -2193,9 +2246,10 @@ export async function startCodexResponsesProxy(params: {
             if (kind === "complete" && !res.writableEnded && !res.destroyed) res.end();
             trackOptionalTask(runOptional());
           } catch (recordError) {
-            void appendTrace(config.stateDir, {
-              stage: "proxy_after_call",
-              requestId,
+              void appendTrace(config.stateDir, {
+                stage: "proxy_after_call",
+                ...generationPolicyTrace,
+                requestId,
               sessionId,
               model,
               status: upstreamResp.status,
@@ -2352,6 +2406,7 @@ export async function startCodexResponsesProxy(params: {
       });
       await appendTrace(config.stateDir, {
         stage: "proxy_after_call",
+        ...generationPolicyTrace,
         requestId,
         sessionId,
         model,
@@ -2370,6 +2425,7 @@ export async function startCodexResponsesProxy(params: {
       });
       res.statusCode = upstreamResp.status;
       setForwardResponseHeaders(res, upstreamResp.headers, "application/json; charset=utf-8");
+      setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace);
       res.end(upstreamResp.text);
       req.off("aborted", onRequestAborted);
       res.off("close", onResponseClose);

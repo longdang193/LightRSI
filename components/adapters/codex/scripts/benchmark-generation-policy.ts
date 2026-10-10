@@ -1,16 +1,27 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
 import { dirname, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 
 import {
+  drainEventTraceQueue,
+  enqueueEventTrace,
+  eventTracePath,
+  prepareBeforeCallWithReductionSummary,
+  readRecentJsonlEntries,
+  type HostRequestEnvelope,
+} from "@lightrsi/host-adapter";
+import {
+  compileGenerationPolicy,
   resolveCavemanPolicy,
   resolvePonytailPolicy,
   type GenerationPolicyLevel,
 } from "@lightrsi/product-surface";
 import { loadProviderEnvFile, providerModelFromEnvironment } from "./context-rebase-smoke.js";
 import { defaultTokenPilotConfigPath, loadTokenPilotCodexConfig } from "../src/config.js";
+import { createCodexResponsesPayloadCodec } from "../src/responses-codec.js";
 
 export const STAGE_A_ARMS = ["baseline", "caveman-full", "ponytail-full", "both-full"] as const;
 export type StageAArm = typeof STAGE_A_ARMS[number];
@@ -25,6 +36,128 @@ type StageAWorkload = {
   requestShape: "responses";
   repetitions: number;
 };
+
+type LocalOverheadBenchmarkReport = {
+  mode: "local-overhead";
+  warmup: number;
+  samples: number;
+  records: number;
+  metrics: Record<string, { p50Ms: number; p95Ms: number }>;
+  equivalence: {
+    traceRecords: number;
+    tailRecords: number;
+    newestTailIndex: number;
+    preDispatchStable: boolean;
+  };
+};
+
+function argumentValue(name: string, fallback: number): number {
+  const index = process.argv.indexOf(name);
+  const value = index >= 0 ? Number(process.argv[index + 1]) : fallback;
+  if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer.`);
+  return value;
+}
+
+function summarizeMilliseconds(values: number[]): { p50Ms: number; p95Ms: number } {
+  const sorted = [...values].sort((left, right) => left - right);
+  const percentile = (rank: number) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * rank))];
+  return {
+    p50Ms: Number(percentile(0.5).toFixed(3)),
+    p95Ms: Number(percentile(0.95).toFixed(3)),
+  };
+}
+
+async function measureAsync(
+  warmup: number,
+  samples: number,
+  operation: () => Promise<void>,
+): Promise<{ p50Ms: number; p95Ms: number }> {
+  for (let index = 0; index < warmup; index += 1) await operation();
+  const values: number[] = [];
+  for (let index = 0; index < samples; index += 1) {
+    const started = performance.now();
+    await operation();
+    values.push(performance.now() - started);
+  }
+  return summarizeMilliseconds(values);
+}
+
+function localOverheadEnvelope(): HostRequestEnvelope {
+  return {
+    session: {
+      host: { hostId: "local-overhead", displayName: "Local overhead" },
+      sessionId: "local-overhead",
+      sessionMode: "single",
+    },
+    model: "local-overhead",
+    stream: false,
+    instructions: "Answer the local benchmark request with the required detail.",
+    messages: [{ role: "user", content: "Measure local pre-dispatch work." } as never],
+    tools: [{ type: "function", name: "noop", parameters: { type: "object" } }],
+    rawPayload: { model: "local-overhead", stream: false },
+  };
+}
+
+export async function runLocalOverheadBenchmark(options?: {
+  warmup?: number;
+  samples?: number;
+  records?: number;
+}): Promise<LocalOverheadBenchmarkReport> {
+  const warmup = options?.warmup ?? 20;
+  const samples = options?.samples ?? 100;
+  const records = options?.records ?? 256;
+  const stateDir = await mkdtemp(resolve(tmpdir(), "lightrsi-local-overhead-"));
+  const tailPath = resolve(stateDir, "tail.jsonl");
+  const codec = createCodexResponsesPayloadCodec();
+  let preDispatchStable = true;
+  try {
+    for (let index = 0; index < records; index += 1) {
+      await enqueueEventTrace(stateDir, { stage: "seed", index });
+    }
+    await drainEventTraceQueue();
+    await writeFile(tailPath, `${Array.from({ length: records }, (_, index) => JSON.stringify({ index })).join("\n")}\n`, "utf8");
+  const traceEnqueue = await measureAsync(warmup, samples, async () => {
+    await enqueueEventTrace(stateDir, { stage: "measure" });
+  });
+  const traceBatchEnqueue = await measureAsync(warmup, samples, async () => {
+    await Promise.all(Array.from({ length: 16 }, (_, index) => enqueueEventTrace(stateDir, { stage: "batch", index })));
+    await drainEventTraceQueue();
+  });
+    await drainEventTraceQueue();
+    const tailRead = await measureAsync(warmup, samples, async () => {
+      const entries = await readRecentJsonlEntries<{ index?: number }>(tailPath, records);
+      if (entries.length !== records) throw new Error(`tail equivalence failed: expected ${records}, got ${entries.length}`);
+    });
+    const preDispatch = await measureAsync(warmup, samples, async () => {
+      const prepared = await prepareBeforeCallWithReductionSummary({
+        envelope: structuredClone(localOverheadEnvelope()),
+        codec,
+        prepareStablePrefix: (next) => next,
+        applyBeforeCallReduction: async ({ envelope }) => ({ envelope, summary: null }),
+      });
+      preDispatchStable = preDispatchStable && prepared.diagnostics.stablePrefixApplied === false;
+    });
+    await drainEventTraceQueue();
+    const traceLines = (await readFile(eventTracePath(stateDir), "utf8")).trim().split(/\r?\n/u).filter(Boolean);
+    const tailEntries = await readRecentJsonlEntries<{ index?: number }>(tailPath, records);
+    return {
+      mode: "local-overhead",
+      warmup,
+      samples,
+      records,
+      metrics: { traceEnqueue, traceBatchEnqueue, tailRead, preDispatch },
+      equivalence: {
+        traceRecords: traceLines.length,
+        tailRecords: tailEntries.length,
+        newestTailIndex: typeof tailEntries[0]?.index === "number" ? tailEntries[0].index : -1,
+        preDispatchStable,
+      },
+    };
+  } finally {
+    await drainEventTraceQueue();
+    await rm(stateDir, { recursive: true, force: true });
+  }
+}
 export const STAGE_B_ARMS = [
   "caveman-lite",
   "caveman-full",
@@ -112,6 +245,13 @@ export function buildLiveArmInstructions(arm: StageAArm): string {
   return blocks.join("\n\n");
 }
 
+export function expectedStageAPolicyDigest(arm: StageAArm): string | null {
+  return compileGenerationPolicy({
+    caveman: { enabled: arm === "caveman-full" || arm === "both-full", level: "full" },
+    ponytail: { enabled: arm === "ponytail-full" || arm === "both-full", level: "full" },
+  }).digest;
+}
+
 export function buildStageBArmInstructions(arm: StageBArm): string {
   const [mechanism, level] = arm.split("-") as ["caveman" | "ponytail", GenerationPolicyLevel];
   return mechanism === "caveman"
@@ -136,6 +276,7 @@ type ProviderUsage = {
   outputTokens: number | null;
   totalTokens: number | null;
   cachedInputTokens: number | null;
+  reasoningTokens?: number | null;
 };
 
 export type ProviderPricing = {
@@ -153,11 +294,21 @@ export type MatchedStageARow = {
   latencyMs: number | null;
   providerCalls: number;
   turns: number;
-  toolCalls: number;
-  retries: number;
-  clarifications: number;
+  toolCalls: number | null;
+  retries: number | null;
+  clarifications: number | null;
   usage: ProviderUsage | null;
+  policyEvidence: GenerationPolicyEvidence[];
   error: string | null;
+};
+
+export type GenerationPolicyEvidence = {
+  requestId: string | null;
+  runtimeBuildId: string | null;
+  generationPolicyVersion: string | null;
+  generationPolicyDigest: string | null;
+  generationPolicyApplied: boolean | null;
+  generationPolicyBypassReason: string | null;
 };
 
 type MatchedStageAArmSummary = {
@@ -233,8 +384,24 @@ type LiveRepairOptions = {
 };
 
 type MatchedStageALiveOptions = LiveRepairOptions & {
+  armBaseUrls: Record<StageAArm, string>;
   pricing?: ProviderPricing;
 };
+
+function responsePolicyEvidence(headers: Headers): GenerationPolicyEvidence {
+  const header = (name: string): string | null => headers.get(name);
+  const applied = header("x-lightrsi-generation-policy-applied");
+  const digest = header("x-lightrsi-generation-policy-digest");
+  const bypass = header("x-lightrsi-generation-policy-bypass");
+  return {
+    requestId: header("x-lightrsi-request-id"),
+    runtimeBuildId: header("x-lightrsi-runtime-build-id"),
+    generationPolicyVersion: header("x-lightrsi-generation-policy-version"),
+    generationPolicyDigest: digest === "null" ? null : digest,
+    generationPolicyApplied: applied === "true" ? true : applied === "false" ? false : null,
+    generationPolicyBypassReason: bypass === "null" ? null : bypass,
+  };
+}
 
 export async function loadCodexAuthApiKey(
   authPath = resolve(homedir(), ".codex", "auth.json"),
@@ -257,21 +424,31 @@ export function parseProviderUsage(value: unknown): ProviderUsage | null {
   const usage = (value as Record<string, unknown>).usage;
   if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
   const record = usage as Record<string, unknown>;
-  const numberValue = (candidate: unknown): number | null => typeof candidate === "number" && Number.isFinite(candidate) ? candidate : null;
+  const numberValue = (candidate: unknown): number | null => typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0 ? candidate : null;
   const details = record.input_tokens_details ?? record.prompt_tokens_details;
   const detailRecord = details && typeof details === "object" && !Array.isArray(details)
     ? details as Record<string, unknown>
     : {};
+  const inputTokens = numberValue(record.input_tokens ?? record.prompt_tokens);
+  const cachedInputTokens = numberValue(
+    record.cached_input_tokens
+    ?? record.cache_read_input_tokens
+    ?? record.prompt_cache_hit_tokens
+    ?? detailRecord.cached_tokens,
+  );
+  if (inputTokens !== null && cachedInputTokens !== null && cachedInputTokens > inputTokens) return null;
+  const reasoningTokens = numberValue(
+    (record.output_tokens_details && typeof record.output_tokens_details === "object" && !Array.isArray(record.output_tokens_details)
+      ? (record.output_tokens_details as Record<string, unknown>).reasoning_tokens
+      : undefined)
+      ?? record.reasoning_tokens,
+  );
   return {
-    inputTokens: numberValue(record.input_tokens ?? record.prompt_tokens),
+    inputTokens,
     outputTokens: numberValue(record.output_tokens ?? record.completion_tokens),
     totalTokens: numberValue(record.total_tokens),
-    cachedInputTokens: numberValue(
-      record.cached_input_tokens
-      ?? record.cache_read_input_tokens
-      ?? record.prompt_cache_hit_tokens
-      ?? detailRecord.cached_tokens,
-    ),
+    cachedInputTokens,
+    ...(reasoningTokens !== null ? { reasoningTokens } : {}),
   };
 }
 
@@ -286,6 +463,13 @@ function median(values: number[]): number | null {
 
 function sumMetric(rows: MatchedStageARow[], selector: (row: MatchedStageARow) => number): number {
   return rows.reduce((total, row) => total + selector(row), 0);
+}
+
+function sumOptionalMetric(rows: MatchedStageARow[], selector: (row: MatchedStageARow) => number | null): number | null {
+  const values = rows.map(selector);
+  return values.every((value): value is number => value !== null)
+    ? values.reduce((total, value) => total + value, 0)
+    : null;
 }
 
 function rowCost(row: MatchedStageARow, pricing: ProviderPricing): number | null {
@@ -311,6 +495,45 @@ function hasCompleteMatchedStageAWorkload(rows: MatchedStageARow[], repetitions:
     && [...expectedKeys].every((key) => actualKeys.has(key));
 }
 
+function assessPolicyEvidence(
+  arm: StageAArm,
+  rows: MatchedStageARow[],
+  allRows = rows,
+): "pass" | "fail" | "unavailable" {
+  if (rows.some((row) => row.providerCalls < 1 || row.policyEvidence.length !== row.providerCalls)) return "unavailable";
+  const allEvidence = allRows.flatMap((row) => row.policyEvidence);
+  const requestIds = allEvidence.map((evidence) => evidence.requestId);
+  if (
+    requestIds.some((requestId) => requestId === null)
+    || new Set(requestIds).size !== requestIds.length
+  ) return "unavailable";
+  const runtimeBuildIds = new Set(allEvidence.map((evidence) => evidence.runtimeBuildId));
+  const policyVersions = new Set(allEvidence.map((evidence) => evidence.generationPolicyVersion));
+  if (
+    runtimeBuildIds.size !== 1
+    || runtimeBuildIds.has(null)
+    || runtimeBuildIds.has("unavailable")
+    || policyVersions.size !== 1
+    || policyVersions.has(null)
+  ) return "unavailable";
+  const expectedApplied = arm !== "baseline";
+  const digests = new Set(rows.map((row) => row.policyEvidence.map((evidence) => evidence.generationPolicyDigest)).flat());
+  if (digests.size !== 1 || [...digests][0] !== expectedStageAPolicyDigest(arm)) return "unavailable";
+  let sawMismatch = false;
+  for (const row of rows) {
+    for (const evidence of row.policyEvidence) {
+      if (
+        evidence.generationPolicyApplied === null
+        || evidence.generationPolicyBypassReason === null && evidence.generationPolicyApplied === false
+      ) return "unavailable";
+      if (evidence.generationPolicyApplied !== expectedApplied) sawMismatch = true;
+      if (expectedApplied && evidence.generationPolicyBypassReason !== null) sawMismatch = true;
+      if (!expectedApplied && evidence.generationPolicyBypassReason !== "disabled") return "unavailable";
+    }
+  }
+  return sawMismatch ? "fail" : "pass";
+}
+
 export function summarizeMatchedStageAArm(params: {
   arm: StageAArm;
   repetitions: number;
@@ -318,13 +541,18 @@ export function summarizeMatchedStageAArm(params: {
   pricing?: ProviderPricing;
 }): MatchedStageAArmSummary {
   const completeRows = hasCompleteMatchedStageAWorkload(params.rows, params.repetitions);
+  const policyEvidence = assessPolicyEvidence(params.arm, params.rows);
   const completedTasks = params.rows.filter((row) => row.passed && row.error === null).length;
   const costs = params.pricing ? params.rows.map((row) => rowCost(row, params.pricing!)) : [];
   const totalCostUsd = params.pricing && costs.every((cost): cost is number => cost !== null)
     ? costs.reduce((total, cost) => total + cost, 0)
     : null;
   return {
-    correctness: completeRows ? params.rows.every((row) => row.passed && row.error === null) ? "pass" : "fail" : "unavailable",
+    correctness: !completeRows || policyEvidence === "unavailable"
+      ? "unavailable"
+      : policyEvidence === "fail" || params.rows.some((row) => !row.passed || row.error !== null)
+        ? "fail"
+        : "pass",
     stability: "unavailable",
     economics: "inconclusive",
     engineeringValue: "unavailable",
@@ -346,6 +574,14 @@ export function compareMatchedStageA(
     const armRows = rows.filter((row) => row.arm === arm);
     return [arm, summarizeMatchedStageAArm({ arm, repetitions, rows: armRows, pricing })];
   })) as Record<StageAArm, MatchedStageAArmSummary>;
+  const policyEvidence = Object.fromEntries(STAGE_A_ARMS.map((arm) => {
+    const armRows = rows.filter((row) => row.arm === arm);
+    return [arm, assessPolicyEvidence(arm, armRows, rows)];
+  })) as Record<StageAArm, "pass" | "fail" | "unavailable">;
+  for (const arm of STAGE_A_ARMS) {
+    if (policyEvidence[arm] === "unavailable") summaries[arm].correctness = "unavailable";
+    if (policyEvidence[arm] === "fail" && summaries[arm].correctness === "pass") summaries[arm].correctness = "fail";
+  }
   const baselineRows = rows.filter((row) => row.arm === "baseline");
   const baseline = summaries.baseline;
   for (const arm of STAGE_A_ARMS) {
@@ -353,11 +589,18 @@ export function compareMatchedStageA(
     const summary = summaries[arm];
     const armRows = rows.filter((row) => row.arm === arm);
     const rowsComparable = hasCompleteMatchedStageAWorkload(baselineRows, repetitions)
-      && hasCompleteMatchedStageAWorkload(armRows, repetitions);
-    const stabilityPass = rowsComparable
+      && hasCompleteMatchedStageAWorkload(armRows, repetitions)
+      && assessPolicyEvidence("baseline", baselineRows, rows) === "pass"
+      && assessPolicyEvidence(arm, armRows, rows) === "pass";
+    const stabilityMetricsObserved = rowsComparable
+      && [...baselineRows, ...armRows].every((row) => row.toolCalls !== null && row.retries !== null && row.clarifications !== null);
+    const stabilityPass = stabilityMetricsObserved
       && armRows.every((row) => {
         const baselineRow = baselineRows.find((candidate) => candidate.fixture === row.fixture && candidate.repetition === row.repetition);
         return baselineRow !== undefined
+          && row.toolCalls !== null && baselineRow.toolCalls !== null
+          && row.retries !== null && baselineRow.retries !== null
+          && row.clarifications !== null && baselineRow.clarifications !== null
           && row.providerCalls <= baselineRow.providerCalls
           && row.turns <= baselineRow.turns
           && row.toolCalls <= baselineRow.toolCalls
@@ -369,7 +612,9 @@ export function compareMatchedStageA(
     const latencyDelta = summary.medianLatencyMs !== null && baseline.medianLatencyMs !== null
       ? summary.medianLatencyMs - baseline.medianLatencyMs
       : null;
-    summary.stability = rowsComparable ? stabilityPass ? "pass" : "fail" : "unavailable";
+    summary.stability = !rowsComparable || !stabilityMetricsObserved
+      ? "unavailable"
+      : stabilityPass ? "pass" : "fail";
     summary.economics = !rowsComparable || armCost === null || baselineCost === null
       ? "inconclusive"
       : armCost < baselineCost || (armCost === baselineCost && latencyDelta !== null && latencyDelta <= 0)
@@ -380,9 +625,15 @@ export function compareMatchedStageA(
       latencyMs: latencyDelta,
       providerCalls: summary.providerCalls - baseline.providerCalls,
       turns: sumMetric(armRows, (row) => row.turns) - sumMetric(baselineRows, (row) => row.turns),
-      toolCalls: sumMetric(armRows, (row) => row.toolCalls) - sumMetric(baselineRows, (row) => row.toolCalls),
-      retries: sumMetric(armRows, (row) => row.retries) - sumMetric(baselineRows, (row) => row.retries),
-      clarifications: sumMetric(armRows, (row) => row.clarifications) - sumMetric(baselineRows, (row) => row.clarifications),
+       toolCalls: sumOptionalMetric(armRows, (row) => row.toolCalls) !== null && sumOptionalMetric(baselineRows, (row) => row.toolCalls) !== null
+         ? sumOptionalMetric(armRows, (row) => row.toolCalls)! - sumOptionalMetric(baselineRows, (row) => row.toolCalls)!
+         : null,
+       retries: sumOptionalMetric(armRows, (row) => row.retries) !== null && sumOptionalMetric(baselineRows, (row) => row.retries) !== null
+         ? sumOptionalMetric(armRows, (row) => row.retries)! - sumOptionalMetric(baselineRows, (row) => row.retries)!
+         : null,
+       clarifications: sumOptionalMetric(armRows, (row) => row.clarifications) !== null && sumOptionalMetric(baselineRows, (row) => row.clarifications) !== null
+         ? sumOptionalMetric(armRows, (row) => row.clarifications)! - sumOptionalMetric(baselineRows, (row) => row.clarifications)!
+         : null,
     } : null;
   }
   const promotedArms = STAGE_A_ARMS.filter((arm) => arm !== "baseline").every((arm) => {
@@ -421,7 +672,7 @@ async function runLiveRequest(
   options: LiveRepairOptions,
   instructions: string,
   input: readonly unknown[],
-): Promise<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null }> {
+): Promise<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null; policyEvidence: GenerationPolicyEvidence }> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const response = await fetchImpl(`${options.baseUrl.replace(/\/+$/u, "")}/responses`, {
     method: "POST",
@@ -446,6 +697,7 @@ async function runLiveRequest(
     text: responseText(body),
     history: projectAssistantHistory(output),
     usage: parseProviderUsage(body),
+    policyEvidence: responsePolicyEvidence(response.headers),
   };
 }
 
@@ -510,29 +762,37 @@ function stageAFixtureInput(fixture: StageAFixture): readonly unknown[] {
   return [{ role: "user", content: stageAFixturePrompt(fixture) }];
 }
 
-function sumUsage(responses: Array<{ usage: ProviderUsage | null }>): ProviderUsage | null {
+export function sumUsage(responses: Array<{ usage: ProviderUsage | null }>): ProviderUsage | null {
   const usages = responses.map((response) => response.usage);
-  if (usages.length === 0 || usages.some((usage) => usage === null)) return null;
-  const values = usages as ProviderUsage[];
+  if (usages.length === 0 || usages.every((usage) => usage === null)) return null;
+  const sumField = (field: keyof Pick<ProviderUsage, "inputTokens" | "outputTokens" | "totalTokens" | "cachedInputTokens">): number | null => {
+    if (!usages.every((usage) => usage?.[field] !== null && usage?.[field] !== undefined)) return null;
+    return usages.reduce((total, usage) => total + (usage?.[field] as number), 0);
+  };
+  const reasoningValues = usages.map((usage) => usage?.reasoningTokens);
   return {
-    inputTokens: values.every((usage) => usage.inputTokens !== null)
-      ? values.reduce((total, usage) => total + usage.inputTokens!, 0)
-      : null,
-    outputTokens: values.every((usage) => usage.outputTokens !== null)
-      ? values.reduce((total, usage) => total + usage.outputTokens!, 0)
-      : null,
-    totalTokens: values.every((usage) => usage.totalTokens !== null)
-      ? values.reduce((total, usage) => total + usage.totalTokens!, 0)
-      : null,
-    cachedInputTokens: values.every((usage) => usage.cachedInputTokens !== null)
-      ? values.reduce((total, usage) => total + usage.cachedInputTokens!, 0)
-      : null,
+    inputTokens: sumField("inputTokens"),
+    outputTokens: sumField("outputTokens"),
+    totalTokens: sumField("totalTokens"),
+    cachedInputTokens: sumField("cachedInputTokens"),
+    ...(reasoningValues.every((value): value is number => value !== undefined && value !== null)
+      ? { reasoningTokens: reasoningValues.reduce((total, value) => total + value, 0) }
+      : {}),
   };
 }
 
-async function runMatchedFixture(
+function observedToolCalls(responses: Array<{ history: Record<string, unknown>[] }>): number {
+  return responses.reduce((total, response) => total + response.history.filter((item) => (
+    item.type === "function_call"
+      || item.type === "custom_tool_call"
+      || item.type === "computer_call"
+      || item.type === "local_shell_call"
+      || item.type === "shell_call"
+  )).length, 0);
+}
+
+async function runCompletedTask(
   options: MatchedStageALiveOptions,
-  instructions: string,
   fixture: StageAFixture,
 ): Promise<{
   passed: boolean;
@@ -540,18 +800,19 @@ async function runMatchedFixture(
   latencyMs: number;
   providerCalls: number;
   turns: number;
-  toolCalls: number;
-  retries: number;
-  clarifications: number;
+  toolCalls: number | null;
+  retries: number | null;
+  clarifications: number | null;
   usage: ProviderUsage | null;
+  policyEvidence: GenerationPolicyEvidence[];
   error: string | null;
 }> {
   const started = Date.now();
-  const responses: Array<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null }> = [];
+  const responses: Array<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null; policyEvidence: GenerationPolicyEvidence }> = [];
   let providerCalls = 0;
   const request = async (input: readonly unknown[]) => {
     providerCalls += 1;
-    return runLiveRequest(options, instructions, input);
+    return runLiveRequest(options, "", input);
   };
   try {
     const first = await request(stageAFixtureInput(fixture));
@@ -570,10 +831,11 @@ async function runMatchedFixture(
       latencyMs: Date.now() - started,
       providerCalls,
       turns: responses.length,
-      toolCalls: fixture === "tool-history" ? 1 : 0,
-      retries: 0,
-      clarifications: 0,
+      toolCalls: observedToolCalls(responses),
+      retries: null,
+      clarifications: null,
       usage: sumUsage(responses),
+      policyEvidence: responses.map((response) => response.policyEvidence),
       error: null,
     };
   } catch (error) {
@@ -583,10 +845,11 @@ async function runMatchedFixture(
       latencyMs: Date.now() - started,
       providerCalls,
       turns: responses.length,
-      toolCalls: fixture === "tool-history" ? 1 : 0,
-      retries: 0,
-      clarifications: 0,
-      usage: null,
+      toolCalls: observedToolCalls(responses),
+      retries: null,
+      clarifications: null,
+      usage: sumUsage(responses),
+      policyEvidence: responses.map((response) => response.policyEvidence),
       error: error instanceof Error ? error.message : "provider_error",
     };
   }
@@ -607,20 +870,20 @@ export async function runGenerationPolicyMatchedLive(
   if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > STAGE_A_WORKLOAD.repetitions) {
     throw new Error(`Matched Stage A repetitions must be an integer from 1 through ${STAGE_A_WORKLOAD.repetitions}.`);
   }
-  const tokenPilotPreflight = await requireTokenPilotGenerationPoliciesDisabled(options.tokenPilotConfigPath);
-  let routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey);
-  if (routerPreflight.status === "unknown" && routerPreflight.source === "unavailable" && options.routerSettingsEvidencePath) {
-    const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath);
-    if (shouldUseRouterSettingsEvidenceFallback(routerPreflight, dashboardEvidence)) routerPreflight = dashboardEvidence;
+  const armBaseUrls = STAGE_A_ARMS.map((arm) => options.armBaseUrls[arm]);
+  if (armBaseUrls.some((baseUrl) => !baseUrl) || new Set(armBaseUrls).size !== STAGE_A_ARMS.length) {
+    throw new Error("Matched Stage A requires one distinct configured proxy URL per arm.");
   }
+  const tokenPilotPreflight = await requireTokenPilotGenerationPoliciesDisabled(options.tokenPilotConfigPath);
+  const routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey, options.fetchImpl);
   if (routerPreflight.status !== "match") throw new Error(`Router preflight failed: ${routerPreflight.status}.`);
 
   const rows: MatchedStageARow[] = [];
   for (let repetition = 0; repetition < repetitions; repetition += 1) {
     for (const arm of rotatedStageAArms(repetition)) {
-      const instructions = buildLiveArmInstructions(arm);
+      const armOptions = { ...options, baseUrl: options.armBaseUrls[arm] };
       for (const fixture of STAGE_A_WORKLOAD.fixtures) {
-        const result = await runMatchedFixture(options, instructions, fixture);
+        const result = await runCompletedTask(armOptions, fixture);
         rows.push({ arm, fixture, repetition, ...result });
       }
     }
@@ -796,9 +1059,10 @@ export async function readRouterSettingsPreflight(
   baseUrl: string,
   expected = { cavemanEnabled: false, ponytailEnabled: false },
   apiKey?: string,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<RouterSettingsPreflight> {
   try {
-    const response = await fetch(`${baseUrl.replace(/\/+$/u, "")}/api/settings`, {
+    const response = await fetchImpl(`${baseUrl.replace(/\/+$/u, "")}/api/settings`, {
       headers: apiKey ? { authorization: `Bearer ${apiKey}` } : undefined,
     });
     if (!response.ok) return { status: "unknown", source: "unavailable", settings: {} };
@@ -1040,6 +1304,15 @@ export async function runGenerationPolicyBenchmark(options?: { mock?: boolean })
 }
 
 async function main(): Promise<void> {
+  if (process.argv.includes("--mode") && process.argv[process.argv.indexOf("--mode") + 1] === "local-overhead") {
+    const report = await runLocalOverheadBenchmark({
+      warmup: argumentValue("--warmup", 20),
+      samples: argumentValue("--samples", 100),
+      records: argumentValue("--records", 256),
+    });
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    return;
+  }
   if (process.argv.includes("--live-repair")) {
     const initialCwd = process.env.INIT_CWD?.trim() || process.cwd();
     await loadProviderEnvFile(process.env.LIGHTRSI_BENCHMARK_CREDENTIALS_FILE?.trim() || resolve(initialCwd, ".env"));
@@ -1074,6 +1347,13 @@ async function main(): Promise<void> {
     if (!baseUrl || !routerUrl || !apiKey || !model) {
       throw new Error("Matched live execution requires LIGHTRSI_BENCHMARK_BASE_URL, LIGHTRSI_BENCHMARK_ROUTER_URL, OPENAI_API_KEY, and a model.");
     }
+    const armBaseUrls = Object.fromEntries(STAGE_A_ARMS.map((arm) => {
+      const name = `LIGHTRSI_BENCHMARK_${arm.toUpperCase().replace(/-/gu, "_")}_BASE_URL`;
+      return [arm, process.env[name]?.trim() ?? ""];
+    })) as Record<StageAArm, string>;
+    if (Object.values(armBaseUrls).some((value) => !value) || new Set(Object.values(armBaseUrls)).size !== STAGE_A_ARMS.length) {
+      throw new Error("Matched live execution requires one distinct LIGHTRSI_BENCHMARK_<ARM>_BASE_URL per Stage A arm.");
+    }
     const pricingValues = [
       process.env.LIGHTRSI_BENCHMARK_INPUT_USD_PER_MILLION,
       process.env.LIGHTRSI_BENCHMARK_CACHED_INPUT_USD_PER_MILLION,
@@ -1084,6 +1364,7 @@ async function main(): Promise<void> {
       : undefined;
     const report = await runGenerationPolicyMatchedLive({
       baseUrl,
+      armBaseUrls,
       routerUrl,
       apiKey,
       model,

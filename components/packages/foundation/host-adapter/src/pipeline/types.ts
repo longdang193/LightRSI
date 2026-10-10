@@ -21,6 +21,10 @@ export type ReductionSkippedResult = {
 
 export type BeforeCallDiagnostics = {
   generationPolicyApplied?: boolean;
+  generationPolicyVersion?: string;
+  generationPolicyDigest?: string | null;
+  generationPolicyBypassReason?: "disabled" | "structured_output" | "explicit_compaction" | "rebase" | "already_applied" | "not_applicable" | "unavailable";
+  runtimeBuildId?: string;
   stablePrefixApplied?: boolean;
   recoveryInjected?: boolean;
   reductionApplied?: boolean;

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { appendJsonl } from "./file-store.js";
+import { appendJsonl, appendJsonlLines } from "./file-store.js";
 
 export type EventTraceQueueStats = {
   queuedRecords: number;
@@ -10,7 +10,7 @@ export type EventTraceQueueStats = {
 
 type QueuedEventTrace = {
   stateDir: string;
-  record: Record<string, unknown>;
+  line: string;
   bytes: number;
   settle: () => void;
 };
@@ -43,13 +43,19 @@ function scheduleEventTraceDrain(): void {
     while (eventTraceQueue.length > 0) {
       const entry = eventTraceQueue.shift();
       if (!entry) continue;
-      queuedBytes -= entry.bytes;
+      const batch = [entry];
+      while (eventTraceQueue[0]?.stateDir === entry.stateDir) {
+        const next = eventTraceQueue.shift();
+        if (!next) break;
+        batch.push(next);
+      }
+      queuedBytes -= batch.reduce((total, item) => total + item.bytes, 0);
       try {
-        await appendJsonl(eventTracePath(entry.stateDir), entry.record);
+        await appendJsonlLines(eventTracePath(entry.stateDir), batch.map((item) => item.line));
       } catch {
-        drainFailures += 1;
+        drainFailures += batch.length;
       } finally {
-        entry.settle();
+        for (const item of batch) item.settle();
       }
     }
   })().finally(() => {
@@ -80,7 +86,12 @@ export function enqueueEventTrace(
       resolve();
       return;
     }
-    eventTraceQueue.push({ stateDir, record, bytes, settle: resolve });
+    eventTraceQueue.push({
+      stateDir,
+      line: `${JSON.stringify(record)}\n`,
+      bytes,
+      settle: resolve,
+    });
     queuedBytes += bytes;
     scheduleEventTraceDrain();
   });
