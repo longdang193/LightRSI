@@ -1772,7 +1772,7 @@ function plannedArmProviderAttempts(
   causalPairs: boolean,
 ): number {
   const initialTurns = causalPairs ? 0 : 2;
-  const earlyNoise = fixture.releasePosition === "early" ? fixture.noiseBefore : 0;
+  const earlyNoise = !causalPairs || fixture.releasePosition === "early" ? fixture.noiseBefore : 0;
   const lifecycleTurns = releaseMode === "lifecycle" ? 2 : 0;
   const scenarioTurns = scenarioSteps(fixture.scenario ?? "baseline", "before_restart").length
     + (releaseMode === "lifecycle" ? scenarioSteps(fixture.scenario ?? "baseline", "after_restart").length : 0);

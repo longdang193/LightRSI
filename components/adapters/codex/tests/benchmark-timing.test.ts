@@ -99,6 +99,15 @@ test("benchmark plans shared seed dispatch once", () => {
   );
 });
 
+test("benchmark plans late noise per arm without causal seed", () => {
+  assert.equal(
+    plannedProviderAttempts([
+      { id: "late", scenario: "requirement_change", releasePosition: "late", cacheCondition: "warm", recovery: false, noiseBefore: 12, noiseBetween: 8 },
+    ] as never, 1, "lifecycle", false),
+    56,
+  );
+});
+
 test("summarizes flat request phases without summing overlaps", () => {
   let now = 100;
   const timing = createBenchmarkTiming(() => now);
