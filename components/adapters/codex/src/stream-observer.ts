@@ -8,6 +8,7 @@ export type CodexStreamSnapshot = {
   responseId?: string;
   previousResponseId?: string;
   responsePromptCacheKey?: string;
+  responseModel?: string;
   rawStreamText: string;
 };
 
@@ -20,6 +21,7 @@ export function snapshotCodexResponsesStream(rawStreamText: string): CodexStream
     responseId: collected.responseId,
     previousResponseId: collected.previousResponseId,
     responsePromptCacheKey: collected.responsePromptCacheKey,
+    responseModel: collected.responseModel,
     rawStreamText,
   };
 }

@@ -23,6 +23,7 @@ export type RouterCacheTelemetry = {
   resolvedModel: string | null;
   routeId: string | null;
   provider: string | null;
+  routerCacheNamespace: string | null;
   routerCacheFamilyId: string | null;
   routerPromptCacheKey: string | null;
   providerCacheReadInputTokens: number | null;
@@ -109,9 +110,10 @@ export function collectRouterCacheTelemetry(params: {
   const configuredEndpointDigest = computeSafeGatewayEndpointDigest(params.upstreamBaseUrl);
   const routeId = nonEmptyString(boundary["x-9router-route-id"]);
   const provider = nonEmptyString(boundary["x-9router-provider"]);
+  const routerCacheNamespace = nonEmptyString(boundary["x-9router-cache-namespace"]);
   const routerCacheFamilyId =
     nonEmptyString(boundary["x-9router-cache-family-id"]) ??
-    nonEmptyString(boundary["x-9router-cache-namespace"]);
+    routerCacheNamespace;
   const routerPromptCacheKey = nonEmptyString(boundary["x-9router-prompt-cache-key"]);
   const hasRouterHeaders = routeId !== null
     || provider !== null
@@ -137,6 +139,7 @@ export function collectRouterCacheTelemetry(params: {
     resolvedModel: nonEmptyString(boundary["x-9router-resolved-model"]) ?? responseModel,
     routeId,
     provider,
+    routerCacheNamespace,
     routerCacheFamilyId,
     routerPromptCacheKey,
     providerCacheReadInputTokens,

@@ -1265,13 +1265,14 @@ export async function startCodexResponsesProxy(params: {
       const forwardingAttemptPayloads = new Map<string, JsonObject>();
       let observedRouterCacheIdentity: Pick<RouterCacheTelemetry,
         "routeIdentitySource" | "resolvedModel" | "routeId" | "provider"
-        | "routerCacheFamilyId" | "routerPromptCacheKey"> | null = null;
+        | "routerCacheNamespace" | "routerCacheFamilyId" | "routerPromptCacheKey"> | null = null;
       const recordObservedRouterCacheIdentity = (telemetry: RouterCacheTelemetry): void => {
         observedRouterCacheIdentity = {
           routeIdentitySource: telemetry.routeIdentitySource,
           resolvedModel: telemetry.resolvedModel,
           routeId: telemetry.routeId,
           provider: telemetry.provider,
+          routerCacheNamespace: telemetry.routerCacheNamespace,
           routerCacheFamilyId: telemetry.routerCacheFamilyId,
           routerPromptCacheKey: telemetry.routerPromptCacheKey,
         };
@@ -1996,6 +1997,7 @@ export async function startCodexResponsesProxy(params: {
               responseId: collected.responseId,
               previousResponseId: collected.previousResponseId,
               responsePromptCacheKey: collected.responsePromptCacheKey,
+              responseModel: collected.responseModel,
               rawStreamText: paramsForRecord.rawStreamText ?? "",
             }
           : snapshotCodexResponsesStream(paramsForRecord.rawStreamText ?? "");
@@ -2013,6 +2015,7 @@ export async function startCodexResponsesProxy(params: {
           headers: paramsForRecord.headers ?? {},
           upstreamName: upstream.name,
           upstreamBaseUrl: upstream.baseUrl,
+          responseModel: snapshot.responseModel,
           usage: snapshot.usage ?? null,
           receivedLightmem2CacheContractDigest:
             prepared.envelope.metadata?.lightrsiCacheContractDigest,

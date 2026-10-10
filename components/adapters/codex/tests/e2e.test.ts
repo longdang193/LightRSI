@@ -32,7 +32,12 @@ import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
 import { codexForwardingFingerprint, codexForwardingMetadata } from "../src/context-history/replayability.js";
 
-async function runRouterRouteChangeFrontierProbe(stream: boolean): Promise<void> {
+type RouterIdentityChange = "route" | "namespace" | "stream_model";
+
+async function runRouterRouteChangeFrontierProbe(
+  stream: boolean,
+  identityChange: RouterIdentityChange = "route",
+): Promise<void> {
   await withTempHome(`lightrsi-codex-${stream ? "stream-" : ""}router-route-change-`, async (homeDir) => {
     const proxyPort = await reserveUnusedPort();
     const upstreamPort = await reserveUnusedPort();
@@ -43,20 +48,25 @@ async function runRouterRouteChangeFrontierProbe(stream: boolean): Promise<void>
     const upstream = createHttpServer(async (req, res) => {
       for await (const _chunk of req) {}
       requestCount += 1;
-      const routeSuffix = requestCount === 1 ? "a" : "b";
+      const requestSuffix = requestCount === 1 ? "a" : "b";
+      const routeSuffix = identityChange === "route" ? requestSuffix : "a";
+      const namespaceSuffix = identityChange === "namespace" ? requestSuffix : "a";
+      const modelSuffix = identityChange === "stream_model" ? requestSuffix : "a";
       res.statusCode = 200;
       res.setHeader("x-9router-route-id", `route-${routeSuffix}`);
       res.setHeader("x-9router-provider", `provider-${routeSuffix}`);
-      res.setHeader("x-9router-resolved-model", `resolved-${routeSuffix}`);
-      res.setHeader("x-9router-cache-namespace", `namespace-${routeSuffix}`);
+      if (identityChange !== "stream_model") {
+        res.setHeader("x-9router-resolved-model", `resolved-${routeSuffix}`);
+      }
+      res.setHeader("x-9router-cache-namespace", `namespace-${namespaceSuffix}`);
       res.setHeader("x-9router-cache-family-id", `family-${routeSuffix}`);
       res.setHeader("x-9router-prompt-cache-key", `router-key-${routeSuffix}`);
       if (stream) {
         res.setHeader("content-type", "text/event-stream; charset=utf-8");
-        res.end(`event: response.completed\ndata: {"response":{"id":"resp-router-${routeSuffix}"}}\n\nevent: done\ndata: [DONE]\n\n`);
+        res.end(`event: response.completed\ndata: {"response":{"id":"resp-router-${routeSuffix}","model":"resolved-${modelSuffix}"}}\n\nevent: done\ndata: [DONE]\n\n`);
       } else {
         res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ id: `resp-router-${routeSuffix}`, model: `resolved-${routeSuffix}`, output: [] }));
+        res.end(JSON.stringify({ id: `resp-router-${routeSuffix}`, model: `resolved-${modelSuffix}`, output: [] }));
       }
     });
     await new Promise<void>((resolve, reject) => {
@@ -121,6 +131,18 @@ test("Codex non-stream cache frontier records observed 9Router route changes", a
 
 test("Codex streaming cache frontier records observed 9Router route changes", async () => {
   await runRouterRouteChangeFrontierProbe(true);
+});
+
+test("Codex non-stream cache frontier records observed 9Router namespace changes", async () => {
+  await runRouterRouteChangeFrontierProbe(false, "namespace");
+});
+
+test("Codex streaming cache frontier records observed 9Router namespace changes", async () => {
+  await runRouterRouteChangeFrontierProbe(true, "namespace");
+});
+
+test("Codex streaming cache frontier records observed response model changes", async () => {
+  await runRouterRouteChangeFrontierProbe(true, "stream_model");
 });
 
 test("Codex host e2e wires install, proxy reduction, report/visual, and MCP recovery together", async () => {
