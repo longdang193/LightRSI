@@ -81,6 +81,15 @@ test("benchmark counts shared seed dispatch once", () => {
   );
 });
 
+test("benchmark keeps cleaner seed dispatch when baseline pair is missing", () => {
+  assert.equal(
+    countDispatchedProviderAttempts([
+      { arm: "cleaner", upstreamRequestCount: 5, seedRequestCount: 2 } as never,
+    ]),
+    5,
+  );
+});
+
 test("benchmark plans shared seed dispatch once", () => {
   assert.equal(
     plannedProviderAttempts([

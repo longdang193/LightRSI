@@ -1793,9 +1793,18 @@ export function plannedProviderAttempts(
   }, 0);
 }
 
-export function countDispatchedProviderAttempts(runs: Array<Pick<RunResult, "arm" | "upstreamRequestCount" | "seedRequestCount">>): number {
+export function countDispatchedProviderAttempts(runs: Array<Pick<RunResult, "arm" | "fixture" | "repetition" | "upstreamRequestCount" | "seedRequestCount">>): number {
+  const completePairs = new Set(
+    runs
+      .filter((run) => run.arm === "baseline")
+      .map((run) => `${run.fixture}:${run.repetition}`),
+  );
   return runs.reduce((total, run) => total + run.upstreamRequestCount, 0)
-    - runs.reduce((total, run) => total + (run.arm === "cleaner" ? run.seedRequestCount : 0), 0);
+    - runs.reduce((total, run) => total + (
+      run.arm === "cleaner" && completePairs.has(`${run.fixture}:${run.repetition}`)
+        ? run.seedRequestCount
+        : 0
+    ), 0);
 }
 
 async function main(): Promise<void> {
