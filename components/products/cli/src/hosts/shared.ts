@@ -196,6 +196,7 @@ export function formatRestrictedHostHelp(params: {
   cliHostName: string;
   section?: string;
   reductionPassNames: readonly string[];
+  supportsGenerationPolicy?: boolean;
 }): string {
   if (params.section === "stabilizer") {
     return [
@@ -226,6 +227,12 @@ export function formatRestrictedHostHelp(params: {
     ].join("\n");
   }
 
+  const generationPolicyCommands = params.supportsGenerationPolicy
+    ? [
+      `lightrsi ${params.cliHostName} caveman <off|lite|full|ultra>`,
+      `lightrsi ${params.cliHostName} ponytail <off|lite|full|ultra>`,
+    ]
+    : [];
   return [
     `LightRSI ${params.displayName} commands:`,
     "",
@@ -236,6 +243,7 @@ export function formatRestrictedHostHelp(params: {
     `lightrsi ${params.cliHostName} mode <conservative|normal>`,
     `lightrsi ${params.cliHostName} stabilizer ...`,
     `lightrsi ${params.cliHostName} reduction ...`,
+    ...generationPolicyCommands,
     "",
     `Not supported on ${params.displayName} yet:`,
     "- settings ...",
@@ -283,6 +291,7 @@ export function createRestrictedHostCommandHandler(params: {
   formatStatus(currentConfig: Record<string, unknown>): string;
   applyMode(mode: "conservative" | "normal"): Promise<void>;
   supportsEviction?: boolean;
+  supportsGenerationPolicy?: boolean;
 }): (ctx: { args: string; sessionId?: string }) => Promise<{ text: string }> {
   const sharedHandler = createProductSurfaceCommandHandler({
     bridge: params.bridge,
@@ -307,6 +316,7 @@ export function createRestrictedHostCommandHandler(params: {
           displayName: params.displayName,
           cliHostName: params.cliHostName,
           reductionPassNames: params.reductionPassNames,
+          supportsGenerationPolicy: params.supportsGenerationPolicy,
         })}`,
       };
     }
@@ -318,6 +328,7 @@ export function createRestrictedHostCommandHandler(params: {
           cliHostName: params.cliHostName,
           section: args[1]?.toLowerCase(),
           reductionPassNames: params.reductionPassNames,
+          supportsGenerationPolicy: params.supportsGenerationPolicy,
         }),
       };
     }
@@ -348,6 +359,7 @@ export function createRestrictedHostCommandHandler(params: {
             cliHostName: params.cliHostName,
             section: "reduction",
             reductionPassNames: params.reductionPassNames,
+            supportsGenerationPolicy: params.supportsGenerationPolicy,
           }),
         };
       }
@@ -376,6 +388,7 @@ export function createRestrictedHostCommandHandler(params: {
             cliHostName: params.cliHostName,
             section: "stabilizer",
             reductionPassNames: params.reductionPassNames,
+            supportsGenerationPolicy: params.supportsGenerationPolicy,
           }),
         };
       }
@@ -399,6 +412,13 @@ export function createRestrictedHostCommandHandler(params: {
         };
       }
       return { text: `Usage: lightrsi ${params.cliHostName} mode <conservative|normal>` };
+    }
+
+    if (action === "caveman" || action === "ponytail") {
+      if (!params.supportsGenerationPolicy) {
+        return { text: `${params.displayName} generation policy commands are not supported.` };
+      }
+      return sharedHandler(ctx);
     }
 
     if (action === "settings") {
@@ -425,7 +445,7 @@ export function createRestrictedHostCommandHandler(params: {
     }
 
     return {
-      text: `Unsupported ${params.displayName} command. Supported commands: status, report, doctor, visual, mode <conservative|normal>, reduction ..., stabilizer on|off|target.`,
+      text: `Unsupported ${params.displayName} command. Supported commands: status, report, doctor, visual, mode <conservative|normal>, reduction ..., stabilizer on|off|target${params.supportsGenerationPolicy ? ", caveman <off|lite|full|ultra>, ponytail <off|lite|full|ultra>" : ""}.`,
     };
   };
 }

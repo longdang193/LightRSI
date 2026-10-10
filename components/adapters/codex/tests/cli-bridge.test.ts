@@ -364,6 +364,33 @@ test("codex mode writes only codex-supported fields", async () => {
   }
 });
 
+test("codex cli bridge exposes symmetric Caveman and Ponytail commands", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-bridge-generation-policy-"));
+  const restoreEnvironment = isolateCodexTestEnvironment(dir);
+  try {
+    const bridge = createCodexCliBridge({ host: "codex" });
+
+    const caveman = await bridge.handleCommand({ args: "caveman full" });
+    const ponytail = await bridge.handleCommand({ args: "ponytail lite" });
+    assert.equal(caveman.text, "✅ caveman = full");
+    assert.equal(ponytail.text, "✅ ponytail = lite");
+    const help = await bridge.handleCommand({ args: "help" });
+    assert.match(help.text, /lightrsi codex caveman <off\|lite\|full\|ultra>/);
+    assert.match(help.text, /lightrsi codex ponytail <off\|lite\|full\|ultra>/);
+
+    const reloaded = await loadTokenPilotCodexConfig(defaultTokenPilotConfigPath());
+    assert.deepEqual(reloaded.generationPolicy, {
+      caveman: { enabled: true, level: "full" },
+      ponytail: { enabled: true, level: "lite" },
+    });
+    assert.match((await bridge.handleCommand({ args: "status" })).text, /- Caveman: full/);
+    assert.match((await bridge.handleCommand({ args: "status" })).text, /- Ponytail: lite/);
+  } finally {
+    restoreEnvironment();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("codex config normalization strips unsupported reduction pass options", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-bridge-sanitize-"));
   const restoreEnvironment = isolateCodexTestEnvironment(dir);

@@ -1,23 +1,57 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import {
   SECURITY_FIXTURE_PROMPT,
   STAGE_A_ARMS,
+  STAGE_A_WORKLOAD,
+  type StageAArm,
+  type StageAFixture,
+  STAGE_B_ARMS,
   buildLiveArmInstructions,
+  buildStageBArmInstructions,
+  buildMockStageBReport,
   buildMockGenerationPolicyReport,
+  compareMatchedStageA,
   evaluateRouterSettingsPreflight,
   loadCodexAuthApiKey,
   projectAssistantHistory,
+  parseProviderUsage,
   readRouterSettingsEvidence,
+  readTokenPilotGenerationPolicyPreflight,
+  runGenerationPolicyMatchedLive,
   runGenerationPolicyBenchmark,
+  runGenerationPolicyStageB,
+  summarizeMatchedStageAArm,
   shouldUseRouterSettingsEvidenceFallback,
   validateSecurityFixtureOutput,
   validateMultiTurnFixtureOutput,
 } from "../scripts/benchmark-generation-policy.ts";
+
+const execFileAsync = promisify(execFile);
+
+function matchedRow(fixture: StageAFixture, repetition: number, arm: StageAArm = "baseline") {
+  return {
+    arm,
+    fixture,
+    repetition,
+    passed: true,
+    outputChars: 10,
+    latencyMs: 20,
+    providerCalls: 1,
+    turns: 1,
+    toolCalls: 0,
+    retries: 0,
+    clarifications: 0,
+    usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 0 },
+    error: null,
+  };
+}
 
 test("assistant history projection excludes hidden reasoning and preserves tool closure", () => {
   const reasoning = { type: "reasoning", encrypted_content: "secret" };
@@ -50,11 +84,43 @@ test("live repair instructions preserve independent arm composition", () => {
   assert.match(buildLiveArmInstructions("both-full"), /LightRSI Ponytail/u);
 });
 
+test("Stage B keeps Caveman and Ponytail intensity sweeps independent", () => {
+  assert.deepEqual(STAGE_B_ARMS, [
+    "caveman-lite",
+    "caveman-full",
+    "caveman-ultra",
+    "ponytail-lite",
+    "ponytail-full",
+    "ponytail-ultra",
+  ]);
+  assert.match(buildStageBArmInstructions("caveman-lite"), /LightRSI Caveman v1 \/ lite/u);
+  assert.doesNotMatch(buildStageBArmInstructions("caveman-lite"), /LightRSI Ponytail/u);
+  assert.match(buildStageBArmInstructions("ponytail-ultra"), /LightRSI Ponytail v1 \/ ultra/u);
+  assert.doesNotMatch(buildStageBArmInstructions("ponytail-ultra"), /LightRSI Caveman/u);
+});
+
+test("mock Stage B report is deterministic and always no-promotion", async () => {
+  const report = await runGenerationPolicyStageB({ mock: true });
+  const direct = buildMockStageBReport();
+  assert.deepEqual(Object.keys(report.arms), STAGE_B_ARMS);
+  assert.equal(report.mode, "mock");
+  assert.equal(report.decision, "no-promotion");
+  assert.equal(report.liveEconomics, "inconclusive");
+  assert.deepEqual(report.workload, direct.workload);
+  assert.deepEqual(report.routerPreflight, direct.routerPreflight);
+  assert.ok(Object.values(report.arms).every((arm) => arm.correctness === "unavailable" && arm.stability === "unavailable" && arm.providerCalls === 0));
+  assert.equal(new Set(Object.values(report.arms).map((arm) => arm.workloadFingerprint)).size, 1);
+});
+
 test("multi-turn fixture validator requires the requested engineering facts", () => {
   assert.equal(validateMultiTurnFixtureOutput("Run npm test. Add an edge case test for an optional field."), true);
   assert.equal(validateMultiTurnFixtureOutput("Run npm test. Add a test for an omitted optional field."), true);
   assert.equal(validateMultiTurnFixtureOutput("Run pytest -q. Add an edge-case test for an optional field."), true);
   assert.equal(validateMultiTurnFixtureOutput("The implementation is complete."), false);
+});
+
+test("multi-turn fixture validator rejects a clarification refusal", () => {
+  assert.equal(validateMultiTurnFixtureOutput("Please provide the repository or validator\nfile first. Verification should use pytest, and add an edge-case test for an optional field."), false);
 });
 
 test("mock generation policy benchmark reports contract evidence without provider calls", async () => {
@@ -63,6 +129,173 @@ test("mock generation policy benchmark reports contract evidence without provide
   assert.equal(report.liveEconomics, "inconclusive");
   assert.equal(report.decision, "no-promotion");
   assert.ok(Object.values(report.arms).every((arm) => arm.correctness === "unavailable" && arm.stability === "unavailable" && arm.providerCalls === 0));
+});
+
+test("matched Stage A freezes the eight-fixture workload across every arm", () => {
+  assert.deepEqual(STAGE_A_WORKLOAD.fixtures, [
+    "prose",
+    "code",
+    "json",
+    "tool-history",
+    "security",
+    "detail",
+    "multiturn",
+    "artifact",
+  ]);
+  assert.equal(STAGE_A_WORKLOAD.repetitions, 5);
+  assert.equal(STAGE_A_WORKLOAD.requestShape, "responses");
+  assert.equal(new Set(STAGE_A_ARMS.map(() => JSON.stringify(STAGE_A_WORKLOAD))).size, 1);
+});
+
+test("matched accounting keeps missing usage unavailable instead of treating it as zero", () => {
+  const summary = summarizeMatchedStageAArm({
+    arm: "baseline",
+    repetitions: 1,
+    rows: [{
+      arm: "baseline",
+      fixture: "prose",
+      repetition: 0,
+      passed: true,
+      outputChars: 10,
+      latencyMs: 20,
+      providerCalls: 1,
+      turns: 1,
+      toolCalls: 0,
+      retries: 0,
+      clarifications: 0,
+      usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: null },
+      error: null,
+    }],
+    pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 },
+  });
+
+  assert.equal(summary.totalCostUsd, null);
+  assert.equal(summary.completedTaskCostUsd, null);
+  assert.equal(summary.economics, "inconclusive");
+});
+
+test("matched accounting keeps incomplete and duplicate workload evidence unavailable", () => {
+  const incomplete = summarizeMatchedStageAArm({
+    arm: "baseline",
+    repetitions: 1,
+    rows: [matchedRow("prose", 0)],
+  });
+  assert.equal(incomplete.correctness, "unavailable");
+
+  const duplicateRows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [0, 1].map((repetition) => matchedRow(fixture, repetition)));
+  duplicateRows[1] = matchedRow("prose", 0);
+  const duplicate = summarizeMatchedStageAArm({
+    arm: "baseline",
+    repetitions: 2,
+    rows: duplicateRows,
+  });
+  assert.equal(duplicate.correctness, "unavailable");
+});
+
+test("provider usage parsing retains cached input telemetry", () => {
+  assert.deepEqual(parseProviderUsage({
+    usage: {
+      input_tokens: 120,
+      output_tokens: 30,
+      total_tokens: 150,
+      input_tokens_details: { cached_tokens: 80 },
+    },
+  }), {
+    inputTokens: 120,
+    outputTokens: 30,
+    totalTokens: 150,
+    cachedInputTokens: 80,
+  });
+});
+
+test("matched accounting produces paired baseline deltas and blocks failed arms", () => {
+  const rows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [
+    {
+      ...matchedRow(fixture, 0, "baseline"),
+      outputChars: 100,
+      latencyMs: 100,
+    },
+    {
+      ...matchedRow(fixture, 0, "caveman-full"),
+      passed: fixture !== "prose",
+      outputChars: 80,
+      latencyMs: 80,
+      usage: { inputTokens: 80, outputTokens: 10, totalTokens: 90, cachedInputTokens: 0 },
+    },
+  ]);
+  const comparisons = compareMatchedStageA(rows, 1, { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 });
+  const caveman = comparisons.arms["caveman-full"];
+
+  assert.equal(comparisons.workload.repetitions, 1);
+  assert.equal(caveman.correctness, "fail");
+  assert.equal(caveman.economics, "pass");
+  assert.equal(caveman.baselineDelta?.latencyMs, -20);
+  assert.equal(caveman.baselineDelta?.providerCalls, 0);
+  assert.equal(comparisons.decision, "no-promotion");
+});
+
+test("matched comparison keeps incomplete arms non-comparable", () => {
+  const comparisons = compareMatchedStageA([
+    matchedRow("prose", 0, "baseline"),
+    matchedRow("prose", 0, "caveman-full"),
+  ], 1, { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 });
+  const caveman = comparisons.arms["caveman-full"];
+
+  assert.equal(caveman.correctness, "unavailable");
+  assert.equal(caveman.stability, "unavailable");
+  assert.equal(caveman.economics, "inconclusive");
+  assert.equal(caveman.baselineDelta, null);
+});
+
+test("matched live accounting preserves every failed request attempt", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-matched-failure-accounting-"));
+  const originalCwd = process.cwd();
+  try {
+    await execFileAsync("git", ["init", "-q"], { cwd: dir });
+    await writeFile(join(dir, "fixture.txt"), "clean checkpoint\n", "utf8");
+    const evidencePath = join(dir, "router-settings.json");
+    const tokenPilotConfigPath = join(dir, "tokenpilot.json");
+    await writeFile(evidencePath, JSON.stringify({
+      source: "9router_dashboard",
+      status: 200,
+      cavemanEnabled: false,
+      ponytailEnabled: false,
+    }), "utf8");
+    await writeFile(tokenPilotConfigPath, JSON.stringify({
+      generationPolicy: {
+        caveman: { enabled: false, level: "full" },
+        ponytail: { enabled: false, level: "full" },
+      },
+    }), "utf8");
+    await execFileAsync("git", ["add", "fixture.txt", "router-settings.json", "tokenpilot.json"], { cwd: dir });
+    await execFileAsync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "fixture"], { cwd: dir });
+    process.chdir(dir);
+
+    let attempts = 0;
+    const report = await runGenerationPolicyMatchedLive({
+      baseUrl: "http://127.0.0.1:1/v1",
+      routerUrl: "http://127.0.0.1:1",
+      apiKey: "fixture-key",
+      model: "fixture-model",
+      repetitions: 1,
+      routerSettingsEvidencePath: evidencePath,
+      tokenPilotConfigPath,
+      pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 },
+      fetchImpl: async () => {
+        attempts += 1;
+        throw new Error("transport failure");
+      },
+    });
+
+    assert.equal(attempts, 32);
+    assert.equal(report.matched?.arms.baseline.providerCalls, 8);
+    assert.equal(report.matched?.arms.baseline.totalCostUsd, null);
+    assert.equal(report.matched?.arms["caveman-full"].economics, "inconclusive");
+    assert.ok(report.rows?.filter((row) => row.arm === "baseline").every((row) => row.providerCalls === 1));
+  } finally {
+    process.chdir(originalCwd);
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("mock report stays deterministic apart from repository state", () => {
@@ -80,6 +313,25 @@ test("router preflight fails closed on unknown or mismatched settings", () => {
   assert.equal(evaluateRouterSettingsPreflight({}, { cavemanEnabled: false, ponytailEnabled: false }).status, "unknown");
   assert.equal(evaluateRouterSettingsPreflight({ cavemanEnabled: true, ponytailEnabled: false }, { cavemanEnabled: false, ponytailEnabled: false }).status, "mismatch");
   assert.equal(evaluateRouterSettingsPreflight({ settings: { cavemanEnabled: false, ponytailEnabled: false, rtk: "off" } }, { cavemanEnabled: false, ponytailEnabled: false }).status, "match");
+});
+
+test("TokenPilot generation policy preflight fails closed unless both policies are disabled", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-tokenpilot-preflight-"));
+  try {
+    const missing = await readTokenPilotGenerationPolicyPreflight(join(dir, "missing.json"));
+    assert.equal(missing.status, "unknown");
+
+    const configPath = join(dir, "tokenpilot.json");
+    await writeFile(configPath, JSON.stringify({ generationPolicy: { caveman: { enabled: true } } }), "utf8");
+    const mismatch = await readTokenPilotGenerationPolicyPreflight(configPath);
+    assert.equal(mismatch.status, "mismatch");
+
+    await writeFile(configPath, JSON.stringify({ generationPolicy: { caveman: { enabled: false }, ponytail: { enabled: false } } }), "utf8");
+    const match = await readTokenPilotGenerationPolicyPreflight(configPath);
+    assert.equal(match.status, "match");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("router dashboard evidence only replaces unavailable settings authentication", () => {

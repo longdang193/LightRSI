@@ -146,12 +146,12 @@ This fork includes targeted regression tests and benchmarks for Compact
 admission, Codex forwarding, occurrence release, session continuation, recovery,
 and cache behavior.
 
-Generation policy is opt-in and Codex-only for now. Caveman and Ponytail levels
-are independent, preserve structured-output and tool contracts, and run before
-stable-prefix preparation. Stage A mock contract evidence passes; live economics
-remain inconclusive until an approved clean checkpoint and provider run exist.
-Claude Code and OpenClaw reuse stay deferred until mechanism-specific value is
-proven.
+Generation policy is opt-in and Codex-only for now. The final promotion decision
+retains the original Caveman v1 and Ponytail v1 policy versions, with both
+features disabled by default and the normalized enabled level remaining `full`.
+No Lite/Ultra intensity variant, default-on change, or Claude Code/OpenClaw reuse
+is promoted. Stage A Full output variability and Stage B's missing matched
+baseline leave economic and stability impact inconclusive.
 
 Cleaner validation covers cumulative continuation, repeated releases, retained
 context, and proxy restart. Performance measurements capture forwarded payload

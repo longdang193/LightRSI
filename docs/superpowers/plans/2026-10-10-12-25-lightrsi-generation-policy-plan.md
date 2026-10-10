@@ -2,7 +2,7 @@
 artifact_type: plan
 template_id: implementation-plan
 contract_version: "1"
-status: completed
+status: active
 layer: change
 name: lightrsi-generation-policy
 targets:
@@ -87,7 +87,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Base commit: 06d1e5f4e0e1ad1b29f108299ac7ba2191d61b58
 - Source checkpoint: `42fd8df` (`fix: bound stage A cache audit fallback`)
 - Expected workspace: clean source checkpoint before live traffic; generated mock Stage A evidence and repair output remain outside the checkpoint
-- Next action: none; retain the Stage A no-promotion decision, keep Stage B and adapter expansion blocked, and require a separately approved deterministic-provider experiment before any new live benchmark
+- Next action: complete verification and Git reconciliation for Stage B evidence; 9Router remains unchanged and adapter expansion remains blocked
 - Blockers: Codex `auth.json` key is available for provider traffic, but 9Router `GET /api/settings` returns `401` for that bearer key. Existing sanitized dashboard evidence records Caveman and Ponytail disabled and is accepted only as an explicit limitation fallback. The five-repetition repair completed from clean checkpoint `42fd8df`, but Ponytail Full and Both Full failed the required 100% correctness gate; economics are therefore not promotion evidence. Immediate replay of the three failed multiturn rows passed all three, so the failures are not a stable oracle defect or a shared caller defect; treat them as provider-output variability and keep the mechanism blocked rather than weakening validation. Claude Code/OpenClaw reuse remains deferred until mechanism-specific correctness and measurable value pass
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
@@ -100,8 +100,8 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 | Task 5 | complete | current | lead | Task 4 | command/status and router preflight tests | independent commands/status pass; router preflight fails closed |
 | Task 6 | complete | current | lead | Tasks 4–5 | local/mock contract matrix | Codex policy contract matrix passes |
 | Task 7 | complete | current | lead | Task 6 | Stage A completed-task benchmark | cache-fix repair completed 60 calls without timeout; baseline and Caveman Full passed 10/10, Ponytail Full passed 8/10, Both Full passed 9/10; no promotion |
-| Task 8 | skipped | current | lead | Task 7 mechanism-specific pass gate | Stage B intensity benchmark | skipped because Stage A economics are inconclusive |
-| Task 9 | complete | current | lead | Task 8 or documented Stage A decision | immutable promotion/economics evidence | mock artifacts, README, defaults, and no-promotion decision reconciled |
+| Task 8 | complete | current | lead | User-approved exploratory exception after Task 7 | Stage B intensity benchmark | six independent arms passed correctness; economics/stability inconclusive; no promotion |
+| Task 9 | complete | current | lead | Task 8 or documented Stage A decision | immutable promotion/economics evidence | original Caveman v1 and Ponytail v1 retained; no intensity, default-on, or adapter promotion |
 | Task 10 | deferred | current | lead | Task 9 mechanism-specific correctness and value gate | Claude/OpenClaw reuse tests | deferred; inconclusive mechanisms remain Codex-only |
 
 ### Execution Outcome
@@ -117,11 +117,17 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Clean repair checkpoint is `7e20393`; the tracked mock command records correctness and stability as unavailable because it does not execute provider-facing fixture behavior, while preserving zero provider calls. Mock artifacts are preserved outside the checkout under `C:\tmp\lightrsi-generation-policy-stage-a-mock-repair-7e20393`.
 - The tracked benchmark command remains mock-only; no approved external harness was found for the repair rerun. No live traffic was sent from this repair checkpoint.
 - Added an explicit `--live-repair` path to the tracked benchmark runner for only the failed `security` and `multiturn` fixtures; it requires a clean tree, explicit router/API inputs, and writes sanitized evidence outside the checkout.
+- Added the exploratory Stage B intensity harness with isolated Caveman/Ponytail Lite, Full, and Ultra arms, shared workload fingerprints, no-promotion mock output, and an explicit live path that reuses the existing clean-checkpoint and router-preflight gates.
+- Ran the approved Stage B independent sweeps from checkpoint `a8dd9d3b`: all six arms passed the two-fixture correctness oracle, each used 15 provider calls across five repetitions, and no router settings changed. Mean latency ranged from 4052.5 ms (Caveman Ultra) to 5077.2 ms (Caveman Lite); economics and stability remain inconclusive because Stage B intentionally has no baseline arm.
+- Existing TokenPilot cache-audit telemetry after the run recorded 43 router telemetry events and 43 configured-gateway identity events, but 0 safe-header and 0 exact route/provider/cache identity events; exact router-side identity remains unavailable.
+- Final promotion decision: retain the original Caveman v1 and Ponytail v1 policy versions; leave both features opt-in and disabled by default, promote no Lite/Ultra intensity variant, and keep Claude Code/OpenClaw reuse deferred.
 - Root cause of Stage A slowness was the session cache-audit fallback scanning the full global JSONL history with `Number.MAX_SAFE_INTEGER`; bounded the compatibility tail lookup to 256 records in both the runtime checkout and tracked source, with a regression test for unavailable old history.
 - Updated the multiturn benchmark oracle to accept the requested verification-command families and equivalent omitted-field wording; focused benchmark tests and stabilizer tests pass.
 - Rebuilt and restarted only TokenPilot with the existing config; 9Router remained unchanged. The final one-repetition smoke through `http://127.0.0.1:17667/v1` used `cx/gpt-5.6-luna`, made 12 provider calls, passed all 8 fixture rows, and recorded evidence at `C:\tmp\lightrsi-generation-policy-stage-a-smoke-after-cache-fix-v3.json`. A direct trace showed `proxy_after_call` approximately 70 ms after a 2.03 s upstream response.
 - The authorized five-repetition repair completed from clean checkpoint `42fd8df` with 60 provider calls and no request timeouts. Evidence is `C:\tmp\lightrsi-generation-policy-stage-a-repair-after-cache-fix.json`: baseline `10/10`, Caveman Full `10/10`, Ponytail Full `8/10`, and Both Full `9/10`; Stage A remains no-promotion because every arm must meet the 100% correctness gate before economics or Stage B are considered.
-- Replayed only the three failed multiturn cases through the unchanged `http://127.0.0.1:17667/v1` path with `cx/gpt-5.6-luna`; all three passed the existing oracle on immediate replay. The validator has no other production callers, and no justified source patch was identified. This confirms nondeterministic provider output as the current failure mode, not an oracle false negative; the original five-repetition result remains the authoritative correctness gate.
+- Replayed failed artifact and multiturn cases through the unchanged `http://127.0.0.1:17667/v1` path with `cx/gpt-5.6-luna`; immediate replays passed, while a second full smoke failed different non-baseline multiturn arms. Shared-caller tracing found the multiturn validator is used only by the Stage A/Stage B repair paths. The replay exposed a justified oracle defect: clarification refusals could pass by mentioning a test command, optional fields, and edge cases. Added a focused regression and fail-closed context-request guard; focused benchmark tests and Codex typecheck pass. Provider variability remains present, so correctness gates stay authoritative.
+- Post-patch one-repetition smoke from clean checkpoint `b8a6c8bf` completed through unchanged TokenPilot and 9Router with 36 provider calls: baseline `7/8`, Caveman Full `8/8`, Ponytail Full `8/8`, and Both Full `6/8`. Router preflight matched the existing dashboard evidence, economics remained inconclusive because cached-input usage was unavailable, and the decision remained `no-promotion`. The failed rows were baseline/multiturn, both-full/multiturn, and both-full/artifact; do not run the five-repetition matrix or Stage B yet.
+- Replayed the three post-patch failures through the same path: both multiturn outputs used the non-executable placeholder `<project-test-command>` and were correctly rejected by the existing oracle; Both Full artifact passed on replay. No additional source patch is justified. The remaining blocker is provider-output variability/correctness, not validator behavior.
 - Closed review findings by preserving authoritative router mismatches, marking unexecuted mock correctness/stability as unavailable, and requiring ordered positive security mitigations without negated or cross-clause matches. Review turn 3 found that `should not`/`must not` wording still bypassed the negation guard; the shared validator now rejects those forms with focused regression coverage.
 - Review turn 4 found two further defects: continuation replay preparation disabled policy injection on ordinary chained requests, and modal negation with intervening wording could still satisfy positive security matches. The shared proxy callback now applies policy unless the request is an actual compaction/rebase path, and the security guard rejects bounded intervening negation wording; integration and benchmark regressions pass.
 - Review turn 5 found Markdown emphasis markers could bypass the same security negation guard. The validator now strips formatting markers before matching, with a focused regression for bolded negations.
@@ -560,7 +566,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 ### Task 8: Measure Lite/Full/Ultra intensity
 
 **Purpose:**
-- Measure intensity only after Stage A proves mechanism value.
+- Measure intensity only as exploratory evidence under the explicit exception that Stage A Full outputs remain provider-variable; do not use these results for promotion, default changes, or adapter expansion.
 
 **Task Function:**
 - Extend same runner and manifest for one-mechanism-at-a-time intensity comparisons.
@@ -587,26 +593,26 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Create: docs/benchmarks/2026-10-10-generation-policy-stage-b-report.md
 
 **Dependencies:**
-- Task 7 complete; each mechanism enters its own sweep only after that mechanism's Full arm passes correctness, stability, and measurable-value gates.
+- Task 7 evidence remains the authoritative promotion gate; the user-approved exploratory exception permits independent sweeps only for diagnosis and no-promotion measurement.
 
 **Authority:**
 - Preauthorized local actions: extend existing benchmark and manifest, run mock measurements, and write local reports.
-- Stop for: failed mechanism-specific Full gate, full factorial expansion without interaction evidence, incomplete economics, or changed workload/model/router conditions.
+- Stop for: any attempt to promote from exploratory results, full factorial expansion without interaction evidence, incomplete economics, or changed workload/model/router conditions.
 
 **Steps:**
-- [ ] Step 0: Implement and mock-verify any Stage B runner changes, then create a renewed clean source checkpoint; freeze Stage B manifest outside checkout with source and benchmark SHA equal to that checkpoint, and copy unchanged manifest into `docs/benchmarks/2026-10-10-generation-policy-stage-b-manifest.json` only after measurement.
-- [ ] Step 1: Run Caveman Lite, Full, and Ultra with Ponytail off only after Caveman Full passes its independent gate.
-- [ ] Step 2: Run Ponytail Lite, Full, and Ultra with Caveman off only after Ponytail Full passes its independent gate.
-- [ ] Step 3: Compare completed-task economics, latency, tool/turn/retry behavior, implementation work, correctness, structured validity, and stability for each independent sweep.
+- [x] Step 0: Implement and mock-verify any Stage B runner changes, then create a renewed clean source checkpoint; freeze Stage B manifest outside checkout with source and benchmark SHA equal to that checkpoint, and copy unchanged manifest into `docs/benchmarks/2026-10-10-generation-policy-stage-b-manifest.json` only after measurement.
+- [x] Step 1: Run Caveman Lite, Full, and Ultra with Ponytail off as exploratory evidence; preserve the failed Full gate and do not promote.
+- [x] Step 2: Run Ponytail Lite, Full, and Ultra with Caveman off as exploratory evidence; preserve the failed Full gate and do not promote.
+- [x] Step 3: Compare completed-task economics, latency, tool/turn/retry behavior, implementation work, correctness, structured validity, and stability for each independent sweep.
 - [ ] Step 4: Compare combined winners only after both independent sweeps pass; run full cross-product only when measured interaction cannot be explained by independent effects.
-- [ ] Step 5: Freeze Stage B manifest before measurement and write separate results/report files after measurement.
+- [x] Step 5: Freeze Stage B manifest before measurement and write separate results/report files after measurement.
 
 **Verification:**
 - [ ] pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 --test-name-pattern="generation policy benchmark|intensity" tests/benchmark-generation-policy.test.ts
-- Expected: every arm uses identical workload and preflight; results distinguish complete evidence from unavailable or incomparable evidence.
+- Expected: every arm uses identical workload and preflight; results distinguish complete evidence from unavailable or incomparable evidence. Observed: all six arms passed correctness; economics/stability remain explicitly inconclusive; router exact identity telemetry was unavailable.
 
 **Exit Criteria:**
-- Stage B identifies winning intensity or records no promotion; no setting is promoted from shorter output or fewer LOC alone.
+- Stage B records exploratory intensity evidence and no promotion; no setting is promoted from this exception, shorter output, fewer LOC, or isolated token savings.
 
 ### Task 9: Record promotion decision and documentation
 
@@ -649,10 +655,10 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Stop for: changing enabled defaults, publishing claims from incomplete evidence, or modifying Cleaner behavior.
 
 **Steps:**
-- [ ] Step 1: Record arm outcomes, workload pins, preflight state, correctness results, economics, latency, and promotion decision.
-- [ ] Step 2: Keep normalized level full while leaving both features disabled unless separately approved default-on change exists.
-- [ ] Step 3: Document Compact/Cleaner/Caveman/Ponytail ownership and explicit no-build list; state Cleaner economics remain unverified or failed where evidence says so.
-- [ ] Step 4: Reconcile README claims with source and dated experiment artifacts.
+- [x] Step 1: Record arm outcomes, workload pins, preflight state, correctness results, economics, latency, and promotion decision.
+- [x] Step 2: Keep normalized level full while leaving both features disabled unless separately approved default-on change exists.
+- [x] Step 3: Document Compact/Cleaner/Caveman/Ponytail ownership and explicit no-build list; state Cleaner economics remain unverified or failed where evidence says so.
+- [x] Step 4: Reconcile README claims with source and dated experiment artifacts.
 
 **Verification:**
 - [ ] pnpm typecheck
@@ -714,6 +720,17 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 
 **Exit Criteria:**
 - Claude Code and OpenClaw consume shared policy implementation only for mechanisms with Codex correctness, stability, and measurable-value passes; failed or inconclusive mechanisms remain Codex-only.
+
+## Reopened Matched Benchmark Follow-Up
+
+The prior Stage B evidence is exploratory only because it omitted a baseline arm. The matched baseline-vs-intensity decision is reopened without changing 9Router or promoting any policy.
+
+- Root cause confirmed: `benchmark-generation-policy.ts` modeled only the two-fixture Stage B sweep, had no paired baseline reducer, and discarded cached-input usage fields, so completed-task cost and stability deltas could not be computed safely.
+- Root-cause patch: add the eight-fixture Stage A workload, retain cached-input telemetry, compute paired baseline deltas for cost/latency/calls/turns/tools/retries/clarifications, and fail closed when usage is incomplete.
+- Adjacent report defect patched: generated live Stage B reports no longer label their evidence as mock evidence; they state that economics remain exploratory because the baseline arm is absent.
+- Mock artifact defect patched: `--mock` now writes manifest/results/report files under the temporary directory instead of dirtying the checkout.
+- Focused regression proof: benchmark tests cover workload identity, cached-token parsing, missing-usage inconclusive economics, and failed-arm no-promotion behavior; Codex typecheck passes.
+- Next live gate: create the separately authorized clean checkpoint, freeze the external manifest, then run one matched Stage A smoke through TokenPilot `http://127.0.0.1:17667/v1` with unchanged 9Router state before the bounded five-repetition run.
 
 ## Verification
 

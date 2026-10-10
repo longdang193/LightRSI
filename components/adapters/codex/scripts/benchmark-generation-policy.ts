@@ -1,13 +1,39 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 
-import { resolveCavemanPolicy, resolvePonytailPolicy } from "@lightrsi/product-surface";
+import {
+  resolveCavemanPolicy,
+  resolvePonytailPolicy,
+  type GenerationPolicyLevel,
+} from "@lightrsi/product-surface";
 import { loadProviderEnvFile, providerModelFromEnvironment } from "./context-rebase-smoke.js";
+import { defaultTokenPilotConfigPath, loadTokenPilotCodexConfig } from "../src/config.js";
 
 export const STAGE_A_ARMS = ["baseline", "caveman-full", "ponytail-full", "both-full"] as const;
 export type StageAArm = typeof STAGE_A_ARMS[number];
+export const STAGE_A_WORKLOAD = {
+  fixtures: ["prose", "code", "json", "tool-history", "security", "detail", "multiturn", "artifact"] as const,
+  requestShape: "responses",
+  repetitions: 5,
+} as const;
+export type StageAFixture = typeof STAGE_A_WORKLOAD.fixtures[number];
+type StageAWorkload = {
+  fixtures: typeof STAGE_A_WORKLOAD.fixtures;
+  requestShape: "responses";
+  repetitions: number;
+};
+export const STAGE_B_ARMS = [
+  "caveman-lite",
+  "caveman-full",
+  "caveman-ultra",
+  "ponytail-lite",
+  "ponytail-full",
+  "ponytail-ultra",
+] as const;
+export type StageBArm = typeof STAGE_B_ARMS[number];
 export const SECURITY_FIXTURE_PROMPT = [
   "Explain the security risk of accepting an untrusted file path.",
   "Your response must begin with exactly `Security warning:`.",
@@ -65,7 +91,9 @@ export function validateSecurityFixtureOutput(output: string): boolean {
 }
 
 export function validateMultiTurnFixtureOutput(output: string): boolean {
-  const normalized = output.toLowerCase();
+  const normalized = output.toLowerCase().replace(/\s+/gu, " ");
+  const asksForContext = /(?:\b(?:please\s+)?(?:provide|share|send)\b|\b(?:i\s+)?need\b).{0,120}\b(?:repository|repo|validator|file|details|context)\b/u.test(normalized);
+  if (asksForContext) return false;
   const hasVerificationCommand = ["npm test", "pnpm test", "pytest", "cargo test", "go test"]
     .some((command) => normalized.includes(command));
   return hasVerificationCommand
@@ -84,10 +112,91 @@ export function buildLiveArmInstructions(arm: StageAArm): string {
   return blocks.join("\n\n");
 }
 
+export function buildStageBArmInstructions(arm: StageBArm): string {
+  const [mechanism, level] = arm.split("-") as ["caveman" | "ponytail", GenerationPolicyLevel];
+  return mechanism === "caveman"
+    ? `[LightRSI Caveman v1 / ${level}]\n${resolveCavemanPolicy(level)}`
+    : `[LightRSI Ponytail v1 / ${level}]\n${resolvePonytailPolicy(level)}`;
+}
+
+const STAGE_B_WORKLOAD = {
+  fixtures: ["security", "multiturn"] as const,
+  requestShape: "responses",
+  repetitions: 5,
+} as const;
+
+type StageBWorkload = {
+  fixtures: readonly ["security", "multiturn"];
+  requestShape: "responses";
+  repetitions: number;
+};
+
 type ProviderUsage = {
   inputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+  cachedInputTokens: number | null;
+};
+
+export type ProviderPricing = {
+  inputUsdPerMillion: number;
+  cachedInputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+};
+
+export type MatchedStageARow = {
+  arm: StageAArm;
+  fixture: StageAFixture;
+  repetition: number;
+  passed: boolean;
+  outputChars: number;
+  latencyMs: number | null;
+  providerCalls: number;
+  turns: number;
+  toolCalls: number;
+  retries: number;
+  clarifications: number;
+  usage: ProviderUsage | null;
+  error: string | null;
+};
+
+type MatchedStageAArmSummary = {
+  correctness: "pass" | "fail" | "unavailable";
+  stability: "pass" | "fail" | "unavailable";
+  economics: "pass" | "fail" | "inconclusive";
+  engineeringValue: "unavailable";
+  providerCalls: number;
+  completedTasks: number;
+  totalCostUsd: number | null;
+  completedTaskCostUsd: number | null;
+  medianLatencyMs: number | null;
+  baselineDelta: {
+    costUsd: number | null;
+    latencyMs: number | null;
+    providerCalls: number | null;
+    turns: number | null;
+    toolCalls: number | null;
+    retries: number | null;
+    clarifications: number | null;
+  } | null;
+};
+
+export type MatchedStageAReport = {
+  workload: StageAWorkload;
+  arms: Record<StageAArm, MatchedStageAArmSummary>;
+  decision: "no-promotion" | "promotion-candidate";
+  liveEconomics: "inconclusive" | "pass" | "fail";
+};
+
+export type TokenPilotGenerationPolicyPreflight = {
+  status: "match" | "mismatch" | "unknown";
+  source: "tokenpilot_config" | "unavailable";
+  settings: {
+    cavemanEnabled: boolean | null;
+    ponytailEnabled: boolean | null;
+  };
+  configPath?: string;
+  limitation?: string;
 };
 
 export type GenerationPolicyLiveRepairReport = {
@@ -98,6 +207,7 @@ export type GenerationPolicyLiveRepairReport = {
   model: string;
   repetitions: number;
   routerPreflight: RouterSettingsPreflight;
+  tokenPilotPreflight: TokenPilotGenerationPolicyPreflight;
   providerCalls: number;
   rows: Array<{
     arm: StageAArm;
@@ -118,7 +228,12 @@ type LiveRepairOptions = {
   model: string;
   repetitions?: number;
   routerSettingsEvidencePath?: string;
+  tokenPilotConfigPath?: string;
   fetchImpl?: typeof fetch;
+};
+
+type MatchedStageALiveOptions = LiveRepairOptions & {
+  pricing?: ProviderPricing;
 };
 
 export async function loadCodexAuthApiKey(
@@ -137,16 +252,153 @@ export async function loadCodexAuthApiKey(
     : undefined;
 }
 
-function providerUsage(value: unknown): ProviderUsage | null {
+export function parseProviderUsage(value: unknown): ProviderUsage | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const usage = (value as Record<string, unknown>).usage;
   if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
   const record = usage as Record<string, unknown>;
   const numberValue = (candidate: unknown): number | null => typeof candidate === "number" && Number.isFinite(candidate) ? candidate : null;
+  const details = record.input_tokens_details ?? record.prompt_tokens_details;
+  const detailRecord = details && typeof details === "object" && !Array.isArray(details)
+    ? details as Record<string, unknown>
+    : {};
   return {
     inputTokens: numberValue(record.input_tokens ?? record.prompt_tokens),
     outputTokens: numberValue(record.output_tokens ?? record.completion_tokens),
     totalTokens: numberValue(record.total_tokens),
+    cachedInputTokens: numberValue(
+      record.cached_input_tokens
+      ?? record.cache_read_input_tokens
+      ?? record.prompt_cache_hit_tokens
+      ?? detailRecord.cached_tokens,
+    ),
+  };
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1]! + sorted[middle]!) / 2
+    : sorted[middle]!;
+}
+
+function sumMetric(rows: MatchedStageARow[], selector: (row: MatchedStageARow) => number): number {
+  return rows.reduce((total, row) => total + selector(row), 0);
+}
+
+function rowCost(row: MatchedStageARow, pricing: ProviderPricing): number | null {
+  const usage = row.usage;
+  if (!usage || usage.inputTokens === null || usage.cachedInputTokens === null || usage.outputTokens === null) return null;
+  const uncachedInputTokens = usage.inputTokens - usage.cachedInputTokens;
+  if (uncachedInputTokens < 0) return null;
+  return (
+    uncachedInputTokens * pricing.inputUsdPerMillion
+    + usage.cachedInputTokens * pricing.cachedInputUsdPerMillion
+    + usage.outputTokens * pricing.outputUsdPerMillion
+  ) / 1_000_000;
+}
+
+function hasCompleteMatchedStageAWorkload(rows: MatchedStageARow[], repetitions: number): boolean {
+  const expectedKeys = new Set(
+    Array.from({ length: repetitions }, (_, repetition) => STAGE_A_WORKLOAD.fixtures.map((fixture) => `${repetition}:${fixture}`)).flat(),
+  );
+  const actualKeys = new Set(rows.map((row) => `${row.repetition}:${row.fixture}`));
+  return expectedKeys.size > 0
+    && rows.length === expectedKeys.size
+    && actualKeys.size === rows.length
+    && [...expectedKeys].every((key) => actualKeys.has(key));
+}
+
+export function summarizeMatchedStageAArm(params: {
+  arm: StageAArm;
+  repetitions: number;
+  rows: MatchedStageARow[];
+  pricing?: ProviderPricing;
+}): MatchedStageAArmSummary {
+  const completeRows = hasCompleteMatchedStageAWorkload(params.rows, params.repetitions);
+  const completedTasks = params.rows.filter((row) => row.passed && row.error === null).length;
+  const costs = params.pricing ? params.rows.map((row) => rowCost(row, params.pricing!)) : [];
+  const totalCostUsd = params.pricing && costs.every((cost): cost is number => cost !== null)
+    ? costs.reduce((total, cost) => total + cost, 0)
+    : null;
+  return {
+    correctness: completeRows ? params.rows.every((row) => row.passed && row.error === null) ? "pass" : "fail" : "unavailable",
+    stability: "unavailable",
+    economics: "inconclusive",
+    engineeringValue: "unavailable",
+    providerCalls: sumMetric(params.rows, (row) => row.providerCalls),
+    completedTasks,
+    totalCostUsd,
+    completedTaskCostUsd: totalCostUsd !== null && completedTasks > 0 ? totalCostUsd / completedTasks : null,
+    medianLatencyMs: median(params.rows.flatMap((row) => row.latencyMs === null ? [] : [row.latencyMs])),
+    baselineDelta: null,
+  };
+}
+
+export function compareMatchedStageA(
+  rows: MatchedStageARow[],
+  repetitions: number,
+  pricing?: ProviderPricing,
+): MatchedStageAReport {
+  const summaries = Object.fromEntries(STAGE_A_ARMS.map((arm) => {
+    const armRows = rows.filter((row) => row.arm === arm);
+    return [arm, summarizeMatchedStageAArm({ arm, repetitions, rows: armRows, pricing })];
+  })) as Record<StageAArm, MatchedStageAArmSummary>;
+  const baselineRows = rows.filter((row) => row.arm === "baseline");
+  const baseline = summaries.baseline;
+  for (const arm of STAGE_A_ARMS) {
+    if (arm === "baseline") continue;
+    const summary = summaries[arm];
+    const armRows = rows.filter((row) => row.arm === arm);
+    const rowsComparable = hasCompleteMatchedStageAWorkload(baselineRows, repetitions)
+      && hasCompleteMatchedStageAWorkload(armRows, repetitions);
+    const stabilityPass = rowsComparable
+      && armRows.every((row) => {
+        const baselineRow = baselineRows.find((candidate) => candidate.fixture === row.fixture && candidate.repetition === row.repetition);
+        return baselineRow !== undefined
+          && row.providerCalls <= baselineRow.providerCalls
+          && row.turns <= baselineRow.turns
+          && row.toolCalls <= baselineRow.toolCalls
+          && row.retries <= baselineRow.retries
+          && row.clarifications <= baselineRow.clarifications;
+      });
+    const armCost = summary.totalCostUsd;
+    const baselineCost = baseline.totalCostUsd;
+    const latencyDelta = summary.medianLatencyMs !== null && baseline.medianLatencyMs !== null
+      ? summary.medianLatencyMs - baseline.medianLatencyMs
+      : null;
+    summary.stability = rowsComparable ? stabilityPass ? "pass" : "fail" : "unavailable";
+    summary.economics = !rowsComparable || armCost === null || baselineCost === null
+      ? "inconclusive"
+      : armCost < baselineCost || (armCost === baselineCost && latencyDelta !== null && latencyDelta <= 0)
+        ? "pass"
+        : "fail";
+    summary.baselineDelta = rowsComparable ? {
+      costUsd: armCost !== null && baselineCost !== null ? armCost - baselineCost : null,
+      latencyMs: latencyDelta,
+      providerCalls: summary.providerCalls - baseline.providerCalls,
+      turns: sumMetric(armRows, (row) => row.turns) - sumMetric(baselineRows, (row) => row.turns),
+      toolCalls: sumMetric(armRows, (row) => row.toolCalls) - sumMetric(baselineRows, (row) => row.toolCalls),
+      retries: sumMetric(armRows, (row) => row.retries) - sumMetric(baselineRows, (row) => row.retries),
+      clarifications: sumMetric(armRows, (row) => row.clarifications) - sumMetric(baselineRows, (row) => row.clarifications),
+    } : null;
+  }
+  const promotedArms = STAGE_A_ARMS.filter((arm) => arm !== "baseline").every((arm) => {
+    const summary = summaries[arm];
+    return summary.correctness === "pass"
+      && summary.stability === "pass"
+      && summary.economics === "pass"
+      && summary.engineeringValue !== "unavailable";
+  });
+  return {
+    workload: { ...STAGE_A_WORKLOAD, repetitions },
+    arms: summaries,
+    decision: promotedArms ? "promotion-candidate" : "no-promotion",
+    liveEconomics: STAGE_A_ARMS.slice(1).some((arm) => summaries[arm].economics === "inconclusive")
+      ? "inconclusive"
+      : promotedArms ? "pass" : "fail",
   };
 }
 
@@ -193,7 +445,208 @@ async function runLiveRequest(
   return {
     text: responseText(body),
     history: projectAssistantHistory(output),
-    usage: providerUsage(body),
+    usage: parseProviderUsage(body),
+  };
+}
+
+function stageAFixturePrompt(fixture: StageAFixture): string {
+  switch (fixture) {
+    case "prose":
+      return "Explain input validation in two short paragraphs. Include the exact terms boundary validation and actionable error.";
+    case "code":
+      return "Give a concise implementation checklist. Preserve the exact command `pnpm test`, path `src/validator.ts`, and identifier `optionalField`.";
+    case "json":
+      return "Return only valid JSON with exactly these string keys: status set to ready, and schemaVersion set to 1. Do not wrap it in Markdown.";
+    case "tool-history":
+      return "Use the historical tool result exactly as provided. Confirm the exact marker TOOL_RESULT_ALPHA and do not invent a different result.";
+    case "security":
+      return SECURITY_FIXTURE_PROMPT;
+    case "detail":
+      return "Explain a safe validator change with exactly these sections: Assumptions, Implementation, Verification. Include one failure case and one test command.";
+    case "multiturn":
+      return MULTI_TURN_FIXTURE_PROMPT;
+    case "artifact":
+      return "Return a persisted artifact payload beginning with `--- artifact.md ---`, followed by a Markdown heading `# Validation Plan` and one verification command.";
+  }
+}
+
+function validateStageAFixtureOutput(fixture: StageAFixture, output: string): boolean {
+  const normalized = output.toLowerCase();
+  switch (fixture) {
+    case "prose":
+      return normalized.includes("boundary validation") && normalized.includes("actionable error");
+    case "code":
+      return output.includes("pnpm test") && output.includes("src/validator.ts") && output.includes("optionalField");
+    case "json": {
+      try {
+        const parsed = JSON.parse(output) as Record<string, unknown>;
+        return Object.keys(parsed).length === 2 && parsed.status === "ready" && parsed.schemaVersion === "1";
+      } catch {
+        return false;
+      }
+    }
+    case "tool-history":
+      return output.includes("TOOL_RESULT_ALPHA");
+    case "security":
+      return validateSecurityFixtureOutput(output);
+    case "detail":
+      return ["assumptions", "implementation", "verification"].every((section) => normalized.includes(section))
+        && normalized.includes("test");
+    case "multiturn":
+      return validateMultiTurnFixtureOutput(output);
+    case "artifact":
+      return output.startsWith("--- artifact.md ---") && output.includes("# Validation Plan") && normalized.includes("test");
+  }
+}
+
+function stageAFixtureInput(fixture: StageAFixture): readonly unknown[] {
+  if (fixture === "tool-history") {
+    return [
+      { role: "user", content: stageAFixturePrompt(fixture) },
+      { type: "function_call", call_id: "fixture-call", name: "read_fixture", arguments: "{\"path\":\"fixture.txt\"}" },
+      { type: "function_call_output", call_id: "fixture-call", output: "TOOL_RESULT_ALPHA" },
+    ];
+  }
+  return [{ role: "user", content: stageAFixturePrompt(fixture) }];
+}
+
+function sumUsage(responses: Array<{ usage: ProviderUsage | null }>): ProviderUsage | null {
+  const usages = responses.map((response) => response.usage);
+  if (usages.length === 0 || usages.some((usage) => usage === null)) return null;
+  const values = usages as ProviderUsage[];
+  return {
+    inputTokens: values.every((usage) => usage.inputTokens !== null)
+      ? values.reduce((total, usage) => total + usage.inputTokens!, 0)
+      : null,
+    outputTokens: values.every((usage) => usage.outputTokens !== null)
+      ? values.reduce((total, usage) => total + usage.outputTokens!, 0)
+      : null,
+    totalTokens: values.every((usage) => usage.totalTokens !== null)
+      ? values.reduce((total, usage) => total + usage.totalTokens!, 0)
+      : null,
+    cachedInputTokens: values.every((usage) => usage.cachedInputTokens !== null)
+      ? values.reduce((total, usage) => total + usage.cachedInputTokens!, 0)
+      : null,
+  };
+}
+
+async function runMatchedFixture(
+  options: MatchedStageALiveOptions,
+  instructions: string,
+  fixture: StageAFixture,
+): Promise<{
+  passed: boolean;
+  outputChars: number;
+  latencyMs: number;
+  providerCalls: number;
+  turns: number;
+  toolCalls: number;
+  retries: number;
+  clarifications: number;
+  usage: ProviderUsage | null;
+  error: string | null;
+}> {
+  const started = Date.now();
+  const responses: Array<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null }> = [];
+  let providerCalls = 0;
+  const request = async (input: readonly unknown[]) => {
+    providerCalls += 1;
+    return runLiveRequest(options, instructions, input);
+  };
+  try {
+    const first = await request(stageAFixtureInput(fixture));
+    responses.push(first);
+    if (fixture === "multiturn") {
+      responses.push(await request([
+        { role: "user", content: MULTI_TURN_FIXTURE_PROMPT },
+        ...first.history,
+        { role: "user", content: MULTI_TURN_FIXTURE_FOLLOW_UP },
+      ]));
+    }
+    const finalText = responses[responses.length - 1]!.text;
+    return {
+      passed: validateStageAFixtureOutput(fixture, finalText),
+      outputChars: finalText.length,
+      latencyMs: Date.now() - started,
+      providerCalls,
+      turns: responses.length,
+      toolCalls: fixture === "tool-history" ? 1 : 0,
+      retries: 0,
+      clarifications: 0,
+      usage: sumUsage(responses),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      passed: false,
+      outputChars: responses.length > 0 ? responses[responses.length - 1]!.text.length : 0,
+      latencyMs: Date.now() - started,
+      providerCalls,
+      turns: responses.length,
+      toolCalls: fixture === "tool-history" ? 1 : 0,
+      retries: 0,
+      clarifications: 0,
+      usage: null,
+      error: error instanceof Error ? error.message : "provider_error",
+    };
+  }
+}
+
+function rotatedStageAArms(repetition: number): readonly StageAArm[] {
+  const offset = repetition % STAGE_A_ARMS.length;
+  return [...STAGE_A_ARMS.slice(offset), ...STAGE_A_ARMS.slice(0, offset)];
+}
+
+export async function runGenerationPolicyMatchedLive(
+  options: MatchedStageALiveOptions,
+): Promise<GenerationPolicyBenchmarkReport> {
+  const sourceSha = gitOutput(["rev-parse", "HEAD"]);
+  const sourceTreeStatus = gitOutput(["status", "--porcelain"]) ? "dirty" : "clean";
+  if (sourceTreeStatus !== "clean") throw new Error("Matched live benchmark requires a clean source checkpoint.");
+  const repetitions = options.repetitions ?? STAGE_A_WORKLOAD.repetitions;
+  if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > STAGE_A_WORKLOAD.repetitions) {
+    throw new Error(`Matched Stage A repetitions must be an integer from 1 through ${STAGE_A_WORKLOAD.repetitions}.`);
+  }
+  const tokenPilotPreflight = await requireTokenPilotGenerationPoliciesDisabled(options.tokenPilotConfigPath);
+  let routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey);
+  if (routerPreflight.status === "unknown" && routerPreflight.source === "unavailable" && options.routerSettingsEvidencePath) {
+    const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath);
+    if (shouldUseRouterSettingsEvidenceFallback(routerPreflight, dashboardEvidence)) routerPreflight = dashboardEvidence;
+  }
+  if (routerPreflight.status !== "match") throw new Error(`Router preflight failed: ${routerPreflight.status}.`);
+
+  const rows: MatchedStageARow[] = [];
+  for (let repetition = 0; repetition < repetitions; repetition += 1) {
+    for (const arm of rotatedStageAArms(repetition)) {
+      const instructions = buildLiveArmInstructions(arm);
+      for (const fixture of STAGE_A_WORKLOAD.fixtures) {
+        const result = await runMatchedFixture(options, instructions, fixture);
+        rows.push({ arm, fixture, repetition, ...result });
+      }
+    }
+  }
+  const matched = compareMatchedStageA(rows, repetitions, options.pricing);
+  return {
+    experiment: "lightrsi-generation-policy-stage-a-matched",
+    mode: "live",
+    sourceSha,
+    sourceTreeStatus,
+    model: options.model,
+    repetitions,
+    workload: { ...STAGE_A_WORKLOAD, repetitions },
+    arms: Object.fromEntries(STAGE_A_ARMS.map((arm) => [arm, {
+      correctness: matched.arms[arm].correctness,
+      stability: matched.arms[arm].stability,
+      economics: matched.arms[arm].economics,
+      providerCalls: matched.arms[arm].providerCalls,
+    }])) as GenerationPolicyBenchmarkReport["arms"],
+    liveEconomics: matched.liveEconomics,
+    routerPreflight,
+    tokenPilotPreflight,
+    decision: matched.decision,
+    rows,
+    matched,
+    routerTelemetry: { source: "tokenpilot-event-trace", exactIdentity: "unavailable" },
   };
 }
 
@@ -207,6 +660,7 @@ export async function runGenerationPolicyLiveRepair(
   if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 5) {
     throw new Error("Live repair repetitions must be an integer from 1 through 5.");
   }
+  const tokenPilotPreflight = await requireTokenPilotGenerationPoliciesDisabled(options.tokenPilotConfigPath);
   let routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey);
   if (routerPreflight.status === "unknown" && routerPreflight.source === "unavailable" && options.routerSettingsEvidencePath) {
     const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath);
@@ -242,7 +696,7 @@ export async function runGenerationPolicyLiveRepair(
       }
     }
   }
-  return { experiment: "lightrsi-generation-policy-stage-a-repair", mode: "live-repair", sourceSha, sourceTreeStatus, model: options.model, repetitions, routerPreflight, providerCalls, rows, decision: "no-promotion" };
+  return { experiment: "lightrsi-generation-policy-stage-a-repair", mode: "live-repair", sourceSha, sourceTreeStatus, model: options.model, repetitions, routerPreflight, tokenPilotPreflight, providerCalls, rows, decision: "no-promotion" };
 }
 
 export type GenerationPolicyBenchmarkReport = {
@@ -258,7 +712,50 @@ export type GenerationPolicyBenchmarkReport = {
   }>;
   liveEconomics: "inconclusive" | "pass" | "fail";
   routerPreflight: RouterSettingsPreflight;
+  tokenPilotPreflight: TokenPilotGenerationPolicyPreflight;
   decision: "no-promotion" | "promotion-candidate";
+  model?: string;
+  repetitions?: number;
+  workload?: StageAWorkload;
+  rows?: MatchedStageARow[];
+  matched?: MatchedStageAReport;
+  routerTelemetry?: {
+    source: "tokenpilot-event-trace";
+    exactIdentity: "available" | "unavailable";
+  };
+};
+
+export type GenerationPolicyStageBReport = {
+  experiment: "lightrsi-generation-policy-stage-b";
+  mode: "mock" | "live";
+  sourceSha: string;
+  sourceTreeStatus: "clean" | "dirty";
+  model: string;
+  repetitions: number;
+  workload: StageBWorkload;
+  routerPreflight: RouterSettingsPreflight;
+  tokenPilotPreflight: TokenPilotGenerationPolicyPreflight;
+  arms: Record<StageBArm, {
+    mechanism: "caveman" | "ponytail";
+    level: GenerationPolicyLevel;
+    correctness: "pass" | "fail" | "unavailable";
+    stability: "pass" | "fail" | "unavailable";
+    economics: "pass" | "fail" | "inconclusive";
+    providerCalls: number;
+    workloadFingerprint: string;
+  }>;
+  rows: Array<{
+    arm: StageBArm;
+    fixture: "security" | "multiturn";
+    repetition: number;
+    passed: boolean;
+    outputChars: number;
+    latencyMs: number | null;
+    usage: ProviderUsage | null;
+    error: string | null;
+  }>;
+  liveEconomics: "inconclusive" | "pass" | "fail";
+  decision: "no-promotion";
 };
 
 export type RouterSettingsPreflight = {
@@ -337,6 +834,172 @@ export function shouldUseRouterSettingsEvidenceFallback(
     && evidence.status !== "unknown";
 }
 
+export async function readTokenPilotGenerationPolicyPreflight(
+  configPath = defaultTokenPilotConfigPath(),
+): Promise<TokenPilotGenerationPolicyPreflight> {
+  if (!existsSync(configPath)) {
+    return {
+      status: "unknown",
+      source: "unavailable",
+      settings: { cavemanEnabled: null, ponytailEnabled: null },
+      configPath,
+      limitation: "TokenPilot config is missing; local generation policies cannot be proven disabled",
+    };
+  }
+  try {
+    const config = await loadTokenPilotCodexConfig(configPath);
+    const settings = {
+      cavemanEnabled: config.generationPolicy.caveman.enabled,
+      ponytailEnabled: config.generationPolicy.ponytail.enabled,
+    };
+    return {
+      status: settings.cavemanEnabled === false && settings.ponytailEnabled === false ? "match" : "mismatch",
+      source: "tokenpilot_config",
+      settings,
+      configPath,
+    };
+  } catch (error) {
+    return {
+      status: "unknown",
+      source: "unavailable",
+      settings: { cavemanEnabled: null, ponytailEnabled: null },
+      configPath,
+      limitation: error instanceof Error ? error.message : "TokenPilot config could not be read",
+    };
+  }
+}
+
+async function requireTokenPilotGenerationPoliciesDisabled(
+  configPath?: string,
+): Promise<TokenPilotGenerationPolicyPreflight> {
+  const preflight = await readTokenPilotGenerationPolicyPreflight(configPath);
+  if (preflight.status !== "match") throw new Error(`TokenPilot generation policy preflight failed: ${preflight.status}.`);
+  return preflight;
+}
+
+function stageBArmMetadata(arm: StageBArm): Pick<GenerationPolicyStageBReport["arms"][StageBArm], "mechanism" | "level" | "workloadFingerprint"> {
+  const [mechanism, level] = arm.split("-") as ["caveman" | "ponytail", GenerationPolicyLevel];
+  return {
+    mechanism,
+    level,
+    workloadFingerprint: JSON.stringify(STAGE_B_WORKLOAD),
+  };
+}
+
+type StageBLiveOptions = LiveRepairOptions;
+
+export async function runGenerationPolicyStageBLive(
+  options: StageBLiveOptions,
+): Promise<GenerationPolicyStageBReport> {
+  const sourceSha = gitOutput(["rev-parse", "HEAD"]);
+  const sourceTreeStatus = gitOutput(["status", "--porcelain"]) ? "dirty" : "clean";
+  if (sourceTreeStatus !== "clean") throw new Error("Stage B live execution requires a clean source checkpoint.");
+  const repetitions = options.repetitions ?? STAGE_B_WORKLOAD.repetitions;
+  if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > STAGE_B_WORKLOAD.repetitions) {
+    throw new Error(`Stage B repetitions must be an integer from 1 through ${STAGE_B_WORKLOAD.repetitions}.`);
+  }
+  const tokenPilotPreflight = await requireTokenPilotGenerationPoliciesDisabled(options.tokenPilotConfigPath);
+  let routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey);
+  if (routerPreflight.status === "unknown" && routerPreflight.source === "unavailable" && options.routerSettingsEvidencePath) {
+    const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath);
+    if (shouldUseRouterSettingsEvidenceFallback(routerPreflight, dashboardEvidence)) routerPreflight = dashboardEvidence;
+  }
+  if (routerPreflight.status !== "match") throw new Error(`Router preflight failed: ${routerPreflight.status}.`);
+
+  const rows: GenerationPolicyStageBReport["rows"] = [];
+  const providerCalls = new Map<StageBArm, number>();
+  const instructionsByArm = new Map(STAGE_B_ARMS.map((arm) => [arm, buildStageBArmInstructions(arm)]));
+  for (const arm of STAGE_B_ARMS) {
+    const instructions = instructionsByArm.get(arm) ?? "";
+    providerCalls.set(arm, 0);
+    for (let repetition = 0; repetition < repetitions; repetition += 1) {
+      const securityStarted = Date.now();
+      try {
+        providerCalls.set(arm, (providerCalls.get(arm) ?? 0) + 1);
+        const security = await runLiveRequest(options, instructions, [{ role: "user", content: SECURITY_FIXTURE_PROMPT }]);
+        rows.push({ arm, fixture: "security", repetition, passed: validateSecurityFixtureOutput(security.text), outputChars: security.text.length, latencyMs: Date.now() - securityStarted, usage: security.usage, error: null });
+      } catch (error) {
+        rows.push({ arm, fixture: "security", repetition, passed: false, outputChars: 0, latencyMs: Date.now() - securityStarted, usage: null, error: error instanceof Error ? error.message : "provider_error" });
+      }
+
+      const multiturnStarted = Date.now();
+      try {
+        providerCalls.set(arm, (providerCalls.get(arm) ?? 0) + 1);
+        const first = await runLiveRequest(options, instructions, [{ role: "user", content: MULTI_TURN_FIXTURE_PROMPT }]);
+        providerCalls.set(arm, (providerCalls.get(arm) ?? 0) + 1);
+        const second = await runLiveRequest(options, instructions, [
+          { role: "user", content: MULTI_TURN_FIXTURE_PROMPT },
+          ...first.history,
+          { role: "user", content: MULTI_TURN_FIXTURE_FOLLOW_UP },
+        ]);
+        rows.push({ arm, fixture: "multiturn", repetition, passed: validateMultiTurnFixtureOutput(second.text), outputChars: second.text.length, latencyMs: Date.now() - multiturnStarted, usage: second.usage, error: null });
+      } catch (error) {
+        rows.push({ arm, fixture: "multiturn", repetition, passed: false, outputChars: 0, latencyMs: Date.now() - multiturnStarted, usage: null, error: error instanceof Error ? error.message : "provider_error" });
+      }
+    }
+  }
+
+  const arms = Object.fromEntries(STAGE_B_ARMS.map((arm) => {
+    const armRows = rows.filter((row) => row.arm === arm);
+    return [arm, {
+      ...stageBArmMetadata(arm),
+      correctness: armRows.length === repetitions * STAGE_B_WORKLOAD.fixtures.length && armRows.every((row) => row.passed) ? "pass" : "fail",
+      stability: "unavailable",
+      economics: "inconclusive",
+      providerCalls: providerCalls.get(arm) ?? 0,
+    }];
+  })) as GenerationPolicyStageBReport["arms"];
+  return {
+    experiment: "lightrsi-generation-policy-stage-b",
+    mode: "live",
+    sourceSha,
+    sourceTreeStatus,
+    model: options.model,
+    repetitions,
+    workload: { ...STAGE_B_WORKLOAD, repetitions },
+    routerPreflight,
+    tokenPilotPreflight,
+    arms,
+    rows,
+    liveEconomics: "inconclusive",
+    decision: "no-promotion",
+  };
+}
+
+export function buildMockStageBReport(): GenerationPolicyStageBReport {
+  const sourceSha = gitOutput(["rev-parse", "HEAD"]);
+  const sourceTreeStatus = gitOutput(["status", "--porcelain"]) ? "dirty" : "clean";
+  const arms = Object.fromEntries(STAGE_B_ARMS.map((arm) => [arm, {
+    ...stageBArmMetadata(arm),
+    correctness: "unavailable",
+    stability: "unavailable",
+    economics: "inconclusive",
+    providerCalls: 0,
+  }])) as GenerationPolicyStageBReport["arms"];
+  return {
+    experiment: "lightrsi-generation-policy-stage-b",
+    mode: "mock",
+    sourceSha,
+    sourceTreeStatus,
+    model: "unavailable",
+    repetitions: STAGE_B_WORKLOAD.repetitions,
+    workload: STAGE_B_WORKLOAD,
+    routerPreflight: { status: "unknown", source: "unavailable", settings: {} },
+    tokenPilotPreflight: { status: "unknown", source: "unavailable", settings: { cavemanEnabled: null, ponytailEnabled: null } },
+    arms,
+    rows: [],
+    liveEconomics: "inconclusive",
+    decision: "no-promotion",
+  };
+}
+
+export async function runGenerationPolicyStageB(options?: { mock?: boolean }): Promise<GenerationPolicyStageBReport> {
+  if (!options?.mock) {
+    throw new Error("Stage B live execution requires the explicit stage-b live runner.");
+  }
+  return buildMockStageBReport();
+}
+
 function gitOutput(args: string[]): string {
   return execFileSync("git", args, { encoding: "utf8" }).trim();
 }
@@ -358,7 +1021,14 @@ export function buildMockGenerationPolicyReport(): GenerationPolicyBenchmarkRepo
     arms,
     liveEconomics: "inconclusive",
     routerPreflight: { status: "unknown", source: "unavailable", settings: {} },
+    tokenPilotPreflight: { status: "unknown", source: "unavailable", settings: { cavemanEnabled: null, ponytailEnabled: null } },
     decision: "no-promotion",
+    model: "unavailable",
+    repetitions: STAGE_A_WORKLOAD.repetitions,
+    workload: STAGE_A_WORKLOAD,
+    rows: [],
+    matched: compareMatchedStageA([], STAGE_A_WORKLOAD.repetitions),
+    routerTelemetry: { source: "tokenpilot-event-trace", exactIdentity: "unavailable" },
   };
 }
 
@@ -386,6 +1056,7 @@ async function main(): Promise<void> {
       apiKey,
       model,
       routerSettingsEvidencePath: process.env.LIGHTRSI_BENCHMARK_ROUTER_SETTINGS_EVIDENCE?.trim(),
+      tokenPilotConfigPath: process.env.LIGHTRSI_BENCHMARK_TOKENPILOT_CONFIG?.trim() || defaultTokenPilotConfigPath(),
     });
     const outputPath = process.env.LIGHTRSI_BENCHMARK_OUTPUT?.trim()
       || resolve(tmpdir(), "lightrsi-generation-policy-stage-a-repair.json");
@@ -393,12 +1064,108 @@ async function main(): Promise<void> {
     process.stdout.write(`${JSON.stringify({ ...report, outputPath }, null, 2)}\n`);
     return;
   }
+  if (process.argv.includes("--matched-live")) {
+    const initialCwd = process.env.INIT_CWD?.trim() || process.cwd();
+    await loadProviderEnvFile(process.env.LIGHTRSI_BENCHMARK_CREDENTIALS_FILE?.trim() || resolve(initialCwd, ".env"));
+    const baseUrl = process.env.LIGHTRSI_BENCHMARK_BASE_URL?.trim() || process.env.OPENAI_BASE_URL?.trim();
+    const routerUrl = process.env.LIGHTRSI_BENCHMARK_ROUTER_URL?.trim();
+    const apiKey = process.env.OPENAI_API_KEY?.trim() || await loadCodexAuthApiKey();
+    const model = process.env.LIGHTRSI_BENCHMARK_MODEL?.trim() || providerModelFromEnvironment();
+    if (!baseUrl || !routerUrl || !apiKey || !model) {
+      throw new Error("Matched live execution requires LIGHTRSI_BENCHMARK_BASE_URL, LIGHTRSI_BENCHMARK_ROUTER_URL, OPENAI_API_KEY, and a model.");
+    }
+    const pricingValues = [
+      process.env.LIGHTRSI_BENCHMARK_INPUT_USD_PER_MILLION,
+      process.env.LIGHTRSI_BENCHMARK_CACHED_INPUT_USD_PER_MILLION,
+      process.env.LIGHTRSI_BENCHMARK_OUTPUT_USD_PER_MILLION,
+    ].map((value) => value === undefined ? null : Number(value));
+    const pricing = pricingValues.every((value): value is number => value !== null && Number.isFinite(value) && value >= 0)
+      ? { inputUsdPerMillion: pricingValues[0], cachedInputUsdPerMillion: pricingValues[1], outputUsdPerMillion: pricingValues[2] }
+      : undefined;
+    const report = await runGenerationPolicyMatchedLive({
+      baseUrl,
+      routerUrl,
+      apiKey,
+      model,
+      pricing,
+      repetitions: Number(process.env.LIGHTRSI_BENCHMARK_REPETITIONS ?? STAGE_A_WORKLOAD.repetitions),
+      routerSettingsEvidencePath: process.env.LIGHTRSI_BENCHMARK_ROUTER_SETTINGS_EVIDENCE?.trim(),
+      tokenPilotConfigPath: process.env.LIGHTRSI_BENCHMARK_TOKENPILOT_CONFIG?.trim() || defaultTokenPilotConfigPath(),
+    });
+    const outputPath = process.env.LIGHTRSI_BENCHMARK_OUTPUT?.trim()
+      || resolve(tmpdir(), "lightrsi-generation-policy-stage-a-matched.json");
+    await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ ...report, outputPath }, null, 2)}\n`);
+    return;
+  }
+  if (process.argv.includes("--stage-b")) {
+    let report: GenerationPolicyStageBReport;
+    if (process.argv.includes("--mock")) {
+      report = await runGenerationPolicyStageB({ mock: true });
+    } else {
+      const initialCwd = process.env.INIT_CWD?.trim() || process.cwd();
+      await loadProviderEnvFile(process.env.LIGHTRSI_BENCHMARK_CREDENTIALS_FILE?.trim() || resolve(initialCwd, ".env"));
+      const baseUrl = process.env.LIGHTRSI_BENCHMARK_BASE_URL?.trim() || process.env.OPENAI_BASE_URL?.trim();
+      const routerUrl = process.env.LIGHTRSI_BENCHMARK_ROUTER_URL?.trim();
+      const apiKey = process.env.OPENAI_API_KEY?.trim() || await loadCodexAuthApiKey();
+      const model = process.env.LIGHTRSI_BENCHMARK_MODEL?.trim() || providerModelFromEnvironment();
+      if (!baseUrl || !routerUrl || !apiKey || !model) {
+        throw new Error("Stage B live execution requires LIGHTRSI_BENCHMARK_BASE_URL, LIGHTRSI_BENCHMARK_ROUTER_URL, OPENAI_API_KEY, and a model.");
+      }
+      report = await runGenerationPolicyStageBLive({
+        baseUrl,
+        routerUrl,
+        apiKey,
+        model,
+        repetitions: Number(process.env.LIGHTRSI_BENCHMARK_REPETITIONS ?? STAGE_B_WORKLOAD.repetitions),
+        routerSettingsEvidencePath: process.env.LIGHTRSI_BENCHMARK_ROUTER_SETTINGS_EVIDENCE?.trim(),
+        tokenPilotConfigPath: process.env.LIGHTRSI_BENCHMARK_TOKENPILOT_CONFIG?.trim() || defaultTokenPilotConfigPath(),
+      });
+    }
+    const root = resolve(process.cwd(), "../../..");
+    const outputRoot = report.mode === "mock" ? tmpdir() : resolve(root, "docs/benchmarks");
+    const manifestPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-b-manifest.json");
+    const resultsPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-b-results.json");
+    const reportPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-b-report.md");
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await writeFile(manifestPath, `${JSON.stringify({
+      experiment: report.experiment,
+      mode: report.mode,
+      sourceSha: report.sourceSha,
+      benchmarkSha: report.sourceSha,
+      sourceTreeStatus: report.sourceTreeStatus,
+      model: report.model,
+      workload: report.workload,
+      arms: STAGE_B_ARMS,
+      liveTraffic: report.mode === "live" ? "completed" : "not-run",
+      liveEconomics: report.liveEconomics,
+    }, null, 2)}\n`);
+    await writeFile(resultsPath, `${JSON.stringify(report, null, 2)}\n`);
+    await writeFile(reportPath, [
+      "# LightRSI generation policy Stage B",
+      "",
+      `- Mode: ${report.mode}`,
+      `- Source SHA: ${report.sourceSha}`,
+      `- Source tree: ${report.sourceTreeStatus}`,
+      `- Workload: ${report.workload.fixtures.join(", ")}; repetitions=${report.repetitions}.`,
+      "- Caveman and Ponytail were swept independently; no combined cross-product was run.",
+      report.mode === "mock"
+        ? "- Mock contract evidence: correctness, stability, and economics are unavailable; provider calls = 0."
+        : "- Live Stage B economics remain exploratory and are not a promotion gate because no baseline arm was run.",
+      "- The exploratory exception does not authorize promotion, default changes, or adapter expansion.",
+      "- Decision: no promotion.",
+      "",
+    ].join("\n"));
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    return;
+  }
   const mock = process.argv.includes("--mock");
   const report = await runGenerationPolicyBenchmark({ mock });
   const root = resolve(process.cwd(), "../../..");
-  const manifestPath = resolve(root, "docs/benchmarks/2026-10-10-generation-policy-stage-a-manifest.json");
-  const resultsPath = resolve(root, "docs/benchmarks/2026-10-10-generation-policy-stage-a-results.json");
-  const reportPath = resolve(root, "docs/benchmarks/2026-10-10-generation-policy-stage-a-report.md");
+  const outputRoot = report.mode === "mock" ? tmpdir() : resolve(root, "docs/benchmarks");
+  const manifestPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-a-manifest.json");
+  const resultsPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-a-results.json");
+  const reportPath = resolve(outputRoot, "2026-10-10-generation-policy-stage-a-report.md");
   await mkdir(dirname(manifestPath), { recursive: true });
   await writeFile(manifestPath, `${JSON.stringify({
     experiment: report.experiment,
@@ -416,8 +1183,12 @@ async function main(): Promise<void> {
     `- Mode: ${report.mode}`,
     `- Source SHA: ${report.sourceSha}`,
     `- Source tree: ${report.sourceTreeStatus}`,
-    "- Mock contract evidence: correctness and stability are unavailable in this report; provider calls = 0.",
-    "- Live provider economics: inconclusive; no live traffic authorized.",
+      report.mode === "mock"
+        ? "- Mock contract evidence: correctness and stability are unavailable in this report; provider calls = 0."
+        : "- Live provider economics: inconclusive by design; this exploratory run does not authorize promotion.",
+      report.mode === "live"
+        ? "- Router cache telemetry: inspect the existing TokenPilot event trace with report-cache-audit-codex; no router settings were changed."
+        : "- Live traffic: not run.",
     `- Router preflight: ${report.routerPreflight.status}; source=${report.routerPreflight.source}.`,
     "- Decision: no promotion.",
     "",

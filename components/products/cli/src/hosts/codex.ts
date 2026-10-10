@@ -10,6 +10,7 @@ import {
   getNestedValue,
   formatDisplayValue,
   formatOnOff,
+  normalizeGenerationPolicyConfig,
 } from "@lightrsi/product-surface";
 import {
   defaultCodexConfigPath,
@@ -113,12 +114,15 @@ async function resolveCodexCliSessionId(params: {
 }
 
 function formatCodexStatus(currentConfig: Record<string, unknown>): string {
+  const generationPolicy = normalizeGenerationPolicyConfig(currentConfig.generationPolicy);
   return [
     "TokenPilot Codex status:",
     `- enabled: ${formatOnOff(currentConfig.enabled)}`,
     `- stabilizer: ${formatOnOff(getNestedValue(currentConfig, ["modules", "stabilizer"]))}`,
     `- dynamicContextTarget: ${formatDisplayValue(getNestedValue(currentConfig, ["hooks", "dynamicContextTarget"]))}`,
     `- reduction: ${formatOnOff(getNestedValue(currentConfig, ["modules", "reduction"]))}`,
+    `- Caveman: ${generationPolicy.caveman.enabled ? generationPolicy.caveman.level : "off"}`,
+    `- Ponytail: ${generationPolicy.ponytail.enabled ? generationPolicy.ponytail.level : "off"}`,
     `- triggerMinChars: ${formatDisplayValue(getNestedValue(currentConfig, ["reduction", "triggerMinChars"]))}`,
     `- maxToolChars: ${formatDisplayValue(getNestedValue(currentConfig, ["reduction", "maxToolChars"]))}`,
     `- proxyPort: ${formatDisplayValue(currentConfig.proxyPort)}`,
@@ -198,6 +202,7 @@ export function createCodexCliBridge(target: {
     displayName: "Codex",
     cliHostName: "codex",
     reductionPassNames: CODEX_REDUCTION_PASS_NAMES,
+    supportsGenerationPolicy: true,
     bridge,
     configAdapter: codexProductSurfaceConfigAdapter,
     loadConfig() {
