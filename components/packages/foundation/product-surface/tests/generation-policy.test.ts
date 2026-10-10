@@ -7,6 +7,8 @@ import {
   applyGenerationPolicy,
   isProtectedGenerationPolicyRequest,
   normalizeGenerationPolicyConfig,
+  resolveCavemanPolicy,
+  resolvePonytailPolicy,
 } from "../src/index.js";
 
 function envelope(rawPayload: Record<string, unknown> = {}): HostRequestEnvelope {
@@ -30,6 +32,12 @@ test("normalizes missing policy to disabled full levels", () => {
     caveman: { enabled: false, level: "full" },
     ponytail: { enabled: false, level: "full" },
   });
+});
+
+test("full policies preserve concrete executable verification commands", () => {
+  assert.match(resolveCavemanPolicy("full"), /executable commands/u);
+  assert.match(resolvePonytailPolicy("full"), /concrete/u);
+  assert.match(resolvePonytailPolicy("full"), /placeholders/u);
 });
 
 test("applies enabled policies once and preserves tools and history", () => {

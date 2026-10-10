@@ -25,13 +25,13 @@ export const DEFAULT_GENERATION_POLICY_CONFIG: GenerationPolicyConfig = {
 
 const CAVEMAN_POLICY_TEXT: Record<GenerationPolicyLevel, string> = {
   lite: "Remove filler, pleasantries, repetition, excessive hedging, and tool narration. Use normal grammar and full sentences.",
-  full: "Answer first. Compress conversation overhead. Fragments are acceptable when unambiguous. Preserve all technical substance.",
+  full: "Answer first. Compress conversation overhead. Fragments are acceptable when unambiguous. Preserve all technical substance and executable commands.",
   ultra: "Use telegraphic brevity and minimal connective prose where safe. Never sacrifice correctness or required detail.",
 };
 
 const PONYTAIL_POLICY_TEXT: Record<GenerationPolicyLevel, string> = {
   lite: "Complete requested work normally. Prefer reuse and choose simpler existing solutions when clear.",
-  full: "Enforce YAGNI: inspect existing flow, reuse existing code, use stdlib, native features, installed dependencies, then minimum new implementation.",
+  full: "Enforce YAGNI: inspect existing flow, reuse existing code, use stdlib, native features, installed dependencies, then minimum new implementation. Keep requested commands and verification steps concrete; never replace them with placeholders.",
   ultra: "Use deletion-first extreme YAGNI. Challenge unnecessary machinery. Minimize files, abstractions, and code while completing required behavior.",
 };
 
