@@ -50,10 +50,13 @@ export function projectAssistantHistory(items: readonly unknown[]): Record<strin
 export function validateSecurityFixtureOutput(output: string): boolean {
   if (!output.trimStart().startsWith("Security warning:")) return false;
   const normalized = output.toLowerCase().replace(/\s+/gu, " ");
+  const negation = "(?:do not|don['’]t|never)";
+  if (new RegExp(`\\b${negation}\\s+validat\\w*\\b.{0,120}\\ballow[- ]?list\\b`, "u").test(normalized)
+    || new RegExp(`\\b${negation}\\s+confine\\b.{0,120}\\bintended\\b.{0,80}\\bdirector\\w*\\b`, "u").test(normalized)) return false;
   const mitigationPositions = [
     /\bvalidat\w*\b.{0,120}\ballow[- ]?list\b/u,
-    /\b(?:confine|restrict|limit)\b.{0,120}\b(?:intended|target|allowed)\b.{0,80}\bdirector\w*\b/u,
-    /\b(?:do not|don't|never)\s+execut\w*\b.{0,80}\buntrusted\s+files?\b/u,
+    /\bconfine\b.{0,120}\bintended\b.{0,80}\bdirector\w*\b/u,
+    /\b(?:do not|don['’]t|never)\s+execut\w*\s+untrusted\s+files?\b/u,
   ].map((pattern) => normalized.search(pattern));
   return mitigationPositions.every((position) => position >= 0)
     && mitigationPositions[0] < mitigationPositions[1]

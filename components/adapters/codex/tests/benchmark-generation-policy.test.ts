@@ -34,6 +34,8 @@ test("security fixture requires the exact warning prefix", () => {
   assert.equal(validateSecurityFixtureOutput("Security warning: validate the path against an allowlist; confine it to the intended directory; do not execute untrusted files."), true);
   assert.equal(validateSecurityFixtureOutput("Security warning:"), false);
   assert.equal(validateSecurityFixtureOutput("Security warning: confine the path to the intended directory; validate against an allowlist; do not execute untrusted files."), false);
+  assert.equal(validateSecurityFixtureOutput("Security warning: do not validate against an allowlist; never confine the path to the intended directory; do not execute untrusted files."), false);
+  assert.equal(validateSecurityFixtureOutput("Security warning: validate against an allowlist; confine the path to the intended directory; do not execute validation; execute untrusted files."), false);
   assert.equal(validateSecurityFixtureOutput("Warning: validate paths before use."), false);
 });
 
