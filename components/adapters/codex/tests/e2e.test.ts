@@ -514,8 +514,12 @@ test("Codex cached unsupported input fields record effective transport evidence"
             }],
           }),
         });
-        assert.equal((await makeRequest()).status, 200);
-        assert.equal((await makeRequest()).status, 200);
+        const firstResponse = await makeRequest();
+        assert.equal(firstResponse.status, 200);
+        await firstResponse.text();
+        const secondResponse = await makeRequest();
+        assert.equal(secondResponse.status, 200);
+        await secondResponse.text();
         assert.equal(requests.length, 3);
         assert.equal(JSON.stringify(requests[0]).includes("prompt_cache_breakpoint"), true);
         assert.equal(JSON.stringify(requests[1]).includes("prompt_cache_breakpoint"), false);
@@ -634,10 +638,10 @@ test("Codex cache frontier records transport option downgrade", async () => {
       for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
       const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
       requests.push(payload);
-      if (requests.length === 2 && JSON.stringify(payload).includes("prompt_cache_breakpoint")) {
+      if (requests.length === 2 && typeof payload.prompt_cache_key === "string") {
         res.statusCode = 400;
         res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ error: { message: "Unsupported parameter: prompt_cache_breakpoint" } }));
+        res.end(JSON.stringify({ error: { message: "Unsupported parameter: prompt_cache_key" } }));
         return;
       }
       res.statusCode = 200;
@@ -675,7 +679,6 @@ test("Codex cache frontier records transport option downgrade", async () => {
               content: [{
                 type: "input_text",
                 text: "frontier",
-                prompt_cache_breakpoint: { mode: "explicit" },
               }],
             }],
           }),
@@ -683,9 +686,9 @@ test("Codex cache frontier records transport option downgrade", async () => {
         assert.equal((await makeRequest()).status, 200);
         assert.equal((await makeRequest()).status, 200);
         assert.equal(requests.length, 3);
-        assert.equal(JSON.stringify(requests[0]).includes("prompt_cache_breakpoint"), true);
-        assert.equal(JSON.stringify(requests[1]).includes("prompt_cache_breakpoint"), true);
-        assert.equal(JSON.stringify(requests[2]).includes("prompt_cache_breakpoint"), false);
+        assert.equal(typeof requests[0]?.prompt_cache_key, "string");
+        assert.equal(typeof requests[1]?.prompt_cache_key, "string");
+        assert.equal("prompt_cache_key" in requests[2], false);
         const records = (await readFile(join(stateDir, "cache-audit.jsonl"), "utf8"))
           .trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
             frontier?: { status?: string; changeClass?: string };
@@ -693,6 +696,88 @@ test("Codex cache frontier records transport option downgrade", async () => {
         const frontierRecords = records.map((record) => record.frontier);
         assert.ok(frontierRecords.some((frontier) => frontier?.status === "unmatched"
           && frontier.changeClass === "incompatible"), JSON.stringify(frontierRecords));
+      } finally {
+        await runtime.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+});
+
+test("Codex streaming cache frontier records prompt cache key downgrade", async () => {
+  await withTempHome("lightrsi-codex-stream-frontier-downgrade-", async (homeDir) => {
+    const proxyPort = await reserveUnusedPort();
+    const upstreamPort = await reserveUnusedPort();
+    const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
+    const codexConfigPath = defaultCodexConfigPath();
+    const tokenPilotConfigPath = defaultTokenPilotConfigPath();
+    const requests: Array<Record<string, unknown>> = [];
+    const upstream = createHttpServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+      const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+      requests.push(payload);
+      if (requests.length === 2 && typeof payload.prompt_cache_key === "string") {
+        res.statusCode = 400;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ error: { message: "Unsupported parameter: prompt_cache_key" } }));
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/event-stream; charset=utf-8");
+      res.end(`event: response.completed\ndata: {"response":{"id":"resp-stream-frontier-${requests.length}"}}\n\nevent: done\ndata: [DONE]\n\n`);
+    });
+    await new Promise<void>((resolve, reject) => {
+      upstream.once("error", reject);
+      upstream.listen(upstreamPort, "127.0.0.1", () => { upstream.off("error", reject); resolve(); });
+    });
+    try {
+      await writeTokenPilotCodexConfig(normalizeTokenPilotCodexConfig({
+        proxyPort,
+        stateDir,
+        upstreamProvider: "OpenAI",
+        upstream: {
+          name: "OpenAI",
+          baseUrl: `http://127.0.0.1:${upstreamPort}/v1`,
+          wireApi: "responses",
+          requiresOpenAIAuth: true,
+        },
+      }), tokenPilotConfigPath);
+      const config = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
+      const runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false), codexConfigPath });
+      try {
+        const makeRequest = () => fetch(`${runtime.baseUrl}/responses`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "tokenpilot/gpt-5.4-mini",
+            stream: true,
+            prompt_cache_key: "stream-frontier-session",
+            input: [{ role: "developer", content: [{ type: "input_text", text: "frontier" }] }],
+          }),
+        });
+        const firstResponse = await makeRequest();
+        assert.equal(firstResponse.status, 200);
+        await firstResponse.text();
+        const secondResponse = await makeRequest();
+        assert.equal(secondResponse.status, 200);
+        await secondResponse.text();
+        assert.equal(requests.length, 3);
+        assert.equal(typeof requests[0]?.prompt_cache_key, "string");
+        assert.equal(typeof requests[1]?.prompt_cache_key, "string");
+        assert.equal("prompt_cache_key" in requests[2], false);
+        let records: Array<{ frontier?: { status?: string; changeClass?: string } }> = [];
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          records = (await readFile(join(stateDir, "cache-audit.jsonl"), "utf8"))
+            .trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
+              frontier?: { status?: string; changeClass?: string };
+            });
+          if (records.length >= 2) break;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        assert.ok(records.some((record) => record.frontier?.status === "unmatched"
+          && record.frontier.changeClass === "incompatible"), JSON.stringify(records));
       } finally {
         await runtime.close();
       }

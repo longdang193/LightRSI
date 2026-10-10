@@ -1310,6 +1310,8 @@ export async function startCodexResponsesProxy(params: {
       const cacheAuditCompatibilityDigestForLatestAttempt = (): string => {
         const attempt = forwardingAttempts.at(-1);
         const effectivePayload = attempt ? forwardingAttemptPayloads.get(attempt.attemptId) : undefined;
+        const cacheRoutingPayload = effectivePayload
+          ?? prepared.envelope.rawPayload as Record<string, unknown>;
         return codexForwardingFingerprint({
           model: effectivePayload?.model ?? model,
           endpoint: codexRebaseEndpointIdentity(upstream.baseUrl),
@@ -1317,6 +1319,14 @@ export async function startCodexResponsesProxy(params: {
           providerWirePrefixHash: effectivePayload
             ? computeEncodedProviderWirePrefixHash(effectivePayload)
             : cacheAuditSnapshot.providerWirePrefixHash ?? null,
+          cacheRoutingIdentity: {
+            promptCacheKey: typeof cacheRoutingPayload?.prompt_cache_key === "string"
+              ? cacheRoutingPayload.prompt_cache_key
+              : null,
+            promptCacheRetention: typeof cacheRoutingPayload?.prompt_cache_retention === "string"
+              ? cacheRoutingPayload.prompt_cache_retention
+              : null,
+          },
           cacheRelevantOptionFingerprints: cacheRelevantRequestOptionFingerprints(
             effectivePayload ?? prepared.envelope.rawPayload,
           ),
