@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 
 import { resolveCavemanPolicy, resolvePonytailPolicy } from "@lightrsi/product-surface";
 import { loadProviderEnvFile, providerModelFromEnvironment } from "./context-rebase-smoke.js";
@@ -103,6 +103,22 @@ type LiveRepairOptions = {
   repetitions?: number;
   fetchImpl?: typeof fetch;
 };
+
+export async function loadCodexAuthApiKey(
+  authPath = resolve(homedir(), ".codex", "auth.json"),
+): Promise<string | undefined> {
+  let text: string;
+  try {
+    text = await readFile(authPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  const payload = JSON.parse(text) as Record<string, unknown>;
+  return typeof payload.OPENAI_API_KEY === "string" && payload.OPENAI_API_KEY.trim()
+    ? payload.OPENAI_API_KEY.trim()
+    : undefined;
+}
 
 function providerUsage(value: unknown): ProviderUsage | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -305,7 +321,7 @@ async function main(): Promise<void> {
     await loadProviderEnvFile(process.env.LIGHTRSI_BENCHMARK_CREDENTIALS_FILE?.trim() || resolve(initialCwd, ".env"));
     const baseUrl = process.env.LIGHTRSI_BENCHMARK_BASE_URL?.trim() || process.env.OPENAI_BASE_URL?.trim();
     const routerUrl = process.env.LIGHTRSI_BENCHMARK_ROUTER_URL?.trim();
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    const apiKey = process.env.OPENAI_API_KEY?.trim() || await loadCodexAuthApiKey();
     const model = process.env.LIGHTRSI_BENCHMARK_MODEL?.trim() || providerModelFromEnvironment();
     if (!baseUrl || !routerUrl || !apiKey || !model) {
       throw new Error("Live repair requires LIGHTRSI_BENCHMARK_BASE_URL, LIGHTRSI_BENCHMARK_ROUTER_URL, OPENAI_API_KEY, and a model.");

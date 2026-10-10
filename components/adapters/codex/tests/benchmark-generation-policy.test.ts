@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 
 import {
@@ -7,6 +10,7 @@ import {
   buildLiveArmInstructions,
   buildMockGenerationPolicyReport,
   evaluateRouterSettingsPreflight,
+  loadCodexAuthApiKey,
   projectAssistantHistory,
   runGenerationPolicyBenchmark,
   validateSecurityFixtureOutput,
@@ -65,4 +69,15 @@ test("router preflight fails closed on unknown or mismatched settings", () => {
   assert.equal(evaluateRouterSettingsPreflight({}, { cavemanEnabled: false, ponytailEnabled: false }).status, "unknown");
   assert.equal(evaluateRouterSettingsPreflight({ cavemanEnabled: true, ponytailEnabled: false }, { cavemanEnabled: false, ponytailEnabled: false }).status, "mismatch");
   assert.equal(evaluateRouterSettingsPreflight({ settings: { cavemanEnabled: false, ponytailEnabled: false, rtk: "off" } }, { cavemanEnabled: false, ponytailEnabled: false }).status, "match");
+});
+
+test("live repair reads Codex auth.json without persisting the key", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-auth-"));
+  const authPath = join(dir, "auth.json");
+  try {
+    await writeFile(authPath, JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "fixture-key" }), "utf8");
+    assert.equal(await loadCodexAuthApiKey(authPath), "fixture-key");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
