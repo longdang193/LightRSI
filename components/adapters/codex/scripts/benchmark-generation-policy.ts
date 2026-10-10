@@ -614,7 +614,7 @@ async function main(): Promise<void> {
       model: report.model,
       workload: report.workload,
       arms: STAGE_B_ARMS,
-      liveTraffic: "not-run",
+      liveTraffic: report.mode === "live" ? "completed" : "not-run",
       liveEconomics: report.liveEconomics,
     }, null, 2)}\n`);
     await writeFile(resultsPath, `${JSON.stringify(report, null, 2)}\n`);
@@ -657,8 +657,12 @@ async function main(): Promise<void> {
     `- Mode: ${report.mode}`,
     `- Source SHA: ${report.sourceSha}`,
     `- Source tree: ${report.sourceTreeStatus}`,
-    "- Mock contract evidence: correctness and stability are unavailable in this report; provider calls = 0.",
-    "- Live provider economics: inconclusive; no live traffic authorized.",
+      report.mode === "mock"
+        ? "- Mock contract evidence: correctness and stability are unavailable in this report; provider calls = 0."
+        : "- Live provider economics: inconclusive by design; this exploratory run does not authorize promotion.",
+      report.mode === "live"
+        ? "- Router cache telemetry: inspect the existing TokenPilot event trace with report-cache-audit-codex; no router settings were changed."
+        : "- Live traffic: not run.",
     `- Router preflight: ${report.routerPreflight.status}; source=${report.routerPreflight.source}.`,
     "- Decision: no promotion.",
     "",

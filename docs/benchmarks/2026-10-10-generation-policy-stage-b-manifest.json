@@ -1,0 +1,36 @@
+{
+  "experiment": "lightrsi-generation-policy-stage-b",
+  "mode": "live",
+  "sourceSha": "a8dd9d3bcb4e843d32db3febdb8877959f553208",
+  "benchmarkSha": "a8dd9d3bcb4e843d32db3febdb8877959f553208",
+  "sourceTreeStatus": "clean",
+  "model": "cx/gpt-5.6-luna",
+  "providerBaseUrl": "http://127.0.0.1:17667/v1",
+  "routerUrl": "http://127.0.0.1:20128",
+  "expectedRouterSettings": {
+    "cavemanEnabled": false,
+    "ponytailEnabled": false
+  },
+  "workload": {
+    "fixtures": [
+      "security",
+      "multiturn"
+    ],
+    "requestShape": "responses",
+    "repetitions": 5
+  },
+  "arms": [
+    "caveman-lite",
+    "caveman-full",
+    "caveman-ultra",
+    "ponytail-lite",
+    "ponytail-full",
+    "ponytail-ultra"
+  ],
+  "independentSweeps": [
+    "caveman-only",
+    "ponytail-only"
+  ],
+  "liveTraffic": "completed",
+  "liveEconomics": "inconclusive"
+}

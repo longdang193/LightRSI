@@ -1,0 +1,925 @@
+{
+  "experiment": "lightrsi-generation-policy-stage-b",
+  "mode": "live",
+  "sourceSha": "a8dd9d3bcb4e843d32db3febdb8877959f553208",
+  "sourceTreeStatus": "clean",
+  "model": "cx/gpt-5.6-luna",
+  "repetitions": 5,
+  "workload": {
+    "fixtures": [
+      "security",
+      "multiturn"
+    ],
+    "requestShape": "responses",
+    "repetitions": 5
+  },
+  "routerPreflight": {
+    "status": "match",
+    "source": "dashboard_evidence",
+    "settings": {
+      "cavemanEnabled": false,
+      "ponytailEnabled": false
+    },
+    "limitation": "machine-readable settings authentication unavailable; using existing authenticated dashboard evidence"
+  },
+  "arms": {
+    "caveman-lite": {
+      "mechanism": "caveman",
+      "level": "lite",
+      "workloadFingerprint": "{\"fixtures\":[\"security\",\"multiturn\"],\"requestShape\":\"responses\",\"repetitions\":5}",
+      "correctness": "pass",
+      "stability": "unavailable",
+      "economics": "inconclusive",
+      "providerCalls": 15
+    },
+    "caveman-full": {
+      "mechanism": "caveman",
+      "level": "full",
+      "workloadFingerprint": "{\"fixtures\":[\"security\",\"multiturn\"],\"requestShape\":\"responses\",\"repetitions\":5}",
+      "correctness": "pass",
+      "stability": "unavailable",
+      "economics": "inconclusive",
+      "providerCalls": 15
+    },
+    "caveman-ultra": {
+      "mechanism": "caveman",
+      "level": "ultra",
+      "workloadFingerprint": "{\"fixtures\":[\"security\",\"multiturn\"],\"requestShape\":\"responses\",\"repetitions\":5}",
+      "correctness": "pass",
+      "stability": "unavailable",
+      "economics": "inconclusive",
+      "providerCalls": 15
+    },
+    "ponytail-lite": {
+      "mechanism": "ponytail",
+      "level": "lite",
+      "workloadFingerprint": "{\"fixtures\":[\"security\",\"multiturn\"],\"requestShape\":\"responses\",\"repetitions\":5}",
+      "correctness": "pass",
+      "stability": "unavailable",
+      "economics": "inconclusive",
+      "providerCalls": 15
+    },
+    "ponytail-full": {
+      "mechanism": "ponytail",
+      "level": "full",
+      "workloadFingerprint": "{\"fixtures\":[\"security\",\"multiturn\"],\"requestShape\":\"responses\",\"repetitions\":5}",
+      "correctness": "pass",
+      "stability": "unavailable",
+      "economics": "inconclusive",
+      "providerCalls": 15
+    },
+    "ponytail-ultra": {
+      "mechanism": "ponytail",
+      "level": "ultra",
+      "workloadFingerprint": "{\"fixtures\":[\"security\",\"multiturn\"],\"requestShape\":\"responses\",\"repetitions\":5}",
+      "correctness": "pass",
+      "stability": "unavailable",
+      "economics": "inconclusive",
+      "providerCalls": 15
+    }
+  },
+  "rows": [
+    {
+      "arm": "caveman-lite",
+      "fixture": "security",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 670,
+      "latencyMs": 2381,
+      "usage": {
+        "inputTokens": 192,
+        "outputTokens": 125,
+        "totalTokens": 317
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-lite",
+      "fixture": "multiturn",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 443,
+      "latencyMs": 11756,
+      "usage": {
+        "inputTokens": 379,
+        "outputTokens": 97,
+        "totalTokens": 476
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-lite",
+      "fixture": "security",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 811,
+      "latencyMs": 3992,
+      "usage": {
+        "inputTokens": 192,
+        "outputTokens": 154,
+        "totalTokens": 346
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-lite",
+      "fixture": "multiturn",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 667,
+      "latencyMs": 7440,
+      "usage": {
+        "inputTokens": 376,
+        "outputTokens": 147,
+        "totalTokens": 523
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-lite",
+      "fixture": "security",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 592,
+      "latencyMs": 1645,
+      "usage": {
+        "inputTokens": 192,
+        "outputTokens": 118,
+        "totalTokens": 310
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-lite",
+      "fixture": "multiturn",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 612,
+      "latencyMs": 5096,
+      "usage": {
+        "inputTokens": 380,
+        "outputTokens": 149,
+        "totalTokens": 529
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-lite",
+      "fixture": "security",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 681,
+      "latencyMs": 2519,
+      "usage": {
+        "inputTokens": 192,
+        "outputTokens": 129,
+        "totalTokens": 321
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-lite",
+      "fixture": "multiturn",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 495,
+      "latencyMs": 4060,
+      "usage": {
+        "inputTokens": 312,
+        "outputTokens": 113,
+        "totalTokens": 425
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-lite",
+      "fixture": "security",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 797,
+      "latencyMs": 2068,
+      "usage": {
+        "inputTokens": 192,
+        "outputTokens": 156,
+        "totalTokens": 348
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-lite",
+      "fixture": "multiturn",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 584,
+      "latencyMs": 9815,
+      "usage": {
+        "inputTokens": 384,
+        "outputTokens": 126,
+        "totalTokens": 510
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "security",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 706,
+      "latencyMs": 2122,
+      "usage": {
+        "inputTokens": 192,
+        "outputTokens": 145,
+        "totalTokens": 337
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "multiturn",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 725,
+      "latencyMs": 4757,
+      "usage": {
+        "inputTokens": 367,
+        "outputTokens": 179,
+        "totalTokens": 546
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "security",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 750,
+      "latencyMs": 1981,
+      "usage": {
+        "inputTokens": 192,
+        "outputTokens": 146,
+        "totalTokens": 338
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "multiturn",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 326,
+      "latencyMs": 4890,
+      "usage": {
+        "inputTokens": 336,
+        "outputTokens": 70,
+        "totalTokens": 406
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "security",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 697,
+      "latencyMs": 4535,
+      "usage": {
+        "inputTokens": 192,
+        "outputTokens": 141,
+        "totalTokens": 333
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "multiturn",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 699,
+      "latencyMs": 4423,
+      "usage": {
+        "inputTokens": 365,
+        "outputTokens": 156,
+        "totalTokens": 521
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "security",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 803,
+      "latencyMs": 3964,
+      "usage": {
+        "inputTokens": 192,
+        "outputTokens": 164,
+        "totalTokens": 356
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "multiturn",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 409,
+      "latencyMs": 4189,
+      "usage": {
+        "inputTokens": 403,
+        "outputTokens": 102,
+        "totalTokens": 505
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "security",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 764,
+      "latencyMs": 2013,
+      "usage": {
+        "inputTokens": 192,
+        "outputTokens": 148,
+        "totalTokens": 340
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "multiturn",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 580,
+      "latencyMs": 7810,
+      "usage": {
+        "inputTokens": 380,
+        "outputTokens": 141,
+        "totalTokens": 521
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-ultra",
+      "fixture": "security",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 575,
+      "latencyMs": 2050,
+      "usage": {
+        "inputTokens": 187,
+        "outputTokens": 109,
+        "totalTokens": 296
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-ultra",
+      "fixture": "multiturn",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 465,
+      "latencyMs": 5479,
+      "usage": {
+        "inputTokens": 375,
+        "outputTokens": 104,
+        "totalTokens": 479
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-ultra",
+      "fixture": "security",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 706,
+      "latencyMs": 1989,
+      "usage": {
+        "inputTokens": 187,
+        "outputTokens": 139,
+        "totalTokens": 326
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-ultra",
+      "fixture": "multiturn",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 499,
+      "latencyMs": 4330,
+      "usage": {
+        "inputTokens": 358,
+        "outputTokens": 108,
+        "totalTokens": 466
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-ultra",
+      "fixture": "security",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 583,
+      "latencyMs": 3364,
+      "usage": {
+        "inputTokens": 187,
+        "outputTokens": 116,
+        "totalTokens": 303
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-ultra",
+      "fixture": "multiturn",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 618,
+      "latencyMs": 6772,
+      "usage": {
+        "inputTokens": 361,
+        "outputTokens": 156,
+        "totalTokens": 517
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-ultra",
+      "fixture": "security",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 576,
+      "latencyMs": 1832,
+      "usage": {
+        "inputTokens": 187,
+        "outputTokens": 112,
+        "totalTokens": 299
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-ultra",
+      "fixture": "multiturn",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 335,
+      "latencyMs": 7289,
+      "usage": {
+        "inputTokens": 340,
+        "outputTokens": 80,
+        "totalTokens": 420
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-ultra",
+      "fixture": "security",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 570,
+      "latencyMs": 1781,
+      "usage": {
+        "inputTokens": 187,
+        "outputTokens": 114,
+        "totalTokens": 301
+      },
+      "error": null
+    },
+    {
+      "arm": "caveman-ultra",
+      "fixture": "multiturn",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 438,
+      "latencyMs": 5639,
+      "usage": {
+        "inputTokens": 330,
+        "outputTokens": 100,
+        "totalTokens": 430
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-lite",
+      "fixture": "security",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 638,
+      "latencyMs": 4413,
+      "usage": {
+        "inputTokens": 183,
+        "outputTokens": 125,
+        "totalTokens": 308
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-lite",
+      "fixture": "multiturn",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 390,
+      "latencyMs": 5928,
+      "usage": {
+        "inputTokens": 340,
+        "outputTokens": 93,
+        "totalTokens": 433
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-lite",
+      "fixture": "security",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 840,
+      "latencyMs": 2557,
+      "usage": {
+        "inputTokens": 183,
+        "outputTokens": 163,
+        "totalTokens": 346
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-lite",
+      "fixture": "multiturn",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 568,
+      "latencyMs": 7605,
+      "usage": {
+        "inputTokens": 356,
+        "outputTokens": 136,
+        "totalTokens": 492
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-lite",
+      "fixture": "security",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 582,
+      "latencyMs": 3732,
+      "usage": {
+        "inputTokens": 183,
+        "outputTokens": 114,
+        "totalTokens": 297
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-lite",
+      "fixture": "multiturn",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 591,
+      "latencyMs": 8083,
+      "usage": {
+        "inputTokens": 371,
+        "outputTokens": 140,
+        "totalTokens": 511
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-lite",
+      "fixture": "security",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 886,
+      "latencyMs": 2415,
+      "usage": {
+        "inputTokens": 183,
+        "outputTokens": 172,
+        "totalTokens": 355
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-lite",
+      "fixture": "multiturn",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 720,
+      "latencyMs": 6195,
+      "usage": {
+        "inputTokens": 413,
+        "outputTokens": 173,
+        "totalTokens": 586
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-lite",
+      "fixture": "security",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 633,
+      "latencyMs": 3730,
+      "usage": {
+        "inputTokens": 183,
+        "outputTokens": 125,
+        "totalTokens": 308
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-lite",
+      "fixture": "multiturn",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 589,
+      "latencyMs": 5067,
+      "usage": {
+        "inputTokens": 374,
+        "outputTokens": 146,
+        "totalTokens": 520
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "security",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 625,
+      "latencyMs": 4735,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 126,
+        "totalTokens": 337
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "multiturn",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 588,
+      "latencyMs": 7309,
+      "usage": {
+        "inputTokens": 445,
+        "outputTokens": 124,
+        "totalTokens": 569
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "security",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 762,
+      "latencyMs": 2215,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 150,
+        "totalTokens": 361
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "multiturn",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 411,
+      "latencyMs": 3807,
+      "usage": {
+        "inputTokens": 354,
+        "outputTokens": 82,
+        "totalTokens": 436
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "security",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 577,
+      "latencyMs": 2477,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 116,
+        "totalTokens": 327
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "multiturn",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 487,
+      "latencyMs": 6059,
+      "usage": {
+        "inputTokens": 414,
+        "outputTokens": 98,
+        "totalTokens": 512
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "security",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 758,
+      "latencyMs": 2270,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 149,
+        "totalTokens": 360
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "multiturn",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 652,
+      "latencyMs": 8784,
+      "usage": {
+        "inputTokens": 436,
+        "outputTokens": 152,
+        "totalTokens": 588
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "security",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 683,
+      "latencyMs": 1960,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 133,
+        "totalTokens": 344
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "multiturn",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 485,
+      "latencyMs": 10659,
+      "usage": {
+        "inputTokens": 424,
+        "outputTokens": 99,
+        "totalTokens": 523
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-ultra",
+      "fixture": "security",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 560,
+      "latencyMs": 2070,
+      "usage": {
+        "inputTokens": 194,
+        "outputTokens": 112,
+        "totalTokens": 306
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-ultra",
+      "fixture": "multiturn",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 544,
+      "latencyMs": 6985,
+      "usage": {
+        "inputTokens": 377,
+        "outputTokens": 128,
+        "totalTokens": 505
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-ultra",
+      "fixture": "security",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 684,
+      "latencyMs": 1946,
+      "usage": {
+        "inputTokens": 194,
+        "outputTokens": 139,
+        "totalTokens": 333
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-ultra",
+      "fixture": "multiturn",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 373,
+      "latencyMs": 4143,
+      "usage": {
+        "inputTokens": 290,
+        "outputTokens": 92,
+        "totalTokens": 382
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-ultra",
+      "fixture": "security",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 578,
+      "latencyMs": 1748,
+      "usage": {
+        "inputTokens": 194,
+        "outputTokens": 112,
+        "totalTokens": 306
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-ultra",
+      "fixture": "multiturn",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 534,
+      "latencyMs": 6539,
+      "usage": {
+        "inputTokens": 323,
+        "outputTokens": 126,
+        "totalTokens": 449
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-ultra",
+      "fixture": "security",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 547,
+      "latencyMs": 1645,
+      "usage": {
+        "inputTokens": 194,
+        "outputTokens": 112,
+        "totalTokens": 306
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-ultra",
+      "fixture": "multiturn",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 536,
+      "latencyMs": 10490,
+      "usage": {
+        "inputTokens": 409,
+        "outputTokens": 129,
+        "totalTokens": 538
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-ultra",
+      "fixture": "security",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 541,
+      "latencyMs": 1595,
+      "usage": {
+        "inputTokens": 194,
+        "outputTokens": 111,
+        "totalTokens": 305
+      },
+      "error": null
+    },
+    {
+      "arm": "ponytail-ultra",
+      "fixture": "multiturn",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 467,
+      "latencyMs": 4866,
+      "usage": {
+        "inputTokens": 425,
+        "outputTokens": 123,
+        "totalTokens": 548
+      },
+      "error": null
+    }
+  ],
+  "liveEconomics": "inconclusive",
+  "decision": "no-promotion"
+}

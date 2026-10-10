@@ -87,7 +87,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Base commit: 06d1e5f4e0e1ad1b29f108299ac7ba2191d61b58
 - Source checkpoint: `42fd8df` (`fix: bound stage A cache audit fallback`)
 - Expected workspace: clean source checkpoint before live traffic; generated mock Stage A evidence and repair output remain outside the checkpoint
-- Next action: create a renewed clean source checkpoint, freeze the Stage B manifest outside the checkout, then run the approved independent live sweeps; 9Router remains unchanged and adapter expansion remains blocked
+- Next action: complete verification and Git reconciliation for Stage B evidence; 9Router remains unchanged and adapter expansion remains blocked
 - Blockers: Codex `auth.json` key is available for provider traffic, but 9Router `GET /api/settings` returns `401` for that bearer key. Existing sanitized dashboard evidence records Caveman and Ponytail disabled and is accepted only as an explicit limitation fallback. The five-repetition repair completed from clean checkpoint `42fd8df`, but Ponytail Full and Both Full failed the required 100% correctness gate; economics are therefore not promotion evidence. Immediate replay of the three failed multiturn rows passed all three, so the failures are not a stable oracle defect or a shared caller defect; treat them as provider-output variability and keep the mechanism blocked rather than weakening validation. Claude Code/OpenClaw reuse remains deferred until mechanism-specific correctness and measurable value pass
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
@@ -100,7 +100,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 | Task 5 | complete | current | lead | Task 4 | command/status and router preflight tests | independent commands/status pass; router preflight fails closed |
 | Task 6 | complete | current | lead | Tasks 4–5 | local/mock contract matrix | Codex policy contract matrix passes |
 | Task 7 | complete | current | lead | Task 6 | Stage A completed-task benchmark | cache-fix repair completed 60 calls without timeout; baseline and Caveman Full passed 10/10, Ponytail Full passed 8/10, Both Full passed 9/10; no promotion |
-| Task 8 | active | current | lead | User-approved exploratory exception after Task 7 | Stage B intensity benchmark | exploratory only; no promotion or adapter reuse |
+| Task 8 | complete | current | lead | User-approved exploratory exception after Task 7 | Stage B intensity benchmark | six independent arms passed correctness; economics/stability inconclusive; no promotion |
 | Task 9 | complete | current | lead | Task 8 or documented Stage A decision | immutable promotion/economics evidence | mock artifacts, README, defaults, and no-promotion decision reconciled |
 | Task 10 | deferred | current | lead | Task 9 mechanism-specific correctness and value gate | Claude/OpenClaw reuse tests | deferred; inconclusive mechanisms remain Codex-only |
 
@@ -118,6 +118,8 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - The tracked benchmark command remains mock-only; no approved external harness was found for the repair rerun. No live traffic was sent from this repair checkpoint.
 - Added an explicit `--live-repair` path to the tracked benchmark runner for only the failed `security` and `multiturn` fixtures; it requires a clean tree, explicit router/API inputs, and writes sanitized evidence outside the checkout.
 - Added the exploratory Stage B intensity harness with isolated Caveman/Ponytail Lite, Full, and Ultra arms, shared workload fingerprints, no-promotion mock output, and an explicit live path that reuses the existing clean-checkpoint and router-preflight gates.
+- Ran the approved Stage B independent sweeps from checkpoint `a8dd9d3b`: all six arms passed the two-fixture correctness oracle, each used 15 provider calls across five repetitions, and no router settings changed. Mean latency ranged from 4052.5 ms (Caveman Ultra) to 5077.2 ms (Caveman Lite); economics and stability remain inconclusive because Stage B intentionally has no baseline arm.
+- Existing TokenPilot cache-audit telemetry after the run recorded 43 router telemetry events and 43 configured-gateway identity events, but 0 safe-header and 0 exact route/provider/cache identity events; exact router-side identity remains unavailable.
 - Root cause of Stage A slowness was the session cache-audit fallback scanning the full global JSONL history with `Number.MAX_SAFE_INTEGER`; bounded the compatibility tail lookup to 256 records in both the runtime checkout and tracked source, with a regression test for unavailable old history.
 - Updated the multiturn benchmark oracle to accept the requested verification-command families and equivalent omitted-field wording; focused benchmark tests and stabilizer tests pass.
 - Rebuilt and restarted only TokenPilot with the existing config; 9Router remained unchanged. The final one-repetition smoke through `http://127.0.0.1:17667/v1` used `cx/gpt-5.6-luna`, made 12 provider calls, passed all 8 fixture rows, and recorded evidence at `C:\tmp\lightrsi-generation-policy-stage-a-smoke-after-cache-fix-v3.json`. A direct trace showed `proxy_after_call` approximately 70 ms after a 2.03 s upstream response.
@@ -596,18 +598,18 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 
 **Steps:**
 - [x] Step 0: Implement and mock-verify any Stage B runner changes, then create a renewed clean source checkpoint; freeze Stage B manifest outside checkout with source and benchmark SHA equal to that checkpoint, and copy unchanged manifest into `docs/benchmarks/2026-10-10-generation-policy-stage-b-manifest.json` only after measurement.
-- [ ] Step 1: Run Caveman Lite, Full, and Ultra with Ponytail off as exploratory evidence; preserve the failed Full gate and do not promote.
-- [ ] Step 2: Run Ponytail Lite, Full, and Ultra with Caveman off as exploratory evidence; preserve the failed Full gate and do not promote.
-- [ ] Step 3: Compare completed-task economics, latency, tool/turn/retry behavior, implementation work, correctness, structured validity, and stability for each independent sweep.
+- [x] Step 1: Run Caveman Lite, Full, and Ultra with Ponytail off as exploratory evidence; preserve the failed Full gate and do not promote.
+- [x] Step 2: Run Ponytail Lite, Full, and Ultra with Caveman off as exploratory evidence; preserve the failed Full gate and do not promote.
+- [x] Step 3: Compare completed-task economics, latency, tool/turn/retry behavior, implementation work, correctness, structured validity, and stability for each independent sweep.
 - [ ] Step 4: Compare combined winners only after both independent sweeps pass; run full cross-product only when measured interaction cannot be explained by independent effects.
-- [ ] Step 5: Freeze Stage B manifest before measurement and write separate results/report files after measurement.
+- [x] Step 5: Freeze Stage B manifest before measurement and write separate results/report files after measurement.
 
 **Verification:**
 - [ ] pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 --test-name-pattern="generation policy benchmark|intensity" tests/benchmark-generation-policy.test.ts
-- Expected: every arm uses identical workload and preflight; results distinguish complete evidence from unavailable or incomparable evidence.
+- Expected: every arm uses identical workload and preflight; results distinguish complete evidence from unavailable or incomparable evidence. Observed: all six arms passed correctness; economics/stability remain explicitly inconclusive; router exact identity telemetry was unavailable.
 
 **Exit Criteria:**
-- Stage B records exploratory intensity evidence or no promotion; no setting is promoted from this exception, shorter output, fewer LOC, or isolated token savings.
+- Stage B records exploratory intensity evidence and no promotion; no setting is promoted from this exception, shorter output, fewer LOC, or isolated token savings.
 
 ### Task 9: Record promotion decision and documentation
 
