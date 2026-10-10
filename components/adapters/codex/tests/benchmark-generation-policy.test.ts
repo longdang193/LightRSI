@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import {
   SECURITY_FIXTURE_PROMPT,
   STAGE_A_ARMS,
   STAGE_A_WORKLOAD,
+  type StageAArm,
+  type StageAFixture,
   STAGE_B_ARMS,
   buildLiveArmInstructions,
   buildStageBArmInstructions,
@@ -19,6 +23,7 @@ import {
   projectAssistantHistory,
   parseProviderUsage,
   readRouterSettingsEvidence,
+  runGenerationPolicyMatchedLive,
   runGenerationPolicyBenchmark,
   runGenerationPolicyStageB,
   summarizeMatchedStageAArm,
@@ -26,6 +31,26 @@ import {
   validateSecurityFixtureOutput,
   validateMultiTurnFixtureOutput,
 } from "../scripts/benchmark-generation-policy.ts";
+
+const execFileAsync = promisify(execFile);
+
+function matchedRow(fixture: StageAFixture, repetition: number, arm: StageAArm = "baseline") {
+  return {
+    arm,
+    fixture,
+    repetition,
+    passed: true,
+    outputChars: 10,
+    latencyMs: 20,
+    providerCalls: 1,
+    turns: 1,
+    toolCalls: 0,
+    retries: 0,
+    clarifications: 0,
+    usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 0 },
+    error: null,
+  };
+}
 
 test("assistant history projection excludes hidden reasoning and preserves tool closure", () => {
   const reasoning = { type: "reasoning", encrypted_content: "secret" };
@@ -148,6 +173,24 @@ test("matched accounting keeps missing usage unavailable instead of treating it 
   assert.equal(summary.economics, "inconclusive");
 });
 
+test("matched accounting keeps incomplete and duplicate workload evidence unavailable", () => {
+  const incomplete = summarizeMatchedStageAArm({
+    arm: "baseline",
+    repetitions: 1,
+    rows: [matchedRow("prose", 0)],
+  });
+  assert.equal(incomplete.correctness, "unavailable");
+
+  const duplicateRows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [0, 1].map((repetition) => matchedRow(fixture, repetition)));
+  duplicateRows[1] = matchedRow("prose", 0);
+  const duplicate = summarizeMatchedStageAArm({
+    arm: "baseline",
+    repetitions: 2,
+    rows: duplicateRows,
+  });
+  assert.equal(duplicate.correctness, "unavailable");
+});
+
 test("provider usage parsing retains cached input telemetry", () => {
   assert.deepEqual(parseProviderUsage({
     usage: {
@@ -165,10 +208,20 @@ test("provider usage parsing retains cached input telemetry", () => {
 });
 
 test("matched accounting produces paired baseline deltas and blocks failed arms", () => {
-  const rows = [
-    { arm: "baseline" as const, fixture: "prose" as const, repetition: 0, passed: true, outputChars: 100, latencyMs: 100, providerCalls: 1, turns: 1, toolCalls: 0, retries: 0, clarifications: 0, usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 0 }, error: null },
-    { arm: "caveman-full" as const, fixture: "prose" as const, repetition: 0, passed: false, outputChars: 80, latencyMs: 80, providerCalls: 1, turns: 1, toolCalls: 0, retries: 0, clarifications: 0, usage: { inputTokens: 80, outputTokens: 10, totalTokens: 90, cachedInputTokens: 0 }, error: null },
-  ];
+  const rows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [
+    {
+      ...matchedRow(fixture, 0, "baseline"),
+      outputChars: 100,
+      latencyMs: 100,
+    },
+    {
+      ...matchedRow(fixture, 0, "caveman-full"),
+      passed: fixture !== "prose",
+      outputChars: 80,
+      latencyMs: 80,
+      usage: { inputTokens: 80, outputTokens: 10, totalTokens: 90, cachedInputTokens: 0 },
+    },
+  ]);
   const comparisons = compareMatchedStageA(rows, 1, { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 });
   const caveman = comparisons.arms["caveman-full"];
 
@@ -178,6 +231,46 @@ test("matched accounting produces paired baseline deltas and blocks failed arms"
   assert.equal(caveman.baselineDelta?.latencyMs, -20);
   assert.equal(caveman.baselineDelta?.providerCalls, 0);
   assert.equal(comparisons.decision, "no-promotion");
+});
+
+test("matched live accounting preserves every failed request attempt", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-matched-failure-accounting-"));
+  const originalCwd = process.cwd();
+  try {
+    await execFileAsync("git", ["init", "-q"], { cwd: dir });
+    await writeFile(join(dir, "fixture.txt"), "clean checkpoint\n", "utf8");
+    const evidencePath = join(dir, "router-settings.json");
+    await writeFile(evidencePath, JSON.stringify({
+      source: "9router_dashboard",
+      status: 200,
+      cavemanEnabled: false,
+      ponytailEnabled: false,
+    }), "utf8");
+    await execFileAsync("git", ["add", "fixture.txt", "router-settings.json"], { cwd: dir });
+    await execFileAsync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "fixture"], { cwd: dir });
+    process.chdir(dir);
+
+    let attempts = 0;
+    const report = await runGenerationPolicyMatchedLive({
+      baseUrl: "http://127.0.0.1:1/v1",
+      routerUrl: "http://127.0.0.1:1",
+      apiKey: "fixture-key",
+      model: "fixture-model",
+      repetitions: 1,
+      routerSettingsEvidencePath: evidencePath,
+      fetchImpl: async () => {
+        attempts += 1;
+        throw new Error("transport failure");
+      },
+    });
+
+    assert.equal(attempts, 32);
+    assert.equal(report.matched?.arms.baseline.providerCalls, 8);
+    assert.ok(report.rows?.filter((row) => row.arm === "baseline").every((row) => row.providerCalls === 1));
+  } finally {
+    process.chdir(originalCwd);
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("mock report stays deterministic apart from repository state", () => {

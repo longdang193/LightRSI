@@ -50,6 +50,17 @@ test("claude-code cli bridge exposes only the supported Claude Code command surf
     const report = await handleCommand({ args: "report" });
     assert.equal(report.text, "No TokenPilot session stats yet.");
 
+    const unsupportedCaveman = await handleCommand({ args: "caveman full" });
+    const unsupportedPonytail = await handleCommand({ args: "ponytail full" });
+    assert.equal(unsupportedCaveman.text, "Claude Code generation policy commands are not supported.");
+    assert.equal(unsupportedPonytail.text, "Claude Code generation policy commands are not supported.");
+    const configuredWithoutGenerationPolicy = await loadTokenPilotClaudeCodeConfig(
+      defaultTokenPilotClaudeCodeConfigPath(),
+    );
+    assert.equal("generationPolicy" in (configuredWithoutGenerationPolicy as unknown as Record<string, unknown>), false);
+    const help = await handleCommand({ args: "help" });
+    assert.doesNotMatch(help.text, /lightrsi claude-code (caveman|ponytail)/u);
+
     const unsupportedSettings = await handleCommand({ args: "settings details on" });
     assert.equal(unsupportedSettings.text, "Claude Code does not expose shared runtime settings yet.");
 

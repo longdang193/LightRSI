@@ -202,6 +202,7 @@ export function createCodexCliBridge(target: {
     displayName: "Codex",
     cliHostName: "codex",
     reductionPassNames: CODEX_REDUCTION_PASS_NAMES,
+    supportsGenerationPolicy: true,
     bridge,
     configAdapter: codexProductSurfaceConfigAdapter,
     loadConfig() {

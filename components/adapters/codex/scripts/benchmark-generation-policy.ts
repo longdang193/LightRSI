@@ -291,9 +291,14 @@ export function summarizeMatchedStageAArm(params: {
   rows: MatchedStageARow[];
   pricing?: ProviderPricing;
 }): MatchedStageAArmSummary {
-  const fixtureCount = new Set(params.rows.map((row) => row.fixture)).size;
-  const expectedRows = params.repetitions * fixtureCount;
-  const completeRows = expectedRows > 0 && params.rows.length === expectedRows;
+  const expectedKeys = new Set(
+    Array.from({ length: params.repetitions }, (_, repetition) => STAGE_A_WORKLOAD.fixtures.map((fixture) => `${repetition}:${fixture}`)).flat(),
+  );
+  const actualKeys = new Set(params.rows.map((row) => `${row.repetition}:${row.fixture}`));
+  const completeRows = expectedKeys.size > 0
+    && params.rows.length === expectedKeys.size
+    && actualKeys.size === params.rows.length
+    && [...expectedKeys].every((key) => actualKeys.has(key));
   const completedTasks = params.rows.filter((row) => row.passed && row.error === null).length;
   const costs = params.pricing ? params.rows.map((row) => rowCost(row, params.pricing!)) : [];
   const totalCostUsd = params.pricing && costs.every((cost): cost is number => cost !== null)
@@ -519,30 +524,52 @@ async function runMatchedFixture(
   retries: number;
   clarifications: number;
   usage: ProviderUsage | null;
+  error: string | null;
 }> {
   const started = Date.now();
   const responses: Array<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null }> = [];
-  const first = await runLiveRequest(options, instructions, stageAFixtureInput(fixture));
-  responses.push(first);
-  if (fixture === "multiturn") {
-    responses.push(await runLiveRequest(options, instructions, [
-      { role: "user", content: MULTI_TURN_FIXTURE_PROMPT },
-      ...first.history,
-      { role: "user", content: MULTI_TURN_FIXTURE_FOLLOW_UP },
-    ]));
-  }
-  const finalText = responses[responses.length - 1]!.text;
-  return {
-    passed: validateStageAFixtureOutput(fixture, finalText),
-    outputChars: finalText.length,
-    latencyMs: Date.now() - started,
-    providerCalls: responses.length,
-    turns: responses.length,
-    toolCalls: fixture === "tool-history" ? 1 : 0,
-    retries: 0,
-    clarifications: 0,
-    usage: sumUsage(responses),
+  let providerCalls = 0;
+  const request = async (input: readonly unknown[]) => {
+    providerCalls += 1;
+    return runLiveRequest(options, instructions, input);
   };
+  try {
+    const first = await request(stageAFixtureInput(fixture));
+    responses.push(first);
+    if (fixture === "multiturn") {
+      responses.push(await request([
+        { role: "user", content: MULTI_TURN_FIXTURE_PROMPT },
+        ...first.history,
+        { role: "user", content: MULTI_TURN_FIXTURE_FOLLOW_UP },
+      ]));
+    }
+    const finalText = responses[responses.length - 1]!.text;
+    return {
+      passed: validateStageAFixtureOutput(fixture, finalText),
+      outputChars: finalText.length,
+      latencyMs: Date.now() - started,
+      providerCalls,
+      turns: responses.length,
+      toolCalls: fixture === "tool-history" ? 1 : 0,
+      retries: 0,
+      clarifications: 0,
+      usage: sumUsage(responses),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      passed: false,
+      outputChars: responses.length > 0 ? responses[responses.length - 1]!.text.length : 0,
+      latencyMs: Date.now() - started,
+      providerCalls,
+      turns: responses.length,
+      toolCalls: fixture === "tool-history" ? 1 : 0,
+      retries: 0,
+      clarifications: 0,
+      usage: sumUsage(responses),
+      error: error instanceof Error ? error.message : "provider_error",
+    };
+  }
 }
 
 function rotatedStageAArms(repetition: number): readonly StageAArm[] {
@@ -572,26 +599,8 @@ export async function runGenerationPolicyMatchedLive(
     for (const arm of rotatedStageAArms(repetition)) {
       const instructions = buildLiveArmInstructions(arm);
       for (const fixture of STAGE_A_WORKLOAD.fixtures) {
-        try {
-          const result = await runMatchedFixture(options, instructions, fixture);
-          rows.push({ arm, fixture, repetition, ...result, error: null });
-        } catch (error) {
-          rows.push({
-            arm,
-            fixture,
-            repetition,
-            passed: false,
-            outputChars: 0,
-            latencyMs: null,
-            providerCalls: fixture === "multiturn" ? 1 : 0,
-            turns: fixture === "multiturn" ? 1 : 0,
-            toolCalls: fixture === "tool-history" ? 1 : 0,
-            retries: 0,
-            clarifications: 0,
-            usage: null,
-            error: error instanceof Error ? error.message : "provider_error",
-          });
-        }
+        const result = await runMatchedFixture(options, instructions, fixture);
+        rows.push({ arm, fixture, repetition, ...result });
       }
     }
   }
