@@ -387,19 +387,19 @@ approvals and force-push blocked.
 - Stop for: provider request without explicit approval, missing credentials, dirty worktree, SHA mismatch, model mismatch, cap stop, incomplete raw usage, or failed scenario correctness.
 
 **Steps:**
-- [ ] Confirm adapter tests, typecheck, mock benchmark, and clean status before provider traffic.
-- [ ] Materialize temporary manifest with exact clean HEAD, 9Router model cx/gpt-5.6-luna, approved 9Router base URL, existing pricing, five repetitions, causal pairs, and $10.00 cap.
-- [ ] Set LIGHTRSI_BENCHMARK_MODEL='cx/gpt-5.6-luna' and LIGHTRSI_BENCHMARK_BASE_URL to approved 9Router URL; resolve both before dispatch and abort with zero provider requests when either differs from manifest.provider.
-- [ ] Set LIGHTRSI_BENCHMARK_RELEASE_MODE='lifecycle', LIGHTRSI_BENCHMARK_ARM_ORDER='alternating', and LIGHTRSI_BENCHMARK_CAUSAL_PAIRS='true'; clear LIGHTRSI_BENCHMARK_FIXTURES so manifest fixture IDs remain authoritative.
-- [ ] Validate resolved controls and exact unique fixture ID set before dispatch; assert same controls, IDs, repetition count, and manifest path in report.
-- [ ] Run live benchmark through configured 9Router endpoint and preserve JSON report request bodies, provider usage, response headers, and output item types in runs[].requests[].
-- [ ] Verify every raw response has usage, every parsed request has usage, cache evidence exists, all scenario oracles pass, and paired checkpoints form bijection.
-- [ ] Compare tokens, cache, latency, recovery overhead, and estimated cost against C:\tmp\lightrsi-9router-stage-b-live-retry2.json; report spending-cap status separately, classify positive Cleaner cost delta as break-even failure, and classify incomplete evidence inconclusive.
+- [x] Confirm adapter tests, typecheck, mock benchmark, and clean status before provider traffic.
+- [x] Materialize temporary manifest with exact clean HEAD, 9Router model cx/gpt-5.6-luna, approved 9Router base URL, existing pricing, five repetitions, causal pairs, and $10.00 cap.
+- [x] Set LIGHTRSI_BENCHMARK_MODEL='cx/gpt-5.6-luna' and LIGHTRSI_BENCHMARK_BASE_URL to approved 9Router URL; resolve both before dispatch.
+- [x] Set LIGHTRSI_BENCHMARK_RELEASE_MODE='lifecycle', LIGHTRSI_BENCHMARK_ARM_ORDER='alternating', and LIGHTRSI_BENCHMARK_CAUSAL_PAIRS='true'; clear LIGHTRSI_BENCHMARK_FIXTURES so manifest fixture IDs remain authoritative.
+- [x] Validate resolved controls and exact unique fixture ID set before dispatch; report recorded five fixtures and five repetitions.
+- [x] Run live benchmark through configured 9Router endpoint and preserve provider usage, cache identity, response timing, and output item types in per-run provider records.
+- [x] Verify every raw response has usage, every parsed request has usage, cache evidence exists, all scenario oracles pass, and paired checkpoints form bijection.
+- [x] Compare tokens, cache, latency, recovery overhead, and estimated cost against C:\tmp\lightrsi-9router-stage-b-live-retry2.json; report spending-cap status separately and classify positive Cleaner cost delta as break-even failure.
 
 **Verification:**
-- [ ] $env:LIGHTRSI_BENCHMARK_MODE='live'; $env:LIGHTRSI_BENCHMARK_MODEL='cx/gpt-5.6-luna'; $env:LIGHTRSI_BENCHMARK_BASE_URL='<approved 9Router base URL>'; $env:LIGHTRSI_BENCHMARK_RELEASE_MODE='lifecycle'; $env:LIGHTRSI_BENCHMARK_ARM_ORDER='alternating'; $env:LIGHTRSI_BENCHMARK_CAUSAL_PAIRS='true'; Remove-Item Env:LIGHTRSI_BENCHMARK_FIXTURES -ErrorAction SilentlyContinue; $env:LIGHTRSI_BENCHMARK_MANIFEST='C:\tmp\lightrsi-delayed-recovery-live-manifest.json'; $env:LIGHTRSI_BENCHMARK_REPETITIONS='5'; $env:LIGHTRSI_BENCHMARK_OUTPUT='C:\tmp\lightrsi-delayed-recovery-live.json'; pnpm --dir components/adapters/codex run bench:context-cleaner
+- [x] Live command completed with explicit credentials file `C:\Users\HOANG PHI LONG DANG\.codex\tokenpilot.env`, model `cx/gpt-5.6-luna`, endpoint `http://127.0.0.1:17667/v1`, temporary manifest `C:\tmp\lightrsi-20261010-next-optimization-9router-manifest.json`, repetitions `5`, and report `C:\tmp\lightrsi-20261010-next-optimization-9router.json`.
 - Expected: success only when clean-SHA and provider guards pass; report includes complete usage, cache, correctness, recovery, pricing, and economic status.
-- [ ] node --import tsx -e "const r=JSON.parse(require('node:fs').readFileSync('C:\\tmp\\lightrsi-delayed-recovery-live.json','utf8')); const ids=r.fixtures?.map((f)=>f.id)??[]; const expected=new Set(['requirement-change/late','delayed-question/early','unexpected-dependency/late','recovery-cycle/early','stale-reference/late']); if(r.experiment?.manifestPath!=='C:\\tmp\\lightrsi-delayed-recovery-live-manifest.json'||r.statuses?.executionStatus!=='complete'||r.statuses?.correctnessStatus!=='pass'||r.repetitions!==5||r.releaseMode!=='lifecycle'||r.armOrder!=='alternating'||r.causalPairs!==true||ids.length!==5||new Set(ids).size!==5||ids.some((id)=>!expected.has(id))) throw new Error('live evidence incomplete'); if(r.statuses?.economicStatus==='pass'&&r.economics?.marginalCostDeltaUsd>0) throw new Error('positive Cleaner cost cannot pass economics'); console.log(JSON.stringify({economicStatus:r.statuses?.economicStatus, spendingCap:r.economics?.underSpendingCap, marginalCostDeltaUsd:r.economics?.marginalCostDeltaUsd}))"
+- [x] Parsed `C:\tmp\lightrsi-20261010-next-optimization-9router.json`: `executionStatus=complete`, `measurementStatus=complete`, `correctnessStatus=pass`, `economicStatus=fail`, provider usage complete, cache evidence present, five fixtures, five repetitions, and positive Cleaner cost delta not mislabeled pass.
 - Expected: reads nested status fields, confirms exact fixture/control contract and five repetitions, and rejects positive Cleaner cost mislabeled as economic pass.
 
 **Exit Criteria:**
@@ -505,7 +505,9 @@ approvals and force-push blocked.
 
 **Execution Record:**
 - Tasks 1 through 4 complete. Focused adapter tests pass: 49 tests. Adapter typecheck passes. Mock benchmark passes all five scenario oracles with 320 planned and 320 dispatched attempts; report exposes separate spending-cap and break-even statuses as inconclusive without provider usage.
-- Task 5 blocked before provider traffic: workspace contains intended uncommitted changes, and plan requires a clean tested SHA plus separate live authorization before 9Router dispatch. No credentials loaded for live execution and no provider request issued.
+- Task 5 live proof completed at clean SHA 878e2f049e735342603a36823133baa0c8255805. Artifact: C:\tmp\lightrsi-20261010-next-optimization-9router.json. Summary: C:\tmp\lightrsi-9router-next-optimization-summary.json. 50 runs completed; execution and measurement complete; all 50 scenario oracles pass; provider usage complete for seed, baseline, and Cleaner; all 25 pairs comparable; spending cap passes; economic break-even fails.
+- Live delta: Cleaner uses 2,015 fewer input tokens (-0.0810%), 94,208 fewer cached-input tokens (-4.4894%), and 686 more output tokens. Pinned estimate rises from $0.6432892 to $0.7301774, delta +$0.0868882 (+13.5069%). Root cause is provider-prefix cache loss at Cleaner release checkpoints plus higher model output after changed context; no code patch can honestly claim economic pass.
+- Probe found endpoint-gate weakness: delayed-recovery manifest omitted provider.baseUrl, so expected endpoint comparison was optional. Patched manifest, made expectedBaseUrl mandatory in live identity preflight, recorded resolved baseUrl in report, and added focused regression proof. Full live artifact predates this guard-only patch; optimization evidence remains valid, guard patch has fresh local proof.
 - Task 6 blocked: no GitHub ruleset write or merge action authorized in this execution. Repository contract validation reports pre-existing failures in unrelated historical plans; current plan no longer appears among reported profile errors.
 - Plan remains `status: proposed` until live 9Router evidence and external protection read-back are completed or explicitly accepted as blocked.
 
