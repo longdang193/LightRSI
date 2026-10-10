@@ -62,6 +62,48 @@ cached-input price, plus output tokens × output price.
 
 Passing these checks does not establish universal answer-quality equivalence.
 
+## Post-merge real-session smoke
+
+**Measurement date:** 2026-10-10
+**Runtime commit:** `726df36bb86a10273d1dd5178bef2d57a5cdd951`
+**Boundary:** restarted local Codex proxy at `http://127.0.0.1:17667/v1`
+**Provider:** `9Router`
+**Artifact:** `C:\tmp\lightrsi-real-session-compact-smoke-20261010-v4.json`
+
+- Two bounded Responses requests completed with HTTP `200`.
+- Proxy restart occurred between requests; continuation completed with the
+  same session and a valid response chain.
+- Tool payload reduction applied on the first request: `9,523` characters
+  saved, one item and one block changed.
+- Tool-call closure input remained present; raw prompt, provider response,
+  response ID, and authorization data were not persisted in the artifact.
+- This smoke proves runtime wiring, reduction application, and restart
+  continuity. It is not a new multi-seed economics or answer-quality study.
+
+## Post-merge full-vs-Compact evaluation
+
+**Measurement date:** 2026-10-10
+**Runtime commit:** `726df36bb86a10273d1dd5178bef2d57a5cdd951`
+**Provider:** `9Router`
+**Model:** `combo-normal`
+**Artifact:** `C:\tmp\lightrsi-full-compact-quality-postmerge-20261010.json`
+
+- Three seeds, twenty turns per arm, and `120` provider requests total.
+- Proxy restart boundary exercised in all six runs.
+- Full and Compact arms passed `3/3` each; critical-fact checks passed `6/6`;
+  tool-call closure passed `6/6`; missing usage was `0`.
+
+| Metric | Full | Compact | Change |
+| :-- | --: | --: | :-- |
+| Input tokens | 8,255,954 | 671,870 | **91.86% lower** |
+| Cached input tokens | 7,462,656 | 519,936 | 93.03% lower |
+| Output tokens | 1,013 | 987 | 2.57% lower |
+| Estimated cost | $1.545642 | $0.209850 | **86.42% lower** |
+
+Pricing and cost formula match this document's pinned `9Router` schedule.
+This remains workload-specific evidence, not a universal quality or economics
+claim.
+
 ## Limits
 
 This is one controlled workload using one provider, model, pricing schedule, and
