@@ -7,13 +7,17 @@ import test from "node:test";
 import {
   SECURITY_FIXTURE_PROMPT,
   STAGE_A_ARMS,
+  STAGE_B_ARMS,
   buildLiveArmInstructions,
+  buildStageBArmInstructions,
+  buildMockStageBReport,
   buildMockGenerationPolicyReport,
   evaluateRouterSettingsPreflight,
   loadCodexAuthApiKey,
   projectAssistantHistory,
   readRouterSettingsEvidence,
   runGenerationPolicyBenchmark,
+  runGenerationPolicyStageB,
   shouldUseRouterSettingsEvidenceFallback,
   validateSecurityFixtureOutput,
   validateMultiTurnFixtureOutput,
@@ -48,6 +52,34 @@ test("live repair instructions preserve independent arm composition", () => {
   assert.doesNotMatch(buildLiveArmInstructions("caveman-full"), /LightRSI Ponytail/u);
   assert.match(buildLiveArmInstructions("both-full"), /LightRSI Caveman/u);
   assert.match(buildLiveArmInstructions("both-full"), /LightRSI Ponytail/u);
+});
+
+test("Stage B keeps Caveman and Ponytail intensity sweeps independent", () => {
+  assert.deepEqual(STAGE_B_ARMS, [
+    "caveman-lite",
+    "caveman-full",
+    "caveman-ultra",
+    "ponytail-lite",
+    "ponytail-full",
+    "ponytail-ultra",
+  ]);
+  assert.match(buildStageBArmInstructions("caveman-lite"), /LightRSI Caveman v1 \/ lite/u);
+  assert.doesNotMatch(buildStageBArmInstructions("caveman-lite"), /LightRSI Ponytail/u);
+  assert.match(buildStageBArmInstructions("ponytail-ultra"), /LightRSI Ponytail v1 \/ ultra/u);
+  assert.doesNotMatch(buildStageBArmInstructions("ponytail-ultra"), /LightRSI Caveman/u);
+});
+
+test("mock Stage B report is deterministic and always no-promotion", async () => {
+  const report = await runGenerationPolicyStageB({ mock: true });
+  const direct = buildMockStageBReport();
+  assert.deepEqual(Object.keys(report.arms), STAGE_B_ARMS);
+  assert.equal(report.mode, "mock");
+  assert.equal(report.decision, "no-promotion");
+  assert.equal(report.liveEconomics, "inconclusive");
+  assert.deepEqual(report.workload, direct.workload);
+  assert.deepEqual(report.routerPreflight, direct.routerPreflight);
+  assert.ok(Object.values(report.arms).every((arm) => arm.correctness === "unavailable" && arm.stability === "unavailable" && arm.providerCalls === 0));
+  assert.equal(new Set(Object.values(report.arms).map((arm) => arm.workloadFingerprint)).size, 1);
 });
 
 test("multi-turn fixture validator requires the requested engineering facts", () => {

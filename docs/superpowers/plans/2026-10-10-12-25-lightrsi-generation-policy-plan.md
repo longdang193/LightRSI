@@ -2,7 +2,7 @@
 artifact_type: plan
 template_id: implementation-plan
 contract_version: "1"
-status: completed
+status: active
 layer: change
 name: lightrsi-generation-policy
 targets:
@@ -87,7 +87,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Base commit: 06d1e5f4e0e1ad1b29f108299ac7ba2191d61b58
 - Source checkpoint: `42fd8df` (`fix: bound stage A cache audit fallback`)
 - Expected workspace: clean source checkpoint before live traffic; generated mock Stage A evidence and repair output remain outside the checkpoint
-- Next action: none; retain the Stage A no-promotion decision, keep Stage B and adapter expansion blocked, and require a separately approved deterministic-provider experiment before any new live benchmark
+- Next action: create a renewed clean source checkpoint, freeze the Stage B manifest outside the checkout, then run the approved independent live sweeps; 9Router remains unchanged and adapter expansion remains blocked
 - Blockers: Codex `auth.json` key is available for provider traffic, but 9Router `GET /api/settings` returns `401` for that bearer key. Existing sanitized dashboard evidence records Caveman and Ponytail disabled and is accepted only as an explicit limitation fallback. The five-repetition repair completed from clean checkpoint `42fd8df`, but Ponytail Full and Both Full failed the required 100% correctness gate; economics are therefore not promotion evidence. Immediate replay of the three failed multiturn rows passed all three, so the failures are not a stable oracle defect or a shared caller defect; treat them as provider-output variability and keep the mechanism blocked rather than weakening validation. Claude Code/OpenClaw reuse remains deferred until mechanism-specific correctness and measurable value pass
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
@@ -100,7 +100,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 | Task 5 | complete | current | lead | Task 4 | command/status and router preflight tests | independent commands/status pass; router preflight fails closed |
 | Task 6 | complete | current | lead | Tasks 4–5 | local/mock contract matrix | Codex policy contract matrix passes |
 | Task 7 | complete | current | lead | Task 6 | Stage A completed-task benchmark | cache-fix repair completed 60 calls without timeout; baseline and Caveman Full passed 10/10, Ponytail Full passed 8/10, Both Full passed 9/10; no promotion |
-| Task 8 | skipped | current | lead | Task 7 mechanism-specific pass gate | Stage B intensity benchmark | skipped because Stage A economics are inconclusive |
+| Task 8 | active | current | lead | User-approved exploratory exception after Task 7 | Stage B intensity benchmark | exploratory only; no promotion or adapter reuse |
 | Task 9 | complete | current | lead | Task 8 or documented Stage A decision | immutable promotion/economics evidence | mock artifacts, README, defaults, and no-promotion decision reconciled |
 | Task 10 | deferred | current | lead | Task 9 mechanism-specific correctness and value gate | Claude/OpenClaw reuse tests | deferred; inconclusive mechanisms remain Codex-only |
 
@@ -117,6 +117,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Clean repair checkpoint is `7e20393`; the tracked mock command records correctness and stability as unavailable because it does not execute provider-facing fixture behavior, while preserving zero provider calls. Mock artifacts are preserved outside the checkout under `C:\tmp\lightrsi-generation-policy-stage-a-mock-repair-7e20393`.
 - The tracked benchmark command remains mock-only; no approved external harness was found for the repair rerun. No live traffic was sent from this repair checkpoint.
 - Added an explicit `--live-repair` path to the tracked benchmark runner for only the failed `security` and `multiturn` fixtures; it requires a clean tree, explicit router/API inputs, and writes sanitized evidence outside the checkout.
+- Added the exploratory Stage B intensity harness with isolated Caveman/Ponytail Lite, Full, and Ultra arms, shared workload fingerprints, no-promotion mock output, and an explicit live path that reuses the existing clean-checkpoint and router-preflight gates.
 - Root cause of Stage A slowness was the session cache-audit fallback scanning the full global JSONL history with `Number.MAX_SAFE_INTEGER`; bounded the compatibility tail lookup to 256 records in both the runtime checkout and tracked source, with a regression test for unavailable old history.
 - Updated the multiturn benchmark oracle to accept the requested verification-command families and equivalent omitted-field wording; focused benchmark tests and stabilizer tests pass.
 - Rebuilt and restarted only TokenPilot with the existing config; 9Router remained unchanged. The final one-repetition smoke through `http://127.0.0.1:17667/v1` used `cx/gpt-5.6-luna`, made 12 provider calls, passed all 8 fixture rows, and recorded evidence at `C:\tmp\lightrsi-generation-policy-stage-a-smoke-after-cache-fix-v3.json`. A direct trace showed `proxy_after_call` approximately 70 ms after a 2.03 s upstream response.
@@ -560,7 +561,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 ### Task 8: Measure Lite/Full/Ultra intensity
 
 **Purpose:**
-- Measure intensity only after Stage A proves mechanism value.
+- Measure intensity only as exploratory evidence under the explicit exception that Stage A Full outputs remain provider-variable; do not use these results for promotion, default changes, or adapter expansion.
 
 **Task Function:**
 - Extend same runner and manifest for one-mechanism-at-a-time intensity comparisons.
@@ -587,16 +588,16 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Create: docs/benchmarks/2026-10-10-generation-policy-stage-b-report.md
 
 **Dependencies:**
-- Task 7 complete; each mechanism enters its own sweep only after that mechanism's Full arm passes correctness, stability, and measurable-value gates.
+- Task 7 evidence remains the authoritative promotion gate; the user-approved exploratory exception permits independent sweeps only for diagnosis and no-promotion measurement.
 
 **Authority:**
 - Preauthorized local actions: extend existing benchmark and manifest, run mock measurements, and write local reports.
-- Stop for: failed mechanism-specific Full gate, full factorial expansion without interaction evidence, incomplete economics, or changed workload/model/router conditions.
+- Stop for: any attempt to promote from exploratory results, full factorial expansion without interaction evidence, incomplete economics, or changed workload/model/router conditions.
 
 **Steps:**
-- [ ] Step 0: Implement and mock-verify any Stage B runner changes, then create a renewed clean source checkpoint; freeze Stage B manifest outside checkout with source and benchmark SHA equal to that checkpoint, and copy unchanged manifest into `docs/benchmarks/2026-10-10-generation-policy-stage-b-manifest.json` only after measurement.
-- [ ] Step 1: Run Caveman Lite, Full, and Ultra with Ponytail off only after Caveman Full passes its independent gate.
-- [ ] Step 2: Run Ponytail Lite, Full, and Ultra with Caveman off only after Ponytail Full passes its independent gate.
+- [x] Step 0: Implement and mock-verify any Stage B runner changes, then create a renewed clean source checkpoint; freeze Stage B manifest outside checkout with source and benchmark SHA equal to that checkpoint, and copy unchanged manifest into `docs/benchmarks/2026-10-10-generation-policy-stage-b-manifest.json` only after measurement.
+- [ ] Step 1: Run Caveman Lite, Full, and Ultra with Ponytail off as exploratory evidence; preserve the failed Full gate and do not promote.
+- [ ] Step 2: Run Ponytail Lite, Full, and Ultra with Caveman off as exploratory evidence; preserve the failed Full gate and do not promote.
 - [ ] Step 3: Compare completed-task economics, latency, tool/turn/retry behavior, implementation work, correctness, structured validity, and stability for each independent sweep.
 - [ ] Step 4: Compare combined winners only after both independent sweeps pass; run full cross-product only when measured interaction cannot be explained by independent effects.
 - [ ] Step 5: Freeze Stage B manifest before measurement and write separate results/report files after measurement.
@@ -606,7 +607,7 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Expected: every arm uses identical workload and preflight; results distinguish complete evidence from unavailable or incomparable evidence.
 
 **Exit Criteria:**
-- Stage B identifies winning intensity or records no promotion; no setting is promoted from shorter output or fewer LOC alone.
+- Stage B records exploratory intensity evidence or no promotion; no setting is promoted from this exception, shorter output, fewer LOC, or isolated token savings.
 
 ### Task 9: Record promotion decision and documentation
 
