@@ -32,6 +32,97 @@ import { createConsoleLogger } from "../src/logger.js";
 import { startCodexResponsesProxy } from "../src/proxy-runtime.js";
 import { codexForwardingFingerprint, codexForwardingMetadata } from "../src/context-history/replayability.js";
 
+async function runRouterRouteChangeFrontierProbe(stream: boolean): Promise<void> {
+  await withTempHome(`lightrsi-codex-${stream ? "stream-" : ""}router-route-change-`, async (homeDir) => {
+    const proxyPort = await reserveUnusedPort();
+    const upstreamPort = await reserveUnusedPort();
+    const stateDir = join(homeDir, ".codex", "tokenpilot-state", "tokenpilot");
+    const codexConfigPath = defaultCodexConfigPath();
+    const tokenPilotConfigPath = defaultTokenPilotConfigPath();
+    let requestCount = 0;
+    const upstream = createHttpServer(async (req, res) => {
+      for await (const _chunk of req) {}
+      requestCount += 1;
+      const routeSuffix = requestCount === 1 ? "a" : "b";
+      res.statusCode = 200;
+      res.setHeader("x-9router-route-id", `route-${routeSuffix}`);
+      res.setHeader("x-9router-provider", `provider-${routeSuffix}`);
+      res.setHeader("x-9router-resolved-model", `resolved-${routeSuffix}`);
+      res.setHeader("x-9router-cache-namespace", `namespace-${routeSuffix}`);
+      res.setHeader("x-9router-cache-family-id", `family-${routeSuffix}`);
+      res.setHeader("x-9router-prompt-cache-key", `router-key-${routeSuffix}`);
+      if (stream) {
+        res.setHeader("content-type", "text/event-stream; charset=utf-8");
+        res.end(`event: response.completed\ndata: {"response":{"id":"resp-router-${routeSuffix}"}}\n\nevent: done\ndata: [DONE]\n\n`);
+      } else {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ id: `resp-router-${routeSuffix}`, model: `resolved-${routeSuffix}`, output: [] }));
+      }
+    });
+    await new Promise<void>((resolve, reject) => {
+      upstream.once("error", reject);
+      upstream.listen(upstreamPort, "127.0.0.1", () => { upstream.off("error", reject); resolve(); });
+    });
+    try {
+      await writeTokenPilotCodexConfig(normalizeTokenPilotCodexConfig({
+        proxyPort,
+        stateDir,
+        upstreamProvider: "OpenAI",
+        upstream: {
+          name: "OpenAI",
+          baseUrl: `http://127.0.0.1:${upstreamPort}/v1`,
+          wireApi: "responses",
+          requiresOpenAIAuth: true,
+        },
+      }), tokenPilotConfigPath);
+      const config = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
+      const runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false), codexConfigPath });
+      try {
+        const makeRequest = () => fetch(`${runtime.baseUrl}/responses`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "tokenpilot/gpt-5.4-mini",
+            stream,
+            prompt_cache_key: "router-route-change-session",
+            input: [{ role: "developer", content: [{ type: "input_text", text: "router-frontier" }] }],
+          }),
+        });
+        const firstResponse = await makeRequest();
+        assert.equal(firstResponse.status, 200);
+        await firstResponse.text();
+        const secondResponse = await makeRequest();
+        assert.equal(secondResponse.status, 200);
+        await secondResponse.text();
+        assert.equal(requestCount, 2);
+        let records: Array<{ frontier?: { status?: string; changeClass?: string } }> = [];
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          records = (await readFile(join(stateDir, "cache-audit.jsonl"), "utf8"))
+            .trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
+              frontier?: { status?: string; changeClass?: string };
+            });
+          if (records.length >= 2) break;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        assert.ok(records.some((record) => record.frontier?.status === "unmatched"
+          && record.frontier.changeClass === "incompatible"), JSON.stringify(records));
+      } finally {
+        await runtime.close();
+      }
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+}
+
+test("Codex non-stream cache frontier records observed 9Router route changes", async () => {
+  await runRouterRouteChangeFrontierProbe(false);
+});
+
+test("Codex streaming cache frontier records observed 9Router route changes", async () => {
+  await runRouterRouteChangeFrontierProbe(true);
+});
+
 test("Codex host e2e wires install, proxy reduction, report/visual, and MCP recovery together", async () => {
   await withTempHome("lightrsi-codex-e2e-", async (homeDir) => {
     const proxyPort = await reserveUnusedPort();

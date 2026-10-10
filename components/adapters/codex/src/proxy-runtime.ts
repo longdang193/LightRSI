@@ -25,6 +25,7 @@ import {
 } from "@lightrsi/host-adapter";
 import { configureStatePathResolver } from "@lightrsi/artifact-store";
 import { collectRouterCacheTelemetry } from "./router-cache-telemetry.js";
+import type { RouterCacheTelemetry } from "./router-cache-telemetry.js";
 import type { TokenPilotCodexConfig } from "./config.js";
 import {
   defaultCodexConfigPath,
@@ -1262,6 +1263,19 @@ export async function startCodexResponsesProxy(params: {
       const forwardingAttempts: CodexForwardingAttempt[] = [];
       const forwardingAttemptInputs = new Map<string, JsonObject[]>();
       const forwardingAttemptPayloads = new Map<string, JsonObject>();
+      let observedRouterCacheIdentity: Pick<RouterCacheTelemetry,
+        "routeIdentitySource" | "resolvedModel" | "routeId" | "provider"
+        | "routerCacheFamilyId" | "routerPromptCacheKey"> | null = null;
+      const recordObservedRouterCacheIdentity = (telemetry: RouterCacheTelemetry): void => {
+        observedRouterCacheIdentity = {
+          routeIdentitySource: telemetry.routeIdentitySource,
+          resolvedModel: telemetry.resolvedModel,
+          routeId: telemetry.routeId,
+          provider: telemetry.provider,
+          routerCacheFamilyId: telemetry.routerCacheFamilyId,
+          routerPromptCacheKey: telemetry.routerPromptCacheKey,
+        };
+      };
       let forwardingAttemptOrdinal = 0;
       const projectionBoundary = (nextPayload: JsonObject): NonNullable<CodexForwardingAttempt["projectionBoundary"]> => rebaseRequest
         ? "rebase"
@@ -1327,6 +1341,7 @@ export async function startCodexResponsesProxy(params: {
               ? cacheRoutingPayload.prompt_cache_retention
               : null,
           },
+          observedRouterCacheIdentity,
           cacheRelevantOptionFingerprints: cacheRelevantRequestOptionFingerprints(
             effectivePayload ?? prepared.envelope.rawPayload,
           ),
@@ -1994,6 +2009,16 @@ export async function startCodexResponsesProxy(params: {
           collected,
         });
         markLastForwardingAttempt(requestStatus);
+        const routerCacheTelemetry = collectRouterCacheTelemetry({
+          headers: paramsForRecord.headers ?? {},
+          upstreamName: upstream.name,
+          upstreamBaseUrl: upstream.baseUrl,
+          usage: snapshot.usage ?? null,
+          receivedLightmem2CacheContractDigest:
+            prepared.envelope.metadata?.lightrsiCacheContractDigest,
+          lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
+        });
+        recordObservedRouterCacheIdentity(routerCacheTelemetry);
         const auditSnapshot = {
           ...cacheAuditSnapshot,
           frontier: buildCodexCacheFrontier({
@@ -2079,15 +2104,7 @@ export async function startCodexResponsesProxy(params: {
               contextRewriteOutcome: contextRewriteOutcome ?? null,
               lightmem2CacheContractDigest:
                 prepared.envelope.metadata?.lightrsiCacheContractDigest ?? null,
-              routerCacheTelemetry: collectRouterCacheTelemetry({
-                headers: paramsForRecord.headers ?? {},
-                upstreamName: upstream.name,
-                upstreamBaseUrl: upstream.baseUrl,
-                usage: snapshot.usage ?? null,
-                receivedLightmem2CacheContractDigest:
-                  prepared.envelope.metadata?.lightrsiCacheContractDigest,
-                lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
-              }),
+              routerCacheTelemetry,
               transportFetches,
               logicalUpstreamSends,
               successfulGenerations,
@@ -2216,6 +2233,17 @@ export async function startCodexResponsesProxy(params: {
         response: responseJson,
       });
       markLastForwardingAttempt(requestStatus);
+      let routerCacheTelemetry = collectRouterCacheTelemetry({
+        headers: upstreamResp.headers,
+        upstreamName: upstream.name,
+        upstreamBaseUrl: upstream.baseUrl,
+        responseModel: responseJson?.model,
+        usage: providerUsage,
+        receivedLightmem2CacheContractDigest:
+          prepared.envelope.metadata?.lightrsiCacheContractDigest,
+        lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
+      });
+      recordObservedRouterCacheIdentity(routerCacheTelemetry);
       const auditSnapshot = {
         ...cacheAuditSnapshot,
         frontier: buildCodexCacheFrontier({
@@ -2248,6 +2276,16 @@ export async function startCodexResponsesProxy(params: {
       } catch {
         // Some upstream error payloads may not match the expected Responses shape.
       }
+      routerCacheTelemetry = collectRouterCacheTelemetry({
+        headers: upstreamResp.headers,
+        upstreamName: upstream.name,
+        upstreamBaseUrl: upstream.baseUrl,
+        responseModel: responseJson?.model,
+        usage: providerUsage,
+        receivedLightmem2CacheContractDigest:
+          prepared.envelope.metadata?.lightrsiCacheContractDigest,
+        lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
+      });
       if (requestJournalEntry && !contextHistoryJournalPersisted) {
         try {
           await appendNonStreamContextHistory({
@@ -2309,16 +2347,7 @@ export async function startCodexResponsesProxy(params: {
         contextRewriteOutcome: contextRewriteOutcome ?? null,
         lightmem2CacheContractDigest:
           prepared.envelope.metadata?.lightrsiCacheContractDigest ?? null,
-        routerCacheTelemetry: collectRouterCacheTelemetry({
-          headers: upstreamResp.headers,
-          upstreamName: upstream.name,
-          upstreamBaseUrl: upstream.baseUrl,
-          responseModel: responseJson?.model,
-          usage: providerUsage,
-          receivedLightmem2CacheContractDigest:
-            prepared.envelope.metadata?.lightrsiCacheContractDigest,
-          lightmem2CacheFamilyId: prepared.envelope.metadata?.cacheFamilyId,
-        }),
+        routerCacheTelemetry,
         transportFetches,
         logicalUpstreamSends,
         successfulGenerations,
