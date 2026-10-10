@@ -2,7 +2,7 @@
 artifact_type: plan
 template_id: implementation-plan
 contract_version: "1"
-status: active
+status: completed
 layer: change
 name: lightrsi-generation-policy
 targets:
@@ -85,21 +85,21 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Coordination schema: 2
 - Branch: codex/generation-policy
 - Base commit: 06d1e5f4e0e1ad1b29f108299ac7ba2191d61b58
-- Source checkpoint: `e58a8eb` (`fix: bound live repair requests`)
+- Source checkpoint: `42fd8df` (`fix: bound stage A cache audit fallback`)
 - Expected workspace: clean source checkpoint before live traffic; generated mock Stage A evidence and repair output remain outside the checkpoint
-- Next action: create a separately authorized clean checkpoint containing the accepted cache-audit/runtime and benchmark-oracle fixes, then run the five-repetition Stage A repair through `http://127.0.0.1:17667/v1`; do not run Stage B or expand adapters
-- Blockers: Codex `auth.json` key is available for provider traffic, but 9Router `GET /api/settings` returns `401` for that bearer key. Existing sanitized dashboard evidence records Caveman and Ponytail disabled and is accepted only as an explicit limitation fallback. The source tree is intentionally dirty with the accepted follow-up fixes and active plan edits, so the tracked live-repair runner's clean-checkpoint gate blocks the full matrix until a user-authorized checkpoint commit exists. Claude Code/OpenClaw reuse remains deferred until mechanism-specific value passes
+- Next action: none; retain the Stage A no-promotion decision, keep Stage B and adapter expansion blocked, and require a separately approved deterministic-provider experiment before any new live benchmark
+- Blockers: Codex `auth.json` key is available for provider traffic, but 9Router `GET /api/settings` returns `401` for that bearer key. Existing sanitized dashboard evidence records Caveman and Ponytail disabled and is accepted only as an explicit limitation fallback. The five-repetition repair completed from clean checkpoint `42fd8df`, but Ponytail Full and Both Full failed the required 100% correctness gate; economics are therefore not promotion evidence. Immediate replay of the three failed multiturn rows passed all three, so the failures are not a stable oracle defect or a shared caller defect; treat them as provider-output variability and keep the mechanism blocked rather than weakening validation. Claude Code/OpenClaw reuse remains deferred until mechanism-specific correctness and measurable value pass
 
 | Task | State | Workspace | Executor | Depends On | Required Proof | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| Task 0 | complete | current | unresolved | none | verified current-main branch and baseline | `git rev-parse HEAD`, `pnpm typecheck` pass; `pnpm test` has unrelated cleaner race failure |
+| Task 0 | complete | current | unresolved | none | verified current-main branch and baseline | `git rev-parse HEAD`, fresh `pnpm typecheck`, and fresh `pnpm test` pass; the earlier cleaner race was not reproduced |
 | Task 1 | complete | current | unresolved | Task 0 | benchmark cleanup regression | focused benchmark tests pass; setup resources now enter protected cleanup before acquisition can fail |
 | Task 2 | complete | current | lead | Task 1 | shared config/type normalization tests | Codex config tests and full typecheck pass |
 | Task 3 | complete | current | lead | Task 2 | pipeline ordering, resolver, and digest tests | product-surface tests pass; stable-prefix ordering verified |
 | Task 4 | complete | current | lead | Task 3 | Codex contract and streaming/retry tests | 554 Codex tests pass; policy contract suite passes |
 | Task 5 | complete | current | lead | Task 4 | command/status and router preflight tests | independent commands/status pass; router preflight fails closed |
 | Task 6 | complete | current | lead | Tasks 4–5 | local/mock contract matrix | Codex policy contract matrix passes |
-| Task 7 | complete | current | lead | Task 6 | Stage A completed-task benchmark | live matrix failed correctness/stability; repair contract verified; rerun blocked by unavailable approved live harness |
+| Task 7 | complete | current | lead | Task 6 | Stage A completed-task benchmark | cache-fix repair completed 60 calls without timeout; baseline and Caveman Full passed 10/10, Ponytail Full passed 8/10, Both Full passed 9/10; no promotion |
 | Task 8 | skipped | current | lead | Task 7 mechanism-specific pass gate | Stage B intensity benchmark | skipped because Stage A economics are inconclusive |
 | Task 9 | complete | current | lead | Task 8 or documented Stage A decision | immutable promotion/economics evidence | mock artifacts, README, defaults, and no-promotion decision reconciled |
 | Task 10 | deferred | current | lead | Task 9 mechanism-specific correctness and value gate | Claude/OpenClaw reuse tests | deferred; inconclusive mechanisms remain Codex-only |
@@ -120,6 +120,8 @@ After Codex passes correctness and Stage A gates, Claude Code and OpenClaw consu
 - Root cause of Stage A slowness was the session cache-audit fallback scanning the full global JSONL history with `Number.MAX_SAFE_INTEGER`; bounded the compatibility tail lookup to 256 records in both the runtime checkout and tracked source, with a regression test for unavailable old history.
 - Updated the multiturn benchmark oracle to accept the requested verification-command families and equivalent omitted-field wording; focused benchmark tests and stabilizer tests pass.
 - Rebuilt and restarted only TokenPilot with the existing config; 9Router remained unchanged. The final one-repetition smoke through `http://127.0.0.1:17667/v1` used `cx/gpt-5.6-luna`, made 12 provider calls, passed all 8 fixture rows, and recorded evidence at `C:\tmp\lightrsi-generation-policy-stage-a-smoke-after-cache-fix-v3.json`. A direct trace showed `proxy_after_call` approximately 70 ms after a 2.03 s upstream response.
+- The authorized five-repetition repair completed from clean checkpoint `42fd8df` with 60 provider calls and no request timeouts. Evidence is `C:\tmp\lightrsi-generation-policy-stage-a-repair-after-cache-fix.json`: baseline `10/10`, Caveman Full `10/10`, Ponytail Full `8/10`, and Both Full `9/10`; Stage A remains no-promotion because every arm must meet the 100% correctness gate before economics or Stage B are considered.
+- Replayed only the three failed multiturn cases through the unchanged `http://127.0.0.1:17667/v1` path with `cx/gpt-5.6-luna`; all three passed the existing oracle on immediate replay. The validator has no other production callers, and no justified source patch was identified. This confirms nondeterministic provider output as the current failure mode, not an oracle false negative; the original five-repetition result remains the authoritative correctness gate.
 - Verified `pnpm --dir components/adapters/codex bench:generation-policy -- --live-repair` fails before provider dispatch when required inputs are absent.
 - Added in-memory fallback to Codex `auth.json` for the live repair key and authenticated the runner read-only router settings request; focused benchmark tests and Codex typecheck pass.
 - Read-only 9Router preflight at `http://127.0.0.1:20128/api/settings` rejects the API key with `401`; authenticated dashboard response at `C:\tmp\9router-settings-response.network-response` reports both Caveman and Ponytail disabled. Live repair remains blocked rather than bypassing the gate.
