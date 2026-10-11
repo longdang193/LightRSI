@@ -756,7 +756,24 @@ export function validateStageAFixtureOutput(fixture: StageAFixture, output: stri
 
 function hasVerificationCommand(output: string): boolean {
   const normalized = output.toLowerCase();
-  return /(?:^|[`\n])\s*(?:[-*]\s*)?(?:run\s+)?(?:(?:pnpm|npm)\s+(?:test|run\s+test)\b|(?:pytest|python\s+[^\n`]*\s-m\s+pytest)\b|(?:cargo|go)\s+test\b|make\s+test\b|git\s+diff\s+--check\b|grep\b|test\s+[-a-z])/u.test(normalized);
+  const candidates = [
+    ...normalized.split(/\r?\n/u),
+    ...Array.from(normalized.matchAll(/`([^`]+)`/gu), (match) => match[1] ?? ""),
+  ];
+  const commandPatterns = [
+    /^(?:pnpm|npm)\s+(?:test|run\s+test)(?:\s|$)/u,
+    /^pytest(?:\s|$)/u,
+    /^python(?:\d+(?:\.\d+)?)?\s+-m\s+pytest(?:\s|$)/u,
+    /^(?:cargo|go)\s+test(?:\s|$)/u,
+    /^make\s+test(?:\s|$)/u,
+    /^git\s+diff\s+--check(?:\s|$)/u,
+    /^grep\s+\S+(?:\s+\S+)+$/u,
+    /^test\s+[-a-z]/u,
+  ];
+  return candidates.some((candidate) => {
+    const command = candidate.trim().replace(/^(?:[-*]\s*)?(?:run:?\s*)/u, "");
+    return commandPatterns.some((pattern) => pattern.test(command));
+  });
 }
 
 function stageAFixtureInput(fixture: StageAFixture): readonly unknown[] {
