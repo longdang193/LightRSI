@@ -47,7 +47,8 @@
     "pack:release:portable": "node ./scripts/pack-release.mjs",
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts src/release-package.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "bench:session-contention": "node --import tsx scripts/benchmark-session-contention.ts"
   },
   "devDependencies": {
     "esbuild": "^0.25.10",
