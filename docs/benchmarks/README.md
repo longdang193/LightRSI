@@ -148,7 +148,14 @@ streaming, and forced-SSE paths, and makes attributed attempts distinct for
 deduplication.
 
 The fixture-backed router probe is
-`9router/tests/unit/attribution-persistence.test.js`. It must prove:
+`9router/tests/unit/attribution-persistence.test.js`. Run it from the 9Router
+checkout root with the committed Vitest configuration:
+
+```text
+npx vitest run tests/unit/attribution-persistence.test.js tests/unit/request-details-tab.test.js --config tests/vitest.config.js
+```
+
+It must prove:
 
 1. The two LightRSI headers are preserved.
 2. One router-owned `routerRecordId` is present in both authoritative tables.
@@ -159,11 +166,18 @@ The local fixture run also exposed two test-harness issues, both repaired in the
 router checkout: the fixtures used the nonexistent `enableObservability2` setting
 instead of `enableObservability`, and the request-details backup test hardcoded
 `better-sqlite3` even when the router correctly selected Node's built-in
-`node:sqlite` fallback. The focused attribution fixture now passes all three
-checks, and the adjacent request-details regression passes all 22 checks under
-the fallback driver. The checkout has no committed Vitest configuration, so the
-local proof used a temporary alias config and a no-save Vitest install; this did
-not modify package metadata or authorize a live provider run.
+`node:sqlite` fallback. On October 12, 2026, the focused command above passed all
+three attribution checks and all 22 adjacent request-details checks under the
+fallback driver. The run emitted only the expected unavailable-native-binding
+warning for `better-sqlite3`; it did not modify package metadata or authorize a
+live provider run.
+
+The durable patch-hub overlay is
+`project-OS-starter/tools/local-patch-hub/Apply-9RouterAttributionOverlay.ps1`,
+targeting `0.5.69` (`eb712ca8`). It supports exact-base application, already-
+applied detection, temporary-index 3-way verification, and fail-closed conflict
+handling. Use it to keep the attribution repair present across upstream releases
+until the fix is merged upstream.
 
 The broader local Vitest sweep is not a release gate in this checkout: 193 test
 files passed, 34 failed, and 11 were skipped. The failures include missing
@@ -172,8 +186,13 @@ endpoint assumptions, and external-service or credential-dependent cases. No
 failure occurred in the attribution fixture or the adjacent request-details
 regression.
 
-Until that probe passes against the deployed router build—or an authenticated
-equivalent schema probe returns the same evidence—exact request-level joins and
-provider-dollar economics remain unavailable. Do not treat a window/model match
-as a substitute for this gate.
+The deployed authenticated probe is still outstanding: this checkout has no
+configured `LIGHTRSI_BENCHMARK_ROUTER_URL`, `LIGHTRSI_BENCHMARK_BASE_URL`, or
+`OPENAI_API_KEY`, so no live request was attempted. Before live economics,
+exercise one authenticated request through the deployed router and confirm the
+two LightRSI headers map to one immutable `routerRecordId` in both tables. Then
+benchmark same-session versus independent-session persistence contention and
+define the immutable downstream record-ID join before comparing arms. Until
+those checks pass, exact request-level joins and provider-dollar economics remain
+unavailable. Do not treat a window/model match as a substitute for this gate.
 
