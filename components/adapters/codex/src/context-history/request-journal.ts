@@ -1,4 +1,4 @@
-import { readCodexContextHistoryJournal } from "./journal-store.js";
+import { readCodexContextHistoryJournal, type CodexContextHistoryJournalReadResult } from "./journal-store.js";
 import {
   codexAttachForwardingMetadata,
   codexForwardingMetadata,
@@ -28,6 +28,26 @@ import {
   type CodexRequestJournalEntry,
   type JsonObject,
 } from "./types.js";
+import {
+  buildCodexResponseJournalEntry,
+  type CodexResponseJournalEntryParams,
+} from "./response-journal.js";
+
+export type CodexRequestJournalEntryParams = {
+  stateDir: string;
+  sessionId: string;
+  payload: JsonObject;
+  acceptedInputItems?: JsonObject[];
+  committedInputItems?: JsonObject[];
+  requestId?: string;
+  turnOrdinal?: number;
+  status?: CodexJournalStatus;
+  error?: string;
+  observedAt?: string;
+  forwardingScope?: CodexForwardingScope;
+  forwardingAttempts?: CodexForwardingAttempt[];
+  acceptedAtResponseId?: string;
+};
 
 function sanitizedInputItems(payload: JsonObject): JsonObject[] {
   return Array.isArray(payload.input)
@@ -90,21 +110,10 @@ function requestIdentityMatches(
       === hashJson(sanitizedInputItems(params.payload));
 }
 
-async function appendCodexRequestJournalEntryLocked(params: {
-  stateDir: string;
-  sessionId: string;
-  payload: JsonObject;
-  acceptedInputItems?: JsonObject[];
-  committedInputItems?: JsonObject[];
-  requestId?: string;
-  turnOrdinal?: number;
-  status?: CodexJournalStatus;
-  error?: string;
-  observedAt?: string;
-  forwardingScope?: CodexForwardingScope;
-  forwardingAttempts?: CodexForwardingAttempt[];
-  acceptedAtResponseId?: string;
-}): Promise<CodexRequestJournalEntry> {
+async function appendCodexRequestJournalEntryLocked(
+  params: CodexRequestJournalEntryParams,
+  currentJournal?: CodexContextHistoryJournalReadResult,
+): Promise<CodexRequestJournalEntry> {
   const requestId = params.requestId ?? requestIdFromPayload(params);
   if (!params.sessionId.trim() || !requestId.trim()) {
     throw new TypeError("Codex request journal requires non-empty session and request ids");
@@ -114,13 +123,16 @@ async function appendCodexRequestJournalEntryLocked(params: {
     throw new TypeError("Codex request journal turnOrdinal must be a positive integer");
   }
   const observedAt = normalizeObservedAt(params.observedAt);
-  await recoverCodexContextHistoryJournalTailLocked(params.stateDir, params.sessionId);
-  let journal = await readCodexContextHistoryJournal(params.stateDir, params.sessionId);
-  if (journal.oversized) {
-    await quarantineOversizedCodexContextHistoryJournalLocked(params.stateDir, params.sessionId);
-    journal = { entries: [], malformedLineCount: 0 };
-  } else if (journal.readError || journal.malformedLineCount > 0) {
-    throw new Error(`Refusing to update invalid Codex context-history journal for session ${params.sessionId}`);
+  let journal = currentJournal;
+  if (!journal) {
+    await recoverCodexContextHistoryJournalTailLocked(params.stateDir, params.sessionId);
+    journal = await readCodexContextHistoryJournal(params.stateDir, params.sessionId);
+    if (journal.oversized) {
+      await quarantineOversizedCodexContextHistoryJournalLocked(params.stateDir, params.sessionId);
+      journal = { entries: [], malformedLineCount: 0 };
+    } else if (journal.readError || journal.malformedLineCount > 0) {
+      throw new Error(`Refusing to update invalid Codex context-history journal for session ${params.sessionId}`);
+    }
   }
   const current = journal.entries;
   const existing = latestRequestEntry(current, requestId);
@@ -177,24 +189,45 @@ async function appendCodexRequestJournalEntryLocked(params: {
   return entry;
 }
 
-export async function appendCodexRequestJournalEntry(params: {
-  stateDir: string;
-  sessionId: string;
-  payload: JsonObject;
-  acceptedInputItems?: JsonObject[];
-  committedInputItems?: JsonObject[];
-  requestId?: string;
-  turnOrdinal?: number;
-  status?: CodexJournalStatus;
-  error?: string;
-  observedAt?: string;
-  forwardingScope?: CodexForwardingScope;
-  forwardingAttempts?: CodexForwardingAttempt[];
-  acceptedAtResponseId?: string;
-}): Promise<CodexRequestJournalEntry> {
+export async function appendCodexRequestJournalEntry(
+  params: CodexRequestJournalEntryParams,
+): Promise<CodexRequestJournalEntry> {
   return withCodexContextHistoryJournalLock(
     { stateDir: params.stateDir, sessionId: params.sessionId },
     () => appendCodexRequestJournalEntryLocked(params),
+  );
+}
+
+export async function appendCodexContextHistoryJournalCompletion(params: {
+  request: CodexRequestJournalEntryParams;
+  response: CodexResponseJournalEntryParams;
+}): Promise<{ request: CodexRequestJournalEntry; response: Awaited<ReturnType<typeof buildCodexResponseJournalEntry>> }> {
+  const { request, response } = params;
+  if (request.stateDir !== response.stateDir || request.sessionId !== response.sessionId) {
+    throw new Error("Codex context-history completion requires one state directory and session");
+  }
+  return withCodexContextHistoryJournalLock(
+    { stateDir: request.stateDir, sessionId: request.sessionId },
+    async () => {
+      await recoverCodexContextHistoryJournalTailLocked(request.stateDir, request.sessionId);
+      let journal = await readCodexContextHistoryJournal(request.stateDir, request.sessionId);
+      if (journal.oversized) {
+        await quarantineOversizedCodexContextHistoryJournalLocked(request.stateDir, request.sessionId);
+        journal = { entries: [], malformedLineCount: 0 };
+      } else if (journal.readError || journal.malformedLineCount > 0) {
+        throw new Error(`Refusing to update invalid Codex context-history journal for session ${request.sessionId}`);
+      }
+      const responseEntry = buildCodexResponseJournalEntry(response);
+      await appendCodexContextHistoryJournalEntryLockedValidated(
+        request.stateDir,
+        request.sessionId,
+        responseEntry,
+        journal,
+      );
+      journal = { ...journal, entries: [...journal.entries, responseEntry] };
+      const requestEntry = await appendCodexRequestJournalEntryLocked(request, journal);
+      return { request: requestEntry, response: responseEntry };
+    },
   );
 }
 

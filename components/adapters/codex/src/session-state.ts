@@ -1,8 +1,10 @@
 import {
+  appendJsonl,
   appendRecentTurnBinding,
   loadRecentTurnBindings,
   loadSessionSnapshot,
   readJsonFile,
+  recentTurnBindingsPath,
   resolveLatestSessionId,
   sessionStateRoot,
   sessionSnapshotPath,
@@ -47,6 +49,11 @@ export type UpsertCodexSessionSnapshotOptions = {
   markLatest?: boolean;
 };
 
+export type CodexCompletedTurn = {
+  patch: Partial<CodexSessionSnapshot>;
+  binding: CodexRecentTurnBinding;
+};
+
 type CodexResponseSessionRef = {
   responseId: string;
   sessionId: string;
@@ -81,6 +88,30 @@ async function markLatestSession(stateDir: string, sessionId: string, updatedAt:
   await writeLatestSessionRef(stateDir, sessionId, updatedAt);
 }
 
+function buildCodexSessionSnapshot(
+  sessionId: string,
+  current: CodexSessionSnapshot | null,
+  patch: Partial<CodexSessionSnapshot>,
+  updatedAt: string,
+): CodexSessionSnapshot {
+  return {
+    sessionId,
+    codexSessionId: patch.codexSessionId ?? current?.codexSessionId,
+    latestResponseId: patch.latestResponseId ?? current?.latestResponseId,
+    previousResponseId: patch.previousResponseId ?? current?.previousResponseId,
+    latestModel: patch.latestModel ?? current?.latestModel,
+    latestUpstreamProvider: patch.latestUpstreamProvider ?? current?.latestUpstreamProvider,
+    workspaceHint: patch.workspaceHint ?? current?.workspaceHint,
+    transcriptPath: patch.transcriptPath ?? current?.transcriptPath,
+    disclosedReadPaths: patch.disclosedReadPaths ?? current?.disclosedReadPaths,
+    lastHookEvent: patch.lastHookEvent ?? current?.lastHookEvent,
+    lastToolName: patch.lastToolName ?? current?.lastToolName,
+    lastToolInputChars: patch.lastToolInputChars ?? current?.lastToolInputChars,
+    lastToolOutputChars: patch.lastToolOutputChars ?? current?.lastToolOutputChars,
+    updatedAt,
+  };
+}
+
 export async function loadCodexSessionSnapshot(
   stateDir: string,
   sessionId: string,
@@ -97,26 +128,26 @@ export async function upsertCodexSessionSnapshot(
   return withFileLock(join(sessionStateRoot(stateDir), "snapshot-updates.lock"), async () => {
     const current = await loadCodexSessionSnapshot(stateDir, sessionId);
     const updatedAt = new Date().toISOString();
-    const next: CodexSessionSnapshot = {
-      sessionId,
-      codexSessionId: patch.codexSessionId ?? current?.codexSessionId,
-      latestResponseId: patch.latestResponseId ?? current?.latestResponseId,
-      previousResponseId: patch.previousResponseId ?? current?.previousResponseId,
-      latestModel: patch.latestModel ?? current?.latestModel,
-      latestUpstreamProvider: patch.latestUpstreamProvider ?? current?.latestUpstreamProvider,
-      workspaceHint: patch.workspaceHint ?? current?.workspaceHint,
-      transcriptPath: patch.transcriptPath ?? current?.transcriptPath,
-      disclosedReadPaths: patch.disclosedReadPaths ?? current?.disclosedReadPaths,
-      lastHookEvent: patch.lastHookEvent ?? current?.lastHookEvent,
-      lastToolName: patch.lastToolName ?? current?.lastToolName,
-      lastToolInputChars: patch.lastToolInputChars ?? current?.lastToolInputChars,
-      lastToolOutputChars: patch.lastToolOutputChars ?? current?.lastToolOutputChars,
-      updatedAt,
-    };
+    const next = buildCodexSessionSnapshot(sessionId, current, patch, updatedAt);
     await writeSessionSnapshot(stateDir, sessionId, next);
     if (options?.markLatest !== false) {
       await markLatestSession(stateDir, sessionId, updatedAt);
     }
+    return next;
+  });
+}
+
+export async function completeCodexSessionTurn(
+  stateDir: string,
+  turn: CodexCompletedTurn,
+): Promise<CodexSessionSnapshot> {
+  const { binding } = turn;
+  return withFileLock(join(sessionStateRoot(stateDir), "snapshot-updates.lock"), async () => {
+    const current = await loadCodexSessionSnapshot(stateDir, binding.sessionId);
+    const next = buildCodexSessionSnapshot(binding.sessionId, current, turn.patch, binding.updatedAt);
+    await writeSessionSnapshot(stateDir, binding.sessionId, next);
+    await appendJsonl(recentTurnBindingsPath(stateDir, binding.sessionId), binding);
+    await markLatestSession(stateDir, binding.sessionId, binding.updatedAt);
     return next;
   });
 }

@@ -8,6 +8,7 @@ import {
   appendCacheAuditRecord,
   buildCacheAuditSnapshot,
   readRecentCacheAuditRecordsForSession,
+  readRecentCacheAuditRecordsForSessionWithStatus,
   rotateCacheAuditFileIfNeeded,
   summarizeCacheAudit,
 } from "../src/cache-audit-store.js";
@@ -87,6 +88,40 @@ test("appendCacheAuditRecord does not invent drift for a new request key in the 
     assert.equal(records[0]?.requestPromptCacheKey, "pk-b");
     assert.equal(records[0]?.baselineKind, "none");
     assert.equal(records[0]?.driftReasons?.length ?? 0, 0);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("diagnostic cache-audit reads retain valid records before a truncated final record", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-cache-audit-diagnostic-tail-"));
+  const request = envelope({
+    sessionId: "sess-diagnostic-tail",
+    instructions: "Stable instructions",
+    requestPromptCacheKey: "pk-diagnostic",
+  });
+  try {
+    await appendCacheAuditRecord({
+      stateDir,
+      snapshot: buildCacheAuditSnapshot({
+        envelope: request.envelope,
+        sessionId: request.sessionId,
+        model: "gpt-5.4",
+        stream: false,
+        requestPromptCacheKey: request.requestPromptCacheKey,
+      }),
+      responsePromptCacheKey: request.requestPromptCacheKey,
+      usage: { input_tokens: 100, input_tokens_details: { cached_tokens: 0 } },
+      status: 200,
+    });
+    const sessionPath = join(stateDir, "cache-audit-sessions", `${encodeURIComponent(request.sessionId)}.jsonl`);
+    await appendFile(sessionPath, "{partial", "utf8");
+
+    const diagnostic = await readRecentCacheAuditRecordsForSessionWithStatus(stateDir, request.sessionId, 8);
+    assert.equal(diagnostic.entries.length, 1);
+    assert.equal(diagnostic.entries[0]?.sessionId, request.sessionId);
+    assert.equal(diagnostic.truncatedTail, true);
+    assert.equal((await readRecentCacheAuditRecordsForSession(stateDir, request.sessionId, 8)).length, 1);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

@@ -53,11 +53,11 @@ function matchedRow(fixture: StageAFixture, repetition: number, arm: StageAArm =
     providerCalls: 1,
     turns: 1,
     toolCalls: 0,
-    retries: 0,
+    transportRetries: 0,
     clarifications: 0,
     usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 0 },
     measurement: {
-      retryCount: 0,
+      transportRetryCount: 0,
       clarificationCount: 0,
       turnCount: 1,
       usageCompleteness: "complete",
@@ -302,11 +302,11 @@ test("matched accounting keeps missing usage unavailable instead of treating it 
       providerCalls: 1,
       turns: 1,
       toolCalls: 0,
-      retries: 0,
+      transportRetries: 0,
       clarifications: 0,
       usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: null },
       measurement: {
-        retryCount: 0,
+        transportRetryCount: 0,
         clarificationCount: 0,
         turnCount: 1,
         usageCompleteness: "complete",
@@ -426,11 +426,11 @@ test("matched comparison leaves unobserved stability unavailable", () => {
     {
       ...matchedRow(fixture, 0, "caveman-full"),
       toolCalls: null,
-      retries: null,
+      transportRetries: null,
       clarifications: null,
       measurement: {
         ...matchedRow(fixture, 0, "caveman-full").measurement,
-        retryCount: null,
+        transportRetryCount: null,
         clarificationCount: null,
       },
     },
@@ -447,21 +447,21 @@ test("response measurement telemetry parses explicit non-negative counts and pre
       "x-lightrsi-upstream-retry-count": "2",
       "x-lightrsi-clarification-count": "0",
     })),
-    { retryCount: 2, clarificationCount: 0 },
+    { transportRetryCount: 2, clarificationCount: 0 },
   );
   assert.deepEqual(
     parseResponseMeasurementTelemetry(new Headers({
       "x-lightrsi-upstream-retry-count": "not-a-count",
       "x-lightrsi-clarification-count": "-1",
     })),
-    { retryCount: null, clarificationCount: null },
+    { transportRetryCount: null, clarificationCount: null },
   );
-  assert.deepEqual(parseResponseMeasurementTelemetry(new Headers()), { retryCount: null, clarificationCount: null });
+  assert.deepEqual(parseResponseMeasurementTelemetry(new Headers()), { transportRetryCount: null, clarificationCount: null });
 });
 
 test("matched comparison rejects complete stability and economics without explicit measurement fields", () => {
   const measurement = {
-    retryCount: 0,
+    transportRetryCount: 0,
     clarificationCount: 0,
     turnCount: 1,
     usageCompleteness: "complete" as const,
@@ -476,7 +476,7 @@ test("matched comparison rejects complete stability and economics without explic
     ...rows[1],
     measurement: {
       ...measurement,
-      retryCount: null,
+      transportRetryCount: null,
       clarificationCount: null,
       cachedInputTokens: null,
       pricingTableVersion: null,
@@ -624,6 +624,7 @@ test("matched live accounting preserves every failed request attempt when settin
     let attempts = 0;
     const requestUrls: string[] = [];
     const requestBodies: Record<string, unknown>[] = [];
+    const requestHeaders: Record<string, string>[] = [];
     const armBaseUrls = Object.fromEntries(STAGE_A_ARMS.map((arm) => [arm, `http://127.0.0.1/${arm}`])) as Record<StageAArm, string>;
     const report = await runGenerationPolicyMatchedLive({
       baseUrl: "http://127.0.0.1:1/v1",
@@ -641,6 +642,7 @@ test("matched live accounting preserves every failed request attempt when settin
         }
         attempts += 1;
         requestUrls.push(String(input));
+        requestHeaders.push(Object.fromEntries(new Headers(init?.headers).entries()));
         requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
         throw new Error("transport failure");
       },
@@ -652,6 +654,7 @@ test("matched live accounting preserves every failed request attempt when settin
       assert.equal(requestUrls.filter((url) => url.startsWith(armBaseUrls[arm])).length, 8);
     }
     assert.ok(requestBodies.every((body) => body.instructions === ""));
+    assert.ok(requestHeaders.every((headers) => !("x-lightrsi-clarification-count" in headers)));
     assert.equal(report.matched?.arms.baseline.providerCalls, 8);
     assert.equal(report.matched?.arms.baseline.totalCostUsd, null);
     assert.equal(report.matched?.arms["caveman-full"].economics, "inconclusive");
@@ -722,7 +725,7 @@ test("matched live accounting marks later-turn telemetry unknown after an unobse
     assert.equal(multiturnRows.length, STAGE_A_ARMS.length);
     assert.ok(multiturnRows.every((row) => row.error !== null));
     assert.ok(multiturnRows.every((row) => row.providerCalls === 2));
-    assert.ok(multiturnRows.every((row) => row.measurement.retryCount === null));
+    assert.ok(multiturnRows.every((row) => row.measurement.transportRetryCount === null));
     assert.ok(multiturnRows.every((row) => row.measurement.clarificationCount === null));
   } finally {
     process.chdir(originalCwd);

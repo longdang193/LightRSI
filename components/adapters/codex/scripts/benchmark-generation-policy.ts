@@ -297,7 +297,7 @@ export type ProviderPricing = {
 };
 
 export type MatchedStageAMeasurement = {
-  retryCount: number | null;
+  transportRetryCount: number | null;
   clarificationCount: number | null;
   turnCount: number;
   usageCompleteness: "complete" | "incomplete" | "unavailable";
@@ -315,7 +315,7 @@ export type MatchedStageARow = {
   providerCalls: number;
   turns: number;
   toolCalls: number | null;
-  retries: number | null;
+  transportRetries: number | null;
   clarifications: number | null;
   usage: ProviderUsage | null;
   measurement: MatchedStageAMeasurement;
@@ -350,7 +350,7 @@ type MatchedStageAArmSummary = {
     providerCalls: number | null;
     turns: number | null;
     toolCalls: number | null;
-    retries: number | null;
+    transportRetries: number | null;
     clarifications: number | null;
   } | null;
 };
@@ -435,11 +435,11 @@ function parseNonNegativeIntegerHeader(headers: Headers, name: string): number |
 }
 
 export function parseResponseMeasurementTelemetry(headers: Headers): {
-  retryCount: number | null;
+  transportRetryCount: number | null;
   clarificationCount: number | null;
 } {
   return {
-    retryCount: parseNonNegativeIntegerHeader(headers, "x-lightrsi-upstream-retry-count"),
+    transportRetryCount: parseNonNegativeIntegerHeader(headers, "x-lightrsi-upstream-retry-count"),
     clarificationCount: parseNonNegativeIntegerHeader(headers, "x-lightrsi-clarification-count"),
   };
 }
@@ -533,7 +533,7 @@ function summarizeMeasurement(rows: MatchedStageARow[]): MatchedStageAArmSummary
         : "unavailable";
   const pricingVersions = rows.map((row) => row.measurement.pricingTableVersion);
   return {
-    retryCount: sumOptionalMetric(rows, (row) => row.measurement.retryCount),
+    transportRetryCount: sumOptionalMetric(rows, (row) => row.measurement.transportRetryCount),
     clarificationCount: sumOptionalMetric(rows, (row) => row.measurement.clarificationCount),
     turnCount: sumOptionalMetric(rows, (row) => row.measurement.turnCount),
     usageCompleteness,
@@ -670,19 +670,19 @@ export function compareMatchedStageA(
     const stabilityMetricsObserved = rowsComparable
       && [...baselineRows, ...armRows].every((row) => row.toolCalls !== null
         && row.measurement.turnCount === row.turns
-        && row.measurement.retryCount !== null
+        && row.measurement.transportRetryCount !== null
         && row.measurement.clarificationCount !== null);
     const stabilityPass = stabilityMetricsObserved
       && armRows.every((row) => {
         const baselineRow = baselineRows.find((candidate) => candidate.fixture === row.fixture && candidate.repetition === row.repetition);
         return baselineRow !== undefined
           && row.toolCalls !== null && baselineRow.toolCalls !== null
-          && row.measurement.retryCount !== null && baselineRow.measurement.retryCount !== null
+          && row.measurement.transportRetryCount !== null && baselineRow.measurement.transportRetryCount !== null
           && row.measurement.clarificationCount !== null && baselineRow.measurement.clarificationCount !== null
           && row.providerCalls <= baselineRow.providerCalls
           && row.turns <= baselineRow.turns
           && row.toolCalls <= baselineRow.toolCalls
-           && row.measurement.retryCount <= baselineRow.measurement.retryCount
+           && row.measurement.transportRetryCount <= baselineRow.measurement.transportRetryCount
            && row.measurement.clarificationCount <= baselineRow.measurement.clarificationCount;
       });
     const armCost = summary.totalCostUsd;
@@ -711,8 +711,8 @@ export function compareMatchedStageA(
        toolCalls: sumOptionalMetric(armRows, (row) => row.toolCalls) !== null && sumOptionalMetric(baselineRows, (row) => row.toolCalls) !== null
          ? sumOptionalMetric(armRows, (row) => row.toolCalls)! - sumOptionalMetric(baselineRows, (row) => row.toolCalls)!
          : null,
-       retries: sumOptionalMetric(armRows, (row) => row.retries) !== null && sumOptionalMetric(baselineRows, (row) => row.retries) !== null
-         ? sumOptionalMetric(armRows, (row) => row.retries)! - sumOptionalMetric(baselineRows, (row) => row.retries)!
+       transportRetries: sumOptionalMetric(armRows, (row) => row.transportRetries) !== null && sumOptionalMetric(baselineRows, (row) => row.transportRetries) !== null
+         ? sumOptionalMetric(armRows, (row) => row.transportRetries)! - sumOptionalMetric(baselineRows, (row) => row.transportRetries)!
          : null,
        clarifications: sumOptionalMetric(armRows, (row) => row.clarifications) !== null && sumOptionalMetric(baselineRows, (row) => row.clarifications) !== null
          ? sumOptionalMetric(armRows, (row) => row.clarifications)! - sumOptionalMetric(baselineRows, (row) => row.clarifications)!
@@ -755,7 +755,6 @@ async function runLiveRequest(
   options: LiveRepairOptions,
   instructions: string,
   input: readonly unknown[],
-  measurement?: { clarificationCount?: number },
 ): Promise<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null; policyEvidence: GenerationPolicyEvidence; measurement: ReturnType<typeof parseResponseMeasurementTelemetry> }> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const response = await fetchImpl(`${options.baseUrl.replace(/\/+$/u, "")}/responses`, {
@@ -763,9 +762,6 @@ async function runLiveRequest(
     headers: {
       authorization: `Bearer ${options.apiKey}`,
       "content-type": "application/json",
-      ...(measurement?.clarificationCount !== undefined
-        ? { "x-lightrsi-clarification-count": String(measurement.clarificationCount) }
-        : {}),
     },
     signal: AbortSignal.timeout(LIVE_REQUEST_TIMEOUT_MS),
     body: JSON.stringify({
@@ -915,10 +911,10 @@ function buildMatchedStageAMeasurement(
   usage: ProviderUsage | null,
   turns: number,
   pricing: ProviderPricing | undefined,
-  telemetry: { retryCount: number | null; clarificationCount: number | null },
+  telemetry: { transportRetryCount: number | null; clarificationCount: number | null },
 ): MatchedStageAMeasurement {
   return {
-    retryCount: telemetry.retryCount,
+    transportRetryCount: telemetry.transportRetryCount,
     clarificationCount: telemetry.clarificationCount,
     turnCount: turns,
     usageCompleteness: usage === null
@@ -941,7 +937,7 @@ async function runCompletedTask(
   providerCalls: number;
   turns: number;
   toolCalls: number | null;
-  retries: number | null;
+  transportRetries: number | null;
   clarifications: number | null;
   usage: ProviderUsage | null;
   measurement: MatchedStageAMeasurement;
@@ -951,11 +947,11 @@ async function runCompletedTask(
 }> {
   const started = Date.now();
   const responses: Array<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null; policyEvidence: GenerationPolicyEvidence }> = [];
-  const measurements: Array<{ retryCount: number | null; clarificationCount: number | null }> = [];
+  const measurements: Array<{ transportRetryCount: number | null; clarificationCount: number | null }> = [];
   let providerCalls = 0;
   const request = async (input: readonly unknown[]) => {
     providerCalls += 1;
-    return runLiveRequest(options, "", input, { clarificationCount: 0 });
+    return runLiveRequest(options, "", input);
   };
   try {
     const first = await request(stageAFixtureInput(fixture));
@@ -974,8 +970,8 @@ async function runCompletedTask(
     const passed = validateStageAFixtureOutput(fixture, finalText);
     const usage = sumUsage(responses);
     const measurement = buildMatchedStageAMeasurement(usage, responses.length, options.pricing, {
-      retryCount: measurements.every((value) => value.retryCount !== null)
-        ? measurements.reduce((total, value) => total + value.retryCount!, 0)
+      transportRetryCount: measurements.every((value) => value.transportRetryCount !== null)
+        ? measurements.reduce((total, value) => total + value.transportRetryCount!, 0)
         : null,
       clarificationCount: measurements.every((value) => value.clarificationCount !== null)
         ? measurements.reduce((total, value) => total + value.clarificationCount!, 0)
@@ -988,7 +984,7 @@ async function runCompletedTask(
       providerCalls,
       turns: responses.length,
       toolCalls: observedToolCalls(responses),
-      retries: measurement.retryCount,
+      transportRetries: measurement.transportRetryCount,
       clarifications: measurement.clarificationCount,
       usage,
       measurement,
@@ -1003,8 +999,8 @@ async function runCompletedTask(
       ? measurements
       : [...measurements, failedMeasurement];
     const measurement = buildMatchedStageAMeasurement(usage, responses.length, options.pricing, {
-      retryCount: failedMeasurement !== null && observedMeasurements.every((value) => value.retryCount !== null)
-        ? observedMeasurements.reduce((total, value) => total + value.retryCount!, 0)
+      transportRetryCount: failedMeasurement !== null && observedMeasurements.every((value) => value.transportRetryCount !== null)
+        ? observedMeasurements.reduce((total, value) => total + value.transportRetryCount!, 0)
         : null,
       clarificationCount: failedMeasurement !== null && observedMeasurements.every((value) => value.clarificationCount !== null)
         ? observedMeasurements.reduce((total, value) => total + value.clarificationCount!, 0)
@@ -1017,7 +1013,7 @@ async function runCompletedTask(
       providerCalls,
       turns: responses.length,
       toolCalls: observedToolCalls(responses),
-      retries: measurement.retryCount,
+      transportRetries: measurement.transportRetryCount,
       clarifications: measurement.clarificationCount,
       usage,
       measurement,

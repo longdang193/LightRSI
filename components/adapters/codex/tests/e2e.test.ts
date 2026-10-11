@@ -779,6 +779,7 @@ test("Codex cache frontier records transport option downgrade", async () => {
       }), tokenPilotConfigPath);
       const config = await loadTokenPilotCodexConfig(tokenPilotConfigPath);
       const runtime = await startCodexResponsesProxy({ config, logger: createConsoleLogger(false), codexConfigPath });
+      let runtimeClosed = false;
       try {
         const makeRequest = () => fetch(`${runtime.baseUrl}/responses`, {
           method: "POST",
@@ -802,6 +803,8 @@ test("Codex cache frontier records transport option downgrade", async () => {
         assert.equal(typeof requests[0]?.prompt_cache_key, "string");
         assert.equal(typeof requests[1]?.prompt_cache_key, "string");
         assert.equal("prompt_cache_key" in requests[2], false);
+        await runtime.close();
+        runtimeClosed = true;
         const records = (await readFile(join(stateDir, "cache-audit.jsonl"), "utf8"))
           .trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
             frontier?: { status?: string; changeClass?: string };
@@ -810,7 +813,7 @@ test("Codex cache frontier records transport option downgrade", async () => {
         assert.ok(frontierRecords.some((frontier) => frontier?.status === "unmatched"
           && frontier.changeClass === "incompatible"), JSON.stringify(frontierRecords));
       } finally {
-        await runtime.close();
+        if (!runtimeClosed) await runtime.close();
       }
     } finally {
       await new Promise<void>((resolve) => upstream.close(() => resolve()));

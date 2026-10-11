@@ -7,9 +7,9 @@ import {
   readCachedInputTokens,
   readCacheWriteTokens,
   readInputTokens,
-  readRecentJsonlEntries,
+  readRecentJsonlEntriesDiagnostic,
 } from "@lightrsi/host-adapter";
-import type { CacheEvidence } from "@lightrsi/host-adapter";
+import type { CacheEvidence, DiagnosticJsonlReadResult } from "@lightrsi/host-adapter";
 import {
   extractStablePrefixContract,
   fingerprintStablePrefixEnvelope,
@@ -296,7 +296,14 @@ export async function readRecentCacheAuditRecords<T extends CacheAuditRecord>(
   stateDir: string,
   limit = 32,
 ): Promise<T[]> {
-  return readRecentJsonlEntries<T>(
+  return (await readRecentCacheAuditRecordsWithStatus<T>(stateDir, limit)).entries;
+}
+
+export async function readRecentCacheAuditRecordsWithStatus<T extends CacheAuditRecord>(
+  stateDir: string,
+  limit = 32,
+): Promise<DiagnosticJsonlReadResult<T>> {
+  return readRecentJsonlEntriesDiagnostic<T>(
     cacheAuditPath(stateDir),
     limit,
     (value): value is T => isCacheAuditRecord(value),
@@ -308,20 +315,31 @@ export async function readRecentCacheAuditRecordsForSession<T extends CacheAudit
   sessionId: string,
   limit = 32,
 ): Promise<T[]> {
+  return (await readRecentCacheAuditRecordsForSessionWithStatus<T>(stateDir, sessionId, limit)).entries;
+}
+
+export async function readRecentCacheAuditRecordsForSessionWithStatus<T extends CacheAuditRecord>(
+  stateDir: string,
+  sessionId: string,
+  limit = 32,
+): Promise<DiagnosticJsonlReadResult<T>> {
   const target = String(sessionId ?? "").trim();
-  if (!target) return [];
-  const sessionRecords = await readRecentJsonlEntries<T>(
+  if (!target) return { entries: [], truncatedTail: false };
+  const sessionRecords = await readRecentJsonlEntriesDiagnostic<T>(
     cacheAuditSessionPath(stateDir, target),
     Math.max(1, limit),
     (value): value is T => isCacheAuditRecord(value),
   );
-  if (sessionRecords.length > 0) return sessionRecords;
-  const records = await readRecentJsonlEntries<T>(
+  if (sessionRecords.entries.length > 0 || sessionRecords.truncatedTail) return sessionRecords;
+  const records = await readRecentJsonlEntriesDiagnostic<T>(
     cacheAuditPath(stateDir),
     MAX_CACHE_AUDIT_SESSION_FALLBACK_RECORDS,
     (value): value is T => isCacheAuditRecord(value),
   );
-  return records.filter((record) => record.sessionId === target).slice(0, Math.max(1, limit));
+  return {
+    entries: records.entries.filter((record) => record.sessionId === target).slice(0, Math.max(1, limit)),
+    truncatedTail: records.truncatedTail,
+  };
 }
 
 export function summarizeCacheAudit<T extends CacheAuditRecord>(

@@ -150,8 +150,9 @@ Generation policy is opt-in and Codex-only for now. The final promotion decision
 retains the original Caveman v1 and Ponytail v1 policy versions, with both
 features disabled by default and the normalized enabled level remaining `full`.
 No Lite/Ultra intensity variant, default-on change, or Claude Code/OpenClaw reuse
-is promoted. Stage A Full output variability and Stage B's missing matched
-baseline leave economic and stability impact inconclusive.
+is promoted. Downstream/provider stability remains unavailable when the boundary
+does not expose it, and router economics remain window-reconciled unless an
+authoritative downstream record ID join exists.
 
 Cleaner validation covers cumulative continuation, repeated releases, retained
 context, and proxy restart. Performance measurements capture forwarded payload

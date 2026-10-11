@@ -50,7 +50,7 @@ function responseBodyStatus(response: JsonObject): CodexJournalStatus | undefine
   return "incomplete";
 }
 
-export async function appendCodexResponseJournalEntry(params: {
+export type CodexResponseJournalEntryParams = {
   stateDir: string;
   sessionId: string;
   requestId?: string;
@@ -61,7 +61,11 @@ export async function appendCodexResponseJournalEntry(params: {
   status?: CodexJournalStatus;
   error?: string;
   observedAt?: string;
-}): Promise<CodexResponseJournalEntry> {
+};
+
+export function buildCodexResponseJournalEntry(
+  params: CodexResponseJournalEntryParams,
+): CodexResponseJournalEntry {
   if (!params.sessionId.trim()
     || (params.requestId !== undefined && !params.requestId.trim())) {
     throw new TypeError("Codex response journal requires non-empty session and request ids");
@@ -104,6 +108,13 @@ export async function appendCodexResponseJournalEntry(params: {
     error: params.error,
     observedAt: normalizeObservedAt(params.observedAt),
   };
+  return entry;
+}
+
+export async function appendCodexResponseJournalEntry(
+  params: CodexResponseJournalEntryParams,
+): Promise<CodexResponseJournalEntry> {
+  const entry = buildCodexResponseJournalEntry(params);
   await appendCodexContextHistoryJournalEntry(params.stateDir, params.sessionId, entry);
   return entry;
 }

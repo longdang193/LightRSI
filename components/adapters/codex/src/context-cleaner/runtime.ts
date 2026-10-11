@@ -51,6 +51,7 @@ import {
   appendCodexCleanerTerminal,
   readCodexCleanerSchedule,
   readCodexCleanerScheduleHistory,
+  type CodexCleanerScheduleHistory,
   type CodexCleanerCommittedRecord,
   type CodexCleanerScheduledRecord,
 } from "./scheduler.js";
@@ -96,11 +97,9 @@ export type CodexCleanerHandoffValidation = {
 export async function readCodexCleanerCommittedMutationPlan(params: {
   stateDir: string;
   sessionId: string;
+  history?: CodexCleanerScheduleHistory;
 }): Promise<CodexMutationPlan | undefined> {
-  const history = await readCodexCleanerScheduleHistory({
-    stateDir: params.stateDir,
-    sessionId: params.sessionId,
-  });
+  const history = params.history ?? await readCodexCleanerScheduleHistory(params);
   if (history.reasons.length > 0) {
     throw new Error("cleaner_runtime_committed_exclusions_unavailable");
   }

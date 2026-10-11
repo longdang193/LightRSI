@@ -61,7 +61,7 @@ import {
   requestUpstreamResponsesStream,
 } from "./upstream.js";
 import {
-  appendCodexRecentTurnBinding,
+  completeCodexSessionTurn,
   indexCodexHostSessionAlias,
   indexCodexPromptCacheKeySession,
   indexCodexResponseSession,
@@ -69,7 +69,6 @@ import {
   loadCodexSessionSnapshot,
   resolveCodexSessionIdByPromptCacheKey,
   resolveCodexSessionIdByResponseId,
-  upsertCodexSessionSnapshot,
 } from "./session-state.js";
 import { snapshotCodexResponsesStream } from "./stream-observer.js";
 import { appendTrace } from "./trace.js";
@@ -80,8 +79,8 @@ import {
 } from "./cache-audit.js";
 import { initializeCodexTokenPilotPreset } from "./preset.js";
 import {
+  appendCodexContextHistoryJournalCompletion,
   appendCodexRequestJournalEntry,
-  appendCodexResponseJournalEntry,
   buildCodexEffectiveHistoryView,
   collectCodexResponseItemsFromStream,
   createCodexResponseItemsCollector,
@@ -128,6 +127,7 @@ import {
 } from "./context-cleaner/runtime.js";
 import {
   readCodexCleanerSchedule,
+  readCodexCleanerScheduleHistory,
 } from "./context-cleaner/scheduler.js";
 
 function waitForResponseDrain(res: import("node:http").ServerResponse): Promise<void> {
@@ -400,10 +400,6 @@ export function computeEncodedProviderWirePrefixDiagnostics(
     inputHash: hashJson(cacheIdentityInputPrefix),
     inputItems,
   };
-}
-
-function computeEncodedProviderWirePrefixHash(payload: JsonObject): string | null {
-  return computeEncodedProviderWirePrefixDiagnostics(payload).fullHash;
 }
 
 const ROUTER_CACHE_BOUNDARY_HEADERS = [
@@ -909,15 +905,21 @@ export async function startCodexResponsesProxy(params: {
       let cleanerPreparedRebase: CodexCleanerPreparedRebase | undefined;
       let continuationReplayRequest: CodexRebaseRequestResult | undefined;
       let rebaseAccounting = rebaseRequest?.accounting;
+      const cleanerScheduleHistory = await readCodexCleanerScheduleHistory({
+        stateDir: config.stateDir,
+        sessionId,
+      });
       const cleanerSchedule = await readCodexCleanerSchedule({
         stateDir: config.stateDir,
         sessionId,
+        history: cleanerScheduleHistory,
       });
       const manualCleanerReserved = cleanerSchedule.outcome === "ready"
         || cleanerSchedule.outcome === "bypassed";
       const committedCleanerMutationPlan = await readCodexCleanerCommittedMutationPlan({
         stateDir: config.stateDir,
         sessionId,
+        history: cleanerScheduleHistory,
       });
       const mutationPlan = manualCleanerReserved
         ? undefined
@@ -1295,8 +1297,9 @@ export async function startCodexResponsesProxy(params: {
       if (rebaseRequest) {
         rebaseAccounting = withCodexRebaseReplayAccountingInput(rebaseRequest.accounting, payload.input);
       }
-      const fallbackPayload = cloneJsonObject(originalPayload);
+      let fallbackPayload: JsonObject | undefined;
       if (rebaseRequest) {
+        fallbackPayload = cloneJsonObject(originalPayload);
         const fallbackPrepared = await prepareBeforeCallWithReductionSummary<CodexReductionSummary>({
           envelope,
           codec,
@@ -1306,7 +1309,7 @@ export async function startCodexResponsesProxy(params: {
           applyBeforeCallReduction: applyBeforeCallReductionForCodex,
         });
         syncPayloadFromEnvelope(fallbackPayload, fallbackPrepared.envelope, codec);
-        fallbackPayload.input = normalizeResponsesInputForUpstream(fallbackPayload?.input);
+        fallbackPayload.input = normalizeResponsesInputForUpstream(fallbackPayload.input);
       }
       let continuationReplayPayload: JsonObject | undefined;
       if (continuationReplayRequest) {
@@ -1340,6 +1343,15 @@ export async function startCodexResponsesProxy(params: {
       const forwardingAttempts: CodexForwardingAttempt[] = [];
       const forwardingAttemptInputs = new Map<string, JsonObject[]>();
       const forwardingAttemptPayloads = new Map<string, JsonObject>();
+      const providerWirePrefixDiagnosticsByPayload = new Map<string, EncodedProviderWirePrefixDiagnostics>();
+      const providerWirePrefixDiagnosticsForPayload = (effectivePayload: JsonObject): EncodedProviderWirePrefixDiagnostics => {
+        const payloadFingerprint = codexForwardingFingerprint(effectivePayload);
+        const cached = providerWirePrefixDiagnosticsByPayload.get(payloadFingerprint);
+        if (cached) return cached;
+        const diagnostics = computeEncodedProviderWirePrefixDiagnostics(effectivePayload);
+        providerWirePrefixDiagnosticsByPayload.set(payloadFingerprint, diagnostics);
+        return diagnostics;
+      };
       let observedRouterCacheIdentity: Pick<RouterCacheTelemetry,
         "routeIdentitySource" | "resolvedModel" | "routeId" | "provider"
         | "routerCacheNamespace" | "routerCacheFamilyId" | "routerPromptCacheKey"> | null = null;
@@ -1398,6 +1410,7 @@ export async function startCodexResponsesProxy(params: {
           ? JSON.parse(JSON.stringify(effectivePayload.input)) as JsonObject[]
           : []);
         forwardingAttemptPayloads.set(attempt.attemptId, JSON.parse(JSON.stringify(effectivePayload)) as JsonObject);
+        providerWirePrefixDiagnosticsForPayload(effectivePayload);
       };
       const cacheAuditCompatibilityDigestForLatestAttempt = (): string => {
         const attempt = forwardingAttempts.at(-1);
@@ -1409,7 +1422,7 @@ export async function startCodexResponsesProxy(params: {
           endpoint: codexRebaseEndpointIdentity(upstream.baseUrl),
           provider: upstreamProviderName,
           providerWirePrefixHash: effectivePayload
-            ? computeEncodedProviderWirePrefixHash(effectivePayload)
+            ? providerWirePrefixDiagnosticsForPayload(effectivePayload).fullHash
             : cacheAuditSnapshot.providerWirePrefixHash ?? null,
           cacheRoutingIdentity: {
             promptCacheKey: typeof cacheRoutingPayload?.prompt_cache_key === "string"
@@ -1490,7 +1503,7 @@ export async function startCodexResponsesProxy(params: {
         return attempt ? forwardingAttemptInputs.get(attempt.attemptId) : undefined;
       };
       const requestText = extractResponsesInputText(payload?.input);
-      const providerWirePrefixDiagnostics = computeEncodedProviderWirePrefixDiagnostics(payload);
+      const providerWirePrefixDiagnostics = providerWirePrefixDiagnosticsForPayload(payload);
       const cacheAuditSnapshot = buildCodexCacheAuditSnapshot({
         envelope: prepared.envelope,
         sessionId,
@@ -1507,7 +1520,7 @@ export async function startCodexResponsesProxy(params: {
               ? prepared.envelope.metadata.frameworkStablePromptCacheKey
               : null,
         providerWirePrefixHash:
-          computeEncodedProviderWirePrefixHash(payload)
+          providerWirePrefixDiagnostics.fullHash
           ?? (typeof prepared.envelope.metadata?.providerWirePrefixHash === "string"
             ? prepared.envelope.metadata.providerWirePrefixHash
             : null),
@@ -1760,35 +1773,37 @@ export async function startCodexResponsesProxy(params: {
         const error = status === "failed" && paramsForJournal.rawStreamText
           ? truncateJournalError(paramsForJournal.rawStreamText)
           : undefined;
-        await appendCodexResponseJournalEntry({
-          stateDir: config.stateDir,
-          sessionId,
-          requestId: requestJournalEntry.requestId,
-          rawStreamText: paramsForJournal.rawStreamText,
-          collected,
-          previousResponseId: paramsForJournal.committed
-            ? null
-            : typeof originalPayload.previous_response_id === "string"
-              ? originalPayload.previous_response_id
-              : null,
-          status,
-          error,
-        });
-        await appendCodexRequestJournalEntry({
-          stateDir: config.stateDir,
-          sessionId,
-          requestId: requestJournalEntry.requestId,
-          payload: originalPayload,
-          acceptedInputItems: latestForwardedInputItems()
-            ?? (Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined),
-          committedInputItems: paramsForJournal.committed
-            ? committedContextInputItems()
-            : undefined,
-          status,
-          error,
-          forwardingScope,
-          forwardingAttempts,
-          acceptedAtResponseId: status === "completed" ? collected.responseId : undefined,
+        await appendCodexContextHistoryJournalCompletion({
+          response: {
+            stateDir: config.stateDir,
+            sessionId,
+            requestId: requestJournalEntry.requestId,
+            rawStreamText: paramsForJournal.rawStreamText,
+            collected,
+            previousResponseId: paramsForJournal.committed
+              ? null
+              : typeof originalPayload.previous_response_id === "string"
+                ? originalPayload.previous_response_id
+                : null,
+            status,
+            error,
+          },
+          request: {
+            stateDir: config.stateDir,
+            sessionId,
+            requestId: requestJournalEntry.requestId,
+            payload: originalPayload,
+            acceptedInputItems: latestForwardedInputItems()
+              ?? (Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined),
+            committedInputItems: paramsForJournal.committed
+              ? committedContextInputItems()
+              : undefined,
+            status,
+            error,
+            forwardingScope,
+            forwardingAttempts,
+            acceptedAtResponseId: status === "completed" ? collected.responseId : undefined,
+          },
         });
         contextHistoryJournalPersisted = true;
       };
@@ -1810,37 +1825,39 @@ export async function startCodexResponsesProxy(params: {
           status,
           typeof paramsForJournal.response?.id === "string" ? paramsForJournal.response.id : undefined,
         );
-        await appendCodexResponseJournalEntry({
-          stateDir: config.stateDir,
-          sessionId,
-          requestId: requestJournalEntry.requestId,
-          response: paramsForJournal.response,
-          previousResponseId: paramsForJournal.committed
-            ? null
-            : typeof originalPayload.previous_response_id === "string"
-              ? originalPayload.previous_response_id
-              : null,
-          status,
-          error,
-        });
-        await appendCodexRequestJournalEntry({
-          stateDir: config.stateDir,
-          sessionId,
-          requestId: requestJournalEntry.requestId,
-          payload: originalPayload,
-          acceptedInputItems: latestForwardedInputItems()
-            ?? (Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined),
-          committedInputItems: paramsForJournal.committed
-            ? committedContextInputItems()
-            : undefined,
-          status,
-          error,
-          forwardingScope,
-          forwardingAttempts,
-          acceptedAtResponseId: status === "completed"
-            && typeof paramsForJournal.response?.id === "string"
-            ? paramsForJournal.response.id
-            : undefined,
+        await appendCodexContextHistoryJournalCompletion({
+          response: {
+            stateDir: config.stateDir,
+            sessionId,
+            requestId: requestJournalEntry.requestId,
+            response: paramsForJournal.response,
+            previousResponseId: paramsForJournal.committed
+              ? null
+              : typeof originalPayload.previous_response_id === "string"
+                ? originalPayload.previous_response_id
+                : null,
+            status,
+            error,
+          },
+          request: {
+            stateDir: config.stateDir,
+            sessionId,
+            requestId: requestJournalEntry.requestId,
+            payload: originalPayload,
+            acceptedInputItems: latestForwardedInputItems()
+              ?? (Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined),
+            committedInputItems: paramsForJournal.committed
+              ? committedContextInputItems()
+              : undefined,
+            status,
+            error,
+            forwardingScope,
+            forwardingAttempts,
+            acceptedAtResponseId: status === "completed"
+              && typeof paramsForJournal.response?.id === "string"
+              ? paramsForJournal.response.id
+              : undefined,
+          },
         });
         contextHistoryJournalPersisted = true;
       };
@@ -1869,6 +1886,7 @@ export async function startCodexResponsesProxy(params: {
 
       const sendRebasedOrCurrentPayload = async () => {
         if (rebaseRequest && requestJournalEntry && rebasePlanId) {
+          if (!fallbackPayload) throw new Error("Codex rebase fallback payload unavailable");
           const rebaseInputFormat = typeof originalPayload.previous_response_id === "string"
             && originalPayload.previous_response_id.trim()
             ? "response_chain"
@@ -2129,27 +2147,30 @@ export async function startCodexResponsesProxy(params: {
           }
         }
         await finalizeContextRewriteLifecycle(requestStatus);
-        await upsertCodexSessionSnapshot(config.stateDir, sessionId, {
-          latestResponseId: snapshot.responseId,
-          previousResponseId: logicalPreviousResponseId,
-          latestModel: model,
-          latestUpstreamProvider: upstreamProviderName,
-          disclosedReadPaths: reductionSummary?.disclosedReadPaths,
+        const completedTurnUpdatedAt = new Date().toISOString();
+        await completeCodexSessionTurn(config.stateDir, {
+          patch: {
+            latestResponseId: snapshot.responseId,
+            previousResponseId: logicalPreviousResponseId,
+            latestModel: model,
+            latestUpstreamProvider: upstreamProviderName,
+            disclosedReadPaths: reductionSummary?.disclosedReadPaths,
+          },
+          binding: {
+            sessionId,
+            responseId: snapshot.responseId,
+            previousResponseId: logicalPreviousResponseId,
+            model,
+            requestChars: requestText.length,
+            responseChars: paramsForRecord.responseChars,
+            assistantChars: snapshot.assistantText.length,
+            stream: true,
+            updatedAt: completedTurnUpdatedAt,
+          },
         });
         if (typeof snapshot.responseId === "string" && snapshot.responseId) {
           await indexCodexResponseSession(config.stateDir, snapshot.responseId, sessionId);
         }
-        await appendCodexRecentTurnBinding(config.stateDir, {
-          sessionId,
-          responseId: snapshot.responseId,
-          previousResponseId: logicalPreviousResponseId,
-          model,
-          requestChars: requestText.length,
-          responseChars: paramsForRecord.responseChars,
-          assistantChars: snapshot.assistantText.length,
-          stream: true,
-          updatedAt: new Date().toISOString(),
-        });
         return async () => {
           await Promise.allSettled([
             recordCodexUxReduction({
@@ -2311,7 +2332,8 @@ export async function startCodexResponsesProxy(params: {
           : undefined;
       let assistantChars = 0;
       let toolCallCount = 0;
-      let providerUsage: unknown = null;
+      let providerUsage: Record<string, unknown> | null = null;
+      let responsePromptCacheKey: string | null = null;
       const requestStatus = nonStreamRequestStatus({
         httpStatus: upstreamResp.status,
         response: responseJson,
@@ -2347,16 +2369,9 @@ export async function startCodexResponsesProxy(params: {
         assistantChars = decoded.assistantText?.length ?? 0;
         toolCallCount = decoded.toolCalls?.length ?? 0;
         providerUsage = decoded.usage ?? null;
-        await appendCodexCacheAuditRecord({
-          stateDir: config.stateDir,
-          snapshot: auditSnapshot,
-          responsePromptCacheKey:
-            typeof decoded.metadata?.promptCacheKey === "string"
-              ? decoded.metadata.promptCacheKey
-              : null,
-          usage: decoded.usage ?? null,
-          status: upstreamResp.status,
-        });
+        responsePromptCacheKey = typeof decoded.metadata?.promptCacheKey === "string"
+          ? decoded.metadata.promptCacheKey
+          : null;
       } catch {
         // Some upstream error payloads may not match the expected Responses shape.
       }
@@ -2389,58 +2404,72 @@ export async function startCodexResponsesProxy(params: {
         }
       }
       await finalizeContextRewriteLifecycle(requestStatus);
-      await recordCodexUxReduction({
-        stateDir: config.stateDir,
-        sessionId,
-        model,
-        originalRequestText,
-        reducedRequestText: requestText,
-      });
-      await upsertCodexSessionSnapshot(config.stateDir, sessionId, {
-        latestResponseId: responseId,
-        previousResponseId,
-        latestModel: model,
-        latestUpstreamProvider: upstreamProviderName,
-        disclosedReadPaths: reductionSummary?.disclosedReadPaths,
+      const completedTurnUpdatedAt = new Date().toISOString();
+      await completeCodexSessionTurn(config.stateDir, {
+        patch: {
+          latestResponseId: responseId,
+          previousResponseId,
+          latestModel: model,
+          latestUpstreamProvider: upstreamProviderName,
+          disclosedReadPaths: reductionSummary?.disclosedReadPaths,
+        },
+        binding: {
+          sessionId,
+          responseId,
+          previousResponseId,
+          model,
+          requestChars: requestText.length,
+          responseChars: upstreamResp.text.length,
+          assistantChars,
+          toolCallCount,
+          stream: false,
+          updatedAt: completedTurnUpdatedAt,
+        },
       });
       if (typeof responseId === "string" && responseId) {
         await indexCodexResponseSession(config.stateDir, responseId, sessionId);
       }
-      await appendCodexRecentTurnBinding(config.stateDir, {
-        sessionId,
-        responseId,
-        previousResponseId,
-        model,
-        requestChars: requestText.length,
-        responseChars: upstreamResp.text.length,
-        assistantChars,
-        toolCallCount,
-        stream: false,
-        updatedAt: new Date().toISOString(),
-      });
-      await appendTrace(config.stateDir, {
-        stage: "proxy_after_call",
-        ...generationPolicyTrace,
-        requestId,
-        sessionId,
-        model,
-        status: upstreamResp.status,
-        responseChars: upstreamResp.text.length,
-        assistantChars,
-        responseId: responseId ?? null,
-        previousResponseId: previousResponseId ?? null,
-        contextRewriteOutcome: contextRewriteOutcome ?? null,
-        lightmem2CacheContractDigest:
-          prepared.envelope.metadata?.lightrsiCacheContractDigest ?? null,
-        routerCacheTelemetry,
-        transportFetches,
-        logicalUpstreamSends,
-        successfulGenerations,
-      });
       res.statusCode = upstreamResp.status;
       setForwardResponseHeaders(res, upstreamResp.headers, "application/json; charset=utf-8");
       setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace, { retryCount: upstreamRetryCount, clarificationCount });
       res.end(upstreamResp.text);
+      trackOptionalTask((async () => {
+        await Promise.allSettled([
+          recordCodexUxReduction({
+            stateDir: config.stateDir,
+            sessionId,
+            model,
+            originalRequestText,
+            reducedRequestText: requestText,
+          }),
+          appendCodexCacheAuditRecord({
+            stateDir: config.stateDir,
+            snapshot: auditSnapshot,
+            responsePromptCacheKey,
+            usage: providerUsage,
+            status: upstreamResp.status,
+          }),
+          appendTrace(config.stateDir, {
+            stage: "proxy_after_call",
+            ...generationPolicyTrace,
+            requestId,
+            sessionId,
+            model,
+            status: upstreamResp.status,
+            responseChars: upstreamResp.text.length,
+            assistantChars,
+            responseId: responseId ?? null,
+            previousResponseId: previousResponseId ?? null,
+            contextRewriteOutcome: contextRewriteOutcome ?? null,
+            lightmem2CacheContractDigest:
+              prepared.envelope.metadata?.lightrsiCacheContractDigest ?? null,
+            routerCacheTelemetry,
+            transportFetches,
+            logicalUpstreamSends,
+            successfulGenerations,
+          }),
+        ]);
+      })());
       req.off("aborted", onRequestAborted);
       res.off("close", onResponseClose);
     },

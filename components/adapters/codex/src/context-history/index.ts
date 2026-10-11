@@ -19,6 +19,7 @@ export type {
 } from "./journal-append.js";
 export {
   appendCodexRequestJournalEntry,
+  appendCodexContextHistoryJournalCompletion,
   findCodexAcceptedInputProjection,
 } from "./request-journal.js";
 export { appendCodexResponseJournalEntry } from "./response-journal.js";

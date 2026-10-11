@@ -150,11 +150,12 @@ export async function appendJsonlLines(path: string, lines: readonly string[]): 
   await appendFile(path, lines.join(""), "utf8");
 }
 
-export async function readRecentJsonlEntries<T>(
-  path: string,
-  limit = 8,
-  isEntry?: (value: unknown) => value is T,
-): Promise<T[]> {
+export type DiagnosticJsonlReadResult<T> = {
+  entries: T[];
+  truncatedTail: boolean;
+};
+
+async function readRecentJsonlLines(path: string, limit: number): Promise<string[]> {
   const target = Math.max(1, limit);
   try {
     const handle = await open(path, "r");
@@ -183,7 +184,20 @@ export async function readRecentJsonlEntries<T>(
     } finally {
       await handle.close();
     }
-    const lines = raw.split(/\r?\n/).filter(Boolean);
+    return raw.split(/\r?\n/).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export async function readRecentJsonlEntries<T>(
+  path: string,
+  limit = 8,
+  isEntry?: (value: unknown) => value is T,
+): Promise<T[]> {
+  const target = Math.max(1, limit);
+  const lines = await readRecentJsonlLines(path, target);
+  try {
     return lines
       .slice(-target)
       .reverse()
@@ -192,4 +206,28 @@ export async function readRecentJsonlEntries<T>(
   } catch {
     return [];
   }
+}
+
+export async function readRecentJsonlEntriesDiagnostic<T>(
+  path: string,
+  limit = 8,
+  isEntry?: (value: unknown) => value is T,
+): Promise<DiagnosticJsonlReadResult<T>> {
+  const target = Math.max(1, limit);
+  const lines = await readRecentJsonlLines(path, target);
+  const entries: T[] = [];
+  let truncatedTail = false;
+  for (let index = lines.length - 1; index >= 0 && entries.length < target; index -= 1) {
+    try {
+      const entry = JSON.parse(lines[index]!) as unknown;
+      if (!isEntry || isEntry(entry)) entries.push(entry as T);
+    } catch {
+      if (index === lines.length - 1) {
+        truncatedTail = true;
+        continue;
+      }
+      return { entries: [], truncatedTail: false };
+    }
+  }
+  return { entries, truncatedTail };
 }

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 
 import {
   appendCodexRecentTurnBinding,
+  completeCodexSessionTurn,
   indexCodexHostSessionAlias,
   indexCodexPromptCacheKeySession,
   loadCodexRecentTurnBindings,
@@ -17,6 +18,38 @@ import {
   resolveLatestCodexSessionId,
   upsertCodexSessionSnapshot,
 } from "../src/session-state.js";
+
+test("session-state commits a completed turn with one binding and latest pointer", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-completed-turn-"));
+  try {
+    const updatedAt = "2026-10-11T10:00:00.000Z";
+    const snapshot = await completeCodexSessionTurn(stateDir, {
+      patch: {
+        latestResponseId: "resp-complete",
+        latestModel: "gpt-5.4-mini",
+      },
+      binding: {
+        sessionId: "session-complete",
+        responseId: "resp-complete",
+        model: "gpt-5.4-mini",
+        stream: false,
+        updatedAt,
+      },
+    });
+
+    assert.equal(snapshot.updatedAt, updatedAt);
+    assert.deepEqual(await loadCodexRecentTurnBindings(stateDir, "session-complete"), [{
+      sessionId: "session-complete",
+      responseId: "resp-complete",
+      model: "gpt-5.4-mini",
+      stream: false,
+      updatedAt,
+    }]);
+    assert.equal(await resolveLatestCodexSessionId(stateDir), "session-complete");
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
 
 test("session-state persists snapshots and recent turn bindings per session", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-session-state-"));

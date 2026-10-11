@@ -10,6 +10,7 @@ import {
   loadRecentTurnBindings,
   loadSessionSnapshot,
   readRecentJsonlEntries,
+  readRecentJsonlEntriesDiagnostic,
   resolveLatestSessionId,
   sessionSnapshotPath,
   writeJsonFileAtomic,
@@ -120,6 +121,20 @@ test("recent JSONL reads fail closed on malformed final records and tolerate few
 
     await appendFile(path, "{partial", "utf8");
     assert.deepEqual(await readRecentJsonlEntries(path, 8), []);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("diagnostic JSONL reads retain valid records before a truncated final record", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-jsonl-diagnostic-tail-"));
+  const path = join(stateDir, "records.jsonl");
+  try {
+    await writeFile(path, `${JSON.stringify({ id: 1 })}\n${JSON.stringify({ id: 2 })}\n{partial`, "utf8");
+    const diagnostic = await readRecentJsonlEntriesDiagnostic<{ id: number }>(path, 8);
+    assert.deepEqual(diagnostic.entries.map((record) => record.id), [2, 1]);
+    assert.equal(diagnostic.truncatedTail, true);
+    assert.deepEqual(await readRecentJsonlEntries<{ id: number }>(path, 8), []);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

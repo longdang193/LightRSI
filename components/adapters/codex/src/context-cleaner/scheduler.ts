@@ -52,6 +52,11 @@ export type CodexCleanerScheduleReadResult =
   | { outcome: "terminal"; record: CodexCleanerTerminalRecord; reasons: [] }
   | { outcome: "bypassed"; reasons: string[] };
 
+export type CodexCleanerScheduleHistory = {
+  records: CodexCleanerScheduleRecord[];
+  reasons: string[];
+};
+
 export type CodexCleanerScheduleWriteResult = {
   outcome: "stored" | "transitioned" | "unchanged" | "missing" | "conflict" | "bypassed";
   record?: CodexCleanerScheduleRecord;
@@ -263,21 +268,21 @@ function journalFailureReasons(
 export async function readCodexCleanerSchedule(params: {
   stateDir: string;
   sessionId: string;
+  history?: CodexCleanerScheduleHistory;
 }): Promise<CodexCleanerScheduleReadResult> {
   if (!params.stateDir.trim() || !params.sessionId.trim()) {
     return { outcome: "bypassed", reasons: ["cleaner_schedule_request_invalid"] };
   }
-  const journal = await readScheduleJournal(params.stateDir, params.sessionId);
-  const failureReasons = journalFailureReasons(journal);
-  if (failureReasons) return { outcome: "bypassed", reasons: failureReasons };
-  const scheduled = journal.records.filter(
+  const history = params.history ?? await readCodexCleanerScheduleHistory(params);
+  if (history.reasons.length > 0) return { outcome: "bypassed", reasons: history.reasons };
+  const scheduled = history.records.filter(
     (record): record is CodexCleanerScheduledRecord => record.status === "scheduled",
   );
   if (scheduled.length > 1) {
     return { outcome: "bypassed", reasons: ["cleaner_schedule_pending_conflict"] };
   }
   if (scheduled[0]) return { outcome: "ready", record: scheduled[0], reasons: [] };
-  const latest = journal.records.at(-1);
+  const latest = history.records.at(-1);
   if (!latest) return { outcome: "missing", reasons: [] };
   if (latest.status === "committed") {
     return { outcome: "committed", record: latest, reasons: [] };
@@ -291,10 +296,7 @@ export async function readCodexCleanerSchedule(params: {
 export async function readCodexCleanerScheduleHistory(params: {
   stateDir: string;
   sessionId: string;
-}): Promise<{
-  records: CodexCleanerScheduleRecord[];
-  reasons: string[];
-}> {
+}): Promise<CodexCleanerScheduleHistory> {
   if (!params.stateDir.trim() || !params.sessionId.trim()) {
     return { records: [], reasons: ["cleaner_schedule_request_invalid"] };
   }
