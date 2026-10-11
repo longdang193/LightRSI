@@ -779,6 +779,7 @@ function hasVerificationCommand(output: string): boolean {
     /^pytest(?:\s|$)/u,
     /^python(?:\d+(?:\.\d+)?)?(?:\s+-i)*\s+-m\s+pytest(?:\s|$)/u,
     /^python(?:\d+(?:\.\d+)?)?(?:\s+-i)*\s+-m\s+unittest(?:\s|$)/u,
+    /^python(?:\d+(?:\.\d+)?)?(?:\s+-i)*\s+-m\s+compileall(?:\s|$)/u,
     /^(?:cargo|go)\s+test(?:\s|$)/u,
     /^make\s+test(?:\s|$)/u,
     /^git\s+diff\s+--check(?:\s|$)/u,
