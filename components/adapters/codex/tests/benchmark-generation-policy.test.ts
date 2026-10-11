@@ -19,6 +19,7 @@ import {
   buildMockGenerationPolicyReport,
   captureFailedOutput,
   compareMatchedStageA,
+  parseMatchedStageAPricing,
   evaluateRouterSettingsPreflight,
   expectedStageAPolicyDigest,
   loadCodexAuthApiKey,
@@ -471,6 +472,40 @@ test("matched comparison rejects complete stability and economics without explic
 
   assert.equal(comparisons.arms["caveman-full"].stability, "unavailable");
   assert.equal(comparisons.arms["caveman-full"].economics, "inconclusive");
+});
+
+test("matched comparison keeps economics inconclusive when one row lacks pricing provenance", () => {
+  const rows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [
+    matchedRow(fixture, 0, "baseline"),
+    matchedRow(fixture, 0, "caveman-full"),
+  ]);
+  rows[1] = {
+    ...rows[1],
+    measurement: { ...rows[1].measurement, pricingTableVersion: null },
+  };
+
+  const comparisons = compareMatchedStageA(rows, 1, {
+    inputUsdPerMillion: 1,
+    cachedInputUsdPerMillion: 0.5,
+    outputUsdPerMillion: 2,
+    tableVersion: "fixture-v1",
+  });
+
+  assert.equal(comparisons.arms["caveman-full"].economics, "inconclusive");
+});
+
+test("matched live pricing accepts an explicit pricing table version", () => {
+  assert.deepEqual(parseMatchedStageAPricing({
+    LIGHTRSI_BENCHMARK_INPUT_USD_PER_MILLION: "1",
+    LIGHTRSI_BENCHMARK_CACHED_INPUT_USD_PER_MILLION: "0.5",
+    LIGHTRSI_BENCHMARK_OUTPUT_USD_PER_MILLION: "2",
+    LIGHTRSI_BENCHMARK_PRICING_TABLE_VERSION: "2026-10-11-openai-v1",
+  }), {
+    inputUsdPerMillion: 1,
+    cachedInputUsdPerMillion: 0.5,
+    outputUsdPerMillion: 2,
+    tableVersion: "2026-10-11-openai-v1",
+  });
 });
 
 test("matched comparison rejects unmatched policy evidence", () => {

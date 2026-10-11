@@ -504,14 +504,18 @@ function summarizeMeasurement(rows: MatchedStageARow[]): MatchedStageAArmSummary
       : rows.some((row) => row.measurement.usageCompleteness === "incomplete")
         ? "incomplete"
         : "unavailable";
-  const pricingVersions = new Set(rows.map((row) => row.measurement.pricingTableVersion).filter((value): value is string => value !== null));
+  const pricingVersions = rows.map((row) => row.measurement.pricingTableVersion);
   return {
     retryCount: sumOptionalMetric(rows, (row) => row.measurement.retryCount),
     clarificationCount: sumOptionalMetric(rows, (row) => row.measurement.clarificationCount),
     turnCount: sumOptionalMetric(rows, (row) => row.measurement.turnCount),
     usageCompleteness,
     cachedInputTokens: sumOptionalMetric(rows, (row) => row.measurement.cachedInputTokens),
-    pricingTableVersion: pricingVersions.size === 1 ? [...pricingVersions][0]! : null,
+    pricingTableVersion: pricingVersions.length > 0
+      && pricingVersions.every((value): value is string => value !== null)
+      && new Set(pricingVersions).size === 1
+      ? pricingVersions[0]
+      : null,
   };
 }
 
@@ -1487,6 +1491,22 @@ export async function runGenerationPolicyBenchmark(options?: { mock?: boolean })
   return buildMockGenerationPolicyReport();
 }
 
+export function parseMatchedStageAPricing(environment: NodeJS.ProcessEnv = process.env): ProviderPricing | undefined {
+  const pricingValues = [
+    environment.LIGHTRSI_BENCHMARK_INPUT_USD_PER_MILLION,
+    environment.LIGHTRSI_BENCHMARK_CACHED_INPUT_USD_PER_MILLION,
+    environment.LIGHTRSI_BENCHMARK_OUTPUT_USD_PER_MILLION,
+  ].map((value) => value === undefined ? null : Number(value));
+  if (!pricingValues.every((value): value is number => value !== null && Number.isFinite(value) && value >= 0)) return undefined;
+  const tableVersion = environment.LIGHTRSI_BENCHMARK_PRICING_TABLE_VERSION?.trim();
+  return {
+    inputUsdPerMillion: pricingValues[0],
+    cachedInputUsdPerMillion: pricingValues[1],
+    outputUsdPerMillion: pricingValues[2],
+    ...(tableVersion ? { tableVersion } : {}),
+  };
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes("--mode") && process.argv[process.argv.indexOf("--mode") + 1] === "local-overhead") {
     const report = await runLocalOverheadBenchmark({
@@ -1538,14 +1558,7 @@ async function main(): Promise<void> {
     if (Object.values(armBaseUrls).some((value) => !value) || new Set(Object.values(armBaseUrls)).size !== STAGE_A_ARMS.length) {
       throw new Error("Matched live execution requires one distinct LIGHTRSI_BENCHMARK_<ARM>_BASE_URL per Stage A arm.");
     }
-    const pricingValues = [
-      process.env.LIGHTRSI_BENCHMARK_INPUT_USD_PER_MILLION,
-      process.env.LIGHTRSI_BENCHMARK_CACHED_INPUT_USD_PER_MILLION,
-      process.env.LIGHTRSI_BENCHMARK_OUTPUT_USD_PER_MILLION,
-    ].map((value) => value === undefined ? null : Number(value));
-    const pricing = pricingValues.every((value): value is number => value !== null && Number.isFinite(value) && value >= 0)
-      ? { inputUsdPerMillion: pricingValues[0], cachedInputUsdPerMillion: pricingValues[1], outputUsdPerMillion: pricingValues[2] }
-      : undefined;
+    const pricing = parseMatchedStageAPricing();
     const report = await runGenerationPolicyMatchedLive({
       baseUrl,
       armBaseUrls,
