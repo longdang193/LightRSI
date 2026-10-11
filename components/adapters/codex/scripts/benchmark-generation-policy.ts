@@ -768,7 +768,7 @@ function hasVerificationCommand(output: string): boolean {
     /^make\s+test(?:\s|$)/u,
     /^git\s+diff\s+--check(?:\s|$)/u,
     /^grep\s+\S+(?:\s+\S+)+$/u,
-    /^test\s+-[efsdxrw]\s+[^;&|><\s]+$/u,
+    /^test\s+-[efsdxrw]\s+(?!.*[;&|><"'`\\#$(){}[\]])\S+$/u,
   ];
   return candidates.some((candidate) => {
     let command = candidate.trim();

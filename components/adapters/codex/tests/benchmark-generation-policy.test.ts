@@ -154,6 +154,14 @@ test("artifact fixture accepts a valid grep-only verification command", () => {
   ), false);
   assert.equal(validateStageAFixtureOutput(
     "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ntest -f \"artifact.md\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ntest -f #\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
     "--- artifact.md ---\n# Validation Plan\n```sh\npython --version -m pytest\n```",
   ), false);
   assert.equal(validateStageAFixtureOutput(
