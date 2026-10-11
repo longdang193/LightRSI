@@ -107,6 +107,10 @@ test("artifact fixture accepts a valid grep-only verification command", () => {
   ), true);
   assert.equal(validateStageAFixtureOutput(
     "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\npython -m unittest discover -v\n```",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
     "--- artifact.md ---\n# Validation Plan\n```text\nnotes\n```\n```sh\ngrep -q ready artifact.md\n```",
   ), true);
   assert.equal(validateStageAFixtureOutput(
