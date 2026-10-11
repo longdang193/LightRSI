@@ -55,6 +55,7 @@ async function reserveFetchPort(): Promise<number> {
 async function startSequencedResponsesUpstream(params?: {
   rejectChain?: boolean;
   rejectRebase?: boolean;
+  failRebaseTransport?: boolean;
   responseStatus?: string;
 }): Promise<{
   baseUrl: string;
@@ -86,6 +87,10 @@ async function startSequencedResponsesUpstream(params?: {
       return;
     }
     const isRebase = !("previous_response_id" in payload) && requests.length > 1;
+    if (params?.failRebaseTransport && isRebase) {
+      req.socket.destroy();
+      return;
+    }
     if (params?.rejectRebase && isRebase) {
       res.statusCode = 400;
       res.setHeader("content-type", "application/json");
@@ -1214,6 +1219,79 @@ test("CDR-06 proxy pipeline falls back and cools down rejected rebases", async (
       && Array.isArray(event.reasonCodes)
       && event.reasonCodes.includes("cooldown_active")
     )));
+  } finally {
+    await runtime?.close();
+    await upstream.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("CDR-04 transport-failed rebase reports retry telemetry as unknown", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-rebase-pipeline-transport-fallback-"));
+  const upstream = await startSequencedResponsesUpstream({ failRebaseTransport: true });
+  let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
+  try {
+    const sessionId = "codex-session-pipeline-transport-fallback";
+    const config = normalizeTokenPilotCodexConfig({
+      stateDir,
+      proxyPort: await reserveFetchPort(),
+      upstreamProvider: "OpenAI",
+      upstream: {
+        baseUrl: upstream.baseUrl,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      modules: { stabilizer: false, reduction: false },
+      contextRewrite: {
+        enabled: true,
+        providerCompatibilityProbe: "mock_fixture",
+        mode: "response_chain_rebase",
+        failureMode: "bypass",
+        retryOriginalRequest: true,
+        mutationPlan: { operations: [] },
+      },
+    } as any);
+    runtime = await startCodexResponsesProxy({
+      config,
+      logger: createConsoleLogger(false),
+      allowMockFixtureEvidence: true,
+    });
+
+    const first = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "OLD_SENTINEL_PIPELINE_TRANSPORT_FALLBACK" }],
+      }),
+    });
+    assert.equal(first.status, 200);
+
+    const history = await buildCodexEffectiveHistory({ stateDir, sessionId });
+    const oldItem = history.replayableItems.find(
+      (entry) => JSON.stringify(entry.item).includes("OLD_SENTINEL_PIPELINE_TRANSPORT_FALLBACK"),
+    );
+    assert.ok(oldItem);
+    (config as any).contextRewrite.mutationPlan = {
+      operations: [{ type: "evict", stableItemId: oldItem.stableItemId }],
+    };
+
+    const response = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        previous_response_id: "resp-pipeline-1",
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: "CURRENT_SENTINEL_PIPELINE_TRANSPORT_FALLBACK" }],
+      }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-lightrsi-upstream-retry-count"), "null");
+    assert.equal(upstream.requests.length, 3);
   } finally {
     await runtime?.close();
     await upstream.close();

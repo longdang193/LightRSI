@@ -1591,6 +1591,7 @@ export async function startCodexResponsesProxy(params: {
           applyUpstreamAttempts(response, initialAttempt);
           return response;
         } catch (error) {
+          upstreamRetryCount = null;
           const attempt = forwardingAttempts.at(-1);
           if (attempt) attempt.outcome = "failed";
           throw error;
