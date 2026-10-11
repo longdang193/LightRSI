@@ -27,6 +27,7 @@ export type UpstreamStreamResponse = {
 
 export type UpstreamTransportAttempt = {
   attemptId: string;
+  providerAttemptId?: string;
   endpointId: string;
   resolvedModel: string | null;
   effectivePayload: unknown;
@@ -280,6 +281,7 @@ async function sendUpstreamRequest(
     lightmem2CacheContractDigest?: string;
     stateDir?: string;
     requestId?: string;
+    providerAttemptId?: string;
     signal?: AbortSignal;
     endpointPath?: string;
   },
@@ -301,6 +303,7 @@ async function sendUpstreamRequest(
       status: response.status,
       ok: response.ok,
       transportAttempt: attempt,
+      providerAttemptId: params.providerAttemptId ?? null,
       elapsedMs: performance.now() - startedAt,
       responseBodyAvailable: Boolean(response.body),
       responseContentLength: Number(response.headers.get("content-length")) || null,
@@ -312,6 +315,7 @@ async function sendUpstreamRequest(
       stream,
       status: null,
       transportAttempt: attempt,
+      providerAttemptId: params.providerAttemptId ?? null,
       elapsedMs: performance.now() - startedAt,
       errorClass: error instanceof Error ? error.name : "unknown",
       errorMessage: sanitizeUpstreamErrorMessage(error, params.upstream),
@@ -339,6 +343,8 @@ function requestHeaders(params: {
   upstream: CodexProviderConfig;
   inboundAuthorization?: string;
   lightmem2CacheContractDigest?: string;
+  requestId?: string;
+  providerAttemptId?: string;
 }): Record<string, string> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -346,6 +352,10 @@ function requestHeaders(params: {
   };
   if (params.lightmem2CacheContractDigest) {
     headers["x-lightrsi-cache-contract"] = `v1:${params.lightmem2CacheContractDigest}`;
+  }
+  if (isNineRouter(params.upstream)) {
+    if (params.requestId) headers["x-lightrsi-request-id"] = params.requestId;
+    if (params.providerAttemptId) headers["x-lightrsi-provider-attempt-id"] = params.providerAttemptId;
   }
   return headers;
 }
@@ -599,9 +609,10 @@ export async function requestUpstreamResponses(params: {
       outcome: "incomplete",
       responseProducing: false,
     };
+    attempt.providerAttemptId = params.requestId ? `${params.requestId}:${attempt.attemptId}` : undefined;
     attempts.push(attempt);
     try {
-      const response = await sendUpstreamRequest({ ...params, endpointPath }, payload, transportFetches, false);
+      const response = await sendUpstreamRequest({ ...params, endpointPath, providerAttemptId: attempt.providerAttemptId }, payload, transportFetches, false);
       attempt.status = response.status;
       attempt.responseProducing = response.ok;
       attempt.outcome = response.ok ? "completed" : "failed";
@@ -697,9 +708,10 @@ export async function requestUpstreamResponsesStream(params: {
       outcome: "incomplete",
       responseProducing: false,
     };
+    attempt.providerAttemptId = params.requestId ? `${params.requestId}:${attempt.attemptId}` : undefined;
     attempts.push(attempt);
     try {
-      const response = await sendUpstreamRequest({ ...params, endpointPath }, payload, transportFetches, true);
+      const response = await sendUpstreamRequest({ ...params, endpointPath, providerAttemptId: attempt.providerAttemptId }, payload, transportFetches, true);
       attempt.status = response.status;
       attempt.responseProducing = response.ok;
       attempt.outcome = response.ok ? "completed" : "failed";

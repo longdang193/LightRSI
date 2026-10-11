@@ -142,6 +142,59 @@ test("upstream forwards the versioned LightRSI cache contract boundary", async (
   }
 });
 
+test("9Router receives stable logical and provider-attempt IDs", async () => {
+  const receivedHeaders: Array<Record<string, string | string[] | undefined>> = [];
+  const server = createServer(async (req, res) => {
+    receivedHeaders.push(req.headers);
+    for await (const _chunk of req) {
+    }
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ status: "completed", output: [] }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  try {
+    const response = await requestUpstreamResponses({
+      upstream: {
+        name: "9Router",
+        baseUrl: `http://127.0.0.1:${address.port}/v1`,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      requestId: "experiment-request-1",
+      payload: { model: "cx/gpt-fixture", input: [{ role: "user", content: "test" }] },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(receivedHeaders.length, 1);
+    assert.equal(receivedHeaders[0]?.["x-lightrsi-request-id"], "experiment-request-1");
+    assert.equal(receivedHeaders[0]?.["x-lightrsi-provider-attempt-id"], "experiment-request-1:upstream-attempt-1");
+    assert.equal(response.attempts[0]?.providerAttemptId, "experiment-request-1:upstream-attempt-1");
+    const genericResponse = await requestUpstreamResponses({
+      upstream: {
+        name: "generic-upstream",
+        baseUrl: `http://127.0.0.1:${address.port}/v1`,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      requestId: "experiment-request-1",
+      payload: { model: "gpt-fixture", input: [{ role: "user", content: "test" }] },
+    });
+    assert.equal(genericResponse.status, 200);
+    assert.equal(receivedHeaders.length, 2);
+    assert.equal(receivedHeaders[1]?.["x-lightrsi-request-id"], undefined);
+    assert.equal(receivedHeaders[1]?.["x-lightrsi-provider-attempt-id"], undefined);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 test("expired unsupported-field capability records allow one bounded retry", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-capability-expiry-"));
   let requests: Array<Record<string, unknown>> = [];

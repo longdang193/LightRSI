@@ -39,6 +39,13 @@ No live provider economics experiment is authorized until the downstream router 
 
 The adapter must persist `experimentRequestId` and `providerAttemptId` in its local trace and pass them through a supported router metadata/header field. The router must preserve them without rewriting and return or expose the resulting `routerRecordId` in the usage record and request-details record.
 
+### Current boundary status
+
+The Codex adapter now forwards `x-lightrsi-request-id` and a unique
+`x-lightrsi-provider-attempt-id` to upstreams identified as 9Router, and keeps
+the attempt ID in local transport evidence. This proves only the adapter-side
+boundary. Exact attribution remains unavailable until 9Router preserves those
+IDs and exposes an immutable `routerRecordId` in both authoritative tables.
 ### Join invariants
 
 1. Every successful or failed provider attempt has exactly one `routerRecordId` or an explicit unavailable outcome.
