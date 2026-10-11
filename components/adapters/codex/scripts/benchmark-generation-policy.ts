@@ -763,15 +763,17 @@ function hasVerificationCommand(output: string): boolean {
   const commandPatterns = [
     /^(?:pnpm|npm)\s+(?:test|run\s+test)(?:\s|$)/u,
     /^pytest(?:\s|$)/u,
-    /^python(?:\d+(?:\.\d+)?)?(?:\s+-[^\s]+)*\s+-m\s+pytest(?:\s|$)/u,
+    /^python(?:\d+(?:\.\d+)?)?(?:\s+-i)*\s+-m\s+pytest(?:\s|$)/u,
     /^(?:cargo|go)\s+test(?:\s|$)/u,
     /^make\s+test(?:\s|$)/u,
     /^git\s+diff\s+--check(?:\s|$)/u,
     /^grep\s+\S+(?:\s+\S+)+$/u,
-    /^test\s+-[efsdxrw]\s+\S+(?:\s|$)/u,
+    /^test\s+-[efsdxrw]\s+\S+$/u,
   ];
   return candidates.some((candidate) => {
-    const command = candidate.trim().replace(/^(?:-\s+|\*\s+|run:?\s+)/u, "");
+    let command = candidate.trim();
+    command = command.replace(/^(?:-\s+|\*\s+)/u, "");
+    command = command.replace(/^run:?\s+/u, "");
     return commandPatterns.some((pattern) => pattern.test(command));
   });
 }
