@@ -722,7 +722,7 @@ function stageAFixturePrompt(fixture: StageAFixture): string {
   }
 }
 
-function validateStageAFixtureOutput(fixture: StageAFixture, output: string): boolean {
+export function validateStageAFixtureOutput(fixture: StageAFixture, output: string): boolean {
   const normalized = output.toLowerCase();
   switch (fixture) {
     case "prose":
@@ -746,9 +746,36 @@ function validateStageAFixtureOutput(fixture: StageAFixture, output: string): bo
         && normalized.includes("test");
     case "multiturn":
       return validateMultiTurnFixtureOutput(output);
-    case "artifact":
-      return output.startsWith("--- artifact.md ---") && output.includes("# Validation Plan") && normalized.includes("test");
+    case "artifact": {
+      return output.startsWith("--- artifact.md ---")
+        && output.includes("# Validation Plan")
+        && hasVerificationCommand(output);
+    }
   }
+}
+
+function hasVerificationCommand(output: string): boolean {
+  const normalized = output.toLowerCase();
+  const candidates = [
+    ...normalized.split(/\r?\n/u),
+    ...Array.from(normalized.matchAll(/`([^`]+)`/gu), (match) => match[1] ?? ""),
+  ];
+  const commandPatterns = [
+    /^(?:pnpm|npm)\s+(?:test|run\s+test)(?:\s|$)/u,
+    /^pytest(?:\s|$)/u,
+    /^python(?:\d+(?:\.\d+)?)?(?:\s+-i)*\s+-m\s+pytest(?:\s|$)/u,
+    /^(?:cargo|go)\s+test(?:\s|$)/u,
+    /^make\s+test(?:\s|$)/u,
+    /^git\s+diff\s+--check(?:\s|$)/u,
+    /^grep\s+\S+(?:\s+\S+)+$/u,
+    /^test\s+-[efsdxrw]\s+[^;&|><\s]+$/u,
+  ];
+  return candidates.some((candidate) => {
+    let command = candidate.trim();
+    command = command.replace(/^(?:-\s+|\*\s+)/u, "");
+    command = command.replace(/^run:?\s+/u, "");
+    return commandPatterns.some((pattern) => pattern.test(command));
+  });
 }
 
 function stageAFixtureInput(fixture: StageAFixture): readonly unknown[] {
@@ -875,7 +902,11 @@ export async function runGenerationPolicyMatchedLive(
     throw new Error("Matched Stage A requires one distinct configured proxy URL per arm.");
   }
   const tokenPilotPreflight = await requireTokenPilotGenerationPoliciesDisabled(options.tokenPilotConfigPath);
-  const routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey, options.fetchImpl);
+  let routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey, options.fetchImpl);
+  if (routerPreflight.status === "unknown" && routerPreflight.source === "unavailable" && options.routerSettingsEvidencePath) {
+    const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath, options.routerUrl);
+    if (shouldUseRouterSettingsEvidenceFallback(routerPreflight, dashboardEvidence)) routerPreflight = dashboardEvidence;
+  }
   if (routerPreflight.status !== "match") throw new Error(`Router preflight failed: ${routerPreflight.status}.`);
 
   const rows: MatchedStageARow[] = [];
@@ -926,7 +957,7 @@ export async function runGenerationPolicyLiveRepair(
   const tokenPilotPreflight = await requireTokenPilotGenerationPoliciesDisabled(options.tokenPilotConfigPath);
   let routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey);
   if (routerPreflight.status === "unknown" && routerPreflight.source === "unavailable" && options.routerSettingsEvidencePath) {
-    const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath);
+    const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath, options.routerUrl);
     if (shouldUseRouterSettingsEvidenceFallback(routerPreflight, dashboardEvidence)) {
       routerPreflight = dashboardEvidence;
     }
@@ -1025,6 +1056,7 @@ export type RouterSettingsPreflight = {
   status: "match" | "mismatch" | "unknown";
   source: "settings_api" | "dashboard_evidence" | "unavailable";
   settings: Record<string, boolean | string | null>;
+  unavailableReason?: "authentication" | "http" | "transport";
   limitation?: string;
 };
 
@@ -1065,17 +1097,38 @@ export async function readRouterSettingsPreflight(
     const response = await fetchImpl(`${baseUrl.replace(/\/+$/u, "")}/api/settings`, {
       headers: apiKey ? { authorization: `Bearer ${apiKey}` } : undefined,
     });
-    if (!response.ok) return { status: "unknown", source: "unavailable", settings: {} };
+    if (!response.ok) {
+      return {
+        status: "unknown",
+        source: "unavailable",
+        settings: {},
+        unavailableReason: response.status === 401 || response.status === 403 ? "authentication" : "http",
+      };
+    }
     return evaluateRouterSettingsPreflight(await response.json(), expected);
   } catch {
-    return { status: "unknown", source: "unavailable", settings: {} };
+    return { status: "unknown", source: "unavailable", settings: {}, unavailableReason: "transport" };
   }
 }
 
-export async function readRouterSettingsEvidence(path: string): Promise<RouterSettingsPreflight> {
+const ROUTER_SETTINGS_EVIDENCE_MAX_AGE_MS = 5 * 60 * 1000;
+
+export async function readRouterSettingsEvidence(
+  path: string,
+  routerUrl: string,
+  now = new Date(),
+): Promise<RouterSettingsPreflight> {
   try {
     const payload = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
-    if (payload.source !== "9router_dashboard" || payload.status !== 200) {
+    const capturedAt = typeof payload.capturedAt === "string" ? Date.parse(payload.capturedAt) : NaN;
+    const normalizedRouterUrl = routerUrl.replace(/\/+$/u, "");
+    const evidenceRouterUrl = typeof payload.routerUrl === "string" ? payload.routerUrl.replace(/\/+$/u, "") : "";
+    if (payload.source !== "9router_dashboard"
+      || payload.status !== 200
+      || evidenceRouterUrl !== normalizedRouterUrl
+      || !Number.isFinite(capturedAt)
+      || capturedAt > now.getTime()
+      || now.getTime() - capturedAt > ROUTER_SETTINGS_EVIDENCE_MAX_AGE_MS) {
       return { status: "unknown", source: "unavailable", settings: {} };
     }
     const evaluated = evaluateRouterSettingsPreflight(payload, { cavemanEnabled: false, ponytailEnabled: false });
@@ -1095,6 +1148,8 @@ export function shouldUseRouterSettingsEvidenceFallback(
 ): boolean {
   return primary.status === "unknown"
     && primary.source === "unavailable"
+    && primary.unavailableReason === "authentication"
+    && evidence.source === "dashboard_evidence"
     && evidence.status !== "unknown";
 }
 
@@ -1165,7 +1220,7 @@ export async function runGenerationPolicyStageBLive(
   const tokenPilotPreflight = await requireTokenPilotGenerationPoliciesDisabled(options.tokenPilotConfigPath);
   let routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey);
   if (routerPreflight.status === "unknown" && routerPreflight.source === "unavailable" && options.routerSettingsEvidencePath) {
-    const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath);
+    const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath, options.routerUrl);
     if (shouldUseRouterSettingsEvidenceFallback(routerPreflight, dashboardEvidence)) routerPreflight = dashboardEvidence;
   }
   if (routerPreflight.status !== "match") throw new Error(`Router preflight failed: ${routerPreflight.status}.`);

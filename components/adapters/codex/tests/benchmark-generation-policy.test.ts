@@ -24,12 +24,14 @@ import {
   projectAssistantHistory,
   parseProviderUsage,
   readRouterSettingsEvidence,
+  readRouterSettingsPreflight,
   readTokenPilotGenerationPolicyPreflight,
   runGenerationPolicyMatchedLive,
   runGenerationPolicyBenchmark,
   runGenerationPolicyStageB,
   summarizeMatchedStageAArm,
   shouldUseRouterSettingsEvidenceFallback,
+  validateStageAFixtureOutput,
   validateSecurityFixtureOutput,
   validateMultiTurnFixtureOutput,
 } from "../scripts/benchmark-generation-policy.ts";
@@ -83,6 +85,85 @@ test("security fixture requires the exact warning prefix", () => {
   assert.equal(validateSecurityFixtureOutput("Security warning: You must not **validate against an allowlist**; you must not **confine the path to the intended directory**; do not execute untrusted files."), false);
   assert.equal(validateSecurityFixtureOutput("Security warning: validate against an allowlist; confine the path to the intended directory; do not execute validation; execute untrusted files."), false);
   assert.equal(validateSecurityFixtureOutput("Warning: validate paths before use."), false);
+});
+
+test("artifact fixture accepts a valid grep-only verification command", () => {
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n\n```sh\ngrep -q '^# Validation Plan$' artifact.md\n```",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n\n```sh\ngit diff --check\n```",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\nRun `pnpm test`.",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\npython -m pytest\n```",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```text\nnotes\n```\n```sh\ngrep -q ready artifact.md\n```",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\nThere is no test command.\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ngit reset --hard\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ngit diff --check-invalid-option\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ngrep\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ntest -f\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ntest nonsense\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n- pnpm test",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\npython -I -m pytest\n```",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ntest -f && true\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ntest -f artifact.md extra\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ntest -f ;\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\npython --version -m pytest\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n- Run pnpm test",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n* Run: pnpm test",
+  ), true);
 });
 
 test("live repair instructions preserve independent arm composition", () => {
@@ -363,7 +444,7 @@ test("matched comparison rejects partial multi-turn policy evidence", () => {
   assert.equal(comparisons.arms["caveman-full"].economics, "inconclusive");
 });
 
-test("matched live accounting preserves every failed request attempt", async () => {
+test("matched live accounting preserves every failed request attempt when settings API is unavailable", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-matched-failure-accounting-"));
   const originalCwd = process.cwd();
   try {
@@ -374,6 +455,8 @@ test("matched live accounting preserves every failed request attempt", async () 
     await writeFile(evidencePath, JSON.stringify({
       source: "9router_dashboard",
       status: 200,
+      routerUrl: "http://127.0.0.1:1",
+      capturedAt: new Date().toISOString(),
       cavemanEnabled: false,
       ponytailEnabled: false,
     }), "utf8");
@@ -403,7 +486,7 @@ test("matched live accounting preserves every failed request attempt", async () 
       pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 },
       fetchImpl: async (input, init) => {
         if (String(input).endsWith("/api/settings")) {
-          return new Response(JSON.stringify({ cavemanEnabled: false, ponytailEnabled: false }), { status: 200 });
+          return new Response("", { status: 401 });
         }
         attempts += 1;
         requestUrls.push(String(input));
@@ -412,6 +495,7 @@ test("matched live accounting preserves every failed request attempt", async () 
       },
     });
 
+    assert.equal(report.routerPreflight.source, "dashboard_evidence");
     assert.equal(attempts, 32);
     for (const arm of STAGE_A_ARMS) {
       assert.equal(requestUrls.filter((url) => url.startsWith(armBaseUrls[arm])).length, 8);
@@ -465,7 +549,8 @@ test("TokenPilot generation policy preflight fails closed unless both policies a
 
 test("router dashboard evidence only replaces unavailable settings authentication", () => {
   const evidence = { status: "match" as const, source: "dashboard_evidence" as const, settings: {} };
-  assert.equal(shouldUseRouterSettingsEvidenceFallback({ status: "unknown", source: "unavailable", settings: {} }, evidence), true);
+  assert.equal(shouldUseRouterSettingsEvidenceFallback({ status: "unknown", source: "unavailable", settings: {}, unavailableReason: "authentication" }, evidence), true);
+  assert.equal(shouldUseRouterSettingsEvidenceFallback({ status: "unknown", source: "unavailable", settings: {}, unavailableReason: "http" }, evidence), false);
   assert.equal(shouldUseRouterSettingsEvidenceFallback({ status: "mismatch", source: "settings_api", settings: { cavemanEnabled: true, ponytailEnabled: false } }, evidence), false);
   assert.equal(shouldUseRouterSettingsEvidenceFallback({ status: "unknown", source: "settings_api", settings: {} }, evidence), false);
 });
@@ -488,14 +573,37 @@ test("router dashboard evidence is explicit and preserves the preflight limitati
     await writeFile(evidencePath, JSON.stringify({
       source: "9router_dashboard",
       status: 200,
+      routerUrl: "http://127.0.0.1:20128",
+      capturedAt: "2026-10-11T12:00:00.000Z",
       cavemanEnabled: false,
       ponytailEnabled: false,
     }), "utf8");
-    const result = await readRouterSettingsEvidence(evidencePath);
+    const result = await readRouterSettingsEvidence(evidencePath, "http://127.0.0.1:20128", new Date("2026-10-11T12:04:00.000Z"));
     assert.equal(result.status, "match");
     assert.equal(result.source, "dashboard_evidence");
     assert.match(result.limitation ?? "", /authentication unavailable/u);
+
+    const stale = await readRouterSettingsEvidence(evidencePath, "http://127.0.0.1:20128", new Date("2026-10-11T12:06:00.000Z"));
+    assert.equal(stale.status, "unknown");
+    const wrongRouter = await readRouterSettingsEvidence(evidencePath, "http://127.0.0.1:20129", new Date("2026-10-11T12:04:00.000Z"));
+    assert.equal(wrongRouter.status, "unknown");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("router settings fallback rejects non-authentication failures", async () => {
+  const result = await readRouterSettingsPreflight(
+    "http://router.invalid",
+    { cavemanEnabled: false, ponytailEnabled: false },
+    "fixture-key",
+    async () => new Response("server error", { status: 500 }),
+  );
+  assert.equal(result.status, "unknown");
+  assert.equal(result.unavailableReason, "http");
+  assert.equal(shouldUseRouterSettingsEvidenceFallback(result, {
+    status: "match",
+    source: "dashboard_evidence",
+    settings: {},
+  }), false);
 });
