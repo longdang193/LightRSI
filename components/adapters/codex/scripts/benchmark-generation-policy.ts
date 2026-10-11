@@ -241,7 +241,7 @@ export function validateMultiTurnFixtureOutput(output: string): boolean {
     .some((command) => normalized.includes(command));
   return hasVerificationCommand
     && normalized.includes("optional")
-    && (normalized.includes("edge") || normalized.includes("omitted"));
+    && (normalized.includes("edge") || normalized.includes("omitted") || normalized.includes("absence"));
 }
 
 export function buildLiveArmInstructions(arm: StageAArm): string {

@@ -1,5 +1,7 @@
 # LightRSI generation policy Stage A matched live
 
+> Historical `combo-high` run. Latest accepted `cx/gpt-5.6-luna` evidence and 9Router cost/cache reconciliation live in `2026-10-11-generation-policy-stage-a-luna-report.md`.
+
 - Source/build SHA: `e06076cefb91007fe9b76cf271cce66afe011fe6`.
 - Model: `combo-high`; workload: 8 fixtures × 5 repetitions; provider calls: 180.
 - Router preflight: match via authenticated dashboard evidence captured at 2026-10-11T12:44:19.765Z; both router policy toggles were false.
