@@ -37,6 +37,15 @@ type StageAWorkload = {
   repetitions: number;
 };
 
+const FAILURE_OUTPUT_PREVIEW_LIMIT = 2048;
+const FAILURE_OUTPUT_TRUNCATION_MARKER = "\n...[truncated]";
+
+export function captureFailedOutput(output: string): string {
+  if (output.length <= FAILURE_OUTPUT_PREVIEW_LIMIT) return output;
+  return output.slice(0, FAILURE_OUTPUT_PREVIEW_LIMIT - FAILURE_OUTPUT_TRUNCATION_MARKER.length)
+    + FAILURE_OUTPUT_TRUNCATION_MARKER;
+}
+
 type LocalOverheadBenchmarkReport = {
   mode: "local-overhead";
   warmup: number;
@@ -300,6 +309,7 @@ export type MatchedStageARow = {
   usage: ProviderUsage | null;
   policyEvidence: GenerationPolicyEvidence[];
   error: string | null;
+  failureOutputPreview?: string;
 };
 
 export type GenerationPolicyEvidence = {
@@ -368,6 +378,7 @@ export type GenerationPolicyLiveRepairReport = {
     outputChars: number;
     usage: ProviderUsage | null;
     error: string | null;
+    failureOutputPreview?: string;
   }>;
   decision: "no-promotion";
 };
@@ -732,7 +743,9 @@ export function validateStageAFixtureOutput(fixture: StageAFixture, output: stri
     case "json": {
       try {
         const parsed = JSON.parse(output) as Record<string, unknown>;
-        return Object.keys(parsed).length === 2 && parsed.status === "ready" && parsed.schemaVersion === "1";
+        return Object.keys(parsed).length === 2
+          && parsed.status === "ready"
+          && (parsed.schemaVersion === "1" || parsed.schemaVersion === 1);
       } catch {
         return false;
       }
@@ -833,6 +846,7 @@ async function runCompletedTask(
   usage: ProviderUsage | null;
   policyEvidence: GenerationPolicyEvidence[];
   error: string | null;
+  failureOutputPreview?: string;
 }> {
   const started = Date.now();
   const responses: Array<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null; policyEvidence: GenerationPolicyEvidence }> = [];
@@ -852,8 +866,9 @@ async function runCompletedTask(
       ]));
     }
     const finalText = responses[responses.length - 1]!.text;
+    const passed = validateStageAFixtureOutput(fixture, finalText);
     return {
-      passed: validateStageAFixtureOutput(fixture, finalText),
+      passed,
       outputChars: finalText.length,
       latencyMs: Date.now() - started,
       providerCalls,
@@ -864,6 +879,7 @@ async function runCompletedTask(
       usage: sumUsage(responses),
       policyEvidence: responses.map((response) => response.policyEvidence),
       error: null,
+      ...(passed ? {} : { failureOutputPreview: captureFailedOutput(finalText) }),
     };
   } catch (error) {
     return {
@@ -878,6 +894,9 @@ async function runCompletedTask(
       usage: sumUsage(responses),
       policyEvidence: responses.map((response) => response.policyEvidence),
       error: error instanceof Error ? error.message : "provider_error",
+      ...(responses.length > 0
+        ? { failureOutputPreview: captureFailedOutput(responses[responses.length - 1]!.text) }
+        : {}),
     };
   }
 }
@@ -971,7 +990,17 @@ export async function runGenerationPolicyLiveRepair(
       try {
         providerCalls += 1;
         const security = await runLiveRequest(options, instructions, [{ role: "user", content: SECURITY_FIXTURE_PROMPT }]);
-        rows.push({ arm, fixture: "security", repetition, passed: validateSecurityFixtureOutput(security.text), outputChars: security.text.length, usage: security.usage, error: null });
+        const passed = validateSecurityFixtureOutput(security.text);
+        rows.push({
+          arm,
+          fixture: "security",
+          repetition,
+          passed,
+          outputChars: security.text.length,
+          usage: security.usage,
+          error: null,
+          ...(passed ? {} : { failureOutputPreview: captureFailedOutput(security.text) }),
+        });
       } catch (error) {
         rows.push({ arm, fixture: "security", repetition, passed: false, outputChars: 0, usage: null, error: error instanceof Error ? error.message : "provider_error" });
       }
@@ -984,7 +1013,17 @@ export async function runGenerationPolicyLiveRepair(
           ...first.history,
           { role: "user", content: MULTI_TURN_FIXTURE_FOLLOW_UP },
         ]);
-        rows.push({ arm, fixture: "multiturn", repetition, passed: validateMultiTurnFixtureOutput(second.text), outputChars: second.text.length, usage: second.usage, error: null });
+        const passed = validateMultiTurnFixtureOutput(second.text);
+        rows.push({
+          arm,
+          fixture: "multiturn",
+          repetition,
+          passed,
+          outputChars: second.text.length,
+          usage: second.usage,
+          error: null,
+          ...(passed ? {} : { failureOutputPreview: captureFailedOutput(second.text) }),
+        });
       } catch (error) {
         rows.push({ arm, fixture: "multiturn", repetition, passed: false, outputChars: 0, usage: null, error: error instanceof Error ? error.message : "provider_error" });
       }
@@ -1047,6 +1086,7 @@ export type GenerationPolicyStageBReport = {
     latencyMs: number | null;
     usage: ProviderUsage | null;
     error: string | null;
+    failureOutputPreview?: string;
   }>;
   liveEconomics: "inconclusive" | "pass" | "fail";
   decision: "no-promotion";
@@ -1236,7 +1276,18 @@ export async function runGenerationPolicyStageBLive(
       try {
         providerCalls.set(arm, (providerCalls.get(arm) ?? 0) + 1);
         const security = await runLiveRequest(options, instructions, [{ role: "user", content: SECURITY_FIXTURE_PROMPT }]);
-        rows.push({ arm, fixture: "security", repetition, passed: validateSecurityFixtureOutput(security.text), outputChars: security.text.length, latencyMs: Date.now() - securityStarted, usage: security.usage, error: null });
+        const passed = validateSecurityFixtureOutput(security.text);
+        rows.push({
+          arm,
+          fixture: "security",
+          repetition,
+          passed,
+          outputChars: security.text.length,
+          latencyMs: Date.now() - securityStarted,
+          usage: security.usage,
+          error: null,
+          ...(passed ? {} : { failureOutputPreview: captureFailedOutput(security.text) }),
+        });
       } catch (error) {
         rows.push({ arm, fixture: "security", repetition, passed: false, outputChars: 0, latencyMs: Date.now() - securityStarted, usage: null, error: error instanceof Error ? error.message : "provider_error" });
       }
@@ -1251,7 +1302,18 @@ export async function runGenerationPolicyStageBLive(
           ...first.history,
           { role: "user", content: MULTI_TURN_FIXTURE_FOLLOW_UP },
         ]);
-        rows.push({ arm, fixture: "multiturn", repetition, passed: validateMultiTurnFixtureOutput(second.text), outputChars: second.text.length, latencyMs: Date.now() - multiturnStarted, usage: second.usage, error: null });
+        const passed = validateMultiTurnFixtureOutput(second.text);
+        rows.push({
+          arm,
+          fixture: "multiturn",
+          repetition,
+          passed,
+          outputChars: second.text.length,
+          latencyMs: Date.now() - multiturnStarted,
+          usage: second.usage,
+          error: null,
+          ...(passed ? {} : { failureOutputPreview: captureFailedOutput(second.text) }),
+        });
       } catch (error) {
         rows.push({ arm, fixture: "multiturn", repetition, passed: false, outputChars: 0, latencyMs: Date.now() - multiturnStarted, usage: null, error: error instanceof Error ? error.message : "provider_error" });
       }

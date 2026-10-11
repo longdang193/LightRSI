@@ -17,6 +17,7 @@ import {
   buildStageBArmInstructions,
   buildMockStageBReport,
   buildMockGenerationPolicyReport,
+  captureFailedOutput,
   compareMatchedStageA,
   evaluateRouterSettingsPreflight,
   expectedStageAPolicyDigest,
@@ -174,6 +175,13 @@ test("artifact fixture accepts a valid grep-only verification command", () => {
   ), true);
 });
 
+test("json fixture accepts the numeric schema version stated by the prompt", () => {
+  assert.equal(validateStageAFixtureOutput(
+    "json",
+    '{"status":"ready","schemaVersion":1}',
+  ), true);
+});
+
 test("live repair instructions preserve independent arm composition", () => {
   assert.equal(buildLiveArmInstructions("baseline"), "");
   assert.match(buildLiveArmInstructions("caveman-full"), /LightRSI Caveman/u);
@@ -219,6 +227,13 @@ test("multi-turn fixture validator requires the requested engineering facts", ()
 
 test("multi-turn fixture validator rejects a clarification refusal", () => {
   assert.equal(validateMultiTurnFixtureOutput("Please provide the repository or validator\nfile first. Verification should use pytest, and add an edge-case test for an optional field."), false);
+});
+
+test("failed output capture preserves short output and bounds long output", () => {
+  assert.equal(captureFailedOutput("model miss"), "model miss");
+  const captured = captureFailedOutput("x".repeat(3000));
+  assert.ok(captured.length <= 2048);
+  assert.match(captured, /\[truncated\]$/u);
 });
 
 test("mock generation policy benchmark reports contract evidence without provider calls", async () => {
