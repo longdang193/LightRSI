@@ -99,7 +99,8 @@ function asLockOwner(value: unknown): CodexRebaseLockOwner | undefined {
 async function readLockOwner(lockPath: string): Promise<CodexRebaseLockOwner | undefined> {
   try {
     return asLockOwner(JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")) as unknown);
-  } catch {
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") throw error;
     return undefined;
   }
 }
@@ -109,7 +110,12 @@ async function lockIsStale(params: {
   staleAfterMs: number;
   nowMs: number;
 }): Promise<boolean> {
-  const owner = await readLockOwner(params.lockPath);
+  let owner: CodexRebaseLockOwner | undefined;
+  try {
+    owner = await readLockOwner(params.lockPath);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
+  }
   if (owner) {
     if (owner.hostname === hostname()) return !isProcessAlive(owner.pid);
     return params.nowMs - (timestampMs(owner.createdAt) ?? params.nowMs) > params.staleAfterMs;

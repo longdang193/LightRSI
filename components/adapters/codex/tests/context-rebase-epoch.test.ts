@@ -146,6 +146,23 @@ test("CDR-01 Rebase Epoch session lock recovers malformed stale lock directories
   });
 });
 
+test("CDR-01 Rebase Epoch session lock does not reclaim before owner metadata exists", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-owner-race";
+    const lockPath = codexRebaseSessionLockPath(stateDir, sessionId);
+    await mkdir(lockPath, { recursive: true });
+    const old = new Date("2026-01-01T00:00:00.000Z");
+    await utimes(lockPath, old, old);
+
+    const acquired = await acquireCodexRebaseSessionLock({
+      stateDir,
+      sessionId,
+      staleAfterMs: 1_000,
+    });
+    assert.equal(acquired, undefined);
+  });
+});
+
 test("CDR-01 Rebase Epoch serializes stale-lock recovery claims", async () => {
   await withTempState(async (stateDir) => {
     const sessionId = "codex-session-stale-race";

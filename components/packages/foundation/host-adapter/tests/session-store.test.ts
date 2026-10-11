@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import {
   readRecentJsonlEntriesDiagnostic,
   resolveLatestSessionId,
   sessionSnapshotPath,
+  withFileLock,
   writeJsonFileAtomic,
   writeSessionSnapshot,
 } from "../src/index.js";
@@ -86,6 +87,23 @@ test("shared atomic writer serializes concurrent writes", async () => {
     assert.ok(snapshot);
     assert.ok(Number.isInteger(snapshot.value));
     assert.ok(snapshot.value >= 0 && snapshot.value < 32);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("shared file lock does not reclaim a lock before owner metadata exists", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-host-lock-owner-race-"));
+  const lockPath = join(stateDir, "snapshot-updates.lock");
+  try {
+    await mkdir(lockPath);
+    const old = new Date("2026-01-01T00:00:00.000Z");
+    await utimes(lockPath, old, old);
+
+    await assert.rejects(
+      withFileLock(lockPath, async () => undefined, { timeoutMs: 20, retryMs: 2 }),
+      /file lock timeout/,
+    );
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

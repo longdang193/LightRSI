@@ -127,6 +127,9 @@ not authorize adapter expansion, default changes, or stronger policy intensity.
 - `*-report.md`: human-readable verdict and limitations.
 - `*-router-evidence.json`: post-run router reconciliation and economic
   calculations.
+- `2026-10-12-session-contention-lock-repair.md`: root-cause analysis,
+  regression proof, and the fresh same-session versus independent-session
+  contention benchmark.
 
 Keep raw results and reconciliation evidence together. Do not overwrite an old
 run; add a new dated artifact and explicitly label historical reports.
@@ -195,4 +198,19 @@ benchmark same-session versus independent-session persistence contention and
 define the immutable downstream record-ID join before comparing arms. Until
 those checks pass, exact request-level joins and provider-dollar economics remain
 unavailable. Do not treat a window/model match as a substitute for this gate.
+
+## Session persistence contention
+
+The dated report
+`2026-10-12-session-contention-lock-repair.md` records a repaired race shared
+by the file-store, context-mutation-plan, and Codex rebase-epoch lock
+implementations. A lock directory without `owner.json` is now treated as active
+contention rather than stale state, preventing a waiter from reclaiming a lock
+while its owner metadata is still being written. Malformed owner metadata keeps
+the prior stale-lock recovery path.
+
+After the repair, the focused suites passed 30/30 host-adapter tests and 32/32
+Codex tests. The six-mode contention benchmark completed 300/300 measured
+batches with zero failures. Independent-session p95 remained comparable to
+same-session p95, so the conservative global lock remains the selected design.
 

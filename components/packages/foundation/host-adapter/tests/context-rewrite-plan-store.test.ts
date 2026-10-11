@@ -6,6 +6,7 @@ import {
   readFile,
   readdir,
   rm,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
@@ -609,6 +610,27 @@ test("stale session lock is recovered while a live lock causes bypass", async ()
     });
     assert.equal(blocked.outcome, "bypassed");
     assert.deepEqual(blocked.reasons, ["session_lock_unavailable"]);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("session lock does not reclaim a lock before owner metadata exists", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-plan-store-owner-race-"));
+  const sessionId = "session-owner-race";
+  const lockPath = contextMutationPlanLockPath(stateDir, sessionId);
+  try {
+    await mkdir(lockPath, { recursive: true });
+    const old = new Date("2026-01-01T00:00:00.000Z");
+    await utimes(lockPath, old, old);
+
+    const result = await saveActiveContextMutationPlan({
+      stateDir,
+      plan: createPlan("plan-owner-race", sessionId),
+      lock: { lockTimeoutMs: 20, lockRetryMs: 2 },
+    });
+    assert.equal(result.outcome, "bypassed");
+    assert.deepEqual(result.reasons, ["session_lock_unavailable"]);
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

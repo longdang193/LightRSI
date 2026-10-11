@@ -19,6 +19,12 @@ const DEFAULT_FILE_LOCK_TIMEOUT_MS = 5_000;
 const DEFAULT_FILE_LOCK_RETRY_MS = 10;
 const DEFAULT_FILE_LOCK_STALE_MS = 30 * 60 * 1_000;
 
+function errorCode(error: unknown): string | undefined {
+  return error && typeof error === "object" && "code" in error && typeof error.code === "string"
+    ? error.code
+    : undefined;
+}
+
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -39,7 +45,8 @@ async function lockIsStale(lockPath: string, staleMs: number): Promise<boolean> 
       const createdAt = Date.parse(owner.createdAt);
       if (Number.isFinite(createdAt)) return Date.now() - createdAt > staleMs;
     }
-  } catch {
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
     // Fall through to lock directory mtime.
   }
   try {
