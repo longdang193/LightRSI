@@ -182,7 +182,7 @@ export const SECURITY_FIXTURE_PROMPT = [
   "Include three ordered mitigations: validate against an allowlist, confine the path to the intended directory, and do not execute untrusted files.",
 ].join(" ");
 
-const MULTI_TURN_FIXTURE_PROMPT = "Implement a small validator change. First explain the verification command and one edge-case test for an optional field. Keep the answer actionable.";
+const MULTI_TURN_FIXTURE_PROMPT = "Implement a small validator change. First explain the exact verification command `git diff --check` and one edge-case test for an optional field. Do not use a placeholder or claim repository context is required. Keep the answer actionable.";
 const MULTI_TURN_FIXTURE_FOLLOW_UP = "Now give the final concise implementation checklist, retaining the verification command and the optional-field edge case.";
 const LIVE_REQUEST_TIMEOUT_MS = 120_000;
 
@@ -713,7 +713,7 @@ async function runLiveRequest(
   };
 }
 
-function stageAFixturePrompt(fixture: StageAFixture): string {
+export function stageAFixturePrompt(fixture: StageAFixture): string {
   switch (fixture) {
     case "prose":
       return "Explain input validation in two short paragraphs. Include the exact terms boundary validation and actionable error.";
@@ -730,7 +730,7 @@ function stageAFixturePrompt(fixture: StageAFixture): string {
     case "multiturn":
       return MULTI_TURN_FIXTURE_PROMPT;
     case "artifact":
-      return "Return a persisted artifact payload beginning with `--- artifact.md ---`, followed by a Markdown heading `# Validation Plan` and one verification command.";
+      return "Return a persisted artifact payload beginning with `--- artifact.md ---`, followed by a Markdown heading `# Validation Plan` and exactly one safe, non-composite verification command: `git diff --check`. Do not use shell chaining, redirection, or separators.";
   }
 }
 

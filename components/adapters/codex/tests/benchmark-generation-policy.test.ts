@@ -32,6 +32,7 @@ import {
   runGenerationPolicyStageB,
   summarizeMatchedStageAArm,
   shouldUseRouterSettingsEvidenceFallback,
+  stageAFixturePrompt,
   validateStageAFixtureOutput,
   validateSecurityFixtureOutput,
   validateMultiTurnFixtureOutput,
@@ -236,6 +237,13 @@ test("multi-turn fixture validator requires the requested engineering facts", ()
 
 test("multi-turn fixture validator rejects a clarification refusal", () => {
   assert.equal(validateMultiTurnFixtureOutput("Please provide the repository or validator\nfile first. Verification should use pytest, and add an edge-case test for an optional field."), false);
+});
+
+test("live fixture prompts pin verification commands to the safe oracle contract", () => {
+  assert.match(stageAFixturePrompt("multiturn"), /git diff --check/u);
+  assert.match(stageAFixturePrompt("multiturn"), /Do not use a placeholder/u);
+  assert.match(stageAFixturePrompt("artifact"), /exactly one safe, non-composite verification command/u);
+  assert.match(stageAFixturePrompt("artifact"), /git diff --check/u);
 });
 
 test("failed output capture preserves short output and bounds long output", () => {
