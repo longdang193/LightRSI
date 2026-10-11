@@ -1059,7 +1059,10 @@ test("Codex generation policy remains on ordinary continuation requests", async 
 
     const first = await fetch(`${runtime.baseUrl}/responses`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-lightrsi-clarification-count": "0",
+      },
       body: JSON.stringify({
         model: "gpt-fixture",
         stream: false,
@@ -1074,6 +1077,8 @@ test("Codex generation policy remains on ordinary continuation requests", async 
     assert.equal(first.headers.get("x-lightrsi-generation-policy-version"), "v2/v2");
     assert.equal(first.headers.get("x-lightrsi-generation-policy-applied"), "true");
     assert.equal(first.headers.get("x-lightrsi-generation-policy-bypass"), "null");
+    assert.equal(first.headers.get("x-lightrsi-upstream-retry-count"), "0");
+    assert.equal(first.headers.get("x-lightrsi-clarification-count"), "0");
 
     const second = await fetch(`${runtime.baseUrl}/responses`, {
       method: "POST",

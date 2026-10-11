@@ -20,6 +20,7 @@ import {
   captureFailedOutput,
   compareMatchedStageA,
   parseMatchedStageAPricing,
+  parseResponseMeasurementTelemetry,
   evaluateRouterSettingsPreflight,
   expectedStageAPolicyDigest,
   loadCodexAuthApiKey,
@@ -437,6 +438,24 @@ test("matched comparison leaves unobserved stability unavailable", () => {
 
   assert.equal(comparisons.arms["caveman-full"].correctness, "pass");
   assert.equal(comparisons.arms["caveman-full"].stability, "unavailable");
+});
+
+test("response measurement telemetry parses explicit non-negative counts and preserves missing data", () => {
+  assert.deepEqual(
+    parseResponseMeasurementTelemetry(new Headers({
+      "x-lightrsi-upstream-retry-count": "2",
+      "x-lightrsi-clarification-count": "0",
+    })),
+    { retryCount: 2, clarificationCount: 0 },
+  );
+  assert.deepEqual(
+    parseResponseMeasurementTelemetry(new Headers({
+      "x-lightrsi-upstream-retry-count": "not-a-count",
+      "x-lightrsi-clarification-count": "-1",
+    })),
+    { retryCount: null, clarificationCount: null },
+  );
+  assert.deepEqual(parseResponseMeasurementTelemetry(new Headers()), { retryCount: null, clarificationCount: null });
 });
 
 test("matched comparison rejects complete stability and economics without explicit measurement fields", () => {

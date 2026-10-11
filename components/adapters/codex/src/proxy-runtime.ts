@@ -492,6 +492,7 @@ function setGenerationPolicyEvidenceHeaders(
   res: import("node:http").ServerResponse,
   requestId: string,
   trace: GenerationPolicyTrace,
+  measurement?: { retryCount: number | null; clarificationCount: number | null },
 ): void {
   res.setHeader("x-lightrsi-request-id", requestId);
   res.setHeader("x-lightrsi-runtime-build-id", trace.runtimeBuildId);
@@ -499,6 +500,14 @@ function setGenerationPolicyEvidenceHeaders(
   res.setHeader("x-lightrsi-generation-policy-digest", trace.generationPolicyDigest ?? "null");
   res.setHeader("x-lightrsi-generation-policy-applied", String(trace.generationPolicyApplied));
   res.setHeader("x-lightrsi-generation-policy-bypass", trace.generationPolicyBypassReason ?? "null");
+  res.setHeader("x-lightrsi-upstream-retry-count", measurement?.retryCount === null || measurement?.retryCount === undefined ? "null" : String(measurement.retryCount));
+  res.setHeader("x-lightrsi-clarification-count", measurement?.clarificationCount === null || measurement?.clarificationCount === undefined ? "null" : String(measurement.clarificationCount));
+}
+
+function parseNonNegativeIntegerHeader(value: string | string[] | undefined): number | null {
+  if (typeof value !== "string" || !/^\d+$/u.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 function canAttemptCodexRebase(params: {
@@ -1541,11 +1550,15 @@ export async function startCodexResponsesProxy(params: {
       req.once("aborted", onRequestAborted);
       res.once("close", onResponseClose);
       let transportFetches = 0;
+      let upstreamRetryCount: number | null = 0;
+      const clarificationCount = parseNonNegativeIntegerHeader(req.headers["x-lightrsi-clarification-count"]);
       let logicalUpstreamSends = 0;
       let successfulGenerations = 0;
-      const countUpstreamResponse = <T extends { status: number; transportFetches?: number }>(response: T): T => {
+      const countUpstreamResponse = <T extends { status: number; transportFetches?: number; attempts?: Array<{ kind: string }> }>(response: T): T => {
         logicalUpstreamSends += 1;
         transportFetches += response.transportFetches ?? 1;
+        if (response.attempts === undefined) upstreamRetryCount = null;
+        else if (upstreamRetryCount !== null) upstreamRetryCount += response.attempts.filter((attempt) => attempt.kind !== "normal").length;
         if (response.status >= 200 && response.status < 300) successfulGenerations += 1;
         return response;
       };
@@ -2185,7 +2198,7 @@ export async function startCodexResponsesProxy(params: {
           const upstreamResp = await sendRebasedOrCurrentPayload();
           res.statusCode = upstreamResp.status;
           setForwardResponseHeaders(res, upstreamResp.headers, "text/event-stream; charset=utf-8");
-          setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace);
+          setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace, { retryCount: upstreamRetryCount, clarificationCount });
           const runOptional = await recordStreamResponse({
             status: upstreamResp.status,
             rawStreamText: upstreamResp.text,
@@ -2221,7 +2234,7 @@ export async function startCodexResponsesProxy(params: {
         }
         res.statusCode = upstreamResp.status;
         setForwardResponseHeaders(res, upstreamResp.headers, "text/event-stream; charset=utf-8");
-        setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace);
+        setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace, { retryCount: upstreamRetryCount, clarificationCount });
         let responseChars = 0;
         const collector = createCodexResponseItemsCollector();
         let terminal = false;
@@ -2425,7 +2438,7 @@ export async function startCodexResponsesProxy(params: {
       });
       res.statusCode = upstreamResp.status;
       setForwardResponseHeaders(res, upstreamResp.headers, "application/json; charset=utf-8");
-      setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace);
+      setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace, { retryCount: upstreamRetryCount, clarificationCount });
       res.end(upstreamResp.text);
       req.off("aborted", onRequestAborted);
       res.off("close", onResponseClose);
