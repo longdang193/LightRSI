@@ -1173,6 +1173,7 @@ test("CDR-06 proxy pipeline falls back and cools down rejected rebases", async (
       body: JSON.stringify(turn),
     });
     assert.equal(second.status, 200);
+    assert.equal(second.headers.get("x-lightrsi-upstream-retry-count"), "1");
     assert.equal(upstream.requests.length, 3);
     assert.equal("previous_response_id" in (upstream.requests[1] ?? {}), false);
     assert.equal(upstream.requests[2]?.previous_response_id, "resp-pipeline-1");

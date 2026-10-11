@@ -663,6 +663,72 @@ test("matched live accounting preserves every failed request attempt when settin
   }
 });
 
+test("matched live accounting marks later-turn telemetry unknown after an unobserved failure", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-matched-partial-telemetry-"));
+  const originalCwd = process.cwd();
+  try {
+    await execFileAsync("git", ["init", "-q"], { cwd: dir });
+    await writeFile(join(dir, "fixture.txt"), "clean checkpoint\n", "utf8");
+    const evidencePath = join(dir, "router-settings.json");
+    const tokenPilotConfigPath = join(dir, "tokenpilot.json");
+    await writeFile(evidencePath, JSON.stringify({
+      source: "9router_dashboard",
+      status: 200,
+      routerUrl: "http://127.0.0.1:1",
+      capturedAt: new Date().toISOString(),
+      cavemanEnabled: false,
+      ponytailEnabled: false,
+    }), "utf8");
+    await writeFile(tokenPilotConfigPath, JSON.stringify({
+      generationPolicy: {
+        caveman: { enabled: false, level: "full" },
+        ponytail: { enabled: false, level: "full" },
+      },
+    }), "utf8");
+    await execFileAsync("git", ["add", "fixture.txt", "router-settings.json", "tokenpilot.json"], { cwd: dir });
+    await execFileAsync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "fixture"], { cwd: dir });
+    process.chdir(dir);
+
+    const callsByArm = new Map<string, number>();
+    const armBaseUrls = Object.fromEntries(STAGE_A_ARMS.map((arm) => [arm, `http://127.0.0.1/${arm}`])) as Record<StageAArm, string>;
+    const report = await runGenerationPolicyMatchedLive({
+      baseUrl: "http://127.0.0.1:1/v1",
+      armBaseUrls,
+      routerUrl: "http://127.0.0.1:1",
+      apiKey: "fixture-key",
+      model: "fixture-model",
+      repetitions: 1,
+      routerSettingsEvidencePath: evidencePath,
+      tokenPilotConfigPath,
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.endsWith("/api/settings")) return new Response("", { status: 401 });
+        const arm = Object.entries(armBaseUrls).find(([, baseUrl]) => url.startsWith(baseUrl))?.[0] ?? "unknown";
+        const callCount = (callsByArm.get(arm) ?? 0) + 1;
+        callsByArm.set(arm, callCount);
+        if (callCount % 9 === 8) throw new Error("transport failure");
+        return new Response(JSON.stringify({ output: [] }), {
+          status: 200,
+          headers: {
+            "x-lightrsi-upstream-retry-count": "0",
+            "x-lightrsi-clarification-count": "0",
+          },
+        });
+      },
+    });
+
+    const multiturnRows = report.rows?.filter((row) => row.fixture === "multiturn") ?? [];
+    assert.equal(multiturnRows.length, STAGE_A_ARMS.length);
+    assert.ok(multiturnRows.every((row) => row.error !== null));
+    assert.ok(multiturnRows.every((row) => row.providerCalls === 2));
+    assert.ok(multiturnRows.every((row) => row.measurement.retryCount === null));
+    assert.ok(multiturnRows.every((row) => row.measurement.clarificationCount === null));
+  } finally {
+    process.chdir(originalCwd);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("mock report stays deterministic apart from repository state", () => {
   const report = buildMockGenerationPolicyReport();
   assert.equal(report.mode, "mock");

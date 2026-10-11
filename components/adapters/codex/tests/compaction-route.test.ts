@@ -209,8 +209,23 @@ test("compact route falls back when upstream lacks compact endpoint", async () =
     });
     assert.equal(response.status, 200);
     await response.text();
+    assert.equal(response.headers.get("x-lightrsi-upstream-retry-count"), "1");
     assert.deepEqual(upstream.paths, ["/v1/responses/compact", "/v1/responses"]);
     assert.equal(upstream.requests[0]?.input?.some((item: any) => item?.type === "web_search_call"), false);
+
+    const cachedFallback = await fetch(`${runtime.baseUrl}/responses/compact`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "capture-model",
+        stream: true,
+        input: [{ type: "web_search_call", id: "search_2", status: "completed" }],
+      }),
+    });
+    assert.equal(cachedFallback.status, 200);
+    await cachedFallback.text();
+    assert.equal(cachedFallback.headers.get("x-lightrsi-upstream-retry-count"), "0");
+    assert.deepEqual(upstream.paths, ["/v1/responses/compact", "/v1/responses", "/v1/responses"]);
   } finally {
     await runtime.close();
     await upstream.close();

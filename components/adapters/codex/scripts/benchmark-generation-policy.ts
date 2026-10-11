@@ -444,6 +444,16 @@ export function parseResponseMeasurementTelemetry(headers: Headers): {
   };
 }
 
+class LiveRequestError extends Error {
+  constructor(
+    message: string,
+    readonly measurement: ReturnType<typeof parseResponseMeasurementTelemetry>,
+  ) {
+    super(message);
+    this.name = "LiveRequestError";
+  }
+}
+
 export async function loadCodexAuthApiKey(
   authPath = resolve(homedir(), ".codex", "auth.json"),
 ): Promise<string | undefined> {
@@ -768,14 +778,15 @@ async function runLiveRequest(
     }),
   });
   const body = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok) throw new Error(`provider_status:${response.status}`);
+  const responseMeasurement = parseResponseMeasurementTelemetry(response.headers);
+  if (!response.ok) throw new LiveRequestError(`provider_status:${response.status}`, responseMeasurement);
   const output = Array.isArray(body.output) ? body.output : [];
   return {
     text: responseText(body),
     history: projectAssistantHistory(output),
     usage: parseProviderUsage(body),
     policyEvidence: responsePolicyEvidence(response.headers),
-    measurement: parseResponseMeasurementTelemetry(response.headers),
+    measurement: responseMeasurement,
   };
 }
 
@@ -987,12 +998,16 @@ async function runCompletedTask(
     };
   } catch (error) {
     const usage = sumUsage(responses);
+    const failedMeasurement = error instanceof LiveRequestError ? error.measurement : null;
+    const observedMeasurements = failedMeasurement === null
+      ? measurements
+      : [...measurements, failedMeasurement];
     const measurement = buildMatchedStageAMeasurement(usage, responses.length, options.pricing, {
-      retryCount: measurements.length > 0 && measurements.every((value) => value.retryCount !== null)
-        ? measurements.reduce((total, value) => total + value.retryCount!, 0)
+      retryCount: failedMeasurement !== null && observedMeasurements.every((value) => value.retryCount !== null)
+        ? observedMeasurements.reduce((total, value) => total + value.retryCount!, 0)
         : null,
-      clarificationCount: measurements.length > 0 && measurements.every((value) => value.clarificationCount !== null)
-        ? measurements.reduce((total, value) => total + value.clarificationCount!, 0)
+      clarificationCount: failedMeasurement !== null && observedMeasurements.every((value) => value.clarificationCount !== null)
+        ? observedMeasurements.reduce((total, value) => total + value.clarificationCount!, 0)
         : null,
     });
     return {

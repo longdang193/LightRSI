@@ -1558,7 +1558,7 @@ export async function startCodexResponsesProxy(params: {
         logicalUpstreamSends += 1;
         transportFetches += response.transportFetches ?? 1;
         if (response.attempts === undefined) upstreamRetryCount = null;
-        else if (upstreamRetryCount !== null) upstreamRetryCount += response.attempts.filter((attempt) => attempt.kind !== "normal").length;
+        else if (upstreamRetryCount !== null) upstreamRetryCount = Math.max(0, transportFetches - 1);
         if (response.status >= 200 && response.status < 300) successfulGenerations += 1;
         return response;
       };
