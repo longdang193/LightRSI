@@ -363,7 +363,7 @@ test("matched comparison rejects partial multi-turn policy evidence", () => {
   assert.equal(comparisons.arms["caveman-full"].economics, "inconclusive");
 });
 
-test("matched live accounting preserves every failed request attempt", async () => {
+test("matched live accounting preserves every failed request attempt when settings API is unavailable", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-matched-failure-accounting-"));
   const originalCwd = process.cwd();
   try {
@@ -403,7 +403,7 @@ test("matched live accounting preserves every failed request attempt", async () 
       pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 },
       fetchImpl: async (input, init) => {
         if (String(input).endsWith("/api/settings")) {
-          return new Response(JSON.stringify({ cavemanEnabled: false, ponytailEnabled: false }), { status: 200 });
+          return new Response("", { status: 401 });
         }
         attempts += 1;
         requestUrls.push(String(input));
@@ -412,6 +412,7 @@ test("matched live accounting preserves every failed request attempt", async () 
       },
     });
 
+    assert.equal(report.routerPreflight.source, "dashboard_evidence");
     assert.equal(attempts, 32);
     for (const arm of STAGE_A_ARMS) {
       assert.equal(requestUrls.filter((url) => url.startsWith(armBaseUrls[arm])).length, 8);

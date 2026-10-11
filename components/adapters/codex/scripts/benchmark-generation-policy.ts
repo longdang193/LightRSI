@@ -875,7 +875,11 @@ export async function runGenerationPolicyMatchedLive(
     throw new Error("Matched Stage A requires one distinct configured proxy URL per arm.");
   }
   const tokenPilotPreflight = await requireTokenPilotGenerationPoliciesDisabled(options.tokenPilotConfigPath);
-  const routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey, options.fetchImpl);
+  let routerPreflight = await readRouterSettingsPreflight(options.routerUrl, undefined, options.apiKey, options.fetchImpl);
+  if (routerPreflight.status === "unknown" && routerPreflight.source === "unavailable" && options.routerSettingsEvidencePath) {
+    const dashboardEvidence = await readRouterSettingsEvidence(options.routerSettingsEvidencePath);
+    if (shouldUseRouterSettingsEvidenceFallback(routerPreflight, dashboardEvidence)) routerPreflight = dashboardEvidence;
+  }
   if (routerPreflight.status !== "match") throw new Error(`Router preflight failed: ${routerPreflight.status}.`);
 
   const rows: MatchedStageARow[] = [];
