@@ -124,6 +124,22 @@ test("artifact fixture accepts a valid grep-only verification command", () => {
     "artifact",
     "--- artifact.md ---\n# Validation Plan\n```sh\ngrep\n```",
   ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ntest -f\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\ntest nonsense\n```",
+  ), false);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n- pnpm test",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\npython -I -m pytest\n```",
+  ), true);
 });
 
 test("live repair instructions preserve independent arm composition", () => {
