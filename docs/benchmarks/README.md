@@ -177,10 +177,19 @@ live provider run.
 
 The durable patch-hub overlay is
 `project-OS-starter/tools/local-patch-hub/Apply-9RouterAttributionOverlay.ps1`,
-targeting `0.5.69` (`eb712ca8`). It supports exact-base application, already-
+with exact-base overlays for `0.5.69` (`eb712ca8`) and `0.5.99`
+(`ce4460ef`). The `0.5.99` overlay is rebased over the newer `toolNameMap` and
+schema layout and was verified to apply and reverse-check cleanly. The script
+supports exact-base application, already-
 applied detection, temporary-index 3-way verification, and fail-closed conflict
 handling. Use it to keep the attribution repair present across upstream releases
 until the fix is merged upstream.
+
+The current local 9Router checkout is a dirty `0.5.65`-derived attribution
+branch at `840a4421`, not a clean overlay target. Verifying the old overlay
+against that branch correctly fails closed and reports that the patch must be
+rebased; it does not justify applying the old patch over unrelated tracked
+changes. The patch hub now carries the rebased `0.5.99` entry instead.
 
 The broader local Vitest sweep is not a release gate in this checkout: 193 test
 files passed, 34 failed, and 11 were skipped. The failures include missing
@@ -189,7 +198,14 @@ endpoint assumptions, and external-service or credential-dependent cases. No
 failure occurred in the attribution fixture or the adjacent request-details
 regression.
 
-The deployed authenticated probe is still outstanding: this checkout has no
+A later rerun from the dirty `0.5.65`-derived checkout could not locate the
+attribution fixture and reported 19/22 adjacent request-details tests: the
+three failures were the known fallback-driver/test-harness mismatch
+(`better-sqlite3` unavailable, stale observability fixture setup, and temporary
+database cleanup), not evidence against the attribution contract. The rebased
+overlay carries the fixture and fallback-driver corrections for clean targets.
+
+The deployed authenticated probe is still outstanding: this environment has no
 configured `LIGHTRSI_BENCHMARK_ROUTER_URL`, `LIGHTRSI_BENCHMARK_BASE_URL`, or
 `OPENAI_API_KEY`, so no live request was attempted. Before live economics,
 exercise one authenticated request through the deployed router and confirm the
