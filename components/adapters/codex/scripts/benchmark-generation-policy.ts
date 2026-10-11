@@ -37,6 +37,15 @@ type StageAWorkload = {
   repetitions: number;
 };
 
+const FAILURE_OUTPUT_PREVIEW_LIMIT = 2048;
+const FAILURE_OUTPUT_TRUNCATION_MARKER = "\n...[truncated]";
+
+export function captureFailedOutput(output: string): string {
+  if (output.length <= FAILURE_OUTPUT_PREVIEW_LIMIT) return output;
+  return output.slice(0, FAILURE_OUTPUT_PREVIEW_LIMIT - FAILURE_OUTPUT_TRUNCATION_MARKER.length)
+    + FAILURE_OUTPUT_TRUNCATION_MARKER;
+}
+
 type LocalOverheadBenchmarkReport = {
   mode: "local-overhead";
   warmup: number;
@@ -173,7 +182,7 @@ export const SECURITY_FIXTURE_PROMPT = [
   "Include three ordered mitigations: validate against an allowlist, confine the path to the intended directory, and do not execute untrusted files.",
 ].join(" ");
 
-const MULTI_TURN_FIXTURE_PROMPT = "Implement a small validator change. First explain the verification command and one edge-case test for an optional field. Keep the answer actionable.";
+const MULTI_TURN_FIXTURE_PROMPT = "Implement a small validator change. First explain the exact verification command `git diff --check` and one edge-case test for an optional field. Do not use a placeholder or claim repository context is required. Keep the answer actionable.";
 const MULTI_TURN_FIXTURE_FOLLOW_UP = "Now give the final concise implementation checklist, retaining the verification command and the optional-field edge case.";
 const LIVE_REQUEST_TIMEOUT_MS = 120_000;
 
@@ -228,6 +237,7 @@ export function validateMultiTurnFixtureOutput(output: string): boolean {
   const asksForContext = /(?:\b(?:please\s+)?(?:provide|share|send)\b|\b(?:i\s+)?need\b).{0,120}\b(?:repository|repo|validator|file|details|context)\b/u.test(normalized);
   if (asksForContext) return false;
   const hasVerificationCommand = ["npm test", "pnpm test", "pytest", "cargo test", "go test"]
+    .concat("git diff --check")
     .some((command) => normalized.includes(command));
   return hasVerificationCommand
     && normalized.includes("optional")
@@ -283,6 +293,16 @@ export type ProviderPricing = {
   inputUsdPerMillion: number;
   cachedInputUsdPerMillion: number;
   outputUsdPerMillion: number;
+  tableVersion?: string;
+};
+
+export type MatchedStageAMeasurement = {
+  retryCount: number | null;
+  clarificationCount: number | null;
+  turnCount: number;
+  usageCompleteness: "complete" | "incomplete" | "unavailable";
+  cachedInputTokens: number | null;
+  pricingTableVersion: string | null;
 };
 
 export type MatchedStageARow = {
@@ -298,8 +318,10 @@ export type MatchedStageARow = {
   retries: number | null;
   clarifications: number | null;
   usage: ProviderUsage | null;
+  measurement: MatchedStageAMeasurement;
   policyEvidence: GenerationPolicyEvidence[];
   error: string | null;
+  failureOutputPreview?: string;
 };
 
 export type GenerationPolicyEvidence = {
@@ -321,6 +343,7 @@ type MatchedStageAArmSummary = {
   totalCostUsd: number | null;
   completedTaskCostUsd: number | null;
   medianLatencyMs: number | null;
+  measurement: Omit<MatchedStageAMeasurement, "turnCount"> & { turnCount: number | null };
   baselineDelta: {
     costUsd: number | null;
     latencyMs: number | null;
@@ -368,6 +391,7 @@ export type GenerationPolicyLiveRepairReport = {
     outputChars: number;
     usage: ProviderUsage | null;
     error: string | null;
+    failureOutputPreview?: string;
   }>;
   decision: "no-promotion";
 };
@@ -472,6 +496,29 @@ function sumOptionalMetric(rows: MatchedStageARow[], selector: (row: MatchedStag
     : null;
 }
 
+function summarizeMeasurement(rows: MatchedStageARow[]): MatchedStageAArmSummary["measurement"] {
+  const usageCompleteness = rows.length === 0
+    ? "unavailable"
+    : rows.every((row) => row.measurement.usageCompleteness === "complete")
+      ? "complete"
+      : rows.some((row) => row.measurement.usageCompleteness === "incomplete")
+        ? "incomplete"
+        : "unavailable";
+  const pricingVersions = rows.map((row) => row.measurement.pricingTableVersion);
+  return {
+    retryCount: sumOptionalMetric(rows, (row) => row.measurement.retryCount),
+    clarificationCount: sumOptionalMetric(rows, (row) => row.measurement.clarificationCount),
+    turnCount: sumOptionalMetric(rows, (row) => row.measurement.turnCount),
+    usageCompleteness,
+    cachedInputTokens: sumOptionalMetric(rows, (row) => row.measurement.cachedInputTokens),
+    pricingTableVersion: pricingVersions.length > 0
+      && pricingVersions.every((value): value is string => value !== null)
+      && new Set(pricingVersions).size === 1
+      ? pricingVersions[0]
+      : null,
+  };
+}
+
 function rowCost(row: MatchedStageARow, pricing: ProviderPricing): number | null {
   const usage = row.usage;
   if (!usage || usage.inputTokens === null || usage.cachedInputTokens === null || usage.outputTokens === null) return null;
@@ -561,6 +608,7 @@ export function summarizeMatchedStageAArm(params: {
     totalCostUsd,
     completedTaskCostUsd: totalCostUsd !== null && completedTasks > 0 ? totalCostUsd / completedTasks : null,
     medianLatencyMs: median(params.rows.flatMap((row) => row.latencyMs === null ? [] : [row.latencyMs])),
+    measurement: summarizeMeasurement(params.rows),
     baselineDelta: null,
   };
 }
@@ -593,19 +641,22 @@ export function compareMatchedStageA(
       && assessPolicyEvidence("baseline", baselineRows, rows) === "pass"
       && assessPolicyEvidence(arm, armRows, rows) === "pass";
     const stabilityMetricsObserved = rowsComparable
-      && [...baselineRows, ...armRows].every((row) => row.toolCalls !== null && row.retries !== null && row.clarifications !== null);
+      && [...baselineRows, ...armRows].every((row) => row.toolCalls !== null
+        && row.measurement.turnCount === row.turns
+        && row.measurement.retryCount !== null
+        && row.measurement.clarificationCount !== null);
     const stabilityPass = stabilityMetricsObserved
       && armRows.every((row) => {
         const baselineRow = baselineRows.find((candidate) => candidate.fixture === row.fixture && candidate.repetition === row.repetition);
         return baselineRow !== undefined
           && row.toolCalls !== null && baselineRow.toolCalls !== null
-          && row.retries !== null && baselineRow.retries !== null
-          && row.clarifications !== null && baselineRow.clarifications !== null
+          && row.measurement.retryCount !== null && baselineRow.measurement.retryCount !== null
+          && row.measurement.clarificationCount !== null && baselineRow.measurement.clarificationCount !== null
           && row.providerCalls <= baselineRow.providerCalls
           && row.turns <= baselineRow.turns
           && row.toolCalls <= baselineRow.toolCalls
-          && row.retries <= baselineRow.retries
-          && row.clarifications <= baselineRow.clarifications;
+           && row.measurement.retryCount <= baselineRow.measurement.retryCount
+           && row.measurement.clarificationCount <= baselineRow.measurement.clarificationCount;
       });
     const armCost = summary.totalCostUsd;
     const baselineCost = baseline.totalCostUsd;
@@ -615,7 +666,12 @@ export function compareMatchedStageA(
     summary.stability = !rowsComparable || !stabilityMetricsObserved
       ? "unavailable"
       : stabilityPass ? "pass" : "fail";
-    summary.economics = !rowsComparable || armCost === null || baselineCost === null
+    const economicsMetricsObserved = rowsComparable
+      && pricing?.tableVersion !== undefined
+      && [baseline, summary].every((candidate) => candidate.measurement.usageCompleteness === "complete"
+        && candidate.measurement.cachedInputTokens !== null
+        && candidate.measurement.pricingTableVersion === pricing.tableVersion);
+    summary.economics = !economicsMetricsObserved || armCost === null || baselineCost === null
       ? "inconclusive"
       : armCost < baselineCost || (armCost === baselineCost && latencyDelta !== null && latencyDelta <= 0)
         ? "pass"
@@ -701,7 +757,7 @@ async function runLiveRequest(
   };
 }
 
-function stageAFixturePrompt(fixture: StageAFixture): string {
+export function stageAFixturePrompt(fixture: StageAFixture): string {
   switch (fixture) {
     case "prose":
       return "Explain input validation in two short paragraphs. Include the exact terms boundary validation and actionable error.";
@@ -718,7 +774,7 @@ function stageAFixturePrompt(fixture: StageAFixture): string {
     case "multiturn":
       return MULTI_TURN_FIXTURE_PROMPT;
     case "artifact":
-      return "Return a persisted artifact payload beginning with `--- artifact.md ---`, followed by a Markdown heading `# Validation Plan` and one verification command.";
+      return "Return a persisted artifact payload beginning with `--- artifact.md ---`, followed by a Markdown heading `# Validation Plan` and exactly one safe, non-composite verification command: `git diff --check`. Do not use shell chaining, redirection, or separators.";
   }
 }
 
@@ -732,7 +788,9 @@ export function validateStageAFixtureOutput(fixture: StageAFixture, output: stri
     case "json": {
       try {
         const parsed = JSON.parse(output) as Record<string, unknown>;
-        return Object.keys(parsed).length === 2 && parsed.status === "ready" && parsed.schemaVersion === "1";
+        return Object.keys(parsed).length === 2
+          && parsed.status === "ready"
+          && (parsed.schemaVersion === "1" || parsed.schemaVersion === 1);
       } catch {
         return false;
       }
@@ -764,6 +822,8 @@ function hasVerificationCommand(output: string): boolean {
     /^(?:pnpm|npm)\s+(?:test|run\s+test)(?:\s|$)/u,
     /^pytest(?:\s|$)/u,
     /^python(?:\d+(?:\.\d+)?)?(?:\s+-i)*\s+-m\s+pytest(?:\s|$)/u,
+    /^python(?:\d+(?:\.\d+)?)?(?:\s+-i)*\s+-m\s+unittest(?:\s|$)/u,
+    /^python(?:\d+(?:\.\d+)?)?(?:\s+-i)*\s+-m\s+compileall(?:\s|$)/u,
     /^(?:cargo|go)\s+test(?:\s|$)/u,
     /^make\s+test(?:\s|$)/u,
     /^git\s+diff\s+--check(?:\s|$)/u,
@@ -818,6 +878,25 @@ function observedToolCalls(responses: Array<{ history: Record<string, unknown>[]
   )).length, 0);
 }
 
+function buildMatchedStageAMeasurement(
+  usage: ProviderUsage | null,
+  turns: number,
+  pricing: ProviderPricing | undefined,
+): MatchedStageAMeasurement {
+  return {
+    retryCount: null,
+    clarificationCount: null,
+    turnCount: turns,
+    usageCompleteness: usage === null
+      ? "unavailable"
+      : usage.inputTokens !== null && usage.outputTokens !== null && usage.totalTokens !== null
+        ? "complete"
+        : "incomplete",
+    cachedInputTokens: usage?.cachedInputTokens ?? null,
+    pricingTableVersion: pricing?.tableVersion ?? null,
+  };
+}
+
 async function runCompletedTask(
   options: MatchedStageALiveOptions,
   fixture: StageAFixture,
@@ -831,8 +910,10 @@ async function runCompletedTask(
   retries: number | null;
   clarifications: number | null;
   usage: ProviderUsage | null;
+  measurement: MatchedStageAMeasurement;
   policyEvidence: GenerationPolicyEvidence[];
   error: string | null;
+  failureOutputPreview?: string;
 }> {
   const started = Date.now();
   const responses: Array<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null; policyEvidence: GenerationPolicyEvidence }> = [];
@@ -852,8 +933,10 @@ async function runCompletedTask(
       ]));
     }
     const finalText = responses[responses.length - 1]!.text;
+    const passed = validateStageAFixtureOutput(fixture, finalText);
+    const usage = sumUsage(responses);
     return {
-      passed: validateStageAFixtureOutput(fixture, finalText),
+      passed,
       outputChars: finalText.length,
       latencyMs: Date.now() - started,
       providerCalls,
@@ -861,11 +944,14 @@ async function runCompletedTask(
       toolCalls: observedToolCalls(responses),
       retries: null,
       clarifications: null,
-      usage: sumUsage(responses),
+      usage,
+      measurement: buildMatchedStageAMeasurement(usage, responses.length, options.pricing),
       policyEvidence: responses.map((response) => response.policyEvidence),
       error: null,
+      ...(passed ? {} : { failureOutputPreview: captureFailedOutput(finalText) }),
     };
   } catch (error) {
+    const usage = sumUsage(responses);
     return {
       passed: false,
       outputChars: responses.length > 0 ? responses[responses.length - 1]!.text.length : 0,
@@ -875,9 +961,13 @@ async function runCompletedTask(
       toolCalls: observedToolCalls(responses),
       retries: null,
       clarifications: null,
-      usage: sumUsage(responses),
+      usage,
+      measurement: buildMatchedStageAMeasurement(usage, responses.length, options.pricing),
       policyEvidence: responses.map((response) => response.policyEvidence),
       error: error instanceof Error ? error.message : "provider_error",
+      ...(responses.length > 0
+        ? { failureOutputPreview: captureFailedOutput(responses[responses.length - 1]!.text) }
+        : {}),
     };
   }
 }
@@ -971,7 +1061,17 @@ export async function runGenerationPolicyLiveRepair(
       try {
         providerCalls += 1;
         const security = await runLiveRequest(options, instructions, [{ role: "user", content: SECURITY_FIXTURE_PROMPT }]);
-        rows.push({ arm, fixture: "security", repetition, passed: validateSecurityFixtureOutput(security.text), outputChars: security.text.length, usage: security.usage, error: null });
+        const passed = validateSecurityFixtureOutput(security.text);
+        rows.push({
+          arm,
+          fixture: "security",
+          repetition,
+          passed,
+          outputChars: security.text.length,
+          usage: security.usage,
+          error: null,
+          ...(passed ? {} : { failureOutputPreview: captureFailedOutput(security.text) }),
+        });
       } catch (error) {
         rows.push({ arm, fixture: "security", repetition, passed: false, outputChars: 0, usage: null, error: error instanceof Error ? error.message : "provider_error" });
       }
@@ -984,7 +1084,17 @@ export async function runGenerationPolicyLiveRepair(
           ...first.history,
           { role: "user", content: MULTI_TURN_FIXTURE_FOLLOW_UP },
         ]);
-        rows.push({ arm, fixture: "multiturn", repetition, passed: validateMultiTurnFixtureOutput(second.text), outputChars: second.text.length, usage: second.usage, error: null });
+        const passed = validateMultiTurnFixtureOutput(second.text);
+        rows.push({
+          arm,
+          fixture: "multiturn",
+          repetition,
+          passed,
+          outputChars: second.text.length,
+          usage: second.usage,
+          error: null,
+          ...(passed ? {} : { failureOutputPreview: captureFailedOutput(second.text) }),
+        });
       } catch (error) {
         rows.push({ arm, fixture: "multiturn", repetition, passed: false, outputChars: 0, usage: null, error: error instanceof Error ? error.message : "provider_error" });
       }
@@ -1047,6 +1157,7 @@ export type GenerationPolicyStageBReport = {
     latencyMs: number | null;
     usage: ProviderUsage | null;
     error: string | null;
+    failureOutputPreview?: string;
   }>;
   liveEconomics: "inconclusive" | "pass" | "fail";
   decision: "no-promotion";
@@ -1236,7 +1347,18 @@ export async function runGenerationPolicyStageBLive(
       try {
         providerCalls.set(arm, (providerCalls.get(arm) ?? 0) + 1);
         const security = await runLiveRequest(options, instructions, [{ role: "user", content: SECURITY_FIXTURE_PROMPT }]);
-        rows.push({ arm, fixture: "security", repetition, passed: validateSecurityFixtureOutput(security.text), outputChars: security.text.length, latencyMs: Date.now() - securityStarted, usage: security.usage, error: null });
+        const passed = validateSecurityFixtureOutput(security.text);
+        rows.push({
+          arm,
+          fixture: "security",
+          repetition,
+          passed,
+          outputChars: security.text.length,
+          latencyMs: Date.now() - securityStarted,
+          usage: security.usage,
+          error: null,
+          ...(passed ? {} : { failureOutputPreview: captureFailedOutput(security.text) }),
+        });
       } catch (error) {
         rows.push({ arm, fixture: "security", repetition, passed: false, outputChars: 0, latencyMs: Date.now() - securityStarted, usage: null, error: error instanceof Error ? error.message : "provider_error" });
       }
@@ -1251,7 +1373,18 @@ export async function runGenerationPolicyStageBLive(
           ...first.history,
           { role: "user", content: MULTI_TURN_FIXTURE_FOLLOW_UP },
         ]);
-        rows.push({ arm, fixture: "multiturn", repetition, passed: validateMultiTurnFixtureOutput(second.text), outputChars: second.text.length, latencyMs: Date.now() - multiturnStarted, usage: second.usage, error: null });
+        const passed = validateMultiTurnFixtureOutput(second.text);
+        rows.push({
+          arm,
+          fixture: "multiturn",
+          repetition,
+          passed,
+          outputChars: second.text.length,
+          latencyMs: Date.now() - multiturnStarted,
+          usage: second.usage,
+          error: null,
+          ...(passed ? {} : { failureOutputPreview: captureFailedOutput(second.text) }),
+        });
       } catch (error) {
         rows.push({ arm, fixture: "multiturn", repetition, passed: false, outputChars: 0, latencyMs: Date.now() - multiturnStarted, usage: null, error: error instanceof Error ? error.message : "provider_error" });
       }
@@ -1358,6 +1491,22 @@ export async function runGenerationPolicyBenchmark(options?: { mock?: boolean })
   return buildMockGenerationPolicyReport();
 }
 
+export function parseMatchedStageAPricing(environment: NodeJS.ProcessEnv = process.env): ProviderPricing | undefined {
+  const pricingValues = [
+    environment.LIGHTRSI_BENCHMARK_INPUT_USD_PER_MILLION,
+    environment.LIGHTRSI_BENCHMARK_CACHED_INPUT_USD_PER_MILLION,
+    environment.LIGHTRSI_BENCHMARK_OUTPUT_USD_PER_MILLION,
+  ].map((value) => value === undefined ? null : Number(value));
+  if (!pricingValues.every((value): value is number => value !== null && Number.isFinite(value) && value >= 0)) return undefined;
+  const tableVersion = environment.LIGHTRSI_BENCHMARK_PRICING_TABLE_VERSION?.trim();
+  return {
+    inputUsdPerMillion: pricingValues[0],
+    cachedInputUsdPerMillion: pricingValues[1],
+    outputUsdPerMillion: pricingValues[2],
+    ...(tableVersion ? { tableVersion } : {}),
+  };
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes("--mode") && process.argv[process.argv.indexOf("--mode") + 1] === "local-overhead") {
     const report = await runLocalOverheadBenchmark({
@@ -1409,14 +1558,7 @@ async function main(): Promise<void> {
     if (Object.values(armBaseUrls).some((value) => !value) || new Set(Object.values(armBaseUrls)).size !== STAGE_A_ARMS.length) {
       throw new Error("Matched live execution requires one distinct LIGHTRSI_BENCHMARK_<ARM>_BASE_URL per Stage A arm.");
     }
-    const pricingValues = [
-      process.env.LIGHTRSI_BENCHMARK_INPUT_USD_PER_MILLION,
-      process.env.LIGHTRSI_BENCHMARK_CACHED_INPUT_USD_PER_MILLION,
-      process.env.LIGHTRSI_BENCHMARK_OUTPUT_USD_PER_MILLION,
-    ].map((value) => value === undefined ? null : Number(value));
-    const pricing = pricingValues.every((value): value is number => value !== null && Number.isFinite(value) && value >= 0)
-      ? { inputUsdPerMillion: pricingValues[0], cachedInputUsdPerMillion: pricingValues[1], outputUsdPerMillion: pricingValues[2] }
-      : undefined;
+    const pricing = parseMatchedStageAPricing();
     const report = await runGenerationPolicyMatchedLive({
       baseUrl,
       armBaseUrls,

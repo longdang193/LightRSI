@@ -17,7 +17,9 @@ import {
   buildStageBArmInstructions,
   buildMockStageBReport,
   buildMockGenerationPolicyReport,
+  captureFailedOutput,
   compareMatchedStageA,
+  parseMatchedStageAPricing,
   evaluateRouterSettingsPreflight,
   expectedStageAPolicyDigest,
   loadCodexAuthApiKey,
@@ -31,6 +33,7 @@ import {
   runGenerationPolicyStageB,
   summarizeMatchedStageAArm,
   shouldUseRouterSettingsEvidenceFallback,
+  stageAFixturePrompt,
   validateStageAFixtureOutput,
   validateSecurityFixtureOutput,
   validateMultiTurnFixtureOutput,
@@ -52,6 +55,14 @@ function matchedRow(fixture: StageAFixture, repetition: number, arm: StageAArm =
     retries: 0,
     clarifications: 0,
     usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 0 },
+    measurement: {
+      retryCount: 0,
+      clarificationCount: 0,
+      turnCount: 1,
+      usageCompleteness: "complete",
+      cachedInputTokens: 0,
+      pricingTableVersion: "fixture-v1",
+    },
     policyEvidence: [{
       requestId: `${arm}-${fixture}-${repetition}`,
       runtimeBuildId: "fixture-build",
@@ -103,6 +114,14 @@ test("artifact fixture accepts a valid grep-only verification command", () => {
   assert.equal(validateStageAFixtureOutput(
     "artifact",
     "--- artifact.md ---\n# Validation Plan\n```sh\npython -m pytest\n```",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\npython -m unittest discover -v\n```",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n```sh\npython -m compileall .\n```",
   ), true);
   assert.equal(validateStageAFixtureOutput(
     "artifact",
@@ -174,6 +193,13 @@ test("artifact fixture accepts a valid grep-only verification command", () => {
   ), true);
 });
 
+test("json fixture accepts the numeric schema version stated by the prompt", () => {
+  assert.equal(validateStageAFixtureOutput(
+    "json",
+    '{"status":"ready","schemaVersion":1}',
+  ), true);
+});
+
 test("live repair instructions preserve independent arm composition", () => {
   assert.equal(buildLiveArmInstructions("baseline"), "");
   assert.match(buildLiveArmInstructions("caveman-full"), /LightRSI Caveman/u);
@@ -214,11 +240,26 @@ test("multi-turn fixture validator requires the requested engineering facts", ()
   assert.equal(validateMultiTurnFixtureOutput("Run npm test. Add an edge case test for an optional field."), true);
   assert.equal(validateMultiTurnFixtureOutput("Run npm test. Add a test for an omitted optional field."), true);
   assert.equal(validateMultiTurnFixtureOutput("Run pytest -q. Add an edge-case test for an optional field."), true);
+  assert.equal(validateMultiTurnFixtureOutput("Run git diff --check. Add a test for an omitted optional field."), true);
   assert.equal(validateMultiTurnFixtureOutput("The implementation is complete."), false);
 });
 
 test("multi-turn fixture validator rejects a clarification refusal", () => {
   assert.equal(validateMultiTurnFixtureOutput("Please provide the repository or validator\nfile first. Verification should use pytest, and add an edge-case test for an optional field."), false);
+});
+
+test("live fixture prompts pin verification commands to the safe oracle contract", () => {
+  assert.match(stageAFixturePrompt("multiturn"), /git diff --check/u);
+  assert.match(stageAFixturePrompt("multiturn"), /Do not use a placeholder/u);
+  assert.match(stageAFixturePrompt("artifact"), /exactly one safe, non-composite verification command/u);
+  assert.match(stageAFixturePrompt("artifact"), /git diff --check/u);
+});
+
+test("failed output capture preserves short output and bounds long output", () => {
+  assert.equal(captureFailedOutput("model miss"), "model miss");
+  const captured = captureFailedOutput("x".repeat(3000));
+  assert.ok(captured.length <= 2048);
+  assert.match(captured, /\[truncated\]$/u);
 });
 
 test("mock generation policy benchmark reports contract evidence without provider calls", async () => {
@@ -262,10 +303,18 @@ test("matched accounting keeps missing usage unavailable instead of treating it 
       retries: 0,
       clarifications: 0,
       usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: null },
+      measurement: {
+        retryCount: 0,
+        clarificationCount: 0,
+        turnCount: 1,
+        usageCompleteness: "complete",
+        cachedInputTokens: null,
+        pricingTableVersion: "fixture-v1",
+      },
       policyEvidence: [],
       error: null,
     }],
-    pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 },
+    pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2, tableVersion: "fixture-v1" },
   });
 
   assert.equal(summary.totalCostUsd, null);
@@ -345,7 +394,7 @@ test("matched accounting produces paired baseline deltas and blocks failed arms"
       usage: { inputTokens: 80, outputTokens: 10, totalTokens: 90, cachedInputTokens: 0 },
     },
   ]);
-  const comparisons = compareMatchedStageA(rows, 1, { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 });
+  const comparisons = compareMatchedStageA(rows, 1, { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2, tableVersion: "fixture-v1" });
   const caveman = comparisons.arms["caveman-full"];
 
   assert.equal(comparisons.workload.repetitions, 1);
@@ -377,12 +426,86 @@ test("matched comparison leaves unobserved stability unavailable", () => {
       toolCalls: null,
       retries: null,
       clarifications: null,
+      measurement: {
+        ...matchedRow(fixture, 0, "caveman-full").measurement,
+        retryCount: null,
+        clarificationCount: null,
+      },
     },
   ]);
   const comparisons = compareMatchedStageA(rows, 1);
 
   assert.equal(comparisons.arms["caveman-full"].correctness, "pass");
   assert.equal(comparisons.arms["caveman-full"].stability, "unavailable");
+});
+
+test("matched comparison rejects complete stability and economics without explicit measurement fields", () => {
+  const measurement = {
+    retryCount: 0,
+    clarificationCount: 0,
+    turnCount: 1,
+    usageCompleteness: "complete" as const,
+    cachedInputTokens: 0,
+    pricingTableVersion: "fixture-v1",
+  };
+  const rows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [
+    { ...matchedRow(fixture, 0, "baseline"), measurement },
+    { ...matchedRow(fixture, 0, "caveman-full"), measurement },
+  ]);
+  rows[1] = {
+    ...rows[1],
+    measurement: {
+      ...measurement,
+      retryCount: null,
+      clarificationCount: null,
+      cachedInputTokens: null,
+      pricingTableVersion: null,
+    },
+  };
+
+  const comparisons = compareMatchedStageA(rows, 1, {
+    inputUsdPerMillion: 1,
+    cachedInputUsdPerMillion: 0.5,
+    outputUsdPerMillion: 2,
+    tableVersion: "fixture-v1",
+  });
+
+  assert.equal(comparisons.arms["caveman-full"].stability, "unavailable");
+  assert.equal(comparisons.arms["caveman-full"].economics, "inconclusive");
+});
+
+test("matched comparison keeps economics inconclusive when one row lacks pricing provenance", () => {
+  const rows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [
+    matchedRow(fixture, 0, "baseline"),
+    matchedRow(fixture, 0, "caveman-full"),
+  ]);
+  rows[1] = {
+    ...rows[1],
+    measurement: { ...rows[1].measurement, pricingTableVersion: null },
+  };
+
+  const comparisons = compareMatchedStageA(rows, 1, {
+    inputUsdPerMillion: 1,
+    cachedInputUsdPerMillion: 0.5,
+    outputUsdPerMillion: 2,
+    tableVersion: "fixture-v1",
+  });
+
+  assert.equal(comparisons.arms["caveman-full"].economics, "inconclusive");
+});
+
+test("matched live pricing accepts an explicit pricing table version", () => {
+  assert.deepEqual(parseMatchedStageAPricing({
+    LIGHTRSI_BENCHMARK_INPUT_USD_PER_MILLION: "1",
+    LIGHTRSI_BENCHMARK_CACHED_INPUT_USD_PER_MILLION: "0.5",
+    LIGHTRSI_BENCHMARK_OUTPUT_USD_PER_MILLION: "2",
+    LIGHTRSI_BENCHMARK_PRICING_TABLE_VERSION: "2026-10-11-openai-v1",
+  }), {
+    inputUsdPerMillion: 1,
+    cachedInputUsdPerMillion: 0.5,
+    outputUsdPerMillion: 2,
+    tableVersion: "2026-10-11-openai-v1",
+  });
 });
 
 test("matched comparison rejects unmatched policy evidence", () => {
@@ -513,6 +636,8 @@ test("matched live accounting preserves every failed request attempt when settin
     assert.equal(report.matched?.arms.baseline.totalCostUsd, null);
     assert.equal(report.matched?.arms["caveman-full"].economics, "inconclusive");
     assert.ok(report.rows?.filter((row) => row.arm === "baseline").every((row) => row.providerCalls === 1));
+    assert.ok(report.rows?.every((row) => row.measurement.usageCompleteness === "unavailable"));
+    assert.ok(report.rows?.every((row) => row.measurement.pricingTableVersion === null));
   } finally {
     process.chdir(originalCwd);
     await rm(dir, { recursive: true, force: true });

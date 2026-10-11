@@ -1,0 +1,81 @@
+{
+  "experiment": "lightrsi-generation-policy-stage-a-matched",
+  "mode": "live",
+  "sourceSha": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+  "benchmarkSha": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+  "sourceTreeStatus": "clean",
+  "model": "combo-high",
+  "router": {
+    "url": "http://127.0.0.1:20128",
+    "preflight": {
+      "status": "match",
+      "source": "dashboard_evidence",
+      "settings": {
+        "cavemanEnabled": false,
+        "cavemanLevel": "full",
+        "ponytailEnabled": false,
+        "ponytailLevel": "full"
+      },
+      "limitation": "machine-readable settings authentication unavailable; using existing authenticated dashboard evidence"
+    },
+    "evidenceCapturedAt": "2026-10-11T12:44:19.765Z"
+  },
+  "tokenPilotPreflight": {
+    "status": "match",
+    "source": "tokenpilot_config",
+    "settings": {
+      "cavemanEnabled": false,
+      "ponytailEnabled": false
+    },
+    "configPath": "C:\\Users\\HOANG PHI LONG DANG\\.codex\\tokenpilot.json"
+  },
+  "workload": {
+    "fixtures": [
+      "prose",
+      "code",
+      "json",
+      "tool-history",
+      "security",
+      "detail",
+      "multiturn",
+      "artifact"
+    ],
+    "requestShape": "responses",
+    "repetitions": 5
+  },
+  "arms": [
+    "baseline",
+    "caveman-full",
+    "ponytail-full",
+    "both-full"
+  ],
+  "policyDigests": {
+    "baseline": [
+      null
+    ],
+    "caveman-full": [
+      "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4"
+    ],
+    "ponytail-full": [
+      "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002"
+    ],
+    "both-full": [
+      "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff"
+    ]
+  },
+  "repetitions": 5,
+  "providerCalls": 180,
+  "requestTimeoutMs": 120000,
+  "pricing": "unavailable",
+  "maximumEstimatedSpendUsd": "unavailable",
+  "liveEconomics": "inconclusive",
+  "failedRows": 0,
+  "decision": "no-promotion",
+  "evidenceLimitations": [
+    "cachedInputTokens unavailable for every row",
+    "retries and clarifications are not observed",
+    "engineeringValue has no executable Codex task fixture"
+  ],
+  "measurementSchemaVersion": 1,
+  "pricingTableVersion": null
+}
