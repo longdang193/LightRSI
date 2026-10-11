@@ -427,6 +427,33 @@ function responsePolicyEvidence(headers: Headers): GenerationPolicyEvidence {
   };
 }
 
+function parseNonNegativeIntegerHeader(headers: Headers, name: string): number | null {
+  const value = headers.get(name);
+  if (value === null || !/^\d+$/u.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+export function parseResponseMeasurementTelemetry(headers: Headers): {
+  retryCount: number | null;
+  clarificationCount: number | null;
+} {
+  return {
+    retryCount: parseNonNegativeIntegerHeader(headers, "x-lightrsi-upstream-retry-count"),
+    clarificationCount: parseNonNegativeIntegerHeader(headers, "x-lightrsi-clarification-count"),
+  };
+}
+
+class LiveRequestError extends Error {
+  constructor(
+    message: string,
+    readonly measurement: ReturnType<typeof parseResponseMeasurementTelemetry>,
+  ) {
+    super(message);
+    this.name = "LiveRequestError";
+  }
+}
+
 export async function loadCodexAuthApiKey(
   authPath = resolve(homedir(), ".codex", "auth.json"),
 ): Promise<string | undefined> {
@@ -728,13 +755,17 @@ async function runLiveRequest(
   options: LiveRepairOptions,
   instructions: string,
   input: readonly unknown[],
-): Promise<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null; policyEvidence: GenerationPolicyEvidence }> {
+  measurement?: { clarificationCount?: number },
+): Promise<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null; policyEvidence: GenerationPolicyEvidence; measurement: ReturnType<typeof parseResponseMeasurementTelemetry> }> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const response = await fetchImpl(`${options.baseUrl.replace(/\/+$/u, "")}/responses`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${options.apiKey}`,
       "content-type": "application/json",
+      ...(measurement?.clarificationCount !== undefined
+        ? { "x-lightrsi-clarification-count": String(measurement.clarificationCount) }
+        : {}),
     },
     signal: AbortSignal.timeout(LIVE_REQUEST_TIMEOUT_MS),
     body: JSON.stringify({
@@ -747,13 +778,15 @@ async function runLiveRequest(
     }),
   });
   const body = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok) throw new Error(`provider_status:${response.status}`);
+  const responseMeasurement = parseResponseMeasurementTelemetry(response.headers);
+  if (!response.ok) throw new LiveRequestError(`provider_status:${response.status}`, responseMeasurement);
   const output = Array.isArray(body.output) ? body.output : [];
   return {
     text: responseText(body),
     history: projectAssistantHistory(output),
     usage: parseProviderUsage(body),
     policyEvidence: responsePolicyEvidence(response.headers),
+    measurement: responseMeasurement,
   };
 }
 
@@ -882,10 +915,11 @@ function buildMatchedStageAMeasurement(
   usage: ProviderUsage | null,
   turns: number,
   pricing: ProviderPricing | undefined,
+  telemetry: { retryCount: number | null; clarificationCount: number | null },
 ): MatchedStageAMeasurement {
   return {
-    retryCount: null,
-    clarificationCount: null,
+    retryCount: telemetry.retryCount,
+    clarificationCount: telemetry.clarificationCount,
     turnCount: turns,
     usageCompleteness: usage === null
       ? "unavailable"
@@ -917,24 +951,36 @@ async function runCompletedTask(
 }> {
   const started = Date.now();
   const responses: Array<{ text: string; history: Record<string, unknown>[]; usage: ProviderUsage | null; policyEvidence: GenerationPolicyEvidence }> = [];
+  const measurements: Array<{ retryCount: number | null; clarificationCount: number | null }> = [];
   let providerCalls = 0;
   const request = async (input: readonly unknown[]) => {
     providerCalls += 1;
-    return runLiveRequest(options, "", input);
+    return runLiveRequest(options, "", input, { clarificationCount: 0 });
   };
   try {
     const first = await request(stageAFixtureInput(fixture));
     responses.push(first);
+    measurements.push(first.measurement);
     if (fixture === "multiturn") {
-      responses.push(await request([
+      const second = await request([
         { role: "user", content: MULTI_TURN_FIXTURE_PROMPT },
         ...first.history,
         { role: "user", content: MULTI_TURN_FIXTURE_FOLLOW_UP },
-      ]));
+      ]);
+      responses.push(second);
+      measurements.push(second.measurement);
     }
     const finalText = responses[responses.length - 1]!.text;
     const passed = validateStageAFixtureOutput(fixture, finalText);
     const usage = sumUsage(responses);
+    const measurement = buildMatchedStageAMeasurement(usage, responses.length, options.pricing, {
+      retryCount: measurements.every((value) => value.retryCount !== null)
+        ? measurements.reduce((total, value) => total + value.retryCount!, 0)
+        : null,
+      clarificationCount: measurements.every((value) => value.clarificationCount !== null)
+        ? measurements.reduce((total, value) => total + value.clarificationCount!, 0)
+        : null,
+    });
     return {
       passed,
       outputChars: finalText.length,
@@ -942,16 +988,28 @@ async function runCompletedTask(
       providerCalls,
       turns: responses.length,
       toolCalls: observedToolCalls(responses),
-      retries: null,
-      clarifications: null,
+      retries: measurement.retryCount,
+      clarifications: measurement.clarificationCount,
       usage,
-      measurement: buildMatchedStageAMeasurement(usage, responses.length, options.pricing),
+      measurement,
       policyEvidence: responses.map((response) => response.policyEvidence),
       error: null,
       ...(passed ? {} : { failureOutputPreview: captureFailedOutput(finalText) }),
     };
   } catch (error) {
     const usage = sumUsage(responses);
+    const failedMeasurement = error instanceof LiveRequestError ? error.measurement : null;
+    const observedMeasurements = failedMeasurement === null
+      ? measurements
+      : [...measurements, failedMeasurement];
+    const measurement = buildMatchedStageAMeasurement(usage, responses.length, options.pricing, {
+      retryCount: failedMeasurement !== null && observedMeasurements.every((value) => value.retryCount !== null)
+        ? observedMeasurements.reduce((total, value) => total + value.retryCount!, 0)
+        : null,
+      clarificationCount: failedMeasurement !== null && observedMeasurements.every((value) => value.clarificationCount !== null)
+        ? observedMeasurements.reduce((total, value) => total + value.clarificationCount!, 0)
+        : null,
+    });
     return {
       passed: false,
       outputChars: responses.length > 0 ? responses[responses.length - 1]!.text.length : 0,
@@ -959,10 +1017,10 @@ async function runCompletedTask(
       providerCalls,
       turns: responses.length,
       toolCalls: observedToolCalls(responses),
-      retries: null,
-      clarifications: null,
+      retries: measurement.retryCount,
+      clarifications: measurement.clarificationCount,
       usage,
-      measurement: buildMatchedStageAMeasurement(usage, responses.length, options.pricing),
+      measurement,
       policyEvidence: responses.map((response) => response.policyEvidence),
       error: error instanceof Error ? error.message : "provider_error",
       ...(responses.length > 0
