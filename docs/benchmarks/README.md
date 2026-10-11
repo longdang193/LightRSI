@@ -131,3 +131,49 @@ not authorize adapter expansion, default changes, or stronger policy intensity.
 Keep raw results and reconciliation evidence together. Do not overwrite an old
 run; add a new dated artifact and explicitly label historical reports.
 
+## 9Router attribution verification
+
+The adapter-side header test is not sufficient to authorize live economics. The
+router must preserve `x-lightrsi-request-id` and
+`x-lightrsi-provider-attempt-id`, assign one router-owned immutable
+`routerRecordId`, and expose the same three identifiers in both `usageHistory`
+and `requestDetails`.
+
+Root-cause review of the local 9Router checkout found that the headers reached
+the chat boundary but were discarded before persistence. The usage-history
+deduplication key also omitted the router record ID, so two attempts with the
+same timestamp and token counts could be collapsed. The repair adds additive
+attribution columns, carries one generated record ID through success, failure,
+streaming, and forced-SSE paths, and makes attributed attempts distinct for
+deduplication.
+
+The fixture-backed router probe is
+`9router/tests/unit/attribution-persistence.test.js`. It must prove:
+
+1. The two LightRSI headers are preserved.
+2. One router-owned `routerRecordId` is present in both authoritative tables.
+3. The IDs match across the tables and remain visible through the details API.
+4. Distinct provider attempts are not collapsed when measurements are equal.
+
+The local fixture run also exposed two test-harness issues, both repaired in the
+router checkout: the fixtures used the nonexistent `enableObservability2` setting
+instead of `enableObservability`, and the request-details backup test hardcoded
+`better-sqlite3` even when the router correctly selected Node's built-in
+`node:sqlite` fallback. The focused attribution fixture now passes all three
+checks, and the adjacent request-details regression passes all 22 checks under
+the fallback driver. The checkout has no committed Vitest configuration, so the
+local proof used a temporary alias config and a no-save Vitest install; this did
+not modify package metadata or authorize a live provider run.
+
+The broader local Vitest sweep is not a release gate in this checkout: 193 test
+files passed, 34 failed, and 11 were skipped. The failures include missing
+optional dependencies, files that contain no Vitest suite, provider-specific
+endpoint assumptions, and external-service or credential-dependent cases. No
+failure occurred in the attribution fixture or the adjacent request-details
+regression.
+
+Until that probe passes against the deployed router build—or an authenticated
+equivalent schema probe returns the same evidence—exact request-level joins and
+provider-dollar economics remain unavailable. Do not treat a window/model match
+as a substitute for this gate.
+
