@@ -237,6 +237,7 @@ export function validateMultiTurnFixtureOutput(output: string): boolean {
   const asksForContext = /(?:\b(?:please\s+)?(?:provide|share|send)\b|\b(?:i\s+)?need\b).{0,120}\b(?:repository|repo|validator|file|details|context)\b/u.test(normalized);
   if (asksForContext) return false;
   const hasVerificationCommand = ["npm test", "pnpm test", "pytest", "cargo test", "go test"]
+    .concat("git diff --check")
     .some((command) => normalized.includes(command));
   return hasVerificationCommand
     && normalized.includes("optional")

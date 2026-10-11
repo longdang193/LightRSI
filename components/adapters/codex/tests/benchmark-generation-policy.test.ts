@@ -226,6 +226,7 @@ test("multi-turn fixture validator requires the requested engineering facts", ()
   assert.equal(validateMultiTurnFixtureOutput("Run npm test. Add an edge case test for an optional field."), true);
   assert.equal(validateMultiTurnFixtureOutput("Run npm test. Add a test for an omitted optional field."), true);
   assert.equal(validateMultiTurnFixtureOutput("Run pytest -q. Add an edge-case test for an optional field."), true);
+  assert.equal(validateMultiTurnFixtureOutput("Run git diff --check. Add a test for an omitted optional field."), true);
   assert.equal(validateMultiTurnFixtureOutput("The implementation is complete."), false);
 });
 
