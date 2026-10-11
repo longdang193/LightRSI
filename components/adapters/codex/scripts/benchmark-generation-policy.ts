@@ -293,6 +293,16 @@ export type ProviderPricing = {
   inputUsdPerMillion: number;
   cachedInputUsdPerMillion: number;
   outputUsdPerMillion: number;
+  tableVersion?: string;
+};
+
+export type MatchedStageAMeasurement = {
+  retryCount: number | null;
+  clarificationCount: number | null;
+  turnCount: number;
+  usageCompleteness: "complete" | "incomplete" | "unavailable";
+  cachedInputTokens: number | null;
+  pricingTableVersion: string | null;
 };
 
 export type MatchedStageARow = {
@@ -308,6 +318,7 @@ export type MatchedStageARow = {
   retries: number | null;
   clarifications: number | null;
   usage: ProviderUsage | null;
+  measurement: MatchedStageAMeasurement;
   policyEvidence: GenerationPolicyEvidence[];
   error: string | null;
   failureOutputPreview?: string;
@@ -332,6 +343,7 @@ type MatchedStageAArmSummary = {
   totalCostUsd: number | null;
   completedTaskCostUsd: number | null;
   medianLatencyMs: number | null;
+  measurement: Omit<MatchedStageAMeasurement, "turnCount"> & { turnCount: number | null };
   baselineDelta: {
     costUsd: number | null;
     latencyMs: number | null;
@@ -484,6 +496,25 @@ function sumOptionalMetric(rows: MatchedStageARow[], selector: (row: MatchedStag
     : null;
 }
 
+function summarizeMeasurement(rows: MatchedStageARow[]): MatchedStageAArmSummary["measurement"] {
+  const usageCompleteness = rows.length === 0
+    ? "unavailable"
+    : rows.every((row) => row.measurement.usageCompleteness === "complete")
+      ? "complete"
+      : rows.some((row) => row.measurement.usageCompleteness === "incomplete")
+        ? "incomplete"
+        : "unavailable";
+  const pricingVersions = new Set(rows.map((row) => row.measurement.pricingTableVersion).filter((value): value is string => value !== null));
+  return {
+    retryCount: sumOptionalMetric(rows, (row) => row.measurement.retryCount),
+    clarificationCount: sumOptionalMetric(rows, (row) => row.measurement.clarificationCount),
+    turnCount: sumOptionalMetric(rows, (row) => row.measurement.turnCount),
+    usageCompleteness,
+    cachedInputTokens: sumOptionalMetric(rows, (row) => row.measurement.cachedInputTokens),
+    pricingTableVersion: pricingVersions.size === 1 ? [...pricingVersions][0]! : null,
+  };
+}
+
 function rowCost(row: MatchedStageARow, pricing: ProviderPricing): number | null {
   const usage = row.usage;
   if (!usage || usage.inputTokens === null || usage.cachedInputTokens === null || usage.outputTokens === null) return null;
@@ -573,6 +604,7 @@ export function summarizeMatchedStageAArm(params: {
     totalCostUsd,
     completedTaskCostUsd: totalCostUsd !== null && completedTasks > 0 ? totalCostUsd / completedTasks : null,
     medianLatencyMs: median(params.rows.flatMap((row) => row.latencyMs === null ? [] : [row.latencyMs])),
+    measurement: summarizeMeasurement(params.rows),
     baselineDelta: null,
   };
 }
@@ -605,19 +637,22 @@ export function compareMatchedStageA(
       && assessPolicyEvidence("baseline", baselineRows, rows) === "pass"
       && assessPolicyEvidence(arm, armRows, rows) === "pass";
     const stabilityMetricsObserved = rowsComparable
-      && [...baselineRows, ...armRows].every((row) => row.toolCalls !== null && row.retries !== null && row.clarifications !== null);
+      && [...baselineRows, ...armRows].every((row) => row.toolCalls !== null
+        && row.measurement.turnCount === row.turns
+        && row.measurement.retryCount !== null
+        && row.measurement.clarificationCount !== null);
     const stabilityPass = stabilityMetricsObserved
       && armRows.every((row) => {
         const baselineRow = baselineRows.find((candidate) => candidate.fixture === row.fixture && candidate.repetition === row.repetition);
         return baselineRow !== undefined
           && row.toolCalls !== null && baselineRow.toolCalls !== null
-          && row.retries !== null && baselineRow.retries !== null
-          && row.clarifications !== null && baselineRow.clarifications !== null
+          && row.measurement.retryCount !== null && baselineRow.measurement.retryCount !== null
+          && row.measurement.clarificationCount !== null && baselineRow.measurement.clarificationCount !== null
           && row.providerCalls <= baselineRow.providerCalls
           && row.turns <= baselineRow.turns
           && row.toolCalls <= baselineRow.toolCalls
-          && row.retries <= baselineRow.retries
-          && row.clarifications <= baselineRow.clarifications;
+           && row.measurement.retryCount <= baselineRow.measurement.retryCount
+           && row.measurement.clarificationCount <= baselineRow.measurement.clarificationCount;
       });
     const armCost = summary.totalCostUsd;
     const baselineCost = baseline.totalCostUsd;
@@ -627,7 +662,12 @@ export function compareMatchedStageA(
     summary.stability = !rowsComparable || !stabilityMetricsObserved
       ? "unavailable"
       : stabilityPass ? "pass" : "fail";
-    summary.economics = !rowsComparable || armCost === null || baselineCost === null
+    const economicsMetricsObserved = rowsComparable
+      && pricing?.tableVersion !== undefined
+      && [baseline, summary].every((candidate) => candidate.measurement.usageCompleteness === "complete"
+        && candidate.measurement.cachedInputTokens !== null
+        && candidate.measurement.pricingTableVersion === pricing.tableVersion);
+    summary.economics = !economicsMetricsObserved || armCost === null || baselineCost === null
       ? "inconclusive"
       : armCost < baselineCost || (armCost === baselineCost && latencyDelta !== null && latencyDelta <= 0)
         ? "pass"
@@ -834,6 +874,25 @@ function observedToolCalls(responses: Array<{ history: Record<string, unknown>[]
   )).length, 0);
 }
 
+function buildMatchedStageAMeasurement(
+  usage: ProviderUsage | null,
+  turns: number,
+  pricing: ProviderPricing | undefined,
+): MatchedStageAMeasurement {
+  return {
+    retryCount: null,
+    clarificationCount: null,
+    turnCount: turns,
+    usageCompleteness: usage === null
+      ? "unavailable"
+      : usage.inputTokens !== null && usage.outputTokens !== null && usage.totalTokens !== null
+        ? "complete"
+        : "incomplete",
+    cachedInputTokens: usage?.cachedInputTokens ?? null,
+    pricingTableVersion: pricing?.tableVersion ?? null,
+  };
+}
+
 async function runCompletedTask(
   options: MatchedStageALiveOptions,
   fixture: StageAFixture,
@@ -847,6 +906,7 @@ async function runCompletedTask(
   retries: number | null;
   clarifications: number | null;
   usage: ProviderUsage | null;
+  measurement: MatchedStageAMeasurement;
   policyEvidence: GenerationPolicyEvidence[];
   error: string | null;
   failureOutputPreview?: string;
@@ -870,6 +930,7 @@ async function runCompletedTask(
     }
     const finalText = responses[responses.length - 1]!.text;
     const passed = validateStageAFixtureOutput(fixture, finalText);
+    const usage = sumUsage(responses);
     return {
       passed,
       outputChars: finalText.length,
@@ -879,12 +940,14 @@ async function runCompletedTask(
       toolCalls: observedToolCalls(responses),
       retries: null,
       clarifications: null,
-      usage: sumUsage(responses),
+      usage,
+      measurement: buildMatchedStageAMeasurement(usage, responses.length, options.pricing),
       policyEvidence: responses.map((response) => response.policyEvidence),
       error: null,
       ...(passed ? {} : { failureOutputPreview: captureFailedOutput(finalText) }),
     };
   } catch (error) {
+    const usage = sumUsage(responses);
     return {
       passed: false,
       outputChars: responses.length > 0 ? responses[responses.length - 1]!.text.length : 0,
@@ -894,7 +957,8 @@ async function runCompletedTask(
       toolCalls: observedToolCalls(responses),
       retries: null,
       clarifications: null,
-      usage: sumUsage(responses),
+      usage,
+      measurement: buildMatchedStageAMeasurement(usage, responses.length, options.pricing),
       policyEvidence: responses.map((response) => response.policyEvidence),
       error: error instanceof Error ? error.message : "provider_error",
       ...(responses.length > 0

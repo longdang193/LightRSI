@@ -54,6 +54,14 @@ function matchedRow(fixture: StageAFixture, repetition: number, arm: StageAArm =
     retries: 0,
     clarifications: 0,
     usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 0 },
+    measurement: {
+      retryCount: 0,
+      clarificationCount: 0,
+      turnCount: 1,
+      usageCompleteness: "complete",
+      cachedInputTokens: 0,
+      pricingTableVersion: "fixture-v1",
+    },
     policyEvidence: [{
       requestId: `${arm}-${fixture}-${repetition}`,
       runtimeBuildId: "fixture-build",
@@ -294,10 +302,18 @@ test("matched accounting keeps missing usage unavailable instead of treating it 
       retries: 0,
       clarifications: 0,
       usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: null },
+      measurement: {
+        retryCount: 0,
+        clarificationCount: 0,
+        turnCount: 1,
+        usageCompleteness: "complete",
+        cachedInputTokens: null,
+        pricingTableVersion: "fixture-v1",
+      },
       policyEvidence: [],
       error: null,
     }],
-    pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 },
+    pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2, tableVersion: "fixture-v1" },
   });
 
   assert.equal(summary.totalCostUsd, null);
@@ -377,7 +393,7 @@ test("matched accounting produces paired baseline deltas and blocks failed arms"
       usage: { inputTokens: 80, outputTokens: 10, totalTokens: 90, cachedInputTokens: 0 },
     },
   ]);
-  const comparisons = compareMatchedStageA(rows, 1, { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2 });
+  const comparisons = compareMatchedStageA(rows, 1, { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 2, tableVersion: "fixture-v1" });
   const caveman = comparisons.arms["caveman-full"];
 
   assert.equal(comparisons.workload.repetitions, 1);
@@ -409,12 +425,52 @@ test("matched comparison leaves unobserved stability unavailable", () => {
       toolCalls: null,
       retries: null,
       clarifications: null,
+      measurement: {
+        ...matchedRow(fixture, 0, "caveman-full").measurement,
+        retryCount: null,
+        clarificationCount: null,
+      },
     },
   ]);
   const comparisons = compareMatchedStageA(rows, 1);
 
   assert.equal(comparisons.arms["caveman-full"].correctness, "pass");
   assert.equal(comparisons.arms["caveman-full"].stability, "unavailable");
+});
+
+test("matched comparison rejects complete stability and economics without explicit measurement fields", () => {
+  const measurement = {
+    retryCount: 0,
+    clarificationCount: 0,
+    turnCount: 1,
+    usageCompleteness: "complete" as const,
+    cachedInputTokens: 0,
+    pricingTableVersion: "fixture-v1",
+  };
+  const rows = STAGE_A_WORKLOAD.fixtures.flatMap((fixture) => [
+    { ...matchedRow(fixture, 0, "baseline"), measurement },
+    { ...matchedRow(fixture, 0, "caveman-full"), measurement },
+  ]);
+  rows[1] = {
+    ...rows[1],
+    measurement: {
+      ...measurement,
+      retryCount: null,
+      clarificationCount: null,
+      cachedInputTokens: null,
+      pricingTableVersion: null,
+    },
+  };
+
+  const comparisons = compareMatchedStageA(rows, 1, {
+    inputUsdPerMillion: 1,
+    cachedInputUsdPerMillion: 0.5,
+    outputUsdPerMillion: 2,
+    tableVersion: "fixture-v1",
+  });
+
+  assert.equal(comparisons.arms["caveman-full"].stability, "unavailable");
+  assert.equal(comparisons.arms["caveman-full"].economics, "inconclusive");
 });
 
 test("matched comparison rejects unmatched policy evidence", () => {
@@ -545,6 +601,8 @@ test("matched live accounting preserves every failed request attempt when settin
     assert.equal(report.matched?.arms.baseline.totalCostUsd, null);
     assert.equal(report.matched?.arms["caveman-full"].economics, "inconclusive");
     assert.ok(report.rows?.filter((row) => row.arm === "baseline").every((row) => row.providerCalls === 1));
+    assert.ok(report.rows?.every((row) => row.measurement.usageCompleteness === "unavailable"));
+    assert.ok(report.rows?.every((row) => row.measurement.pricingTableVersion === null));
   } finally {
     process.chdir(originalCwd);
     await rm(dir, { recursive: true, force: true });

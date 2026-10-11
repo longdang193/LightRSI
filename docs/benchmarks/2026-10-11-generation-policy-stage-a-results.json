@@ -1,0 +1,6489 @@
+{
+  "experiment": "lightrsi-generation-policy-stage-a-matched",
+  "mode": "live",
+  "sourceSha": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+  "sourceTreeStatus": "clean",
+  "model": "combo-high",
+  "repetitions": 5,
+  "workload": {
+    "fixtures": [
+      "prose",
+      "code",
+      "json",
+      "tool-history",
+      "security",
+      "detail",
+      "multiturn",
+      "artifact"
+    ],
+    "requestShape": "responses",
+    "repetitions": 5
+  },
+  "arms": {
+    "baseline": {
+      "correctness": "pass",
+      "stability": "unavailable",
+      "economics": "inconclusive",
+      "providerCalls": 45,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 45,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    "caveman-full": {
+      "correctness": "pass",
+      "stability": "unavailable",
+      "economics": "inconclusive",
+      "providerCalls": 45,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 45,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    "ponytail-full": {
+      "correctness": "pass",
+      "stability": "unavailable",
+      "economics": "inconclusive",
+      "providerCalls": 45,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 45,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    "both-full": {
+      "correctness": "pass",
+      "stability": "unavailable",
+      "economics": "inconclusive",
+      "providerCalls": 45,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 45,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    }
+  },
+  "liveEconomics": "inconclusive",
+  "routerPreflight": {
+    "status": "match",
+    "source": "dashboard_evidence",
+    "settings": {
+      "cavemanEnabled": false,
+      "cavemanLevel": "full",
+      "ponytailEnabled": false,
+      "ponytailLevel": "full"
+    },
+    "limitation": "machine-readable settings authentication unavailable; using existing authenticated dashboard evidence"
+  },
+  "tokenPilotPreflight": {
+    "status": "match",
+    "source": "tokenpilot_config",
+    "settings": {
+      "cavemanEnabled": false,
+      "ponytailEnabled": false
+    },
+    "configPath": "C:\\Users\\HOANG PHI LONG DANG\\.codex\\tokenpilot.json"
+  },
+  "decision": "no-promotion",
+  "rows": [
+    {
+      "arm": "baseline",
+      "fixture": "prose",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 506,
+      "latencyMs": 2297,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 123,
+        "outputTokens": 120,
+        "totalTokens": 243,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-0f4d31b7dcead84ec72d1c5f",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "code",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 258,
+      "latencyMs": 1858,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 133,
+        "outputTokens": 140,
+        "totalTokens": 273,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-23dccd4c7250511b99dfb6aa",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "json",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1546,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 135,
+        "outputTokens": 14,
+        "totalTokens": 149,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-096393b134e1d7f52e9eaaad",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "tool-history",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 30,
+      "latencyMs": 1649,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 163,
+        "outputTokens": 29,
+        "totalTokens": 192,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-455157ff326d6e2f2bca509a",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "security",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 661,
+      "latencyMs": 3456,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 157,
+        "outputTokens": 184,
+        "totalTokens": 341,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-27420d0686a288e26b066995",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "detail",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 1027,
+      "latencyMs": 8589,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 132,
+        "outputTokens": 290,
+        "totalTokens": 422,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-3d815333188b917305c3be5f",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "multiturn",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 402,
+      "latencyMs": 8896,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 513,
+        "outputTokens": 858,
+        "totalTokens": 1371,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-95f76d822a4488d7b6eb3630",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        },
+        {
+          "requestId": "req-4ea109e6bed308042e502640",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "artifact",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 2380,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 157,
+        "outputTokens": 95,
+        "totalTokens": 252,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-937c25b1307110abf60d7829",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "prose",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 478,
+      "latencyMs": 2078,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 177,
+        "outputTokens": 110,
+        "totalTokens": 287,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-b9b2c2b79f8faec680e20640",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "code",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 387,
+      "latencyMs": 2255,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 187,
+        "outputTokens": 173,
+        "totalTokens": 360,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-e02738b8e3a2fe97e746d8a8",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "json",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1441,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 189,
+        "outputTokens": 14,
+        "totalTokens": 203,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-e2ec77397512738132758570",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "tool-history",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1001,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 217,
+        "outputTokens": 8,
+        "totalTokens": 225,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-1e5cb2077de4d4b715ac4e3a",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "security",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 768,
+      "latencyMs": 2903,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 221,
+        "totalTokens": 432,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-c83a4913b5bcfaf895bd8352",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "detail",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 1139,
+      "latencyMs": 3737,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 186,
+        "outputTokens": 330,
+        "totalTokens": 516,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-67159f65c7ea40d9ee8ed1c6",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "multiturn",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 499,
+      "latencyMs": 7835,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 641,
+        "outputTokens": 845,
+        "totalTokens": 1486,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-32014429f1622f2ab50cd2e3",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-3d51c9be92f6034cbb9462ea",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "artifact",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 57,
+      "latencyMs": 2613,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 111,
+        "totalTokens": 322,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-2ce88acf6afc21955922811f",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "prose",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 648,
+      "latencyMs": 2095,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 196,
+        "outputTokens": 140,
+        "totalTokens": 336,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-9abca7f11bb2740dd352da79",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "code",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 369,
+      "latencyMs": 1984,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 206,
+        "outputTokens": 141,
+        "totalTokens": 347,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-9b6dcbbc0b52d4463e72d19b",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "json",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1703,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 208,
+        "outputTokens": 14,
+        "totalTokens": 222,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-3a690f53ba59d2307009102e",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "tool-history",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1744,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 236,
+        "outputTokens": 26,
+        "totalTokens": 262,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-276138c19a164dec436a36d9",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "security",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 793,
+      "latencyMs": 2522,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 230,
+        "outputTokens": 197,
+        "totalTokens": 427,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-a97eff2d62c7b2904de8a61e",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "detail",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 736,
+      "latencyMs": 4525,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 205,
+        "outputTokens": 405,
+        "totalTokens": 610,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-6f65215dbead17c1c336b22d",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "multiturn",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 708,
+      "latencyMs": 11645,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 709,
+        "outputTokens": 1000,
+        "totalTokens": 1709,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-e1da9194631dc870e784b6ac",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-80fe1df58caff005ade648f2",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "artifact",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 1876,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 230,
+        "outputTokens": 110,
+        "totalTokens": 340,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-4d61855562b22b0eebc0f587",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "prose",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 498,
+      "latencyMs": 1779,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 250,
+        "outputTokens": 117,
+        "totalTokens": 367,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-a73b7efdba02d7b4d0b59a3b",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "code",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 397,
+      "latencyMs": 3553,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 260,
+        "outputTokens": 140,
+        "totalTokens": 400,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-167d1bb77cea54b78a2de380",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "json",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1461,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 262,
+        "outputTokens": 14,
+        "totalTokens": 276,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-33315292750c5fdf4a19c6f4",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "tool-history",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 3001,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 290,
+        "outputTokens": 25,
+        "totalTokens": 315,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-b96606115826ca76ca2924a5",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "security",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 911,
+      "latencyMs": 5017,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 284,
+        "outputTokens": 212,
+        "totalTokens": 496,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-8d3badca70c2770563e2e87a",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "detail",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 1224,
+      "latencyMs": 3177,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 259,
+        "outputTokens": 320,
+        "totalTokens": 579,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-6601c0724e6fd1cf2c0d2b48",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "multiturn",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 665,
+      "latencyMs": 12297,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 799,
+        "outputTokens": 946,
+        "totalTokens": 1745,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-ea53ea128985b32f0bc7d335",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-894bd2e042b6cfa011440c2d",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "artifact",
+      "repetition": 0,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 2100,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 284,
+        "outputTokens": 116,
+        "totalTokens": 400,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-79f894f3bb398ffd9827838b",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "prose",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 498,
+      "latencyMs": 2878,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 177,
+        "outputTokens": 128,
+        "totalTokens": 305,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-557c2fd7b265d7fea85bc7c6",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "code",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 344,
+      "latencyMs": 3358,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 187,
+        "outputTokens": 130,
+        "totalTokens": 317,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-03e722c3c6b096cd34bd85e1",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "json",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1257,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 189,
+        "outputTokens": 14,
+        "totalTokens": 203,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-88cde54fc8e2716ed28aa802",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "tool-history",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1357,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 217,
+        "outputTokens": 8,
+        "totalTokens": 225,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-417431328304c66165f5a4af",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "security",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 800,
+      "latencyMs": 2759,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 184,
+        "totalTokens": 395,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-8f97b35d514b8c83fb51b108",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "detail",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 838,
+      "latencyMs": 19310,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 186,
+        "outputTokens": 290,
+        "totalTokens": 476,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-2ea476ca1a00fefe54550646",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "multiturn",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 423,
+      "latencyMs": 8053,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 655,
+        "outputTokens": 848,
+        "totalTokens": 1503,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-57af4418356bef7b5be33fa6",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-8c39f8ebbca67813826a8a58",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "artifact",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 2038,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 115,
+        "totalTokens": 326,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-5728a6a07fdcd5be486f1b2b",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "prose",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 575,
+      "latencyMs": 4111,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 196,
+        "outputTokens": 147,
+        "totalTokens": 343,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-1ef1383575dcc069c2c785f6",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "code",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 294,
+      "latencyMs": 2904,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 206,
+        "outputTokens": 218,
+        "totalTokens": 424,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-37d50a2e3db4f1045a233793",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "json",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1239,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 208,
+        "outputTokens": 14,
+        "totalTokens": 222,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-6f625ff339e4cf6071e5dda9",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "tool-history",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 3619,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 236,
+        "outputTokens": 35,
+        "totalTokens": 271,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-8e19302d3b2efd5a1adbcdc1",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "security",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 774,
+      "latencyMs": 2391,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 230,
+        "outputTokens": 181,
+        "totalTokens": 411,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-6735708d57da3244ce98a68b",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "detail",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 1160,
+      "latencyMs": 3461,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 205,
+        "outputTokens": 353,
+        "totalTokens": 558,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-659e24c30bd93e078bc02d08",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "multiturn",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 582,
+      "latencyMs": 10320,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 680,
+        "outputTokens": 915,
+        "totalTokens": 1595,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-74f2a2cb3199cc188777c8d9",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-9f8e3d4bb8597992f639c655",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "artifact",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 3206,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 230,
+        "outputTokens": 115,
+        "totalTokens": 345,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-f30dd37d41edb0b178c74a88",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "prose",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 481,
+      "latencyMs": 2823,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 250,
+        "outputTokens": 115,
+        "totalTokens": 365,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-4987621d43d5a597ed5d0305",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "code",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 438,
+      "latencyMs": 1996,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 260,
+        "outputTokens": 208,
+        "totalTokens": 468,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-6e23c0fcef15232d949bf276",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "json",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1580,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 262,
+        "outputTokens": 14,
+        "totalTokens": 276,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-3cd3da4ae5dc0d570b7c1a67",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "tool-history",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 2004,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 290,
+        "outputTokens": 25,
+        "totalTokens": 315,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-62c343e067d543353c6fb978",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "security",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 663,
+      "latencyMs": 2477,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 284,
+        "outputTokens": 178,
+        "totalTokens": 462,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-08fe1f4d381041494244e548",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "detail",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 1190,
+      "latencyMs": 3314,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 259,
+        "outputTokens": 334,
+        "totalTokens": 593,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-bcba5ebb526ff578f1aa14f6",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "multiturn",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 648,
+      "latencyMs": 13048,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 767,
+        "outputTokens": 1372,
+        "totalTokens": 2139,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-e247d57a3101a852ef73a31d",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-b5c8e6d2499c32bdc89e117e",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "artifact",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 1913,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 284,
+        "outputTokens": 105,
+        "totalTokens": 389,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-8de804d733366167ac5690aa",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "prose",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 517,
+      "latencyMs": 2495,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 123,
+        "outputTokens": 120,
+        "totalTokens": 243,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-b8a54aaf6e1470f253ead22c",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "code",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 311,
+      "latencyMs": 1849,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 133,
+        "outputTokens": 132,
+        "totalTokens": 265,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-d13ee3254f095054230ae2dc",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "json",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1377,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 135,
+        "outputTokens": 14,
+        "totalTokens": 149,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-6f108e1e7d57c735ffd1e880",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "tool-history",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 30,
+      "latencyMs": 2468,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 163,
+        "outputTokens": 30,
+        "totalTokens": 193,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-bb21f0c774170ce9102b73ef",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "security",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 784,
+      "latencyMs": 2488,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 157,
+        "outputTokens": 179,
+        "totalTokens": 336,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-d07875db35c15a8cfd1bee62",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "detail",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 969,
+      "latencyMs": 3748,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 132,
+        "outputTokens": 289,
+        "totalTokens": 421,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-a68e42af3d452eb6d58ed949",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "multiturn",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 615,
+      "latencyMs": 10141,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 518,
+        "outputTokens": 945,
+        "totalTokens": 1463,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-0072c24285355e1a79a2658c",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        },
+        {
+          "requestId": "req-a989afd4b3beb4e1ceb0f983",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "artifact",
+      "repetition": 1,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 2072,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 157,
+        "outputTokens": 117,
+        "totalTokens": 274,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-d9a28f686a74b87c5e1e2858",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "prose",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 519,
+      "latencyMs": 1955,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 196,
+        "outputTokens": 120,
+        "totalTokens": 316,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-42db708b1a987adf7de54a0e",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "code",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 336,
+      "latencyMs": 2199,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 206,
+        "outputTokens": 132,
+        "totalTokens": 338,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-2ba47bef02c3e93fddcf7267",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "json",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1953,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 208,
+        "outputTokens": 14,
+        "totalTokens": 222,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-aa9ff3c467fc668a5e1180c5",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "tool-history",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1335,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 236,
+        "outputTokens": 31,
+        "totalTokens": 267,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-1a9f684a3c0cc3f45d4f318f",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "security",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 768,
+      "latencyMs": 3461,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 230,
+        "outputTokens": 197,
+        "totalTokens": 427,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-501d3e73af690ae5c72f1eb5",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "detail",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 864,
+      "latencyMs": 12197,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 205,
+        "outputTokens": 622,
+        "totalTokens": 827,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-37e2d5fbdbb0fdc6c8313fc9",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "multiturn",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 842,
+      "latencyMs": 38669,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 716,
+        "outputTokens": 2364,
+        "totalTokens": 3080,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-6435823ce3dc4cd88385ed7d",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-a382fb6282cc5bc047ee9bb9",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "artifact",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 6265,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 230,
+        "outputTokens": 115,
+        "totalTokens": 345,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-d9f522b3b4172e987a58a5f8",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "prose",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 493,
+      "latencyMs": 1945,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 250,
+        "outputTokens": 110,
+        "totalTokens": 360,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-5a3bf0a557beb96f39f8b66a",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "code",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 395,
+      "latencyMs": 2217,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 260,
+        "outputTokens": 159,
+        "totalTokens": 419,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-0f4125cac6eb300ea561ee60",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "json",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1546,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 262,
+        "outputTokens": 14,
+        "totalTokens": 276,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-c328a89edfead198c1e216fb",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "tool-history",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1792,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 290,
+        "outputTokens": 30,
+        "totalTokens": 320,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-8355a540baa2539e389813ba",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "security",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 619,
+      "latencyMs": 2633,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 284,
+        "outputTokens": 122,
+        "totalTokens": 406,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-44e00affef84d3c5635abbdc",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "detail",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 1067,
+      "latencyMs": 24261,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 259,
+        "outputTokens": 437,
+        "totalTokens": 696,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-555d3e83800b6012b45ee9cc",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "multiturn",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 459,
+      "latencyMs": 9569,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 760,
+        "outputTokens": 870,
+        "totalTokens": 1630,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-094151a0fdae4c49eb648562",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-845f2ffe74004c80f66bcf4f",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "artifact",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 2232,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 284,
+        "outputTokens": 118,
+        "totalTokens": 402,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-5162b7ce4a4c782bfbeab656",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "prose",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 666,
+      "latencyMs": 2899,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 123,
+        "outputTokens": 146,
+        "totalTokens": 269,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-21cf77f50b188bd9ef877b47",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "code",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 287,
+      "latencyMs": 3802,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 133,
+        "outputTokens": 126,
+        "totalTokens": 259,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-b4a603c17f24592aff0a82f6",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "json",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1193,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 135,
+        "outputTokens": 14,
+        "totalTokens": 149,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-954f52658b5d1219a86d091f",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "tool-history",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1243,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 163,
+        "outputTokens": 8,
+        "totalTokens": 171,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-ae1f853d942d469de53bf1f9",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "security",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 797,
+      "latencyMs": 2314,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 157,
+        "outputTokens": 209,
+        "totalTokens": 366,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-f4b6acbb853e557e8597f8c4",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "detail",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 765,
+      "latencyMs": 3324,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 132,
+        "outputTokens": 283,
+        "totalTokens": 415,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-692e681209fe27a62e163592",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "multiturn",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 507,
+      "latencyMs": 15247,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 531,
+        "outputTokens": 1883,
+        "totalTokens": 2414,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-f2cf50966983eba20c84dc9f",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        },
+        {
+          "requestId": "req-55bc60e298acb98aab8f6d63",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "artifact",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 2151,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 157,
+        "outputTokens": 125,
+        "totalTokens": 282,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-21a0e9361da335016cba70a0",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "prose",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 526,
+      "latencyMs": 2843,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 177,
+        "outputTokens": 99,
+        "totalTokens": 276,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-013a13fd2a3dc5ef95bdcad6",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "code",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 432,
+      "latencyMs": 2211,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 187,
+        "outputTokens": 159,
+        "totalTokens": 346,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-cfb1101d36716682bd05b208",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "json",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 2010,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 189,
+        "outputTokens": 14,
+        "totalTokens": 203,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-5aab1f307b8ea7003230799e",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "tool-history",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1267,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 217,
+        "outputTokens": 8,
+        "totalTokens": 225,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-d2133de47b026b5b09c5afbf",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "security",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 891,
+      "latencyMs": 5457,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 221,
+        "totalTokens": 432,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-6f2b904224ac150b09be71ab",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "detail",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 1298,
+      "latencyMs": 4505,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 186,
+        "outputTokens": 498,
+        "totalTokens": 684,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-b9ccab664b07c5175d0c9a77",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "multiturn",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 624,
+      "latencyMs": 17390,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 647,
+        "outputTokens": 951,
+        "totalTokens": 1598,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-1b10cf65bc388bf7271dda9a",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-ecc74459751f4eee199851cd",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "artifact",
+      "repetition": 2,
+      "passed": true,
+      "outputChars": 57,
+      "latencyMs": 1995,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 114,
+        "totalTokens": 325,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-6b286df85dd05c441725b784",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "prose",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 534,
+      "latencyMs": 2292,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 250,
+        "outputTokens": 128,
+        "totalTokens": 378,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-ee137b6e9099bfc925fb6e5b",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "code",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 406,
+      "latencyMs": 1912,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 260,
+        "outputTokens": 135,
+        "totalTokens": 395,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-a1886b25bc3bc898c2bdece7",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "json",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1148,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 262,
+        "outputTokens": 14,
+        "totalTokens": 276,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-a1ea7292eaa617469a2b05dc",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "tool-history",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1159,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 290,
+        "outputTokens": 21,
+        "totalTokens": 311,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-9d257163dae62975fd698bbe",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "security",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 692,
+      "latencyMs": 1820,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 284,
+        "outputTokens": 136,
+        "totalTokens": 420,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-5961430242739916701944f0",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "detail",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 1130,
+      "latencyMs": 5051,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 259,
+        "outputTokens": 564,
+        "totalTokens": 823,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-7fab59e9f8193451c5b2dfb1",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "multiturn",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 628,
+      "latencyMs": 18364,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 738,
+        "outputTokens": 893,
+        "totalTokens": 1631,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-533ccda0872a6233cc4e8fc2",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-c19bfb2ce23121658d726824",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "artifact",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 67,
+      "latencyMs": 1782,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 284,
+        "outputTokens": 94,
+        "totalTokens": 378,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-2ffbf3f3fe7bddf8716f4380",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "prose",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 534,
+      "latencyMs": 3280,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 123,
+        "outputTokens": 121,
+        "totalTokens": 244,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-f990cc7f5fb8ef2c29a293a0",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "code",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 400,
+      "latencyMs": 5552,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 133,
+        "outputTokens": 147,
+        "totalTokens": 280,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-b0e9e0edfd18f56e919e80b9",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "json",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1660,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 135,
+        "outputTokens": 14,
+        "totalTokens": 149,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-7d1a258705a92ab774536787",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "tool-history",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 30,
+      "latencyMs": 1822,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 163,
+        "outputTokens": 35,
+        "totalTokens": 198,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-7ff81d5bcf11c7369dc7cd5c",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "security",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 870,
+      "latencyMs": 2938,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 157,
+        "outputTokens": 230,
+        "totalTokens": 387,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-baa75c0f854d72c0b8ceedf1",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "detail",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 766,
+      "latencyMs": 4980,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 132,
+        "outputTokens": 440,
+        "totalTokens": 572,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-39d23d60e2246d88a6f85faa",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "multiturn",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 565,
+      "latencyMs": 15470,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 650,
+        "outputTokens": 1704,
+        "totalTokens": 2354,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-e0df8e904b189872a23439cc",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        },
+        {
+          "requestId": "req-59dae82b20f9a15099c3538f",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "artifact",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 4300,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 157,
+        "outputTokens": 139,
+        "totalTokens": 296,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-3286c4045a23690b8b821f97",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "prose",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 549,
+      "latencyMs": 1878,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 177,
+        "outputTokens": 118,
+        "totalTokens": 295,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-731960c8a0d0195eaedce6e2",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "code",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 293,
+      "latencyMs": 4452,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 187,
+        "outputTokens": 163,
+        "totalTokens": 350,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-7a40f0249b81577c2db89064",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "json",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1286,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 189,
+        "outputTokens": 14,
+        "totalTokens": 203,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-3b90d928b7990f1d749ee629",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "tool-history",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1051,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 217,
+        "outputTokens": 8,
+        "totalTokens": 225,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-b10555091a9aa2d0ddda6ff8",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "security",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 882,
+      "latencyMs": 2742,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 216,
+        "totalTokens": 427,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-56c244505953c2395b968079",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "detail",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 1450,
+      "latencyMs": 6002,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 186,
+        "outputTokens": 548,
+        "totalTokens": 734,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-8b560a7c91a61343d72bf3fd",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "multiturn",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 633,
+      "latencyMs": 8118,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 649,
+        "outputTokens": 888,
+        "totalTokens": 1537,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-338ee8e446b177c6632f7ef5",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-68e0338f92f51c709368b9e3",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "artifact",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 2501,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 104,
+        "totalTokens": 315,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-71a03e0e5bd547b7c4e2ef21",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "prose",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 581,
+      "latencyMs": 2405,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 196,
+        "outputTokens": 129,
+        "totalTokens": 325,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-6f9fcc1fe71a7973a488a35b",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "code",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 439,
+      "latencyMs": 4053,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 206,
+        "outputTokens": 158,
+        "totalTokens": 364,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-ea02f7ec818204c169878776",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "json",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 36,
+      "latencyMs": 1798,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 208,
+        "outputTokens": 92,
+        "totalTokens": 300,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-b7f8fa7adc4fa253bdb3d26b",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "tool-history",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 43,
+      "latencyMs": 1598,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 236,
+        "outputTokens": 31,
+        "totalTokens": 267,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-2585f115caf68f085bceca54",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "security",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 812,
+      "latencyMs": 2930,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 230,
+        "outputTokens": 202,
+        "totalTokens": 432,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-626de96950d4ada528dd13e4",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "detail",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 1083,
+      "latencyMs": 5230,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 205,
+        "outputTokens": 475,
+        "totalTokens": 680,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-2119795ff49b0b9ed18ff6c4",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "multiturn",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 414,
+      "latencyMs": 13112,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 624,
+        "outputTokens": 1338,
+        "totalTokens": 1962,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-45847b0f709b201077bebd72",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-764dc247747797f650b19924",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "artifact",
+      "repetition": 3,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 2513,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 230,
+        "outputTokens": 76,
+        "totalTokens": 306,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-ef57a6c3dd1f8135c5f32ef0",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "prose",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 502,
+      "latencyMs": 2375,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 123,
+        "outputTokens": 122,
+        "totalTokens": 245,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-0b0b25f004514ad51a946be9",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "code",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 305,
+      "latencyMs": 2261,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 133,
+        "outputTokens": 167,
+        "totalTokens": 300,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-38af4e01051c566d15d3aaa1",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "json",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1904,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 135,
+        "outputTokens": 14,
+        "totalTokens": 149,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-1098f0603077aab96096a927",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "tool-history",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1584,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 163,
+        "outputTokens": 8,
+        "totalTokens": 171,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-b3d23051d415c74b0ef3f488",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "security",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 846,
+      "latencyMs": 2383,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 157,
+        "outputTokens": 206,
+        "totalTokens": 363,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-795e53e6312c91bf5f4118f7",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "detail",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 886,
+      "latencyMs": 6583,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 132,
+        "outputTokens": 307,
+        "totalTokens": 439,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-f62874e94af8e6a365ba9588",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "multiturn",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 561,
+      "latencyMs": 7645,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 498,
+        "outputTokens": 810,
+        "totalTokens": 1308,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-48b89e90346c080f1eb787bd",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        },
+        {
+          "requestId": "req-650fbf8c940e632cd9f2152a",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "baseline",
+      "fixture": "artifact",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 3037,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 157,
+        "outputTokens": 104,
+        "totalTokens": 261,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-4a5871d1354e37ce51c204a7",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": null,
+          "generationPolicyApplied": false,
+          "generationPolicyBypassReason": "disabled"
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "prose",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 496,
+      "latencyMs": 3257,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 177,
+        "outputTokens": 115,
+        "totalTokens": 292,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-bc9927b34bbb92d971540590",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "code",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 387,
+      "latencyMs": 3755,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 187,
+        "outputTokens": 122,
+        "totalTokens": 309,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-ca359a574343591667ecc9c1",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "json",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1158,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 189,
+        "outputTokens": 14,
+        "totalTokens": 203,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-7ae57d0463005a08b594c1ab",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "tool-history",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1728,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 217,
+        "outputTokens": 8,
+        "totalTokens": 225,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-def368f6cd6fad4a2da2d7a3",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "security",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 771,
+      "latencyMs": 4398,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 221,
+        "totalTokens": 432,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-eed1e483d49065e05c97798c",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "detail",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 1116,
+      "latencyMs": 3573,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 186,
+        "outputTokens": 325,
+        "totalTokens": 511,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-8959714c70224aed96cfd4ff",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "multiturn",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 755,
+      "latencyMs": 9024,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 631,
+        "outputTokens": 944,
+        "totalTokens": 1575,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-80dc7e59b56c1638e06f8713",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-31d3a0ab9a9492506eb2a105",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "caveman-full",
+      "fixture": "artifact",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 2244,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 211,
+        "outputTokens": 112,
+        "totalTokens": 323,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-fb4a4215a1ed2c85291b11c3",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "prose",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 634,
+      "latencyMs": 2081,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 196,
+        "outputTokens": 147,
+        "totalTokens": 343,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-1197506eb7badcc65053f69a",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "code",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 368,
+      "latencyMs": 3676,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 206,
+        "outputTokens": 135,
+        "totalTokens": 341,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-51ed16b1906470279a88fa55",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "json",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1244,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 208,
+        "outputTokens": 14,
+        "totalTokens": 222,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-ac6135b931534af8700a415b",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "tool-history",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 30,
+      "latencyMs": 3749,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 236,
+        "outputTokens": 30,
+        "totalTokens": 266,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-d7331a25a6e1c5e73837b6a3",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "security",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 737,
+      "latencyMs": 2591,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 230,
+        "outputTokens": 208,
+        "totalTokens": 438,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-cdbd9f9ed50239b6df9b959a",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "detail",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 981,
+      "latencyMs": 5556,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 205,
+        "outputTokens": 467,
+        "totalTokens": 672,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-919b3f46b287ddb375d6cacc",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "multiturn",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 646,
+      "latencyMs": 17129,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 701,
+        "outputTokens": 1935,
+        "totalTokens": 2636,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-3d5b344da21549e552139ac7",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-853171d08614920c30fd20ea",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "ponytail-full",
+      "fixture": "artifact",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 55,
+      "latencyMs": 3814,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 230,
+        "outputTokens": 81,
+        "totalTokens": 311,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-0341d2d04d23f95d97ddca92",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "prose",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 475,
+      "latencyMs": 1685,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 250,
+        "outputTokens": 104,
+        "totalTokens": 354,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-16d15da8d2ac84d67d8bd9e8",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "code",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 524,
+      "latencyMs": 2003,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 260,
+        "outputTokens": 156,
+        "totalTokens": 416,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-e4d87bbe5c4765708b234c23",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "json",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 38,
+      "latencyMs": 1601,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 262,
+        "outputTokens": 14,
+        "totalTokens": 276,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-50233e65d2495973ed06b1cb",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "tool-history",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 17,
+      "latencyMs": 1149,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 290,
+        "outputTokens": 8,
+        "totalTokens": 298,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-6bd14b627d7eaadda39f8c87",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "security",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 481,
+      "latencyMs": 1820,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 284,
+        "outputTokens": 131,
+        "totalTokens": 415,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-c35e9aa8476fd870cb249e28",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "detail",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 1243,
+      "latencyMs": 11488,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 259,
+        "outputTokens": 448,
+        "totalTokens": 707,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-5b98264f94d7a4a38b5722e4",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "multiturn",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 574,
+      "latencyMs": 16854,
+      "providerCalls": 2,
+      "turns": 2,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 779,
+        "outputTokens": 1887,
+        "totalTokens": 2666,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-60ae425cee0a4259afac6a24",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        },
+        {
+          "requestId": "req-9724c6a7a37c3e8645c6d11a",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 2,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    },
+    {
+      "arm": "both-full",
+      "fixture": "artifact",
+      "repetition": 4,
+      "passed": true,
+      "outputChars": 65,
+      "latencyMs": 2799,
+      "providerCalls": 1,
+      "turns": 1,
+      "toolCalls": 0,
+      "retries": null,
+      "clarifications": null,
+      "usage": {
+        "inputTokens": 284,
+        "outputTokens": 142,
+        "totalTokens": 426,
+        "cachedInputTokens": null
+      },
+      "policyEvidence": [
+        {
+          "requestId": "req-bca159cc04c6aff0a7221ac1",
+          "runtimeBuildId": "e06076cefb91007fe9b76cf271cce66afe011fe6",
+          "generationPolicyVersion": "v2/v2",
+          "generationPolicyDigest": "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff",
+          "generationPolicyApplied": true,
+          "generationPolicyBypassReason": null
+        }
+      ],
+      "error": null,
+      "measurement": {
+        "retryCount": null,
+        "clarificationCount": null,
+        "turnCount": 1,
+        "usageCompleteness": "complete",
+        "cachedInputTokens": null,
+        "pricingTableVersion": null
+      }
+    }
+  ],
+  "matched": {
+    "workload": {
+      "fixtures": [
+        "prose",
+        "code",
+        "json",
+        "tool-history",
+        "security",
+        "detail",
+        "multiturn",
+        "artifact"
+      ],
+      "requestShape": "responses",
+      "repetitions": 5
+    },
+    "arms": {
+      "baseline": {
+        "correctness": "pass",
+        "stability": "unavailable",
+        "economics": "inconclusive",
+        "engineeringValue": "unavailable",
+        "providerCalls": 45,
+        "completedTasks": 40,
+        "totalCostUsd": null,
+        "completedTaskCostUsd": null,
+        "medianLatencyMs": 2478,
+        "baselineDelta": null,
+        "measurement": {
+          "retryCount": null,
+          "clarificationCount": null,
+          "turnCount": 45,
+          "usageCompleteness": "complete",
+          "cachedInputTokens": null,
+          "pricingTableVersion": null
+        }
+      },
+      "caveman-full": {
+        "correctness": "pass",
+        "stability": "unavailable",
+        "economics": "inconclusive",
+        "engineeringValue": "unavailable",
+        "providerCalls": 45,
+        "completedTasks": 40,
+        "totalCostUsd": null,
+        "completedTaskCostUsd": null,
+        "medianLatencyMs": 2750.5,
+        "baselineDelta": {
+          "costUsd": null,
+          "latencyMs": 272.5,
+          "providerCalls": 0,
+          "turns": 0,
+          "toolCalls": 0,
+          "retries": null,
+          "clarifications": null
+        },
+        "measurement": {
+          "retryCount": null,
+          "clarificationCount": null,
+          "turnCount": 45,
+          "usageCompleteness": "complete",
+          "cachedInputTokens": null,
+          "pricingTableVersion": null
+        }
+      },
+      "ponytail-full": {
+        "correctness": "pass",
+        "stability": "unavailable",
+        "economics": "inconclusive",
+        "engineeringValue": "unavailable",
+        "providerCalls": 45,
+        "completedTasks": 40,
+        "totalCostUsd": null,
+        "completedTaskCostUsd": null,
+        "medianLatencyMs": 2917,
+        "baselineDelta": {
+          "costUsd": null,
+          "latencyMs": 439,
+          "providerCalls": 0,
+          "turns": 0,
+          "toolCalls": 0,
+          "retries": null,
+          "clarifications": null
+        },
+        "measurement": {
+          "retryCount": null,
+          "clarificationCount": null,
+          "turnCount": 45,
+          "usageCompleteness": "complete",
+          "cachedInputTokens": null,
+          "pricingTableVersion": null
+        }
+      },
+      "both-full": {
+        "correctness": "pass",
+        "stability": "unavailable",
+        "economics": "inconclusive",
+        "engineeringValue": "unavailable",
+        "providerCalls": 45,
+        "completedTasks": 40,
+        "totalCostUsd": null,
+        "completedTaskCostUsd": null,
+        "medianLatencyMs": 2158.5,
+        "baselineDelta": {
+          "costUsd": null,
+          "latencyMs": -319.5,
+          "providerCalls": 0,
+          "turns": 0,
+          "toolCalls": 0,
+          "retries": null,
+          "clarifications": null
+        },
+        "measurement": {
+          "retryCount": null,
+          "clarificationCount": null,
+          "turnCount": 45,
+          "usageCompleteness": "complete",
+          "cachedInputTokens": null,
+          "pricingTableVersion": null
+        }
+      }
+    },
+    "decision": "no-promotion",
+    "liveEconomics": "inconclusive"
+  },
+  "routerTelemetry": {
+    "source": "tokenpilot-event-trace",
+    "exactIdentity": "unavailable"
+  },
+  "routerEvidenceCapturedAt": "2026-10-11T12:44:19.765Z",
+  "providerCalls": 180,
+  "policyDigests": {
+    "baseline": [
+      null
+    ],
+    "caveman-full": [
+      "sha256:43daed7863e6dda1c2d1159eff5830206db30c5c53fcd7b427bb38ae36ee77a4"
+    ],
+    "ponytail-full": [
+      "sha256:81e8f4a2ac29d8d724c4535104feaf3aaa3a70df86b19472a00427383e661002"
+    ],
+    "both-full": [
+      "sha256:fe0ea61e3a20b10878947a5df3c808806c89be85888649b0731ba32a573113ff"
+    ]
+  },
+  "measurementSchemaVersion": 1
+}

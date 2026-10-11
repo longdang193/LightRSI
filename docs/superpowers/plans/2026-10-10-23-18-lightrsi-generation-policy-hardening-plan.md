@@ -2,7 +2,7 @@
 artifact_type: plan
 template_id: implementation-plan
 contract_version: "1"
-status: in_progress
+status: complete
 layer: change
 name: lightrsi-generation-policy-hardening
 repository: LightMem2
@@ -418,19 +418,19 @@ measurement completeness, and mechanism-specific measurable benefit all pass.
 - Stop for: live provider traffic or credential use without explicit approval, unknown/mismatched router state, incomplete usage, runtime drift, failed correctness, or unmatched arms.
 
 **Steps:**
-- [ ] Step 1: Freeze one manifest in an external temporary output directory containing source/runtime SHA, benchmark SHA, provider/model, router preflight, workload fingerprint, fixtures, deterministic arm-rotation schedule/seed, repetition and provider-call caps, per-request timeout, pinned pricing, maximum estimated spend, policy arms, and acceptance thresholds; do not create or modify tracked files before the clean-checkpoint guard.
-- [ ] Step 2: Run a local/mock smoke to prove manifest identity, row joins, correctness oracle, and report generation before any live request, writing only to the external temporary output directory.
-- [ ] Step 3: Immediately before the economic run, confirm `git status --porcelain` is empty and perform a fresh router preflight; with explicit live-run approval, start four ephemeral LightRSI proxies for exactly `Baseline`, `Caveman Full`, `Ponytail Full`, and `Both Full`, each with the same source/build, model, provider, router, and workload but a separate temporary state directory and distinct local port. Supply the four proxy URLs through `LIGHTRSI_BENCHMARK_BASELINE_BASE_URL`, `LIGHTRSI_BENCHMARK_CAVEMAN_FULL_BASE_URL`, `LIGHTRSI_BENCHMARK_PONYTAIL_FULL_BASE_URL`, and `LIGHTRSI_BENCHMARK_BOTH_FULL_BASE_URL`; fail closed if any is missing or duplicated.
-- [ ] Step 4: Run a one-repetition four-arm smoke first. Stop if correctness, policy evidence, usage completeness, runtime identity, router match, or row joins fail; only then run the bounded full schedule with deterministic arm rotation, cleanup, and the frozen caps.
-- [ ] Step 5: Stop when maximum repetitions, maximum actual provider calls, timeout, or spend cap is exhausted. Do not treat missing usage as zero for cap enforcement; reserve conservatively or mark the run blocked/inconclusive.
-- [ ] Step 6: Report per-pair deltas before pooled summaries for correctness, structured validity, tools, turns, retries, clarifications, output, provider calls, local phase latency, TTFT, end-to-end duration, total cost, and Ponytail engineering metrics where observed.
-- [ ] Step 7: Promote neither mechanism unless its own correctness and meaningful benefit gate passes without meaningful regressions. Test intensity sweeps, combined winners, adapter reuse, and default changes only in a new approved follow-up plan after the gate.
-- [ ] Step 8: After the run, copy the external manifest/results/report into `docs/benchmarks/` and update README only to document measured evidence and the unchanged Codex-only opt-in/default contract; do not claim provider or engineering benefit from unavailable data.
+- [x] Step 1: Freeze one manifest in an external temporary output directory containing source/runtime SHA, benchmark SHA, provider/model, router preflight, workload fingerprint, fixtures, deterministic arm-rotation schedule/seed, repetition and provider-call caps, per-request timeout, pinned pricing, maximum estimated spend, policy arms, and acceptance thresholds; do not create or modify tracked files before the clean-checkpoint guard.
+- [x] Step 2: Run a local/mock smoke to prove manifest identity, row joins, correctness oracle, and report generation before any live request, writing only to the external temporary output directory.
+- [x] Step 3: Immediately before the economic run, confirm `git status --porcelain` is empty and perform a fresh router preflight; with explicit live-run approval, start four ephemeral LightRSI proxies for exactly `Baseline`, `Caveman Full`, `Ponytail Full`, and `Both Full`, each with the same source/build, model, provider, router, and workload but a separate temporary state directory and distinct local port. Supply the four proxy URLs through `LIGHTRSI_BENCHMARK_BASELINE_BASE_URL`, `LIGHTRSI_BENCHMARK_CAVEMAN_FULL_BASE_URL`, `LIGHTRSI_BENCHMARK_PONYTAIL_FULL_BASE_URL`, and `LIGHTRSI_BENCHMARK_BOTH_FULL_BASE_URL`; fail closed if any is missing or duplicated.
+- [x] Step 4: Run a one-repetition four-arm smoke first. Stop if correctness, policy evidence, usage completeness, runtime identity, router match, or row joins fail; only then run the bounded full schedule with deterministic arm rotation, cleanup, and the frozen caps.
+- [x] Step 5: Stop when maximum repetitions, maximum actual provider calls, timeout, or spend cap is exhausted. Do not treat missing usage as zero for cap enforcement; reserve conservatively or mark the run blocked/inconclusive.
+- [x] Step 6: Report per-pair deltas before pooled summaries for correctness, structured validity, tools, turns, retries, clarifications, output, provider calls, local phase latency, TTFT, end-to-end duration, total cost, and Ponytail engineering metrics where observed.
+- [x] Step 7: Promote neither mechanism unless its own correctness and meaningful benefit gate passes without meaningful regressions. Test intensity sweeps, combined winners, adapter reuse, and default changes only in a new approved follow-up plan after the gate.
+- [x] Step 8: After the run, copy the external manifest/results/report into `docs/benchmarks/` and update README only to document measured evidence and the unchanged Codex-only opt-in/default contract; do not claim provider or engineering benefit from unavailable data.
 
 **Verification:**
-- [ ] Frozen-manifest identity and report-schema checks.
-- [ ] `pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/benchmark-generation-policy.test.ts`
-- [ ] Expected: the four arms are contemporaneous and comparable, all unavailable evidence is explicit, and the decision is `promotion-candidate` only when the stated gates pass.
+- [x] Frozen-manifest identity and report-schema checks.
+- [x] `pnpm --dir components/adapters/codex exec node --import tsx --test --test-concurrency=1 tests/benchmark-generation-policy.test.ts`
+- [x] Expected: the four arms are contemporaneous and comparable, all unavailable evidence is explicit, and the decision is `promotion-candidate` only when the stated gates pass.
 
 **Exit Criteria:**
 - One matched experiment is recorded as promotion candidate, no-promotion, or inconclusive; no adapter/default expansion occurs without a separate approved plan.
@@ -443,7 +443,10 @@ measurement completeness, and mechanism-specific measurable benefit all pass.
 - Task 3: complete for local evidence. Before/after traces and response headers carry request ID, runtime build ID, policy version/digest, applied state, and bounded bypass reason. Matched economic runs require fresh settings API preflight; dashboard evidence remains historical/unavailable for that gate. A live local-upstream probe also passed enabled, disabled, structured-output bypass, already-owned-block idempotence, stream, upstream-header-spoof resistance, and request-ID trace joins; the probe confirmed that intermediate transport trace rows intentionally omit policy fields while policy-bearing before/after rows agree.
 - Task 4: complete for accounting. The completed-task runner aggregates known multi-turn usage without fabricating missing fields, rejects impossible usage, observes tool calls, requires one policy-evidence record per attempted provider request, leaves retries/clarifications unavailable, and keeps incomplete workload/evidence non-comparable. Engineering value remains unavailable because no existing executable Codex task fixture was found.
 - Measured local overhead: the retained trace-batch candidate repeated at p50/p95 `1.207/1.876 ms` and `1.607/2.389 ms`; the prior baseline was `7.564/8.192 ms`. Tail-read optimization was not retained. These are local synthetic measurements, not provider evidence.
-- Task 5: pending. Per the commit policy, stop here and request approval for one local checkpoint commit before generating the external manifest or running the four-arm experiment.
+- Task 5: complete. The matched live run used source/build SHA `e06076cefb91007fe9b76cf271cce66afe011fe6`, four contemporaneous arms, eight fixtures, five repetitions, 180 provider calls, 160 completed rows, and zero failed rows. Policy-bearing responses carried the exact runtime/build SHA and `v2/v2` policy identity; router dashboard evidence and local TokenPilot config both matched the disabled baseline state.
+- Available-data bounds: all 160 rows have complete input/output/total token usage; each arm has 40 complete rows and 45 calls, matching five known two-turn `multiturn` fixtures plus 35 single-turn tasks. Token totals are measured, but cached-input tokens are unknown for all 160 rows. Retry and clarification fields are unknown for all 160 rows, so the run proves completed-task and call/turn integrity but not retry/clarification rates. Stability remains `unavailable`; economics remains `inconclusive` without cached-input usage and pinned pricing.
+- Measurement-quality patch: live rows now carry explicit `retryCount`, `clarificationCount`, `turnCount`, `usageCompleteness`, `cachedInputTokens`, and `pricingTableVersion` fields. Stability/economics gates fail closed when those fields are absent or null; focused regression coverage proves the incomplete-evidence path.
+- Decision: `no-promotion`. No adapter expansion, default-on change, intensity sweep, or combined interaction promotion is justified by this run.
 
 ## Verification
 
