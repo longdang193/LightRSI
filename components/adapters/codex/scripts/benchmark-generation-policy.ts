@@ -722,7 +722,7 @@ function stageAFixturePrompt(fixture: StageAFixture): string {
   }
 }
 
-function validateStageAFixtureOutput(fixture: StageAFixture, output: string): boolean {
+export function validateStageAFixtureOutput(fixture: StageAFixture, output: string): boolean {
   const normalized = output.toLowerCase();
   switch (fixture) {
     case "prose":
@@ -746,8 +746,12 @@ function validateStageAFixtureOutput(fixture: StageAFixture, output: string): bo
         && normalized.includes("test");
     case "multiturn":
       return validateMultiTurnFixtureOutput(output);
-    case "artifact":
-      return output.startsWith("--- artifact.md ---") && output.includes("# Validation Plan") && normalized.includes("test");
+    case "artifact": {
+      const commandBlock = /```(?:[\w-]+)?\s+([\s\S]*?)```/u.exec(output)?.[1] ?? "";
+      return output.startsWith("--- artifact.md ---")
+        && output.includes("# Validation Plan")
+        && /\b(?:test|grep|pytest|python|pnpm|npm|cargo|go|make|git)\b/u.test(commandBlock.toLowerCase());
+    }
   }
 }
 

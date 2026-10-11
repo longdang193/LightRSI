@@ -30,6 +30,7 @@ import {
   runGenerationPolicyStageB,
   summarizeMatchedStageAArm,
   shouldUseRouterSettingsEvidenceFallback,
+  validateStageAFixtureOutput,
   validateSecurityFixtureOutput,
   validateMultiTurnFixtureOutput,
 } from "../scripts/benchmark-generation-policy.ts";
@@ -83,6 +84,17 @@ test("security fixture requires the exact warning prefix", () => {
   assert.equal(validateSecurityFixtureOutput("Security warning: You must not **validate against an allowlist**; you must not **confine the path to the intended directory**; do not execute untrusted files."), false);
   assert.equal(validateSecurityFixtureOutput("Security warning: validate against an allowlist; confine the path to the intended directory; do not execute validation; execute untrusted files."), false);
   assert.equal(validateSecurityFixtureOutput("Warning: validate paths before use."), false);
+});
+
+test("artifact fixture accepts a valid grep-only verification command", () => {
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n\n```sh\ngrep -q '^# Validation Plan$' artifact.md\n```",
+  ), true);
+  assert.equal(validateStageAFixtureOutput(
+    "artifact",
+    "--- artifact.md ---\n# Validation Plan\n\n```sh\ngit diff --check\n```",
+  ), true);
 });
 
 test("live repair instructions preserve independent arm composition", () => {
