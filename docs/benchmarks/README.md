@@ -55,7 +55,11 @@ must use `source: "9router_dashboard"`, the matching `routerUrl`, HTTP `status:
 
 Required live inputs include `LIGHTRSI_BENCHMARK_BASE_URL`,
 `LIGHTRSI_BENCHMARK_ROUTER_URL`, `LIGHTRSI_BENCHMARK_MODEL`,
-`OPENAI_API_KEY`, and `LIGHTRSI_BENCHMARK_<ARM>_BASE_URL` for every arm.
+`OPENAI_API_KEY`, `LIGHTRSI_BUILD_ID`, and
+`LIGHTRSI_BENCHMARK_<ARM>_BASE_URL` for every arm. Set
+`LIGHTRSI_BUILD_ID` to the committed source SHA used by the run. If it is
+missing, the adapter reports `runtimeBuildId: "unavailable"` and the identity
+gate correctly fails closed; do not treat that as a provider or policy defect.
 Pricing is optional for execution but required before claiming provider-dollar
 economics; configure the input, cached-input, output rates, and a pricing table
 version through the `LIGHTRSI_BENCHMARK_*_USD_PER_MILLION` variables and
@@ -83,9 +87,21 @@ The current Luna addendum demonstrates this reconciliation in
 records matched the experiment window, prompt/completion totals matched the
 benchmark rows, and cached input was present with a measured total of zero.
 
+The corrected build-identity run is preserved in
+`2026-10-12-generation-policy-stage-a-luna-router-evidence.json` with its
+human-readable verdict in `2026-10-12-generation-policy-stage-a-luna-report.md`.
+
 Router reconciliation is window- and model-based unless an immutable
 request-level join key is available. It is comparative run evidence, not an
 external provider invoice or account settlement.
+
+When reconciling a matched result, join each `policyEvidence[].requestId` to
+one router record, then group those records back to the benchmark row before
+comparing usage. A multi-turn benchmark row has one aggregate `usage` object
+but two provider-call evidence records; comparing the row aggregate to either
+single call creates a false token mismatch. The row-level comparison must sum
+all joined router records for that row, while the request-level checks must
+still require one unique immutable `routerRecordId` per provider attempt.
 
 ## Economic calculations
 

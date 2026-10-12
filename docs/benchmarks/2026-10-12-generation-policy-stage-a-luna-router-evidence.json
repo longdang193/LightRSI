@@ -1,0 +1,111 @@
+{
+  "experiment": "lightrsi-generation-policy-stage-a-matched",
+  "sourceSha": "300e1c22655b7b05af2a8b99f33241c67b164885",
+  "model": "cx/gpt-5.6-luna",
+  "routerModel": "gpt-5.6-luna",
+  "routerProvider": "codex",
+  "routerEvidence": {
+    "database": "9router/db/data.sqlite",
+    "usageTable": "usageHistory",
+    "requestDetailsTable": "requestDetails",
+    "windowStart": "2026-10-12T07:56:15.684Z",
+    "windowEnd": "2026-10-12T08:05:34.561Z",
+    "usageRows": 180,
+    "requestDetailsRows": 180,
+    "status": "ok",
+    "modelMatches": true,
+    "providerMatches": true,
+    "requestLevelJoin": {
+      "requestedRequestIds": 180,
+      "usageMatches": 180,
+      "requestDetailsMatches": 180,
+      "missingUsage": 0,
+      "missingRequestDetails": 0,
+      "duplicateRequestIds": 0,
+      "duplicateUsageRows": 0,
+      "duplicateRequestDetailsRows": 0,
+      "immutableRouterRecordIds": 180,
+      "uniqueRouterRecordIds": 180,
+      "identifierConflicts": 0
+    },
+    "rowAggregation": {
+      "benchmarkRows": 160,
+      "providerCalls": 180,
+      "multiTurnRowsAggregatedAcrossCalls": true,
+      "rowTokenMismatches": 0,
+      "promptAndCompletionTotalsMatch": true
+    },
+    "cachedInputTokens": {
+      "rowsWithValue": 180,
+      "sum": 0,
+      "allValuesAreZero": true
+    },
+    "costSource": "9Router usageHistory.cost",
+    "invoiceStatus": "not_an_invoice"
+  },
+  "arms": {
+    "baseline": {
+      "rows": 40,
+      "providerCalls": 45,
+      "inputTokens": 7682,
+      "outputTokens": 6089,
+      "totalTokens": 13771,
+      "cachedInputTokens": 0,
+      "routerRecordedCostUsd": 0.044216,
+      "uniqueRouterRecordIds": 45
+    },
+    "caveman-full": {
+      "rows": 40,
+      "providerCalls": 45,
+      "inputTokens": 10161,
+      "outputTokens": 6072,
+      "totalTokens": 16233,
+      "cachedInputTokens": 0,
+      "routerRecordedCostUsd": 0.046593,
+      "uniqueRouterRecordIds": 45
+    },
+    "ponytail-full": {
+      "rows": 40,
+      "providerCalls": 45,
+      "inputTokens": 10731,
+      "outputTokens": 5834,
+      "totalTokens": 16565,
+      "cachedInputTokens": 0,
+      "routerRecordedCostUsd": 0.045735,
+      "uniqueRouterRecordIds": 45
+    },
+    "both-full": {
+      "rows": 40,
+      "providerCalls": 45,
+      "inputTokens": 13348,
+      "outputTokens": 6271,
+      "totalTokens": 19619,
+      "cachedInputTokens": 0,
+      "routerRecordedCostUsd": 0.050974,
+      "uniqueRouterRecordIds": 45
+    }
+  },
+  "baselineDeltas": {
+    "caveman-full": {
+      "routerRecordedCostUsd": 0.002377,
+      "routerRecordedCostPercent": 5.3759,
+      "totalTokens": 2462
+    },
+    "ponytail-full": {
+      "routerRecordedCostUsd": 0.001519,
+      "routerRecordedCostPercent": 3.4354,
+      "totalTokens": 2794
+    },
+    "both-full": {
+      "routerRecordedCostUsd": 0.006758,
+      "routerRecordedCostPercent": 15.2841,
+      "totalTokens": 5848
+    }
+  },
+  "interpretation": {
+    "economics": "comparative-cost-signal-fail",
+    "decision": "no-promotion",
+    "reason": "All policy arms have higher router-recorded cost than baseline; cached input is observed as zero, not missing.",
+    "caveat": "Router-recorded cost proves comparative run economics, not an external provider invoice or exact provider-dollar settlement."
+  }
+}
