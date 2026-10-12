@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdir, rename, stat } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   appendJsonl,
+  appendJsonlLines,
   normalizeCacheUsageEvidence,
   readCachedInputTokens,
   readCacheWriteTokens,
@@ -25,8 +26,6 @@ import type { CacheAuditStructuralCandidate } from "./cache-audit-diagnosis.js";
 export type CacheAuditBaselineKind = "identity" | "request_key" | "session" | "none";
 
 export const DEFAULT_CACHE_AUDIT_ROTATE_BYTES = 32 * 1024 * 1024;
-// shortcut: inspect the newest 256 records, increase when session records can be delayed beyond this window.
-const MAX_CACHE_AUDIT_SESSION_FALLBACK_RECORDS = 256;
 
 export type CacheFrontierAggregate = {
   status: "matched" | "unmatched" | "unknown" | "none";
@@ -325,21 +324,64 @@ export async function readRecentCacheAuditRecordsForSessionWithStatus<T extends 
 ): Promise<DiagnosticJsonlReadResult<T>> {
   const target = String(sessionId ?? "").trim();
   if (!target) return { entries: [], truncatedTail: false };
+  const sessionPath = cacheAuditSessionPath(stateDir, target);
   const sessionRecords = await readRecentJsonlEntriesDiagnostic<T>(
-    cacheAuditSessionPath(stateDir, target),
+    sessionPath,
     Math.max(1, limit),
     (value): value is T => isCacheAuditRecord(value),
   );
   if (sessionRecords.entries.length > 0 || sessionRecords.truncatedTail) return sessionRecords;
-  const records = await readRecentJsonlEntriesDiagnostic<T>(
-    cacheAuditPath(stateDir),
-    MAX_CACHE_AUDIT_SESSION_FALLBACK_RECORDS,
-    (value): value is T => isCacheAuditRecord(value),
-  );
-  return {
-    entries: records.entries.filter((record) => record.sessionId === target).slice(0, Math.max(1, limit)),
-    truncatedTail: records.truncatedTail,
-  };
+  return withAuditFileLock(sessionPath, async () => {
+    try {
+      await stat(sessionPath);
+      return readRecentJsonlEntriesDiagnostic<T>(
+        sessionPath,
+        Math.max(1, limit),
+        (value): value is T => isCacheAuditRecord(value),
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+
+    let raw: string;
+    try {
+      raw = await readFile(cacheAuditPath(stateDir), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") raw = "";
+      else throw error;
+    }
+
+    const legacyRecords: T[] = [];
+    let truncatedTail = false;
+    const lines = raw.split(/\r?\n/).filter(Boolean);
+    for (let index = 0; index < lines.length; index += 1) {
+      try {
+        const value = JSON.parse(lines[index]!) as unknown;
+        if (isCacheAuditRecord(value)) legacyRecords.push(value as T);
+      } catch {
+        if (index === lines.length - 1) {
+          truncatedTail = true;
+          continue;
+        }
+        return { entries: [], truncatedTail: false };
+      }
+    }
+
+    const matches = legacyRecords.filter((record) => record.sessionId === target);
+    const recentMatches = matches.slice(-Math.max(1, limit)).reverse();
+    if (truncatedTail) return { entries: recentMatches, truncatedTail: true };
+
+    await mkdir(join(stateDir, "cache-audit-sessions"), { recursive: true });
+    if (matches.length > 0) {
+      await appendJsonlLines(
+        sessionPath,
+        matches.map((record) => `${JSON.stringify(record)}\n`),
+      );
+    } else {
+      await writeFile(sessionPath, "", "utf8");
+    }
+    return { entries: recentMatches, truncatedTail: false };
+  });
 }
 
 export function summarizeCacheAudit<T extends CacheAuditRecord>(

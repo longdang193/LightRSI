@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -218,7 +218,7 @@ test("appendCacheAuditRecord stores per-session records and keeps same-key basel
   }
 });
 
-test("session fallback does not scan unbounded global audit history", async () => {
+test("session fallback migrates legacy records beyond the bounded read window", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-cache-audit-fallback-"));
   try {
     const target = envelope({
@@ -260,10 +260,97 @@ test("session fallback does not scan unbounded global audit history", async () =
       });
     }
 
+    const concurrentReads = await Promise.all(
+      Array.from({ length: 8 }, () => readRecentCacheAuditRecordsForSession(stateDir, target.sessionId, 1)),
+    );
+    for (const records of concurrentReads) {
+      assert.equal(records.length, 1);
+      assert.equal(records[0]?.sessionId, target.sessionId);
+    }
+
+    await rm(join(stateDir, "cache-audit.jsonl"), { force: true });
+    assert.equal((await readRecentCacheAuditRecordsForSession(stateDir, target.sessionId, 1)).length, 1);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("session fallback does not mark a malformed legacy tail as migrated", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-cache-audit-fallback-tail-"));
+  const request = envelope({
+    sessionId: "sess-fallback-tail",
+    requestPromptCacheKey: "pk-fallback-tail",
+    instructions: "Target record",
+  });
+  const sessionPath = join(
+    stateDir,
+    "cache-audit-sessions",
+    `${encodeURIComponent(request.sessionId)}.jsonl`,
+  );
+  try {
+    await appendCacheAuditRecord({
+      stateDir,
+      snapshot: buildCacheAuditSnapshot({
+        envelope: request.envelope,
+        sessionId: request.sessionId,
+        model: "gpt-5.4",
+        stream: false,
+        requestPromptCacheKey: request.requestPromptCacheKey,
+      }),
+      responsePromptCacheKey: request.requestPromptCacheKey,
+      usage: { input_tokens: 100, input_tokens_details: { cached_tokens: 0 } },
+      status: 200,
+    });
+    await rm(sessionPath, { force: true });
+    await appendFile(join(stateDir, "cache-audit.jsonl"), "{partial", "utf8");
+
+    const diagnostic = await readRecentCacheAuditRecordsForSessionWithStatus(
+      stateDir,
+      request.sessionId,
+      1,
+    );
+    assert.equal(diagnostic.entries.length, 1);
+    assert.equal(diagnostic.truncatedTail, true);
+    await assert.rejects(stat(sessionPath), (error: unknown) => (
+      error && typeof error === "object" && "code" in error && error.code === "ENOENT"
+    ));
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("session fallback writes an empty marker when legacy history has no match", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "tokenpilot-cache-audit-fallback-empty-"));
+  const legacy = envelope({
+    sessionId: "sess-fallback-other",
+    requestPromptCacheKey: "pk-fallback-other",
+    instructions: "Other record",
+  });
+  const sessionPath = join(
+    stateDir,
+    "cache-audit-sessions",
+    `${encodeURIComponent("sess-fallback-empty")}.jsonl`,
+  );
+  try {
+    await appendCacheAuditRecord({
+      stateDir,
+      snapshot: buildCacheAuditSnapshot({
+        envelope: legacy.envelope,
+        sessionId: legacy.sessionId,
+        model: "gpt-5.4",
+        stream: false,
+        requestPromptCacheKey: legacy.requestPromptCacheKey,
+      }),
+      responsePromptCacheKey: legacy.requestPromptCacheKey,
+      usage: { input_tokens: 100, input_tokens_details: { cached_tokens: 0 } },
+      status: 200,
+    });
+
     assert.deepEqual(
-      await readRecentCacheAuditRecordsForSession(stateDir, target.sessionId, 1),
+      await readRecentCacheAuditRecordsForSession(stateDir, "sess-fallback-empty", 1),
       [],
     );
+    assert.equal(await readFile(sessionPath, "utf8"), "");
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

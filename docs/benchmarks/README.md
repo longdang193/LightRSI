@@ -267,3 +267,14 @@ Codex tests. The six-mode contention benchmark completed 300/300 measured
 batches with zero failures. Independent-session p95 remained comparable to
 same-session p95, so the conservative global lock remains the selected design.
 
+## Cache-audit history durability
+
+Per-session cache-audit JSONL files are the canonical read path. When an older
+installation has no per-session file, the first read performs a full migration
+from the legacy `cache-audit.jsonl` file instead of relying on a fixed tail
+window. Matching records are written chronologically to the session file, and
+an empty session file records that migration found no history so later reads do
+not rescan the global file. A malformed global tail is returned with its
+diagnostic flag but is not marked as migrated, allowing a later repair to retry
+without silently losing records needed for baseline classification.
+
