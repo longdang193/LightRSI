@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
+import fs, { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { TextDecoder } from "node:util";
@@ -493,7 +493,6 @@ export async function appendCodexContextHistoryJournalEntriesLockedValidated(
   payloads: readonly unknown[],
   current: CodexContextHistoryJournalReadResult,
 ): Promise<void> {
-  if (payloads.length === 0) return;
   const path = codexContextHistoryJournalPath(stateDir, sessionId);
   await mkdir(dirname(path), { recursive: true });
   if (current.oversized) {
@@ -501,9 +500,11 @@ export async function appendCodexContextHistoryJournalEntriesLockedValidated(
   } else if (current.readError || current.malformedLineCount > 0) {
     throw new Error(`Refusing to append to invalid Codex context-history journal for session ${sessionId}`);
   }
-  const handle = await open(path, "a");
+  const handle = await fs.open(path, "a");
   try {
-    await handle.appendFile(payloads.map((payload) => `${JSON.stringify(payload)}\n`).join(""), "utf8");
+    if (payloads.length > 0) {
+      await handle.appendFile(payloads.map((payload) => `${JSON.stringify(payload)}\n`).join(""), "utf8");
+    }
     await handle.sync();
   } finally {
     await handle.close();

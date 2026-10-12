@@ -238,10 +238,11 @@ export async function appendCodexContextHistoryJournalCompletion(params: {
       } else if (journal.readError || journal.malformedLineCount > 0) {
         throw new Error(`Refusing to update invalid Codex context-history journal for session ${request.sessionId}`);
       }
-      const existingRequest = latestRequestEntry(journal.entries, request.requestId ?? requestIdFromPayload(request));
+      const resolvedRequestId = request.requestId ?? requestIdFromPayload(request);
+      const existingRequest = latestRequestEntry(journal.entries, resolvedRequestId);
       const responseEntry = buildCodexResponseJournalEntry({
         ...response,
-        requestId: response.requestId ?? request.requestId,
+        requestId: response.requestId ?? resolvedRequestId,
       });
       const recoveredResponses = responseEntriesForRequest(journal.entries, responseEntry.requestId ?? "");
       const recoveredResponse = recoveredResponses.find((entry) => (
@@ -262,7 +263,6 @@ export async function appendCodexContextHistoryJournalCompletion(params: {
       const entriesToAppend = recoveredResponse
         ? (requestNeedsAppend ? [requestEntry] : [])
         : requestNeedsAppend ? [effectiveResponse, requestEntry] : [effectiveResponse];
-      if (entriesToAppend.length === 0) return { request: requestEntry, response: responseEntry };
       await appendCodexContextHistoryJournalEntriesLockedValidated(
         request.stateDir,
         request.sessionId,
