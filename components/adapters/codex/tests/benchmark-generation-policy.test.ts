@@ -18,6 +18,7 @@ import {
   buildMockStageBReport,
   buildMockGenerationPolicyReport,
   captureFailedOutput,
+  readBenchmarkRepetitions,
   compareMatchedStageA,
   parseMatchedStageAPricing,
   parseResponseMeasurementTelemetry,
@@ -41,6 +42,17 @@ import {
 } from "../scripts/benchmark-generation-policy.ts";
 
 const execFileAsync = promisify(execFile);
+
+test("live repair reads the configured repetition count", () => {
+  const previous = process.env.LIGHTRSI_BENCHMARK_REPETITIONS;
+  try {
+    process.env.LIGHTRSI_BENCHMARK_REPETITIONS = "1";
+    assert.equal(readBenchmarkRepetitions(5), 1);
+  } finally {
+    if (previous === undefined) delete process.env.LIGHTRSI_BENCHMARK_REPETITIONS;
+    else process.env.LIGHTRSI_BENCHMARK_REPETITIONS = previous;
+  }
+});
 
 function matchedRow(fixture: StageAFixture, repetition: number, arm: StageAArm = "baseline") {
   return {

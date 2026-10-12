@@ -67,6 +67,10 @@ function argumentValue(name: string, fallback: number): number {
   return value;
 }
 
+export function readBenchmarkRepetitions(defaultValue: number): number {
+  return Number(process.env.LIGHTRSI_BENCHMARK_REPETITIONS ?? defaultValue);
+}
+
 function summarizeMilliseconds(values: number[]): { p50Ms: number; p95Ms: number } {
   const sorted = [...values].sort((left, right) => left - right);
   const percentile = (rank: number) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * rank))];
@@ -1586,6 +1590,7 @@ async function main(): Promise<void> {
       routerUrl,
       apiKey,
       model,
+      repetitions: readBenchmarkRepetitions(5),
       routerSettingsEvidencePath: process.env.LIGHTRSI_BENCHMARK_ROUTER_SETTINGS_EVIDENCE?.trim(),
       tokenPilotConfigPath: process.env.LIGHTRSI_BENCHMARK_TOKENPILOT_CONFIG?.trim() || defaultTokenPilotConfigPath(),
     });

@@ -43,6 +43,16 @@ each Stage A arm:
 pnpm --filter @lightrsi/codex-adapter run bench:generation-policy -- --matched-live
 ```
 
+For the smaller authenticated attribution repair gate, use `--live-repair`.
+It exercises the security and multi-turn paths for each Stage A arm without
+claiming economics. Set `LIGHTRSI_BENCHMARK_REPETITIONS=1` when checking the
+router join; the default is five repetitions (60 provider calls), while one
+repetition produces 12 calls. The live-repair command also accepts a fresh
+sanitized `LIGHTRSI_BENCHMARK_ROUTER_SETTINGS_EVIDENCE` file when the dashboard
+session can read `/api/settings` but the provider API key cannot. The evidence
+must use `source: "9router_dashboard"`, the matching `routerUrl`, HTTP `status:
+200`, both policy flags set to `false`, and be no more than five minutes old.
+
 Required live inputs include `LIGHTRSI_BENCHMARK_BASE_URL`,
 `LIGHTRSI_BENCHMARK_ROUTER_URL`, `LIGHTRSI_BENCHMARK_MODEL`,
 `OPENAI_API_KEY`, and `LIGHTRSI_BENCHMARK_<ARM>_BASE_URL` for every arm.
@@ -205,15 +215,26 @@ three failures were the known fallback-driver/test-harness mismatch
 database cleanup), not evidence against the attribution contract. The rebased
 overlay carries the fixture and fallback-driver corrections for clean targets.
 
-The deployed authenticated probe is still outstanding: this environment has no
-configured `LIGHTRSI_BENCHMARK_ROUTER_URL`, `LIGHTRSI_BENCHMARK_BASE_URL`, or
-`OPENAI_API_KEY`, so no live request was attempted. Before live economics,
-exercise one authenticated request through the deployed router and confirm the
-two LightRSI headers map to one immutable `routerRecordId` in both tables. Then
-benchmark same-session versus independent-session persistence contention and
-define the immutable downstream record-ID join before comparing arms. Until
-those checks pass, exact request-level joins and provider-dollar economics remain
-unavailable. Do not treat a window/model match as a substitute for this gate.
+Before live economics, exercise one authenticated request through the deployed
+router and confirm the two LightRSI headers map to one immutable
+`routerRecordId` in both tables. Then benchmark same-session versus
+independent-session persistence contention and define the immutable downstream
+record-ID join before comparing arms. Until the contention and economics gates
+pass, do not treat a window/model match as a substitute for request-level or
+provider-dollar evidence.
+
+That gate was completed on October 12, 2026 after installing the verified
+9Router `0.5.99` attribution overlay globally. The sanitized evidence is in
+`2026-10-12-9router-attribution-live-probe.md`: one authenticated Responses
+request returned HTTP 200, and the same router-owned `routerRecordId` was found
+in both `usageHistory` and `requestDetails`, alongside the supplied request and
+provider-attempt IDs. This proves the durable join for the repaired runtime; it
+does not authorize live economics by itself.
+
+The probe also exposed and repaired a benchmark CLI defect: `--live-repair`
+previously ignored `LIGHTRSI_BENCHMARK_REPETITIONS` and always ran five
+repetitions (60 provider calls). The command now honors that setting; one
+repetition is 12 calls and remains the recommended attribution-gate size.
 
 ## Session persistence contention
 
