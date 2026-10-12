@@ -273,6 +273,24 @@ concurrency 4, and 128.169/139.782 ms at concurrency 8 for same-session /
 independent-session modes. The rerun does not justify changing the lock
 topology.
 
+## Local hot-path measurements
+
+The local-only hot-path harness is `components/adapters/codex/scripts/benchmark-hot-path.ts`:
+
+```text
+pnpm --dir components/adapters/codex exec tsx scripts/benchmark-hot-path.ts
+```
+
+It measures existing reduction and context-history completion work with loopback
+state, warmup/sample counts, p50/p95 timings, correctness fingerprints, and
+trace queue drain statistics. Runtime proxy phases are reported as
+`exact`/`derived`/`unavailable`; client or fixture boundaries are not relabeled
+as internal runtime events. Unavailable phases and counters are excluded from
+latency arithmetic rather than inferred. Re-run the same workload after each
+local optimization lane; do not claim a forwarding/cache optimization unless
+the original baseline and the fresh post-PR-B profile both show material
+residual cost under the task-specific acceptance rule.
+
 ## Cache-audit history durability
 
 Per-session cache-audit JSONL files are the canonical read path. When an older

@@ -297,7 +297,7 @@ async function sendUpstreamRequest(
       body: JSON.stringify(payload),
       signal: params.signal,
     });
-    await appendUpstreamTrace({ ...params, payload }, {
+    void appendUpstreamTrace({ ...params, payload }, {
       stage: "upstream_response",
       stream,
       status: response.status,
@@ -310,7 +310,7 @@ async function sendUpstreamRequest(
     });
     return response;
   } catch (error) {
-    await appendUpstreamTrace({ ...params, payload }, {
+    void appendUpstreamTrace({ ...params, payload }, {
       stage: "upstream_transport_error",
       stream,
       status: null,

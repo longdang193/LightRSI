@@ -21,6 +21,7 @@ import {
   type HostRequestEnvelope,
   prepareBeforeCallWithReductionSummary,
   recordUxEffect,
+  drainEventTraceQueue,
   forwardGatewayRawRequest,
   sendJsonResponse,
   startHostGatewayRuntimeServer,
@@ -1529,7 +1530,7 @@ export async function startCodexResponsesProxy(params: {
             ? prepared.envelope.metadata.cacheFamilyId
             : null,
       });
-      await appendTrace(config.stateDir, {
+      void appendTrace(config.stateDir, {
         stage: "proxy_before_call",
         requestId,
         sessionId,
@@ -2488,6 +2489,7 @@ export async function startCodexResponsesProxy(params: {
     async close() {
       await runtime.close();
       await Promise.all(pendingOptionalTasks);
+      await drainEventTraceQueue();
     },
   };
 }

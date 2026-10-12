@@ -479,6 +479,21 @@ export async function appendCodexContextHistoryJournalEntryLockedValidated(
   payload: unknown,
   current: CodexContextHistoryJournalReadResult,
 ): Promise<void> {
+  await appendCodexContextHistoryJournalEntriesLockedValidated(
+    stateDir,
+    sessionId,
+    [payload],
+    current,
+  );
+}
+
+export async function appendCodexContextHistoryJournalEntriesLockedValidated(
+  stateDir: string,
+  sessionId: string,
+  payloads: readonly unknown[],
+  current: CodexContextHistoryJournalReadResult,
+): Promise<void> {
+  if (payloads.length === 0) return;
   const path = codexContextHistoryJournalPath(stateDir, sessionId);
   await mkdir(dirname(path), { recursive: true });
   if (current.oversized) {
@@ -488,7 +503,7 @@ export async function appendCodexContextHistoryJournalEntryLockedValidated(
   }
   const handle = await open(path, "a");
   try {
-    await handle.appendFile(`${JSON.stringify(payload)}\n`, "utf8");
+    await handle.appendFile(payloads.map((payload) => `${JSON.stringify(payload)}\n`).join(""), "utf8");
     await handle.sync();
   } finally {
     await handle.close();

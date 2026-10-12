@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 import {
   appendCodexRequestJournalEntry,
   appendCodexResponseJournalEntry,
+  appendCodexContextHistoryJournalCompletion,
   buildCodexEffectiveHistory,
   codexContextHistoryJournalPath,
   codexContextHistoryJournalLockPath,
@@ -18,6 +19,7 @@ import {
   readCodexContextHistoryJournal,
   recoverCodexContextHistoryJournalTail,
 } from "../src/context-history/index.js";
+import { buildCodexResponseJournalEntry } from "../src/context-history/response-journal.js";
 import {
   codexAttachForwardingMetadata,
   codexMatchForwardedPrefix,
@@ -85,6 +87,49 @@ test("CDH-02 forwarded provenance survives reload and stops at missing or diverg
       historicalItems: ambiguousItems,
       scope,
     }), { prefixLength: 0, reason: "ambiguous" });
+  });
+});
+
+test("CDH-02 completion retry reuses an orphan response after partial finalization", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-completion-retry";
+    const request = {
+      stateDir,
+      sessionId,
+      requestId: "request-completion-retry",
+      payload: { model: "gpt-5.4-mini", input: [{ role: "user", content: "complete this" }] },
+      status: "pending" as const,
+    };
+    const response = {
+      stateDir,
+      sessionId,
+      requestId: request.requestId,
+      response: { id: "response-completion-retry", status: "completed", output: [] },
+      status: "completed" as const,
+    };
+    await appendCodexRequestJournalEntry(request);
+    const completionRequest = { ...request, status: "completed" as const };
+    const path = codexContextHistoryJournalPath(stateDir, sessionId);
+    await appendFile(path, `${JSON.stringify(buildCodexResponseJournalEntry(response))}\n{"partial":`, "utf8");
+
+    await appendCodexContextHistoryJournalCompletion({ request: completionRequest, response });
+    await appendCodexContextHistoryJournalCompletion({ request: completionRequest, response });
+
+    const journal = await readCodexContextHistoryJournal(stateDir, sessionId);
+    assert.deepEqual(journal.entries.map((entry) => entry.kind), ["request", "response", "request"]);
+    assert.equal(journal.entries.filter((entry) => entry.kind === "response").length, 1);
+    assert.equal(journal.entries.filter((entry) => entry.kind === "request").at(-1)?.status, "completed");
+
+    await assert.rejects(
+      appendCodexContextHistoryJournalCompletion({
+        request: completionRequest,
+        response: {
+          ...response,
+          response: { id: "conflicting-response", status: "completed", output: [] },
+        },
+      }),
+      /response identity conflict/u,
+    );
   });
 });
 
