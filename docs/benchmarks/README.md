@@ -278,3 +278,9 @@ not rescan the global file. A malformed global tail is returned with its
 diagnostic flag but is not marked as migrated, allowing a later repair to retry
 without silently losing records needed for baseline classification.
 
+On October 12, 2026, the built Codex adapter at commit `fedef2d1` was smoke
+tested through `renderCodexSessionReport` with an isolated state directory. A
+legacy target record placed before 300 newer records was recovered, written to
+the per-session file, and remained readable after the legacy global file was
+removed. The live local runtime was rebuilt from the same commit and returned
+HTTP 200 from `/health`.
