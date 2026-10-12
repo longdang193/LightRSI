@@ -266,6 +266,12 @@ After the repair, the focused suites passed 30/30 host-adapter tests and 32/32
 Codex tests. The six-mode contention benchmark completed 300/300 measured
 batches with zero failures. Independent-session p95 remained comparable to
 same-session p95, so the conservative global lock remains the selected design.
+The October 12, 2026 rerun (`pnpm --dir components/adapters/codex run
+bench:session-contention`) again completed all 300 measured batches with zero
+failures; p95 was 7.138/6.822 ms at concurrency 1, 64.398/66.615 ms at
+concurrency 4, and 128.169/139.782 ms at concurrency 8 for same-session /
+independent-session modes. The rerun does not justify changing the lock
+topology.
 
 ## Cache-audit history durability
 
