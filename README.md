@@ -146,13 +146,12 @@ This fork includes targeted regression tests and benchmarks for Compact
 admission, Codex forwarding, occurrence release, session continuation, recovery,
 and cache behavior.
 
-Generation policy is opt-in and Codex-only for now. The final promotion decision
-retains the original Caveman v1 and Ponytail v1 policy versions, with both
-features disabled by default and the normalized enabled level remaining `full`.
-No Lite/Ultra intensity variant, default-on change, or Claude Code/OpenClaw reuse
-is promoted. Downstream/provider stability remains unavailable when the boundary
-does not expose it, and router economics remain window-reconciled unless an
-authoritative downstream record ID join exists.
+Generation policy is opt-in and Codex-only for now. The current contract is
+Caveman v2 / Ponytail v2, with both features disabled by default and the
+normalized enabled level remaining `full`. No Lite/Ultra intensity variant,
+default-on change, or Claude Code/OpenClaw reuse is promoted. Downstream/provider
+stability remains unavailable when the boundary does not expose it, and router
+economics are accepted only when authoritative request-level joins exist.
 
 Cleaner validation covers cumulative continuation, repeated releases, retained
 context, and proxy restart. Performance measurements capture forwarded payload
@@ -183,10 +182,15 @@ exercised after turn 10 in every run, but this benchmark does not independently
 assert restart correctness. Passing these gates does not establish universal
 answer-quality equivalence.
 
-These results apply only to this workload, model, provider, and pinned pricing
-assumptions. They do not establish universal savings across models, providers,
-coding tasks, or session lengths. See the [sanitized benchmark record](./docs/benchmarks/full-compact-live-evaluation.md)
-for pricing assumptions, provenance, and limitations.
+The October 12, 2026 Stage A evidence covers 160 task rows and 180 provider
+calls, with exact request-level attribution. Router-recorded cost increased by
+5.38% for Caveman Full, 3.44% for Ponytail Full, and 15.28% for Both Full, so
+the decision remains **no-promotion**. Provider-dollar economics remain
+inconclusive without configured pricing provenance. These results apply only to
+the recorded workload and do not establish universal savings across models,
+providers, coding tasks, or session lengths. See the [sanitized benchmark
+record](./docs/benchmarks/2026-10-12-generation-policy-stage-a-luna-report.md)
+for provenance and limitations.
 
 ### Historical Context Release — Separate Experiment
 

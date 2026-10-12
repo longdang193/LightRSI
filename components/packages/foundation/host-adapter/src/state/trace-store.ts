@@ -70,14 +70,15 @@ export function enqueueEventTrace(
 ): Promise<void> {
   return new Promise((resolve) => {
     const record = { at: new Date().toISOString(), ...payload };
-    let bytes: number;
+    let line: string;
     try {
-      bytes = Buffer.byteLength(`${JSON.stringify(record)}\n`, "utf8");
+      line = `${JSON.stringify(record)}\n`;
     } catch {
       droppedRecords += 1;
       resolve();
       return;
     }
+    const bytes = Buffer.byteLength(line, "utf8");
     if (
       eventTraceQueue.length >= MAX_QUEUED_EVENT_TRACE_RECORDS
       || queuedBytes + bytes > MAX_QUEUED_EVENT_TRACE_BYTES
@@ -88,7 +89,7 @@ export function enqueueEventTrace(
     }
     eventTraceQueue.push({
       stateDir,
-      line: `${JSON.stringify(record)}\n`,
+      line,
       bytes,
       settle: resolve,
     });

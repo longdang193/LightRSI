@@ -11,6 +11,7 @@ import {
 } from "./replayability.js";
 import {
   appendCodexContextHistoryJournalEntryLockedValidated,
+  appendCodexContextHistoryJournalEntriesLockedValidated,
   quarantineOversizedCodexContextHistoryJournalLocked,
   recoverCodexContextHistoryJournalTailLocked,
   withCodexContextHistoryJournalLock,
@@ -25,6 +26,7 @@ import {
 import {
   CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA,
   type CodexJournalStatus,
+  type CodexResponseJournalEntry,
   type CodexRequestJournalEntry,
   type JsonObject,
 } from "./types.js";
@@ -113,6 +115,7 @@ function requestIdentityMatches(
 async function appendCodexRequestJournalEntryLocked(
   params: CodexRequestJournalEntryParams,
   currentJournal?: CodexContextHistoryJournalReadResult,
+  shouldAppend = true,
 ): Promise<CodexRequestJournalEntry> {
   const requestId = params.requestId ?? requestIdFromPayload(params);
   if (!params.sessionId.trim() || !requestId.trim()) {
@@ -185,8 +188,26 @@ async function appendCodexRequestJournalEntryLocked(
     error: params.error,
     observedAt,
   };
-  await appendCodexContextHistoryJournalEntryLockedValidated(params.stateDir, params.sessionId, entry, journal);
+  if (shouldAppend) {
+    await appendCodexContextHistoryJournalEntryLockedValidated(params.stateDir, params.sessionId, entry, journal);
+  }
   return entry;
+}
+
+function responseEntriesForRequest(
+  entries: Awaited<ReturnType<typeof readCodexContextHistoryJournal>>["entries"],
+  requestId: string,
+): CodexResponseJournalEntry[] {
+  return entries.filter((entry): entry is CodexResponseJournalEntry => (
+    entry.kind === "response" && entry.requestId === requestId
+  ));
+}
+
+function responseEntryIdentity(
+  entry: Awaited<ReturnType<typeof buildCodexResponseJournalEntry>>,
+): string {
+  const { observedAt: _observedAt, ...identity } = entry;
+  return hashJson(identity);
 }
 
 export async function appendCodexRequestJournalEntry(
@@ -217,15 +238,43 @@ export async function appendCodexContextHistoryJournalCompletion(params: {
       } else if (journal.readError || journal.malformedLineCount > 0) {
         throw new Error(`Refusing to update invalid Codex context-history journal for session ${request.sessionId}`);
       }
-      const responseEntry = buildCodexResponseJournalEntry(response);
-      await appendCodexContextHistoryJournalEntryLockedValidated(
+      const resolvedRequestId = request.requestId ?? requestIdFromPayload(request);
+      const existingRequest = latestRequestEntry(journal.entries, resolvedRequestId);
+      const responseEntry = buildCodexResponseJournalEntry({
+        ...response,
+        requestId: response.requestId ?? resolvedRequestId,
+      });
+      const recoveredResponses = responseEntriesForRequest(journal.entries, responseEntry.requestId ?? "");
+      const recoveredResponse = recoveredResponses.find((entry) => (
+        responseEntryIdentity(entry) === responseEntryIdentity(responseEntry)
+      ));
+      if (recoveredResponses.length > 0 && !recoveredResponse) {
+        throw new Error(`Codex context-history response identity conflict: ${responseEntry.requestId ?? "unknown"}`);
+      }
+      if (!recoveredResponse && existingRequest && existingRequest.status !== "pending") {
+        throw new Error(`Codex context-history terminal request is missing its response: ${existingRequest.requestId}`);
+      }
+      const effectiveResponse = recoveredResponse ?? responseEntry;
+      if (!recoveredResponse) {
+        journal = { ...journal, entries: [...journal.entries, responseEntry] };
+      }
+      const requestEntry = await appendCodexRequestJournalEntryLocked(request, journal, false);
+      const requestNeedsAppend = requestEntry !== existingRequest;
+      const entriesToAppend = recoveredResponse
+        ? (requestNeedsAppend ? [requestEntry] : [])
+        : requestNeedsAppend ? [effectiveResponse, requestEntry] : [effectiveResponse];
+      await appendCodexContextHistoryJournalEntriesLockedValidated(
         request.stateDir,
         request.sessionId,
-        responseEntry,
-        journal,
+        entriesToAppend,
+        recoveredResponse ? {
+          ...journal,
+          entries: journal.entries,
+        } : {
+          ...journal,
+          entries: journal.entries.slice(0, -1),
+        },
       );
-      journal = { ...journal, entries: [...journal.entries, responseEntry] };
-      const requestEntry = await appendCodexRequestJournalEntryLocked(request, journal);
       return { request: requestEntry, response: responseEntry };
     },
   );

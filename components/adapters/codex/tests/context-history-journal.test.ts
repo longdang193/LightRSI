@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import fs, { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 import {
   appendCodexRequestJournalEntry,
   appendCodexResponseJournalEntry,
+  appendCodexContextHistoryJournalCompletion,
   buildCodexEffectiveHistory,
   codexContextHistoryJournalPath,
   codexContextHistoryJournalLockPath,
@@ -18,6 +19,7 @@ import {
   readCodexContextHistoryJournal,
   recoverCodexContextHistoryJournalTail,
 } from "../src/context-history/index.js";
+import { buildCodexResponseJournalEntry } from "../src/context-history/response-journal.js";
 import {
   codexAttachForwardingMetadata,
   codexMatchForwardedPrefix,
@@ -85,6 +87,126 @@ test("CDH-02 forwarded provenance survives reload and stops at missing or diverg
       historicalItems: ambiguousItems,
       scope,
     }), { prefixLength: 0, reason: "ambiguous" });
+  });
+});
+
+test("CDH-02 completion retry reuses an orphan response after partial finalization", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-completion-retry";
+    const request = {
+      stateDir,
+      sessionId,
+      requestId: "request-completion-retry",
+      payload: { model: "gpt-5.4-mini", input: [{ role: "user", content: "complete this" }] },
+      status: "pending" as const,
+    };
+    const response = {
+      stateDir,
+      sessionId,
+      requestId: request.requestId,
+      response: { id: "response-completion-retry", status: "completed", output: [] },
+      status: "completed" as const,
+    };
+    await appendCodexRequestJournalEntry(request);
+    const completionRequest = { ...request, status: "completed" as const };
+    const path = codexContextHistoryJournalPath(stateDir, sessionId);
+    await appendFile(path, `${JSON.stringify(buildCodexResponseJournalEntry(response))}\n{"partial":`, "utf8");
+
+    await appendCodexContextHistoryJournalCompletion({ request: completionRequest, response });
+    await appendCodexContextHistoryJournalCompletion({ request: completionRequest, response });
+
+    const journal = await readCodexContextHistoryJournal(stateDir, sessionId);
+    assert.deepEqual(journal.entries.map((entry) => entry.kind), ["request", "response", "request"]);
+    assert.equal(journal.entries.filter((entry) => entry.kind === "response").length, 1);
+    assert.equal(journal.entries.filter((entry) => entry.kind === "request").at(-1)?.status, "completed");
+
+    await assert.rejects(
+      appendCodexContextHistoryJournalCompletion({
+        request: completionRequest,
+        response: {
+          ...response,
+          response: { id: "conflicting-response", status: "completed", output: [] },
+        },
+      }),
+      /response identity conflict/u,
+    );
+  });
+});
+
+test("CDH-02 completion retry re-syncs records after an append sync failure", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-sync-retry";
+    const request = {
+      stateDir,
+      sessionId,
+      requestId: "request-sync-retry",
+      payload: { model: "gpt-5.4-mini", input: [{ role: "user", content: "sync this" }] },
+      status: "pending" as const,
+    };
+    const response = {
+      stateDir,
+      sessionId,
+      requestId: request.requestId,
+      response: { id: "response-sync-retry", status: "completed", output: [] },
+      status: "completed" as const,
+    };
+    await appendCodexRequestJournalEntry(request);
+    const journalPath = codexContextHistoryJournalPath(stateDir, sessionId);
+    const originalOpen = fs.open;
+    let appendSyncAttempts = 0;
+    let failNextSync = true;
+    fs.open = async (...args: Parameters<typeof fs.open>) => {
+      const handle = await originalOpen(...args);
+      if (args[0] === journalPath && args[1] === "a") {
+        const originalSync = handle.sync.bind(handle);
+        handle.sync = async () => {
+          appendSyncAttempts += 1;
+          if (failNextSync) {
+            failNextSync = false;
+            throw new Error("injected sync failure");
+          }
+          return originalSync();
+        };
+      }
+      return handle;
+    };
+    try {
+      await assert.rejects(
+        appendCodexContextHistoryJournalCompletion({ request: { ...request, status: "completed" }, response }),
+        /injected sync failure/u,
+      );
+      await appendCodexContextHistoryJournalCompletion({ request: { ...request, status: "completed" }, response });
+    } finally {
+      fs.open = originalOpen;
+    }
+    assert.equal(appendSyncAttempts, 2);
+  });
+});
+
+test("CDH-02 completion retry uses the generated request id", async () => {
+  await withTempState(async (stateDir) => {
+    const sessionId = "codex-session-generated-request-id";
+    const request = {
+      stateDir,
+      sessionId,
+      payload: { model: "gpt-5.4-mini", input: [{ role: "user", content: "generated id" }] },
+      status: "pending" as const,
+    };
+    const response = {
+      stateDir,
+      sessionId,
+      response: { id: "response-generated-request-id", status: "completed", output: [] },
+      status: "completed" as const,
+    };
+    await appendCodexRequestJournalEntry(request);
+    await appendCodexContextHistoryJournalCompletion({ request: { ...request, status: "completed" }, response });
+    await appendCodexContextHistoryJournalCompletion({ request: { ...request, status: "completed" }, response });
+
+    const journal = await readCodexContextHistoryJournal(stateDir, sessionId);
+    const requestEntry = journal.entries.find((entry) => entry.kind === "request");
+    const responseEntry = journal.entries.find((entry) => entry.kind === "response");
+    assert.equal(typeof requestEntry?.requestId, "string");
+    assert.equal(responseEntry?.requestId, requestEntry?.requestId);
   });
 });
 
