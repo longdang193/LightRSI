@@ -175,6 +175,7 @@ test("9Router receives stable logical and provider-attempt IDs", async () => {
     assert.equal(response.status, 200);
     assert.equal(receivedHeaders.length, 1);
     assert.equal(receivedHeaders[0]?.["x-lightrsi-request-id"], "experiment-request-1");
+    assert.equal(receivedHeaders[0]?.["x-lightrsi-generation-id"], "experiment-request-1");
     assert.equal(receivedHeaders[0]?.["x-lightrsi-provider-attempt-id"], "experiment-request-1:upstream-attempt-1");
     assert.equal(response.attempts[0]?.providerAttemptId, "experiment-request-1:upstream-attempt-1");
     const genericResponse = await requestUpstreamResponses({

@@ -181,6 +181,91 @@ test("compact stream route preserves history and native completion SSE", async (
   }
 });
 
+test("proxy blocks duplicate streaming ingress before a second upstream dispatch", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-duplicate-ingress-"));
+  const proxyPort = await reserveUnusedPort();
+  const upstreamPort = await reserveUnusedPort();
+  let upstreamCalls = 0;
+  let upstreamStarted!: () => void;
+  const upstreamReady = new Promise<void>((resolve) => { upstreamStarted = resolve; });
+  let releaseUpstream!: () => void;
+  const upstreamGate = new Promise<void>((resolve) => { releaseUpstream = resolve; });
+  const upstream = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+    }
+    upstreamCalls += 1;
+    upstreamStarted();
+    await upstreamGate;
+    res.statusCode = 200;
+    res.setHeader("content-type", "text/event-stream");
+    res.end([
+      `event: response.created\ndata: ${JSON.stringify({
+        type: "response.created",
+        response: { id: "resp_duplicate_ingress", status: "in_progress" },
+      })}`,
+      `event: response.completed\ndata: ${JSON.stringify({
+        type: "response.completed",
+        response: { id: "resp_duplicate_ingress", status: "completed", output: [] },
+      })}`,
+      "",
+      "",
+    ].join("\n"));
+  });
+  await new Promise<void>((resolve, reject) => {
+    upstream.once("error", reject);
+    upstream.listen(upstreamPort, "127.0.0.1", () => {
+      upstream.off("error", reject);
+      resolve();
+    });
+  });
+  const runtime = await startCodexResponsesProxy({
+    config: normalizeTokenPilotCodexConfig({
+      proxyPort,
+      stateDir,
+      upstream: { name: "capture", baseUrl: `http://127.0.0.1:${upstreamPort}/v1`, wireApi: "responses" },
+      proxyMode: { pureForward: false },
+      modules: { stabilizer: false, reduction: false },
+      contextRewrite: { enabled: false },
+    }),
+    logger: createConsoleLogger(false),
+  });
+  const payload = {
+    model: "capture-model",
+    stream: true,
+    prompt_cache_key: "duplicate-ingress-session",
+    input: [{ role: "user", content: [{ type: "input_text", text: "duplicate ingress" }] }],
+  };
+  const request = () => fetch(`${runtime.baseUrl}/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  try {
+    const first = request();
+    await upstreamReady;
+    const duplicate = await request();
+    assert.equal(duplicate.status, 409);
+    assert.equal(duplicate.headers.get("x-lightrsi-no-replay"), "1");
+    const duplicateBody = await duplicate.json() as { state?: string; request_id?: string };
+    assert.equal(duplicateBody.state, "in_progress");
+    assert.match(duplicateBody.request_id ?? "", /^req-/);
+    releaseUpstream();
+    const firstResponse = await first;
+    assert.equal(firstResponse.status, 200);
+    await firstResponse.text();
+    assert.equal(upstreamCalls, 1);
+
+    const laterRequest = await request();
+    assert.equal(laterRequest.status, 200);
+    await laterRequest.text();
+    assert.equal(upstreamCalls, 2);
+  } finally {
+    await runtime.close();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("compact route falls back when upstream lacks compact endpoint", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-compact-fallback-"));
   const proxyPort = await reserveUnusedPort();
