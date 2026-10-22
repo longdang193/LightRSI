@@ -1,5 +1,5 @@
 import { collectCodexResponseItemsFromStream } from "../context-history/sse-item-collector.js";
-import { cloneJson } from "./shared.js";
+import { cloneJson, hasNoReplayMarker } from "./shared.js";
 import type {
   CodexRebaseFallbackResult,
   CodexRebaseEpoch,
@@ -337,6 +337,17 @@ export async function executeCodexRebaseWithFallback(params: {
   }
 
   async function sendOriginalWithFallbackOutcome(reason: string): Promise<CodexRebaseFallbackResult> {
+    if (rebaseResponse && hasNoReplayMarker(rebaseResponse)) {
+      return {
+        response: rebaseResponse,
+        outcome: "failed",
+        reason: "replay_suppressed_after_dispatch",
+        rebaseResponse,
+        epoch,
+        cooldown,
+        capability,
+      };
+    }
     let fallbackResponse: CodexUpstreamResponse;
     try {
       fallbackResponse = await params.sendUpstream(cloneJson(params.originalPayload));
