@@ -746,6 +746,95 @@ test("upstream traces correlated transport errors with sanitized messages", asyn
   }
 });
 
+test("no-replay responses suppress unsupported-field retries for buffered and streaming requests", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+    res.statusCode = 400;
+    res.setHeader("x-9router-no-replay", "1");
+    res.end(JSON.stringify({ error: { message: "Unsupported parameter: prompt_cache_retention" } }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const upstream = { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses" as const, requiresOpenAIAuth: false };
+  try {
+    const buffered = await requestUpstreamResponses({
+      upstream,
+      payload: { model: "gpt-fixture", prompt_cache_retention: "24h" },
+    });
+    const streamed = await requestUpstreamResponsesStream({
+      upstream,
+      payload: { model: "gpt-fixture", prompt_cache_retention: "24h", stream: true },
+    });
+    for await (const _chunk of streamed.stream) {
+    }
+    assert.equal(buffered.transportFetches, 1);
+    assert.equal(streamed.transportFetches, 1);
+    assert.equal(requests.length, 2);
+    assert.equal(buffered.headers["x-9router-no-replay"], "1");
+    assert.equal(streamed.headers["x-9router-no-replay"], "1");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("no-replay compact responses suppress buffered and streaming fallback", async () => {
+  resetCompactCapabilityCache();
+  const paths: string[] = [];
+  const server = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+    }
+    paths.push(req.url ?? "");
+    res.statusCode = 404;
+    res.setHeader("x-9router-no-replay", "1");
+    res.end("unsupported");
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const upstream = { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses" as const, requiresOpenAIAuth: false };
+  try {
+    const buffered = await requestUpstreamResponses({
+      upstream,
+      endpointPath: "/responses/compact",
+      payload: { model: "gpt-fixture" },
+      fallbackPayload: (payload: any) => ({ ...payload, fallback: true }),
+    });
+    resetCompactCapabilityCache();
+    const streamed = await requestUpstreamResponsesStream({
+      upstream,
+      endpointPath: "/responses/compact",
+      payload: { model: "gpt-fixture", stream: true },
+      fallbackPayload: (payload: any) => ({ ...payload, fallback: true }),
+    });
+    for await (const _chunk of streamed.stream) {
+    }
+    assert.equal(buffered.transportFetches, 1);
+    assert.equal(streamed.transportFetches, 1);
+    assert.deepEqual(paths, ["/v1/responses/compact", "/v1/responses/compact"]);
+    assert.equal(buffered.headers["x-9router-no-replay"], "1");
+    assert.equal(streamed.headers["x-9router-no-replay"], "1");
+  } finally {
+    resetCompactCapabilityCache();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("compact capability shares unsupported fallback across JSON and stream requests", async () => {
   resetCompactCapabilityCache();
   const paths: string[] = [];

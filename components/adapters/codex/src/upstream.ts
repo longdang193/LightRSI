@@ -339,6 +339,10 @@ function headersFrom(resp: Response): Record<string, string> {
   return Object.fromEntries(resp.headers.entries());
 }
 
+function noReplayRequested(resp: Response): boolean {
+  return resp.headers.get("x-9router-no-replay") === "1";
+}
+
 function requestHeaders(params: {
   upstream: CodexProviderConfig;
   inboundAuthorization?: string;
@@ -649,17 +653,19 @@ export async function requestUpstreamResponses(params: {
     text = await resp.text();
     if (endpointPath === "/responses/compact" && resp.status === 404) {
       rememberCompactCapability(compactKey, compactProbeGeneration!, "unsupported");
-      endpointPath = "/responses";
-      payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
-      resp = await send(payload, "fallback");
-      text = await resp.text();
+      if (!noReplayRequested(resp)) {
+        endpointPath = "/responses";
+        payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
+        resp = await send(payload, "fallback");
+        text = await resp.text();
+      }
     } else if (endpointPath === "/responses/compact" && resp.status >= 200 && resp.status < 300) {
       rememberCompactCapability(compactKey, compactProbeGeneration!, "supported");
     }
   }
   if (!resp.ok) {
     const unsupportedField = unsupportedOptionalFieldFromText(text);
-    if (resp.status !== 401 && resp.status !== 403 && unsupportedField && !unsupportedFields.has(unsupportedField)) {
+    if (!noReplayRequested(resp) && resp.status !== 401 && resp.status !== 403 && unsupportedField && !unsupportedFields.has(unsupportedField)) {
       await persistUnsupportedOptionalField(params.stateDir, params.upstream, resolvedModel, unsupportedField).catch(() => undefined);
       const downgraded = clonePayloadWithoutOptionalField(payload, unsupportedField);
       if (downgraded !== payload) {
@@ -744,16 +750,28 @@ export async function requestUpstreamResponsesStream(params: {
   } else {
     resp = await send(payload, "normal");
     if (endpointPath === "/responses/compact" && resp.status === 404) {
-      await resp.text();
       rememberCompactCapability(compactKey, compactProbeGeneration!, "unsupported");
-      endpointPath = "/responses";
-      payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
-      resp = await send(payload, "fallback");
+      if (!noReplayRequested(resp)) {
+        await resp.text();
+        endpointPath = "/responses";
+        payload = params.fallbackPayload ? params.fallbackPayload(payload) : payload;
+        resp = await send(payload, "fallback");
+      }
     } else if (endpointPath === "/responses/compact" && resp.status >= 200 && resp.status < 300) {
       rememberCompactCapability(compactKey, compactProbeGeneration!, "supported");
     }
   }
   if (!resp.ok) {
+    if (noReplayRequested(resp)) {
+      return {
+        status: resp.status,
+        headers: headersFrom(resp),
+        stream: resp.body ? Readable.fromWeb(resp.body as any) : Readable.from([""]),
+        transportFetches,
+        attempts,
+        finalAttempt: attempts.at(-1),
+      };
+    }
     const text = await resp.text();
     const unsupportedField = unsupportedOptionalFieldFromText(text);
     if (resp.status !== 401 && resp.status !== 403 && unsupportedField && !unsupportedFields.has(unsupportedField)) {
