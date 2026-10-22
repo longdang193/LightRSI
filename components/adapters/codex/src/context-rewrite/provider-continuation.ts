@@ -1,5 +1,5 @@
 import { collectCodexResponseItemsFromStream } from "../context-history/sse-item-collector.js";
-import { cloneJson } from "./shared.js";
+import { cloneJson, hasNoReplayMarker } from "./shared.js";
 import {
   appendCodexRebaseCapability,
   classifyCodexRebaseCapabilityRejection,
@@ -189,11 +189,17 @@ export async function executeCodexProviderContinuationWithReplay(params: {
 
   async function recordReplayResult(response: CodexUpstreamResponse): Promise<void> {
     if (providerContinuationResponseCompleted(response)) {
+      const missingEncryptedReasoning = responseMissingRequestedEncryptedReasoning(
+        statelessPayload,
+        response,
+      );
       for (const item of replayItems) {
         await safeRecord({
           itemType: item.itemType,
           status: "verified_supported",
-          reason: "stateless_continuation_succeeded",
+          reason: missingEncryptedReasoning
+            ? "stateless_continuation_completed_without_requested_encrypted_reasoning"
+            : "stateless_continuation_succeeded",
           responseStatus: response.status,
         });
       }
@@ -253,6 +259,9 @@ export async function executeCodexProviderContinuationWithReplay(params: {
       responseStatus: chainedResponse.status,
     });
     return { response: chainedResponse, outcome: "chained" };
+  }
+  if (hasNoReplayMarker(chainedResponse)) {
+    return { response: chainedResponse, outcome: "failed" };
   }
 
   const classification = classifyCodexRebaseCapabilityRejection({
