@@ -189,17 +189,11 @@ export async function executeCodexProviderContinuationWithReplay(params: {
 
   async function recordReplayResult(response: CodexUpstreamResponse): Promise<void> {
     if (providerContinuationResponseCompleted(response)) {
-      const missingEncryptedReasoning = responseMissingRequestedEncryptedReasoning(
-        statelessPayload,
-        response,
-      );
       for (const item of replayItems) {
         await safeRecord({
           itemType: item.itemType,
           status: "verified_supported",
-          reason: missingEncryptedReasoning
-            ? "stateless_continuation_completed_without_requested_encrypted_reasoning"
-            : "stateless_continuation_succeeded",
+          reason: "stateless_continuation_succeeded",
           responseStatus: response.status,
         });
       }
