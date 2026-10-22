@@ -126,6 +126,14 @@ test("normalizeTokenPilotCodexConfig preserves context rewrite plan revisions", 
   ]);
 });
 
+test("normalizeTokenPilotCodexConfig preserves a disabled provider compatibility probe", () => {
+  const config = normalizeTokenPilotCodexConfig({
+    contextRewrite: { providerCompatibilityProbe: "disabled" },
+  });
+
+  assert.equal(config.contextRewrite.providerCompatibilityProbe, "disabled");
+});
+
 test("normalizeTokenPilotCodexConfig enables real-provider compatibility learning by default", () => {
   assert.equal(
     normalizeTokenPilotCodexConfig({}).contextRewrite.providerCompatibilityProbe,

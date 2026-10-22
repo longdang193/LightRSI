@@ -767,6 +767,37 @@ test("CDR-04 retries the original request once when rebase replay is rejected up
   assert.equal(result.cooldown?.planId, "plan-evict-obsolete-details");
 });
 
+test("CDR-04 does not retry the original request after a dispatched rebase rejection", async () => {
+  const sentPayloads: JsonObject[] = [];
+  const originalPayload = baseResponsesPayload();
+  const rebasedPayload: ResponsesPayload = {
+    ...originalPayload,
+    input: [{ role: "user", content: `rebased ${RETAINED_SENTINEL} ${CURRENT_SENTINEL}` }],
+  };
+  delete rebasedPayload.previous_response_id;
+
+  const result = await executeCodexRebaseWithFallback({
+    sessionId: "codex-session-1",
+    planId: "plan-no-replay-rebase-rejection",
+    epochId: "epoch-1",
+    originalPayload,
+    rebasedPayload,
+    async sendUpstream(payload: JsonObject) {
+      sentPayloads.push(payload);
+      return {
+        status: 502,
+        headers: { "x-9router-no-replay": "1" },
+        text: JSON.stringify({ error: { message: "CGW request was dispatched" } }),
+      };
+    },
+  });
+
+  assert.equal(sentPayloads.length, 1);
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.response.status, 502);
+  assert.equal(result.rebaseResponse?.status, 502);
+});
+
 test("CDR-03 does not commit a 2xx rebase response without a response id", async () => {
   const originalPayload = baseResponsesPayload();
   const sentPayloads: JsonObject[] = [];
