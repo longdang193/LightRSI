@@ -128,7 +128,7 @@ test("CDR-05 provider continuation uses cached chain incompatibility without rep
   });
 });
 
-test("CDR-05 provider continuation retries once when requested encrypted reasoning is omitted", async () => {
+test("CDR-05 provider continuation does not duplicate a completed stateless response without encrypted reasoning", async () => {
   await withTempState(async (stateDir) => {
     const responses = [
       {
@@ -143,15 +143,6 @@ test("CDR-05 provider continuation retries once when requested encrypted reasoni
           id: "resp-missing-encrypted",
           status: "completed",
           output: [{ type: "reasoning", summary: [] }, { type: "message", role: "assistant", content: [] }],
-        }),
-      },
-      {
-        status: 200,
-        headers: { "content-type": "application/json" },
-        text: JSON.stringify({
-          id: "resp-with-encrypted",
-          status: "completed",
-          output: [{ type: "reasoning", encrypted_content: "next-opaque-state", summary: [] }],
         }),
       },
     ];
@@ -169,8 +160,8 @@ test("CDR-05 provider continuation retries once when requested encrypted reasoni
     });
 
     assert.equal(result.outcome, "stateless_replay");
-    assert.equal(requestCount, 3);
-    assert.match(result.response.text, /next-opaque-state/);
+    assert.equal(requestCount, 2);
+    assert.match(result.response.text, /resp-missing-encrypted/);
   });
 });
 

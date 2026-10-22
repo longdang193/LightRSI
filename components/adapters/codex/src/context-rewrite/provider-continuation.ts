@@ -133,38 +133,6 @@ export async function resolveCodexProviderContinuationCompatibility(params: {
   }
 }
 
-function responseOutputItems(response: CodexUpstreamResponse): JsonObject[] {
-  const contentType = Object.entries(response.headers)
-    .find(([name]) => name.toLowerCase() === "content-type")?.[1]
-    ?.toLowerCase();
-  if (contentType?.includes("text/event-stream") || /^event:\s*response\./mu.test(response.text)) {
-    return collectCodexResponseItemsFromStream(response.text).outputItems;
-  }
-  try {
-    const parsed = JSON.parse(response.text) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
-    const output = (parsed as JsonObject).output;
-    return Array.isArray(output)
-      ? output.filter((item): item is JsonObject => Boolean(item && typeof item === "object" && !Array.isArray(item)))
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function responseMissingRequestedEncryptedReasoning(
-  request: JsonObject,
-  response: CodexUpstreamResponse,
-): boolean {
-  const include = Array.isArray(request.include) ? request.include : [];
-  if (!include.includes("reasoning.encrypted_content")) return false;
-  return responseOutputItems(response).some((item) => {
-    const type = String(item.type ?? "").toLowerCase();
-    return (type === "reasoning" || type === "compaction")
-      && (typeof item.encrypted_content !== "string" || !item.encrypted_content.trim());
-  });
-}
-
 export async function executeCodexProviderContinuationWithReplay(params: {
   chainedPayload: JsonObject;
   statelessReplayPayload: JsonObject;
@@ -260,11 +228,7 @@ export async function executeCodexProviderContinuationWithReplay(params: {
   async function sendStateless(
     chainedResponse?: CodexUpstreamResponse,
   ): Promise<CodexProviderContinuationResult> {
-    let response = await params.sendUpstream(cloneJson(statelessPayload));
-    if (providerContinuationResponseCompleted(response)
-      && responseMissingRequestedEncryptedReasoning(statelessPayload, response)) {
-      response = await params.sendUpstream(cloneJson(statelessPayload));
-    }
+    const response = await params.sendUpstream(cloneJson(statelessPayload));
     await recordReplayResult(response);
     return {
       response,

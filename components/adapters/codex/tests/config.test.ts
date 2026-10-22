@@ -133,6 +133,15 @@ test("normalizeTokenPilotCodexConfig enables real-provider compatibility learnin
   );
 });
 
+test("normalizeTokenPilotCodexConfig preserves an explicitly disabled compatibility probe", () => {
+  assert.equal(
+    normalizeTokenPilotCodexConfig({
+      contextRewrite: { providerCompatibilityProbe: "disabled" },
+    }).contextRewrite.providerCompatibilityProbe,
+    "disabled",
+  );
+});
+
 test("loadTokenPilotCodexConfig rejects concatenated tokenpilot env assignments", async () => {
   const dir = await mkdtemp(join(tmpdir(), "lightrsi-config-malformed-env-"));
   const configPath = join(dir, "tokenpilot.json");
