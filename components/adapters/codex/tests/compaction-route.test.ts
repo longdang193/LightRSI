@@ -242,6 +242,7 @@ test("proxy blocks duplicate streaming ingress before a second upstream dispatch
   });
   try {
     const first = request();
+    await upstreamReady;
     const duplicate = await request();
     assert.equal(duplicate.status, 409);
     assert.equal(duplicate.headers.get("x-lightrsi-no-replay"), "1");
