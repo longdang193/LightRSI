@@ -358,7 +358,10 @@ function requestHeaders(params: {
     headers["x-lightrsi-cache-contract"] = `v1:${params.lightmem2CacheContractDigest}`;
   }
   if (isNineRouter(params.upstream)) {
-    if (params.requestId) headers["x-lightrsi-request-id"] = params.requestId;
+    if (params.requestId) {
+      headers["x-lightrsi-request-id"] = params.requestId;
+      headers["x-lightrsi-generation-id"] = params.requestId;
+    }
     if (params.providerAttemptId) headers["x-lightrsi-provider-attempt-id"] = params.providerAttemptId;
   }
   return headers;

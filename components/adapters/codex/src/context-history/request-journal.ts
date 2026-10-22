@@ -73,6 +73,15 @@ function requestIdFromPayload(params: {
   })}`;
 }
 
+export function codexRequestIdFromPayload(params: {
+  sessionId: string;
+  turnOrdinal?: number;
+  payload: JsonObject;
+  forwardingScope?: CodexForwardingScope;
+}): string {
+  return requestIdFromPayload(params);
+}
+
 function latestRequestEntry(
   entries: Awaited<ReturnType<typeof readCodexContextHistoryJournal>>["entries"],
   requestId: string,

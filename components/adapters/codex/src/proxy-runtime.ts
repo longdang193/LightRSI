@@ -84,6 +84,7 @@ import {
   appendCodexRequestJournalEntry,
   buildCodexEffectiveHistoryView,
   collectCodexResponseItemsFromStream,
+  codexRequestIdFromPayload,
   createCodexResponseItemsCollector,
   parseCodexRollout,
   validateCodexRolloutBootstrap,
@@ -492,6 +493,7 @@ function setGenerationPolicyEvidenceHeaders(
   measurement?: { retryCount: number | null; clarificationCount: number | null },
 ): void {
   res.setHeader("x-lightrsi-request-id", requestId);
+  res.setHeader("x-lightrsi-generation-id", requestId);
   res.setHeader("x-lightrsi-runtime-build-id", trace.runtimeBuildId);
   res.setHeader("x-lightrsi-generation-policy-version", trace.generationPolicyVersion);
   res.setHeader("x-lightrsi-generation-policy-digest", trace.generationPolicyDigest ?? "null");
@@ -697,6 +699,31 @@ export async function startCodexResponsesProxy(params: {
   const upstreamProviderName = upstream.name ?? config.upstreamProvider ?? "OpenAI";
   const epochRecoveryBySession = new Map<string, Promise<void>>();
   const pendingOptionalTasks = new Set<Promise<void>>();
+  const requestAdmissionCache = new Map<string, {
+    state: "in_progress" | "completed" | "reconciliation_required";
+    expiresAt: number;
+  }>();
+  const requestAdmissionTtlMs = 15 * 60 * 1000;
+
+  function pruneRequestAdmissionCache(now = Date.now()): void {
+    for (const [key, entry] of requestAdmissionCache) {
+      if (entry.expiresAt <= now) requestAdmissionCache.delete(key);
+    }
+  }
+
+  function settleRequestAdmission(
+    key: string,
+    state: "completed" | "reconciliation_required",
+  ): void {
+    const entry = requestAdmissionCache.get(key);
+    if (!entry) return;
+    if (state === "completed") {
+      requestAdmissionCache.delete(key);
+      return;
+    }
+    entry.state = state;
+    entry.expiresAt = Date.now() + requestAdmissionTtlMs;
+  }
 
   function trackOptionalTask(task: Promise<void>): void {
     let tracked!: Promise<void>;
@@ -882,6 +909,46 @@ export async function startCodexResponsesProxy(params: {
       });
       originalPayload.input = normalizeResponsesInputForUpstream(originalPayload?.input);
       const originalRequestText = extractResponsesInputText(originalPayload?.input);
+      const candidateRequestId = codexRequestIdFromPayload({ sessionId, payload: originalPayload });
+      const admissionSessionKey = inboundPromptCacheKey
+        ? `prompt-cache:${inboundPromptCacheKey}`
+        : sessionId;
+      const admissionRequestId = codexRequestIdFromPayload({
+        sessionId: admissionSessionKey,
+        payload: originalPayload,
+      });
+      const admissionKey = `${admissionSessionKey}\0${admissionRequestId}`;
+      pruneRequestAdmissionCache();
+      const existingAdmission = requestAdmissionCache.get(admissionKey);
+      if (existingAdmission) {
+        await appendTrace(config.stateDir, {
+          stage: "request_duplicate_blocked",
+          sessionId,
+          requestId: candidateRequestId,
+          state: existingAdmission.state,
+        });
+        if (!res.destroyed) {
+          res.statusCode = 409;
+          res.setHeader("content-type", "application/json; charset=utf-8");
+          res.setHeader("x-lightrsi-request-id", candidateRequestId);
+          res.setHeader("x-lightrsi-generation-id", candidateRequestId);
+          res.setHeader("x-lightrsi-no-replay", "1");
+          res.end(JSON.stringify({
+            error: {
+              type: "duplicate_request",
+              code: "request_already_admitted",
+              message: "This generation was already admitted; reconcile the existing request instead of resubmitting it.",
+            },
+            request_id: candidateRequestId,
+            state: existingAdmission.state,
+          }));
+        }
+        return;
+      }
+      requestAdmissionCache.set(admissionKey, {
+        state: "in_progress",
+        expiresAt: Date.now() + requestAdmissionTtlMs,
+      });
 
       let requestJournalEntry: CodexRequestJournalEntry | undefined;
       try {
@@ -892,6 +959,7 @@ export async function startCodexResponsesProxy(params: {
           status: "pending",
         });
       } catch (err) {
+        requestAdmissionCache.delete(admissionKey);
         await appendTrace(config.stateDir, {
           stage: "context_history_request_journal_failed",
           sessionId,
@@ -1605,6 +1673,7 @@ export async function startCodexResponsesProxy(params: {
           applyUpstreamAttempts(response, initialAttempt);
           return response;
         } catch (error) {
+          settleRequestAdmission(admissionKey, "reconciliation_required");
           upstreamRetryCount = null;
           const attempt = forwardingAttempts.at(-1);
           if (attempt) attempt.outcome = "failed";
@@ -2106,6 +2175,7 @@ export async function startCodexResponsesProxy(params: {
           httpStatus: paramsForRecord.status,
           collected,
         });
+        settleRequestAdmission(admissionKey, "completed");
         markLastForwardingAttempt(requestStatus);
         const routerCacheTelemetry = collectRouterCacheTelemetry({
           headers: paramsForRecord.headers ?? {},
@@ -2251,6 +2321,7 @@ export async function startCodexResponsesProxy(params: {
           }));
           applyUpstreamAttempts(upstreamResp, initialAttempt);
         } catch (error) {
+          settleRequestAdmission(admissionKey, "reconciliation_required");
           const attempt = forwardingAttempts.at(-1);
           if (attempt) attempt.outcome = "failed";
           throw error;
@@ -2339,6 +2410,7 @@ export async function startCodexResponsesProxy(params: {
         httpStatus: upstreamResp.status,
         response: responseJson,
       });
+      settleRequestAdmission(admissionKey, "completed");
       markLastForwardingAttempt(requestStatus);
       let routerCacheTelemetry = collectRouterCacheTelemetry({
         headers: upstreamResp.headers,
