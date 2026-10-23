@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "owner": "9router",
+  "models": [
+    {
+      "profile": "ui",
+      "model": "combo-ui",
+      "provider": "9router",
+      "capabilities": ["responses"]
+    },
+    {
+      "profile": "xhigh",
+      "model": "combo-xhigh",
+      "provider": "9router",
+      "capabilities": ["responses"]
+    }
+  ]
+}

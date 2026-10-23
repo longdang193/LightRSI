@@ -597,6 +597,54 @@ test("upstream resolves bare 9Router model names from its live catalog", async (
   }
 });
 
+test("upstream sends contract-declared logical combos without catalog discovery", async () => {
+  let modelRequests = 0;
+  let responseRequests = 0;
+  const server = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+    }
+    if (req.url === "/v1/models") {
+      modelRequests += 1;
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ data: [{ id: "combo-ui" }, { id: "combo-xhigh" }] }));
+      return;
+    }
+    responseRequests += 1;
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ status: "completed", output: [] }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  try {
+    const upstream = {
+      name: "9Router",
+      baseUrl: `http://127.0.0.1:${address.port}/v1`,
+      wireApi: "responses" as const,
+      requiresOpenAIAuth: false,
+    };
+    for (const model of ["combo-ui", "combo-xhigh"]) {
+      const response = await requestUpstreamResponses({
+        upstream,
+        payload: { model, input: [{ role: "user", content: "test" }] },
+      });
+      assert.equal(response.status, 200);
+    }
+    assert.equal(modelRequests, 0);
+    assert.equal(responseRequests, 2);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("upstream adapts successful Chat Completions JSON into Responses JSON", async () => {
   const server = createServer(async (req, res) => {
     for await (const _chunk of req) {

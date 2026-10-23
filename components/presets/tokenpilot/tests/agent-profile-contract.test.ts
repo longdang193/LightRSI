@@ -6,8 +6,17 @@ import test from "node:test";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const agentsRoot = path.join(repoRoot, "agents");
-const retiredNames = new Set(["combo-web-high", "combo-web-medium"]);
-const retiredPrefixes = ["cgw/", "chatgpt-web/"];
+const retirementPolicyPath = path.join(repoRoot, "components/presets/tokenpilot/retired-model-policy.json");
+const retainedComboContractPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/9router-retained-combo-contract.json");
+
+function readRetirementPolicy() {
+  const policy = JSON.parse(fs.readFileSync(retirementPolicyPath, "utf8"));
+  assert.equal(policy.owner, "9router/open-sse/config/retiredModels.js");
+  assert.equal(policy.schemaVersion, 1);
+  assert.deepEqual(policy.retiredModelNames, ["combo-web-high", "combo-web-medium"]);
+  assert.deepEqual(policy.retiredModelPrefixes, ["cgw/", "chatgpt-web/", "cg/"]);
+  return policy;
+}
 
 function readProfiles() {
   return fs.readdirSync(agentsRoot)
@@ -22,6 +31,9 @@ function readProfiles() {
 }
 
 test("agent profiles contain no retired CGW or web-combo selections", () => {
+  const policy = readRetirementPolicy();
+  const retiredNames = new Set(policy.retiredModelNames);
+  const retiredPrefixes: string[] = policy.retiredModelPrefixes;
   for (const profile of readProfiles()) {
     assert.equal(
       retiredNames.has(profile.model) || retiredPrefixes.some((prefix) => profile.model.startsWith(prefix)),
@@ -33,6 +45,12 @@ test("agent profiles contain no retired CGW or web-combo selections", () => {
 
 test("retained logical profiles remain owned by 9Router", () => {
   const profiles = new Map(readProfiles().map((profile) => [path.basename(profile.name, ".toml"), profile.model]));
-  assert.equal(profiles.get("ui"), "combo-ui");
-  assert.equal(profiles.get("xhigh"), "combo-xhigh");
+  const contract = JSON.parse(fs.readFileSync(retainedComboContractPath, "utf8"));
+  assert.equal(contract.owner, "9router");
+  assert.equal(contract.schemaVersion, 1);
+  for (const entry of contract.models) {
+    assert.equal(entry.provider, "9router");
+    assert.deepEqual(entry.capabilities, ["responses"]);
+    assert.equal(profiles.get(entry.profile), entry.model);
+  }
 });

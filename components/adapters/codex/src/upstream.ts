@@ -63,6 +63,7 @@ type UpstreamResponsesCapabilityRecord = {
 const CAPABILITY_TTL_MS = 24 * 60 * 60 * 1000;
 
 const MODEL_CATALOG_TTL_MS = 60_000;
+const NINE_ROUTER_DIRECT_MODELS = new Set(["combo-ui", "combo-xhigh"]);
 const modelCatalogCache = new Map<string, { expiresAt: number; models: string[] }>();
 const modelCatalogInflight = new Map<string, Promise<string[]>>();
 const capabilityCache = new Map<string, { expiresAt: number; fields: Set<OptionalResponsesField> }>();
@@ -140,6 +141,9 @@ async function resolveNineRouterPayloadModel(
   inboundAuthorization?: string,
 ): Promise<any> {
   if (!isNineRouter(upstream) || typeof payload?.model !== "string" || payload.model.includes("/")) {
+    return payload;
+  }
+  if (NINE_ROUTER_DIRECT_MODELS.has(payload.model)) {
     return payload;
   }
   const resolvedModel = resolveModelFromCatalog(
