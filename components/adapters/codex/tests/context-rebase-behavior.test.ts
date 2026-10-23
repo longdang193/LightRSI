@@ -767,7 +767,7 @@ test("CDR-04 retries the original request once when rebase replay is rejected up
   assert.equal(result.cooldown?.planId, "plan-evict-obsolete-details");
 });
 
-test("CDR-04 does not retry the original request after a dispatched rebase rejection", async () => {
+test("CDR-04 preserves the no-replay boundary after a dispatched rebase rejection", async () => {
   const sentPayloads: JsonObject[] = [];
   const originalPayload = baseResponsesPayload();
   const rebasedPayload: ResponsesPayload = {
@@ -787,12 +787,13 @@ test("CDR-04 does not retry the original request after a dispatched rebase rejec
       return {
         status: 502,
         headers: { "x-9router-no-replay": "1" },
-        text: JSON.stringify({ error: { message: "CGW request was dispatched" } }),
+        text: JSON.stringify({ error: { message: "upstream request was dispatched" } }),
       };
     },
   });
 
   assert.equal(sentPayloads.length, 1);
+  assert.equal(sentPayloads[0]?.previous_response_id, undefined);
   assert.equal(result.outcome, "failed");
   assert.equal(result.response.status, 502);
   assert.equal(result.rebaseResponse?.status, 502);
