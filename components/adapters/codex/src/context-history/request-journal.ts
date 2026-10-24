@@ -42,6 +42,7 @@ export type CodexRequestJournalEntryParams = {
   acceptedInputItems?: JsonObject[];
   committedInputItems?: JsonObject[];
   requestId?: string;
+  generationIdentity?: string;
   turnOrdinal?: number;
   status?: CodexJournalStatus;
   error?: string;
@@ -57,6 +58,52 @@ function sanitizedInputItems(payload: JsonObject): JsonObject[] {
     : [];
 }
 
+const GENERATION_IDENTITY_EXCLUDED_KEYS = new Set([
+  "authorization",
+  "api_key",
+  "api-key",
+  "headers",
+  "prompt_cache_key",
+  "prompt_cache_retention",
+  "prompt_cache_options",
+  "prompt_cache_breakpoint",
+  "endpoint",
+  "endpoint_url",
+  "base_url",
+  "transport",
+  "cache",
+  "trace_id",
+  "traceId",
+  "tracing",
+]);
+
+function canonicalGenerationIdentityValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalGenerationIdentityValue);
+  if (!value || typeof value !== "object") return value;
+  const object = value as Record<string, unknown>;
+  const output: JsonObject = {};
+  for (const [key, child] of Object.entries(object).sort(([left], [right]) => left.localeCompare(right))) {
+    if (GENERATION_IDENTITY_EXCLUDED_KEYS.has(key)) continue;
+    if (key.startsWith("__lightrsi") || key.startsWith("x-lightrsi")) continue;
+    output[key] = canonicalGenerationIdentityValue(child);
+  }
+  return output;
+}
+
+export function codexGenerationIdentityFromPayload(params: {
+  sessionId: string;
+  turnOrdinal?: number;
+  payload: JsonObject;
+  forwardingScope?: CodexForwardingScope;
+}): string {
+  return `gen-${hashJson(canonicalGenerationIdentityValue({
+    sessionId: params.sessionId,
+    turnOrdinal: params.turnOrdinal,
+    payload: params.payload,
+    forwardingScope: params.forwardingScope ?? null,
+  }))}`;
+}
+
 function requestIdFromPayload(params: {
   sessionId: string;
   turnOrdinal?: number;
@@ -64,12 +111,8 @@ function requestIdFromPayload(params: {
   forwardingScope?: CodexForwardingScope;
 }): string {
   return `req-${hashJson({
-    sessionId: params.sessionId,
-    turnOrdinal: params.turnOrdinal,
-    model: params.payload.model,
-    previousResponseId: params.payload.previous_response_id,
-    input: sanitizedInputItems(params.payload),
-    forwardingScope: params.forwardingScope ?? null,
+    generationIdentity: codexGenerationIdentityFromPayload(params),
+    journalInput: sanitizedInputItems(params.payload),
   })}`;
 }
 
@@ -106,6 +149,7 @@ function requestIdentityMatches(
     payload: JsonObject;
     turnOrdinal?: number;
     forwardingScope?: CodexForwardingScope;
+    generationIdentity?: string;
   },
 ): boolean {
   const model = typeof params.payload.model === "string" ? params.payload.model : undefined;
@@ -118,7 +162,9 @@ function requestIdentityMatches(
     && existing.stream === (params.payload.stream === true)
     && existing.previousResponseId === previousResponseId
     && hashJson(existing.inputItems.map(codexStripForwardingMetadata))
-      === hashJson(sanitizedInputItems(params.payload));
+      === hashJson(sanitizedInputItems(params.payload))
+    && (params.generationIdentity === undefined || existing.generationIdentity === undefined
+      || existing.generationIdentity === params.generationIdentity);
 }
 
 async function appendCodexRequestJournalEntryLocked(
@@ -127,6 +173,7 @@ async function appendCodexRequestJournalEntryLocked(
   shouldAppend = true,
 ): Promise<CodexRequestJournalEntry> {
   const requestId = params.requestId ?? requestIdFromPayload(params);
+  const generationIdentity = params.generationIdentity ?? codexGenerationIdentityFromPayload(params);
   if (!params.sessionId.trim() || !requestId.trim()) {
     throw new TypeError("Codex request journal requires non-empty session and request ids");
   }
@@ -171,6 +218,7 @@ async function appendCodexRequestJournalEntryLocked(
     schema: CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA,
     kind: "request",
     requestId,
+    generationIdentity,
     sessionId: params.sessionId,
     turnOrdinal: existing?.turnOrdinal ?? params.turnOrdinal ?? requestEntries.size + 1,
     model: existing?.model ?? (typeof params.payload.model === "string" ? params.payload.model : undefined),

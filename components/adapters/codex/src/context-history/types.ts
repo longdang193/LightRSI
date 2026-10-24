@@ -19,6 +19,7 @@ export type CodexRequestJournalEntry = {
   schema: typeof CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA;
   kind: "request";
   requestId: string;
+  generationIdentity?: string;
   sessionId: string;
   turnOrdinal: number;
   model?: string;

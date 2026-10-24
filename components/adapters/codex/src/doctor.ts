@@ -9,6 +9,7 @@ import {
   asObjectRecord,
   scanInstalledHookEvents,
 } from "../../shared/doctor-shared.js";
+import { NINE_ROUTER_PROVIDER_ID } from "@lightrsi/tokenpilot";
 import type {
   CodexMcpServerConfig,
   CodexProviderConfig,
@@ -96,7 +97,7 @@ function normalizeLocalProxyBaseUrl(value: string | undefined): string | undefin
 }
 
 function isNineRouterProvider(config: CodexProviderConfig | undefined, providerName?: string): boolean {
-  return [config?.name, providerName].some((value) => value?.trim().toLowerCase() === "9router");
+  return [config?.providerId, providerName].some((value) => value?.trim().toLowerCase() === NINE_ROUTER_PROVIDER_ID);
 }
 
 function sanitizeDiagnosticUrl(value: string | undefined): string | undefined {

@@ -61,6 +61,7 @@ import {
   requestUpstreamResponses,
   requestUpstreamResponsesStream,
 } from "./upstream.js";
+import { UpstreamDispatchError } from "./upstream.js";
 import {
   completeCodexSessionTurn,
   indexCodexHostSessionAlias,
@@ -84,6 +85,7 @@ import {
   appendCodexRequestJournalEntry,
   buildCodexEffectiveHistoryView,
   collectCodexResponseItemsFromStream,
+  codexGenerationIdentityFromPayload,
   codexRequestIdFromPayload,
   createCodexResponseItemsCollector,
   parseCodexRollout,
@@ -489,11 +491,12 @@ type GenerationPolicyTrace = {
 function setGenerationPolicyEvidenceHeaders(
   res: import("node:http").ServerResponse,
   requestId: string,
+  generationId: string,
   trace: GenerationPolicyTrace,
   measurement?: { retryCount: number | null; clarificationCount: number | null },
 ): void {
   res.setHeader("x-lightrsi-request-id", requestId);
-  res.setHeader("x-lightrsi-generation-id", requestId);
+  res.setHeader("x-lightrsi-generation-id", generationId);
   res.setHeader("x-lightrsi-runtime-build-id", trace.runtimeBuildId);
   res.setHeader("x-lightrsi-generation-policy-version", trace.generationPolicyVersion);
   res.setHeader("x-lightrsi-generation-policy-digest", trace.generationPolicyDigest ?? "null");
@@ -713,11 +716,11 @@ export async function startCodexResponsesProxy(params: {
 
   function settleRequestAdmission(
     key: string,
-    state: "completed" | "reconciliation_required",
+    state: "released" | "completed" | "reconciliation_required",
   ): void {
     const entry = requestAdmissionCache.get(key);
     if (!entry) return;
-    if (state === "completed") {
+    if (state === "released" || state === "completed") {
       requestAdmissionCache.delete(key);
       return;
     }
@@ -910,6 +913,7 @@ export async function startCodexResponsesProxy(params: {
       originalPayload.input = normalizeResponsesInputForUpstream(originalPayload?.input);
       const originalRequestText = extractResponsesInputText(originalPayload?.input);
       const candidateRequestId = codexRequestIdFromPayload({ sessionId, payload: originalPayload });
+      const candidateGenerationId = codexGenerationIdentityFromPayload({ sessionId, payload: originalPayload });
       const admissionSessionKey = inboundPromptCacheKey
         ? `prompt-cache:${inboundPromptCacheKey}`
         : sessionId;
@@ -931,7 +935,7 @@ export async function startCodexResponsesProxy(params: {
           res.statusCode = 409;
           res.setHeader("content-type", "application/json; charset=utf-8");
           res.setHeader("x-lightrsi-request-id", candidateRequestId);
-          res.setHeader("x-lightrsi-generation-id", candidateRequestId);
+           res.setHeader("x-lightrsi-generation-id", candidateGenerationId);
           res.setHeader("x-lightrsi-no-replay", "1");
           res.end(JSON.stringify({
             error: {
@@ -959,15 +963,33 @@ export async function startCodexResponsesProxy(params: {
           status: "pending",
         });
       } catch (err) {
-        requestAdmissionCache.delete(admissionKey);
         await appendTrace(config.stateDir, {
           stage: "context_history_request_journal_failed",
           sessionId,
           model,
           error: err instanceof Error ? err.message : String(err),
         });
+        if (!res.destroyed) {
+          res.statusCode = 503;
+          res.setHeader("content-type", "application/json; charset=utf-8");
+          res.setHeader("retry-after", "0");
+          res.setHeader("x-lightrsi-request-id", candidateRequestId);
+          res.setHeader("x-lightrsi-generation-id", candidateGenerationId);
+          res.setHeader("x-lightrsi-no-replay", "1");
+          res.end(JSON.stringify({
+            error: {
+              type: "admission_unavailable",
+              code: "context_history_journal_unavailable",
+              message: "Generation admission state is unavailable; no upstream request was dispatched.",
+            },
+            request_id: candidateRequestId,
+            generation_id: candidateGenerationId,
+          }));
+        }
+        settleRequestAdmission(admissionKey, "released");
+        return;
       }
-      const requestId = requestJournalEntry?.requestId ?? randomUUID();
+      const requestId = requestJournalEntry.requestId;
 
       let rebaseRequest: CodexRebaseRequestResult | undefined;
       let rebasePlanId: string | undefined;
@@ -1515,6 +1537,34 @@ export async function startCodexResponsesProxy(params: {
         attempt.projectionEligible = status === "completed"
           && attempt.projectionBoundary === "ordinary_admission";
       };
+      const settleForwardingAdmission = (paramsForSettlement: {
+        status: number;
+        headers?: Record<string, string>;
+        requestStatus?: CodexJournalStatus;
+        attempts?: CodexForwardingAttempt[];
+      }): void => {
+        const attempt = paramsForSettlement.attempts?.at(-1) ?? forwardingAttempts.at(-1);
+        const noReplay = paramsForSettlement.headers?.["x-9router-no-replay"] === "1";
+        if (noReplay || attempt?.outcome === "incomplete") {
+          settleRequestAdmission(admissionKey, "reconciliation_required");
+          return;
+        }
+        if (paramsForSettlement.status >= 200 && paramsForSettlement.status < 300) {
+          settleRequestAdmission(
+            admissionKey,
+            paramsForSettlement.requestStatus === "completed" && attempt?.responseProducing !== false
+              ? "completed"
+              : "reconciliation_required",
+          );
+          return;
+        }
+        const safelyRejectedBeforeGeneration = attempt?.responseProducing === false
+          && [400, 401, 403, 404, 409, 410, 422].includes(paramsForSettlement.status);
+        settleRequestAdmission(
+          admissionKey,
+          safelyRejectedBeforeGeneration ? "released" : "reconciliation_required",
+        );
+      };
       const applyUpstreamAttempts = (
         response: { attempts?: Array<{
           attemptId: string;
@@ -1539,7 +1589,7 @@ export async function startCodexResponsesProxy(params: {
           nextAttempt.resolvedModel = transportAttempt.resolvedModel ?? undefined;
           nextAttempt.status = transportAttempt.status;
           nextAttempt.outcome = transportAttempt.outcome;
-          nextAttempt.responseProducing = false;
+           nextAttempt.responseProducing = transportAttempt.responseProducing;
           nextAttempt.projectionEligible = false;
           if (index > 0) {
             nextAttempt.kind = transportAttempt.kind === "fallback"
@@ -1660,6 +1710,7 @@ export async function startCodexResponsesProxy(params: {
             upstream,
             payload: projectedPayload,
             requestId,
+            generationId: candidateGenerationId,
             inboundAuthorization: authorization,
             lightmem2CacheContractDigest:
               typeof prepared.envelope.metadata?.lightrsiCacheContractDigest === "string"
@@ -1673,10 +1724,16 @@ export async function startCodexResponsesProxy(params: {
           applyUpstreamAttempts(response, initialAttempt);
           return response;
         } catch (error) {
-          settleRequestAdmission(admissionKey, "reconciliation_required");
           upstreamRetryCount = null;
           const attempt = forwardingAttempts.at(-1);
           if (attempt) attempt.outcome = "failed";
+          if (error instanceof UpstreamDispatchError && error.dispatchState === "unknown") {
+            settleRequestAdmission(admissionKey, "reconciliation_required");
+          } else if (attempt?.transportAttemptId) {
+            settleRequestAdmission(admissionKey, "reconciliation_required");
+          } else {
+            settleRequestAdmission(admissionKey, "released");
+          }
           throw error;
         }
       };
@@ -1862,6 +1919,7 @@ export async function startCodexResponsesProxy(params: {
             stateDir: config.stateDir,
             sessionId,
             requestId: requestJournalEntry.requestId,
+              generationIdentity: requestJournalEntry.generationIdentity,
             payload: originalPayload,
             acceptedInputItems: latestForwardedInputItems()
               ?? (Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined),
@@ -1913,6 +1971,7 @@ export async function startCodexResponsesProxy(params: {
             stateDir: config.stateDir,
             sessionId,
             requestId: requestJournalEntry.requestId,
+            generationIdentity: requestJournalEntry.generationIdentity,
             payload: originalPayload,
             acceptedInputItems: latestForwardedInputItems()
               ?? (Array.isArray(payload?.input) ? payload.input as JsonObject[] : undefined),
@@ -2175,8 +2234,12 @@ export async function startCodexResponsesProxy(params: {
           httpStatus: paramsForRecord.status,
           collected,
         });
-        settleRequestAdmission(admissionKey, "completed");
         markLastForwardingAttempt(requestStatus);
+        settleForwardingAdmission({
+          status: paramsForRecord.status,
+          headers: paramsForRecord.headers,
+          requestStatus,
+        });
         const routerCacheTelemetry = collectRouterCacheTelemetry({
           headers: paramsForRecord.headers ?? {},
           upstreamName: upstream.name,
@@ -2291,7 +2354,7 @@ export async function startCodexResponsesProxy(params: {
           const upstreamResp = await sendRebasedOrCurrentPayload();
           res.statusCode = upstreamResp.status;
           setForwardResponseHeaders(res, upstreamResp.headers, "text/event-stream; charset=utf-8");
-          setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace, { retryCount: upstreamRetryCount, clarificationCount });
+          setGenerationPolicyEvidenceHeaders(res, requestId, candidateGenerationId, generationPolicyTrace, { retryCount: upstreamRetryCount, clarificationCount });
           const runOptional = await recordStreamResponse({
             status: upstreamResp.status,
             rawStreamText: upstreamResp.text,
@@ -2309,6 +2372,7 @@ export async function startCodexResponsesProxy(params: {
             upstream,
             payload: projectedPayload,
             requestId,
+            generationId: candidateGenerationId,
             inboundAuthorization: authorization,
             lightmem2CacheContractDigest:
               typeof prepared.envelope.metadata?.lightrsiCacheContractDigest === "string"
@@ -2321,14 +2385,14 @@ export async function startCodexResponsesProxy(params: {
           }));
           applyUpstreamAttempts(upstreamResp, initialAttempt);
         } catch (error) {
-          settleRequestAdmission(admissionKey, "reconciliation_required");
           const attempt = forwardingAttempts.at(-1);
           if (attempt) attempt.outcome = "failed";
+          settleRequestAdmission(admissionKey, "reconciliation_required");
           throw error;
         }
         res.statusCode = upstreamResp.status;
         setForwardResponseHeaders(res, upstreamResp.headers, "text/event-stream; charset=utf-8");
-        setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace, { retryCount: upstreamRetryCount, clarificationCount });
+        setGenerationPolicyEvidenceHeaders(res, requestId, candidateGenerationId, generationPolicyTrace, { retryCount: upstreamRetryCount, clarificationCount });
         let responseChars = 0;
         const collector = createCodexResponseItemsCollector();
         let terminal = false;
@@ -2410,8 +2474,12 @@ export async function startCodexResponsesProxy(params: {
         httpStatus: upstreamResp.status,
         response: responseJson,
       });
-      settleRequestAdmission(admissionKey, "completed");
       markLastForwardingAttempt(requestStatus);
+      settleForwardingAdmission({
+        status: upstreamResp.status,
+        headers: upstreamResp.headers,
+        requestStatus,
+      });
       let routerCacheTelemetry = collectRouterCacheTelemetry({
         headers: upstreamResp.headers,
         upstreamName: upstream.name,
@@ -2504,7 +2572,7 @@ export async function startCodexResponsesProxy(params: {
       }
       res.statusCode = upstreamResp.status;
       setForwardResponseHeaders(res, upstreamResp.headers, "application/json; charset=utf-8");
-      setGenerationPolicyEvidenceHeaders(res, requestId, generationPolicyTrace, { retryCount: upstreamRetryCount, clarificationCount });
+      setGenerationPolicyEvidenceHeaders(res, requestId, candidateGenerationId, generationPolicyTrace, { retryCount: upstreamRetryCount, clarificationCount });
       res.end(upstreamResp.text);
       trackOptionalTask((async () => {
         await Promise.allSettled([

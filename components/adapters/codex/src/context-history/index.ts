@@ -20,6 +20,7 @@ export type {
 export {
   appendCodexRequestJournalEntry,
   appendCodexContextHistoryJournalCompletion,
+  codexGenerationIdentityFromPayload,
   codexRequestIdFromPayload,
   findCodexAcceptedInputProjection,
 } from "./request-journal.js";

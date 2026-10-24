@@ -883,7 +883,7 @@ test("CDH-02 proxy journal respects failed non-stream response bodies", async ()
   }
 });
 
-test("CDH-01 proxy bypasses context-history journaling when the journal cannot be read", async () => {
+test("CDH-01 fails closed when context-history journaling cannot be read", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-codex-journal-bypass-"));
   const upstream = await startSequencedResponsesUpstream();
   let runtime: Awaited<ReturnType<typeof startCodexResponsesProxy>> | undefined;
@@ -928,9 +928,9 @@ test("CDH-01 proxy bypasses context-history journaling when the journal cannot b
       }),
     });
 
-    assert.equal(response.status, 200);
-    assert.equal(upstream.requests.length, 1);
-    assert.match(JSON.stringify(upstream.requests[0]), /JOURNAL_FAILURE_BYPASS_SENTINEL/);
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("x-lightrsi-no-replay"), "1");
+    assert.equal(upstream.requests.length, 0);
   } finally {
     await runtime?.close();
     await upstream.close();

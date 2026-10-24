@@ -164,7 +164,8 @@ test("9Router receives stable logical and provider-attempt IDs", async () => {
   try {
     const response = await requestUpstreamResponses({
       upstream: {
-        name: "9Router",
+        providerId: "9router",
+        name: "Renamed gateway",
         baseUrl: `http://127.0.0.1:${address.port}/v1`,
         wireApi: "responses",
         requiresOpenAIAuth: false,
@@ -344,6 +345,7 @@ test("compact fallback keeps normalized payload through unsupported-field retry"
   if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
   const upstream = {
     name: "9router",
+    providerId: "9router",
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
     wireApi: "responses" as const,
     requiresOpenAIAuth: false,
@@ -583,7 +585,7 @@ test("upstream resolves bare 9Router model names from its live catalog", async (
   try {
     const response = await requestUpstreamResponses({
       upstream: {
-        name: "9Router",
+        providerId: "9router",
         baseUrl: `http://127.0.0.1:${address.port}/v1`,
         wireApi: "responses",
         requiresOpenAIAuth: false,
@@ -626,7 +628,7 @@ test("upstream sends contract-declared logical combos without catalog discovery"
   if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
   try {
     const upstream = {
-      name: "9Router",
+      providerId: "9router",
       baseUrl: `http://127.0.0.1:${address.port}/v1`,
       wireApi: "responses" as const,
       requiresOpenAIAuth: false,
@@ -640,6 +642,92 @@ test("upstream sends contract-declared logical combos without catalog discovery"
     }
     assert.equal(modelRequests, 0);
     assert.equal(responseRequests, 2);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("9Router catalog cache is isolated by authorization identity", async () => {
+  let modelRequests = 0;
+  const forwardedModels: string[] = [];
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    if (req.url === "/v1/models") {
+      modelRequests += 1;
+      const authorization = req.headers.authorization ?? "";
+      const model = authorization.endsWith("alpha") ? "alpha/provider-model" : "beta/provider-model";
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ data: [{ id: model }] }));
+      return;
+    }
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { model?: string };
+    forwardedModels.push(payload.model ?? "");
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ id: "resp-catalog-isolation", status: "completed", output: [] }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const upstream = {
+    providerId: "9router",
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    wireApi: "responses" as const,
+    requiresOpenAIAuth: false,
+  };
+  try {
+    await requestUpstreamResponses({ upstream, inboundAuthorization: "Bearer alpha", payload: { model: "provider-model" } });
+    await requestUpstreamResponses({ upstream, inboundAuthorization: "Bearer beta", payload: { model: "provider-model" } });
+    await requestUpstreamResponses({ upstream, inboundAuthorization: "Bearer alpha", payload: { model: "provider-model" } });
+    assert.equal(modelRequests, 2);
+    assert.deepEqual(forwardedModels, ["alpha/provider-model", "beta/provider-model", "alpha/provider-model"]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("9Router catalog timeout forwards the original model within the fixed deadline", async () => {
+  let responseRequests = 0;
+  const server = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+    }
+    if (req.url === "/v1/models") return;
+    responseRequests += 1;
+    res.statusCode = 410;
+    res.setHeader("x-9router-no-replay", "1");
+    res.end(JSON.stringify({ error: { code: "model_retired" } }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not bind a port");
+  const startedAt = Date.now();
+  try {
+    const response = await requestUpstreamResponses({
+      upstream: {
+        providerId: "9router",
+        baseUrl: `http://127.0.0.1:${address.port}/v1`,
+        wireApi: "responses",
+        requiresOpenAIAuth: false,
+      },
+      payload: { model: "retired-model" },
+    });
+    assert.equal(response.status, 410);
+    assert.equal(responseRequests, 1);
+    assert.ok(Date.now() - startedAt < 6500);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
