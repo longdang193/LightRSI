@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { userHomeDirectory } from "@lightrsi/host-adapter";
 import { LIGHTRSI_VERSION } from "@lightrsi/kernel";
+import { NINE_ROUTER_PROVIDER_ID } from "@lightrsi/tokenpilot";
 import {
   DEFAULT_TOKENPILOT_MCP_INSTALL_PROBE_TIMEOUT_MS,
   DEFAULT_TOKENPILOT_MCP_STARTUP_TIMEOUT_SEC,
@@ -218,7 +219,7 @@ function isLoopbackProxyProvider(
   const normalizedProxyBaseUrl = normalizeLocalProxyBaseUrl(proxyBaseUrl);
   if (!normalizedProviderBaseUrl) return false;
   if (normalizedProviderBaseUrl === normalizedProxyBaseUrl) return true;
-  return provider?.name?.trim().toLowerCase() !== "9router";
+  return provider?.providerId?.trim().toLowerCase() !== NINE_ROUTER_PROVIDER_ID;
 }
 
 function sameProviderEndpoint(left: CodexProviderConfig | undefined, right: CodexProviderConfig | undefined): boolean {

@@ -128,6 +128,7 @@ function canonicalRequestEntry(
   observedAt: string,
 ): CodexRequestJournalEntry | undefined {
   const requestId = nonBlankString(candidate.requestId);
+  const generationIdentity = optionalString(candidate.generationIdentity);
   const inputItems = jsonObjectArray(candidate.inputItems);
   const acceptedInputItems = candidate.acceptedInputItems === undefined
     ? undefined
@@ -142,6 +143,7 @@ function canonicalRequestEntry(
   const error = optionalString(candidate.error);
   if (candidate.kind !== "request"
     || !requestId
+    || (candidate.generationIdentity !== undefined && !generationIdentity)
     || !Number.isInteger(candidate.turnOrdinal)
     || (candidate.turnOrdinal as number) <= 0
     || typeof candidate.stream !== "boolean"
@@ -159,6 +161,7 @@ function canonicalRequestEntry(
     schema: CODEX_CONTEXT_HISTORY_REQUEST_SCHEMA,
     kind: "request",
     requestId,
+    ...(generationIdentity ? { generationIdentity } : {}),
     sessionId,
     turnOrdinal: candidate.turnOrdinal as number,
     ...(model ? { model } : {}),

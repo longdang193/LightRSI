@@ -6,4 +6,5 @@ export * from "./types.js";
 export * from "./preset-contract.js";
 export * from "./host-binding.js";
 export * from "./product-surface.js";
+export * from "./9router-contract.js";
 export type { PolicyModuleConfig } from "./policy.js";

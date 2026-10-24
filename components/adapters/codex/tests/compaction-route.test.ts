@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
 import { normalizeTokenPilotCodexConfig } from "../src/config.js";
 import { createConsoleLogger } from "../src/logger.js";
 import { projectCompactPayload, startCodexResponsesProxy } from "../src/proxy-runtime.js";
+import { codexContextHistoryJournalPath } from "../src/context-history/index.js";
 
 async function startSseUpstream(options: { compactStatus?: number; json?: boolean; rejectStreamField?: boolean } = {}) {
   const port = await reserveUnusedPort();
@@ -60,7 +61,7 @@ async function startSseUpstream(options: { compactStatus?: number; json?: boolea
       })}`,
       "",
       "",
-    ].join("\n"));
+    ].join("\n\n"));
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -207,9 +208,10 @@ test("proxy blocks duplicate streaming ingress before a second upstream dispatch
         type: "response.completed",
         response: { id: "resp_duplicate_ingress", status: "completed", output: [] },
       })}`,
+      "event: done\ndata: [DONE]",
       "",
       "",
-    ].join("\n"));
+    ].join("\n\n"));
   });
   await new Promise<void>((resolve, reject) => {
     upstream.once("error", reject);
@@ -259,6 +261,59 @@ test("proxy blocks duplicate streaming ingress before a second upstream dispatch
     assert.equal(laterRequest.status, 200);
     await laterRequest.text();
     assert.equal(upstreamCalls, 2);
+  } finally {
+    await runtime.close();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("proxy fails closed when mandatory request journaling is unavailable", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-journal-failure-"));
+  const proxyPort = await reserveUnusedPort();
+  const upstreamPort = await reserveUnusedPort();
+  let upstreamCalls = 0;
+  const upstream = createServer(async (req, res) => {
+    for await (const _chunk of req) {
+    }
+    upstreamCalls += 1;
+    res.statusCode = 200;
+    res.end(JSON.stringify({ id: "must-not-dispatch", status: "completed", output: [] }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    upstream.once("error", reject);
+    upstream.listen(upstreamPort, "127.0.0.1", () => {
+      upstream.off("error", reject);
+      resolve();
+    });
+  });
+  const sessionId = "journal-failure-session";
+  await mkdir(codexContextHistoryJournalPath(stateDir, sessionId), { recursive: true });
+  const runtime = await startCodexResponsesProxy({
+    config: normalizeTokenPilotCodexConfig({
+      proxyPort,
+      stateDir,
+      upstream: { name: "capture", baseUrl: `http://127.0.0.1:${upstreamPort}/v1`, wireApi: "responses" },
+      proxyMode: { pureForward: false },
+      modules: { stabilizer: false, reduction: false },
+      contextRewrite: { enabled: false },
+    }),
+    logger: createConsoleLogger(false),
+  });
+  try {
+    const response = await fetch(`${runtime.baseUrl}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "capture-model",
+        metadata: { tokenpilotSessionId: sessionId },
+        input: [{ role: "user", content: [{ type: "input_text", text: "journal failure" }] }],
+      }),
+    });
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("x-lightrsi-no-replay"), "1");
+    assert.match(response.headers.get("x-lightrsi-generation-id") ?? "", /^gen-/u);
+    assert.equal(upstreamCalls, 0);
   } finally {
     await runtime.close();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));

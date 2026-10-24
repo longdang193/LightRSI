@@ -11,6 +11,7 @@ import {
   appendCodexResponseJournalEntry,
   appendCodexContextHistoryJournalCompletion,
   buildCodexEffectiveHistory,
+  codexGenerationIdentityFromPayload,
   codexContextHistoryJournalPath,
   codexContextHistoryJournalLockPath,
   findCodexAcceptedInputProjection,
@@ -24,6 +25,43 @@ import {
   codexAttachForwardingMetadata,
   codexMatchForwardedPrefix,
 } from "../src/context-history/replayability.js";
+
+test("generation identity covers response-affecting fields without transport metadata fragmentation", () => {
+  const base = {
+    model: "gpt-5.4-mini",
+    stream: false,
+    input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+    instructions: "be concise",
+    tools: [{ type: "function", name: "lookup" }],
+    tool_choice: "auto",
+    text: { format: { type: "json_schema", name: "answer" } },
+    reasoning: { effort: "medium" },
+    temperature: 0.2,
+    max_output_tokens: 100,
+    previous_response_id: "resp-1",
+    prompt_cache_key: "cache-a",
+    endpoint: "https://one.example/v1",
+    authorization: "secret-a",
+    trace_id: "trace-a",
+  };
+  const identity = (payload: Record<string, unknown>) => codexGenerationIdentityFromPayload({
+    sessionId: "session-1",
+    payload,
+  });
+  assert.notEqual(identity(base), identity({ ...base, instructions: "be detailed" }));
+  assert.notEqual(identity(base), identity({ ...base, tools: [{ type: "function", name: "search" }] }));
+  assert.notEqual(identity(base), identity({ ...base, tool_choice: "required" }));
+  assert.notEqual(identity(base), identity({ ...base, text: { format: { type: "text" } } }));
+  assert.notEqual(identity(base), identity({ ...base, reasoning: { effort: "high" } }));
+  assert.notEqual(identity(base), identity({ ...base, temperature: 0.8 }));
+  assert.equal(identity(base), identity({
+    ...base,
+    prompt_cache_key: "cache-b",
+    endpoint: "https://two.example/v1",
+    authorization: "secret-b",
+    trace_id: "trace-b",
+  }));
+});
 
 test("CDH-02 forwarded provenance survives reload and stops at missing or divergent evidence", async () => {
   await withTempState(async (stateDir) => {

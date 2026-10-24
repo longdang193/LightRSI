@@ -4,10 +4,12 @@ import { userHomeDirectory } from "@lightrsi/host-adapter";
 import { normalizeGenerationPolicyConfig, type GenerationPolicyConfig } from "@lightrsi/product-surface";
 import { dirname, join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
+import { NINE_ROUTER_PROVIDER_ID } from "@lightrsi/tokenpilot";
 import type { TaskStateEstimatorApiConfig } from "@lightrsi/eviction";
 import type { CodexContextRewriteConfig, CodexMutationPlan } from "./context-rewrite/types.js";
 
 export type CodexProviderConfig = {
+  providerId?: string;
   name?: string;
   baseUrl: string;
   apiKey?: string;
@@ -195,6 +197,13 @@ function sanitizeCodexMutationPlan(raw: unknown): CodexMutationPlan | undefined 
   };
 }
 
+function migrateLegacyProviderId(providerId: string | undefined, providerName: string | undefined, displayName: string | undefined): string | undefined {
+  if (providerId?.trim()) return providerId.trim();
+  if (providerName?.trim()) return providerName.trim();
+  if (displayName?.trim().toLowerCase() === NINE_ROUTER_PROVIDER_ID) return NINE_ROUTER_PROVIDER_ID;
+  return undefined;
+}
+
 export function normalizeTokenPilotCodexConfig(
   raw: unknown,
   options?: NormalizeCodexConfigOptions,
@@ -210,6 +219,7 @@ export function normalizeTokenPilotCodexConfig(
   const passes = asRecord(reduction.passes);
   const upstream = asRecord(obj.upstream);
   const upstreamBaseUrl = stringValue(upstream.baseUrl);
+  const upstreamProvider = stringValue(obj.upstreamProvider) ?? "OpenAI";
   const configPath = options?.configPath ?? defaultTokenPilotConfigPath();
 
   return {
@@ -220,9 +230,14 @@ export function normalizeTokenPilotCodexConfig(
     providerName: stringValue(obj.providerName) ?? "tokenpilot",
     proxyBaseUrl: stringValue(obj.proxyBaseUrl),
     proxyApiKey: stringValue(obj.proxyApiKey),
-    upstreamProvider: stringValue(obj.upstreamProvider) ?? "OpenAI",
+    upstreamProvider,
     upstream: upstreamBaseUrl
       ? {
+        providerId: migrateLegacyProviderId(
+          stringValue(upstream.providerId),
+          upstreamProvider === "OpenAI" ? undefined : upstreamProvider,
+          stringValue(upstream.name),
+        ),
         name: stringValue(upstream.name),
         baseUrl: upstreamBaseUrl.replace(/\/+$/, ""),
         apiKey: stringValue(upstream.apiKey),
@@ -360,6 +375,7 @@ export async function readCodexProviderFromToml(
   const apiKey = parseTomlStringValue(section.values.api_key)
     ?? parseTomlStringValue(section.values.apiKey);
   return {
+    providerId: providerName.trim(),
     name: parseTomlStringValue(section.values.name),
     baseUrl: baseUrl.replace(/\/+$/, ""),
     apiKey,
@@ -437,6 +453,7 @@ export async function resolveUpstreamProvider(
 ): Promise<CodexProviderConfig> {
   if (config.proxyBaseUrl) {
     return {
+      providerId: undefined,
       name: "explicit",
       baseUrl: config.proxyBaseUrl.replace(/\/+$/, ""),
       apiKey: config.proxyApiKey,

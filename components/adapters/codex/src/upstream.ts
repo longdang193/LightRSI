@@ -1,8 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { createHash } from "node:crypto";
 import { readJsonFile, withFileLock, writeJsonFileAtomic } from "@lightrsi/host-adapter";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
+import {
+  NINE_ROUTER_DIRECT_MODELS,
+  NINE_ROUTER_PROVIDER_ID,
+} from "@lightrsi/tokenpilot";
 import type { CodexProviderConfig } from "./config.js";
 import { codexRebaseEndpointIdentity } from "./context-rewrite/rebase-capability.js";
 import { appendTrace } from "./trace.js";
@@ -37,6 +42,18 @@ export type UpstreamTransportAttempt = {
   responseProducing: boolean;
 };
 
+export type UpstreamDispatchState = "not_dispatched" | "unknown";
+
+export class UpstreamDispatchError extends Error {
+  readonly dispatchState: UpstreamDispatchState;
+
+  constructor(message: string, dispatchState: UpstreamDispatchState, cause?: unknown) {
+    super(message, { cause });
+    this.name = "UpstreamDispatchError";
+    this.dispatchState = dispatchState;
+  }
+}
+
 type OptionalResponsesField =
   | "prompt_cache_options"
   | "prompt_cache_retention"
@@ -63,8 +80,16 @@ type UpstreamResponsesCapabilityRecord = {
 const CAPABILITY_TTL_MS = 24 * 60 * 60 * 1000;
 
 const MODEL_CATALOG_TTL_MS = 60_000;
-const NINE_ROUTER_DIRECT_MODELS = new Set(["combo-ui", "combo-xhigh"]);
-const modelCatalogCache = new Map<string, { expiresAt: number; models: string[] }>();
+const MODEL_CATALOG_GRACE_MS = 5 * 60_000;
+const MODEL_CATALOG_REFRESH_TIMEOUT_MS = 5_000;
+const MAX_MODEL_CATALOG_CACHE_ENTRIES = 64;
+type ModelCatalogCacheEntry = {
+  expiresAt: number;
+  staleUntil: number;
+  lastUsedAt: number;
+  models: string[];
+};
+const modelCatalogCache = new Map<string, ModelCatalogCacheEntry>();
 const modelCatalogInflight = new Map<string, Promise<string[]>>();
 const capabilityCache = new Map<string, { expiresAt: number; fields: Set<OptionalResponsesField> }>();
 const capabilityInflight = new Map<string, Promise<Set<OptionalResponsesField>>>();
@@ -90,7 +115,7 @@ export function resolveModelFromCatalog(model: string, availableModels: string[]
 }
 
 function isNineRouter(upstream: CodexProviderConfig): boolean {
-  return /9router/i.test(upstream.name ?? "");
+  return upstream.providerId?.trim().toLowerCase() === NINE_ROUTER_PROVIDER_ID;
 }
 
 function v1EndpointFor(upstream: CodexProviderConfig): string {
@@ -103,42 +128,99 @@ function v1EndpointFor(upstream: CodexProviderConfig): string {
 async function loadNineRouterModels(
   upstream: CodexProviderConfig,
   inboundAuthorization?: string,
+  callerSignal?: AbortSignal,
 ): Promise<string[]> {
   const endpoint = `${v1EndpointFor(upstream)}/models`;
-  const cached = modelCatalogCache.get(endpoint);
-  if (cached && cached.expiresAt > Date.now()) return cached.models;
-  const existing = modelCatalogInflight.get(endpoint);
-  if (existing) return existing;
-  const refresh = (async () => {
-    const response = await fetch(endpoint, {
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${upstreamApiKey(upstream, inboundAuthorization)}`,
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`9Router model catalog unavailable (${response.status})`);
-    }
-    const body = await response.json() as { data?: Array<{ id?: unknown }> };
-    const models = Array.isArray(body.data)
-      ? body.data.flatMap((entry) => typeof entry?.id === "string" ? [entry.id] : [])
-      : [];
-    if (models.length === 0) throw new Error("9Router model catalog returned no models");
-    modelCatalogCache.set(endpoint, { expiresAt: Date.now() + MODEL_CATALOG_TTL_MS, models });
-    return models;
-  })();
-  modelCatalogInflight.set(endpoint, refresh);
-  try {
-    return await refresh;
-  } finally {
-    if (modelCatalogInflight.get(endpoint) === refresh) modelCatalogInflight.delete(endpoint);
+  const authorization = upstreamApiKey(upstream, inboundAuthorization);
+  const authorizationDigest = createHash("sha256").update(authorization).digest("hex").slice(0, 16);
+  const cacheKey = `${endpoint}\0${authorizationDigest}`;
+  const now = Date.now();
+  for (const [key, entry] of modelCatalogCache) {
+    if (entry.staleUntil <= now) modelCatalogCache.delete(key);
   }
+  const cached = modelCatalogCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    cached.lastUsedAt = now;
+    return cached.models;
+  }
+  const existing = modelCatalogInflight.get(cacheKey);
+  if (existing) {
+    try {
+      return await waitForCallerOrSharedRefresh(existing, callerSignal);
+    } catch (error) {
+      if (callerSignal?.aborted) throw error;
+      const stale = modelCatalogCache.get(cacheKey);
+      if (stale && stale.staleUntil > Date.now()) {
+        stale.lastUsedAt = Date.now();
+        return stale.models;
+      }
+      throw error;
+    }
+  }
+  const refresh = (async () => {
+    const timeoutController = new AbortController();
+    const timeout = setTimeout(() => timeoutController.abort(new Error("9Router model catalog refresh timed out")), MODEL_CATALOG_REFRESH_TIMEOUT_MS);
+    try {
+      const response = await fetch(endpoint, {
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${authorization}`,
+        },
+        signal: timeoutController.signal,
+      });
+      if (!response.ok) throw new Error(`9Router model catalog unavailable (${response.status})`);
+      const body = await response.json() as { data?: Array<{ id?: unknown }> };
+      const models = Array.isArray(body.data)
+        ? body.data.flatMap((entry) => typeof entry?.id === "string" ? [entry.id] : [])
+        : [];
+      if (models.length === 0) throw new Error("9Router model catalog returned no models");
+      const refreshedAt = Date.now();
+      modelCatalogCache.set(cacheKey, {
+        expiresAt: refreshedAt + MODEL_CATALOG_TTL_MS,
+        staleUntil: refreshedAt + MODEL_CATALOG_TTL_MS + MODEL_CATALOG_GRACE_MS,
+        lastUsedAt: refreshedAt,
+        models,
+      });
+      while (modelCatalogCache.size > MAX_MODEL_CATALOG_CACHE_ENTRIES) {
+        const oldest = [...modelCatalogCache.entries()].sort(([, left], [, right]) => left.lastUsedAt - right.lastUsedAt)[0];
+        if (!oldest) break;
+        modelCatalogCache.delete(oldest[0]);
+      }
+      return models;
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+  modelCatalogInflight.set(cacheKey, refresh);
+  try {
+    return await waitForCallerOrSharedRefresh(refresh, callerSignal);
+  } catch (error) {
+    const stale = modelCatalogCache.get(cacheKey);
+    if (stale && stale.staleUntil > Date.now()) {
+      stale.lastUsedAt = Date.now();
+      return stale.models;
+    }
+    throw error;
+  } finally {
+    if (modelCatalogInflight.get(cacheKey) === refresh) modelCatalogInflight.delete(cacheKey);
+  }
+}
+
+async function waitForCallerOrSharedRefresh<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) throw signal.reason ?? new Error("Request aborted");
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error("Request aborted"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 async function resolveNineRouterPayloadModel(
   payload: any,
   upstream: CodexProviderConfig,
   inboundAuthorization?: string,
+  signal?: AbortSignal,
 ): Promise<any> {
   if (!isNineRouter(upstream) || typeof payload?.model !== "string" || payload.model.includes("/")) {
     return payload;
@@ -146,11 +228,16 @@ async function resolveNineRouterPayloadModel(
   if (NINE_ROUTER_DIRECT_MODELS.has(payload.model)) {
     return payload;
   }
-  const resolvedModel = resolveModelFromCatalog(
-    payload.model,
-    await loadNineRouterModels(upstream, inboundAuthorization),
-  );
-  return resolvedModel === payload.model ? payload : { ...payload, model: resolvedModel };
+  try {
+    const resolvedModel = resolveModelFromCatalog(
+      payload.model,
+      await loadNineRouterModels(upstream, inboundAuthorization, signal),
+    );
+    return resolvedModel === payload.model ? payload : { ...payload, model: resolvedModel };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return payload;
+  }
 }
 
 function endpointFor(upstream: CodexProviderConfig, path = "/responses"): string {
@@ -260,6 +347,7 @@ async function appendUpstreamTrace(
   params: {
     stateDir?: string;
     requestId?: string;
+    generationId?: string;
     upstream: CodexProviderConfig;
     payload: any;
     endpointPath?: string;
@@ -285,6 +373,7 @@ async function sendUpstreamRequest(
     lightmem2CacheContractDigest?: string;
     stateDir?: string;
     requestId?: string;
+    generationId?: string;
     providerAttemptId?: string;
     signal?: AbortSignal;
     endpointPath?: string;
@@ -352,6 +441,7 @@ function requestHeaders(params: {
   inboundAuthorization?: string;
   lightmem2CacheContractDigest?: string;
   requestId?: string;
+  generationId?: string;
   providerAttemptId?: string;
 }): Record<string, string> {
   const headers: Record<string, string> = {
@@ -601,6 +691,7 @@ export async function requestUpstreamResponses(params: {
   lightmem2CacheContractDigest?: string;
   stateDir?: string;
   requestId?: string;
+  generationId?: string;
   signal?: AbortSignal;
   endpointPath?: string;
   fallbackPayload?: (payload: any) => any;
@@ -630,13 +721,14 @@ export async function requestUpstreamResponses(params: {
       return response;
     } catch (error) {
       attempt.outcome = "failed";
-      throw error;
+      throw new UpstreamDispatchError("9Router request dispatch failed", "unknown", error);
     }
   };
   let payload = await resolveNineRouterPayloadModel(
     clonePayloadWithoutUnsupportedFields(params.payload, new Set()),
     params.upstream,
     params.inboundAuthorization,
+    params.signal,
   );
   const resolvedModel = typeof payload?.model === "string" ? payload.model : "";
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream, resolvedModel);
@@ -702,6 +794,7 @@ export async function requestUpstreamResponsesStream(params: {
   lightmem2CacheContractDigest?: string;
   stateDir?: string;
   requestId?: string;
+  generationId?: string;
   signal?: AbortSignal;
   endpointPath?: string;
   fallbackPayload?: (payload: any) => any;
@@ -731,13 +824,14 @@ export async function requestUpstreamResponsesStream(params: {
       return response;
     } catch (error) {
       attempt.outcome = "failed";
-      throw error;
+      throw new UpstreamDispatchError("9Router request dispatch failed", "unknown", error);
     }
   };
   let payload = await resolveNineRouterPayloadModel(
     clonePayloadWithoutUnsupportedFields(params.payload, new Set()),
     params.upstream,
     params.inboundAuthorization,
+    params.signal,
   );
   const resolvedModel = typeof payload?.model === "string" ? payload.model : "";
   const unsupportedFields = await loadUnsupportedOptionalFields(params.stateDir, params.upstream, resolvedModel);

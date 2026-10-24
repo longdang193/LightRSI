@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -7,6 +7,8 @@ import {
   codexProxyBaseUrl,
   loadTokenPilotCodexConfig,
   normalizeTokenPilotCodexConfig,
+  readCodexProviderFromToml,
+  writeTokenPilotCodexConfig,
 } from "../src/config.js";
 
 test("normalizeTokenPilotCodexConfig applies stable defaults", () => {
@@ -62,6 +64,43 @@ test("normalizeTokenPilotCodexConfig trims and clamps values", () => {
   assert.equal(config.logLevel, "debug");
   assert.equal(config.proxyPort, 65535);
   assert.equal(config.upstreamProvider, "OPENAI");
+});
+
+test("normalizeTokenPilotCodexConfig migrates legacy explicit 9Router upstreams to providerId", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-id-migration-"));
+  try {
+    const configPath = join(dir, "tokenpilot.json");
+    const config = normalizeTokenPilotCodexConfig({
+      upstream: {
+        name: "9Router",
+        baseUrl: "http://127.0.0.1:20128/v1",
+      },
+    }, { configPath });
+    assert.equal(config.upstream?.providerId, "9router");
+    await writeTokenPilotCodexConfig(config, configPath);
+    const persisted = JSON.parse(await readFile(configPath, "utf8")) as { upstream?: { providerId?: string } };
+    assert.equal(persisted.upstream?.providerId, "9router");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("readCodexProviderFromToml derives providerId from the stable section key", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lightrsi-codex-provider-id-toml-"));
+  try {
+    const configPath = join(dir, "config.toml");
+    await writeFile(configPath, [
+      "[model_providers.9router]",
+      "name = \"Renamed gateway\"",
+      "base_url = \"http://127.0.0.1:20128/v1\"",
+      "wire_api = \"responses\"",
+    ].join("\n"), "utf8");
+    const provider = await readCodexProviderFromToml("9router", configPath);
+    assert.equal(provider?.providerId, "9router");
+    assert.equal(provider?.name, "Renamed gateway");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("normalizeTokenPilotCodexConfig normalizes estimator config", () => {

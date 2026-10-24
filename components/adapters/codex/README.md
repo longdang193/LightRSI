@@ -36,6 +36,28 @@ Current limitations:
 - `mode aggressive`
 - native runtime-managed in-host commands
 
+## 9Router boundary guarantees
+
+The adapter treats `9router` as a stable provider identity derived from the
+provider configuration key. The retained direct-forward contract currently
+contains only `combo-ui` and `combo-xhigh`; those logical models bypass
+`/models`. `combo-low`, `combo-normal`, `combo-high`, and `combo-review` remain
+catalog-dependent until immutable 9Router evidence expands that contract.
+
+Catalog discovery is authorization-scoped, coalesced per endpoint and opaque
+authorization identity, bounded by a fixed refresh deadline, and retained only
+for a short stale-data grace window. A catalog miss or temporary discovery
+failure forwards the original model so 9Router remains the owner of retirement
+and ambiguity semantics; the adapter does not maintain a second retirement
+registry. Upstream `410`-class retirement responses and `x-9router-no-replay: 1`
+are preserved at the caller boundary.
+
+Enhanced mode journals a complete stable generation identity before dispatch,
+suppresses concurrent duplicates, and retains admission for dispatched or
+uncertain outcomes. Mandatory journal failure returns a bounded `503` without
+dispatch. Pure-forward mode intentionally bypasses local admission and leaves
+reconciliation to 9Router.
+
 ## Install
 
 For a release archive, extract it and run the bundled installer directly:
