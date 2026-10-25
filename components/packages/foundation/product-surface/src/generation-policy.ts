@@ -132,6 +132,24 @@ function featureConfig(value: unknown): GenerationPolicyFeatureConfig {
   };
 }
 
+export function validateGenerationPolicyConfig(raw: unknown): void {
+  const input = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : {};
+  const invalidFields: string[] = [];
+  for (const featureName of ["caveman", "ponytail"] as const) {
+    const feature = input[featureName];
+    if (!feature || typeof feature !== "object" || Array.isArray(feature)) continue;
+    const level = (feature as Record<string, unknown>).level;
+    if (level !== undefined && !GENERATION_POLICY_LEVELS.includes(level as GenerationPolicyLevel)) {
+      invalidFields.push(`${featureName}.level`);
+    }
+  }
+  if (invalidFields.length > 0) {
+    throw new Error(`Invalid generation policy level(s): ${invalidFields.join(", ")}. Allowed levels: ${GENERATION_POLICY_LEVELS.join(", ")}.`);
+  }
+}
+
 export function normalizeGenerationPolicyConfig(raw: unknown): GenerationPolicyConfig {
   const input = raw && typeof raw === "object" && !Array.isArray(raw)
     ? raw as Record<string, unknown>

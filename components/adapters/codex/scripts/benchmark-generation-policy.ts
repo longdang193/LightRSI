@@ -15,13 +15,11 @@ import {
 } from "@lightrsi/host-adapter";
 import {
   compileGenerationPolicy,
-  resolveCavemanPolicy,
-  resolvePonytailPolicy,
   type GenerationPolicyLevel,
 } from "@lightrsi/product-surface";
 import { loadProviderEnvFile, providerModelFromEnvironment } from "./context-rebase-smoke.js";
 import { defaultTokenPilotConfigPath, loadTokenPilotCodexConfig } from "../src/config.js";
-import { createCodexResponsesPayloadCodec } from "../src/responses-codec.js";
+import { createCodexResponsesPayloadCodec, extractResponsesInputText } from "../src/responses-codec.js";
 
 export const STAGE_A_ARMS = ["baseline", "caveman-full", "ponytail-full", "both-full"] as const;
 export type StageAArm = typeof STAGE_A_ARMS[number];
@@ -57,6 +55,7 @@ type LocalOverheadBenchmarkReport = {
     tailRecords: number;
     newestTailIndex: number;
     preDispatchStable: boolean;
+    largeContextStable: boolean;
   };
 };
 
@@ -111,6 +110,46 @@ function localOverheadEnvelope(): HostRequestEnvelope {
   };
 }
 
+function localOverheadLargeContextPayload(): Record<string, unknown> {
+  const toolOutput = "tool-output-".padEnd(64 * 1024, "x");
+  const input = Array.from({ length: 128 }, (_, index) => {
+    const role = index % 4 === 0
+      ? "system"
+      : index % 4 === 1
+        ? "user"
+        : index % 4 === 2
+          ? "assistant"
+          : "tool";
+    const content: Array<Record<string, unknown>> = [{
+      type: "input_text",
+      text: `history-${index}-role-${role}`,
+    }];
+    if (index % 8 === 0) {
+      content.push({
+        type: "function_call",
+        call_id: `call-${index}`,
+        name: "lookup_context",
+        arguments: JSON.stringify({ index, role }),
+      });
+    }
+    if (index % 8 === 7) {
+      content.push({
+        type: "tool_output",
+        text: toolOutput,
+      });
+    }
+    return { role, content };
+  });
+  return {
+    model: "local-overhead-large-context",
+    stream: false,
+    instructions: "Answer the local large-context benchmark request with the required detail.",
+    input,
+    tools: [{ type: "function", name: "lookup_context", parameters: { type: "object" } }],
+    metadata: { tokenpilotSyntheticSessionId: "local-overhead-large-context" },
+  };
+}
+
 export async function runLocalOverheadBenchmark(options?: {
   warmup?: number;
   samples?: number;
@@ -122,6 +161,19 @@ export async function runLocalOverheadBenchmark(options?: {
   const stateDir = await mkdtemp(resolve(tmpdir(), "lightrsi-local-overhead-"));
   const tailPath = resolve(stateDir, "tail.jsonl");
   const codec = createCodexResponsesPayloadCodec();
+  const largeContextPayload = localOverheadLargeContextPayload();
+  const largeContextEnvelope = codec.decodeRequest(largeContextPayload);
+  const largeContextEncoded = codec.encodeRequest(largeContextEnvelope) as Record<string, unknown>;
+  const largeContextInput = Array.isArray(largeContextEncoded.input) ? largeContextEncoded.input : [];
+  const largeContextToolOutputCount = largeContextInput.reduce((count, item) => {
+    if (!item || typeof item !== "object" || !Array.isArray((item as Record<string, unknown>).content)) return count;
+    return count + ((item as Record<string, unknown>).content as unknown[]).filter((block) => (
+      block && typeof block === "object" && (block as Record<string, unknown>).type === "tool_output"
+    )).length;
+  }, 0);
+  const largeContextStable = largeContextInput.length === 128
+    && largeContextToolOutputCount === 16
+    && largeContextEnvelope.metadata?.inputText === extractResponsesInputText(largeContextPayload.input);
   let preDispatchStable = true;
   try {
     for (let index = 0; index < records; index += 1) {
@@ -150,6 +202,23 @@ export async function runLocalOverheadBenchmark(options?: {
       });
       preDispatchStable = preDispatchStable && prepared.diagnostics.stablePrefixApplied === false;
     });
+    const codecDecode = await measureAsync(warmup, samples, async () => {
+      const decoded = codec.decodeRequest(largeContextPayload);
+      if (decoded.messages.length !== 128) throw new Error("large-context decode equivalence failed");
+    });
+    const codecEncode = await measureAsync(warmup, samples, async () => {
+      const encoded = codec.encodeRequest(largeContextEnvelope) as Record<string, unknown>;
+      if (!Array.isArray(encoded.input) || encoded.input.length !== 128) throw new Error("large-context encode equivalence failed");
+    });
+    const preDispatchLargeContext = await measureAsync(warmup, samples, async () => {
+      const prepared = await prepareBeforeCallWithReductionSummary({
+        envelope: largeContextEnvelope,
+        codec,
+        prepareStablePrefix: (next) => next,
+        applyBeforeCallReduction: async ({ envelope }) => ({ envelope, summary: null }),
+      });
+      if (prepared.envelope.messages.length !== 128) throw new Error("large-context pre-dispatch equivalence failed");
+    });
     await drainEventTraceQueue();
     const traceLines = (await readFile(eventTracePath(stateDir), "utf8")).trim().split(/\r?\n/u).filter(Boolean);
     const tailEntries = await readRecentJsonlEntries<{ index?: number }>(tailPath, records);
@@ -158,12 +227,13 @@ export async function runLocalOverheadBenchmark(options?: {
       warmup,
       samples,
       records,
-      metrics: { traceEnqueue, traceBatchEnqueue, tailRead, preDispatch },
+      metrics: { traceEnqueue, traceBatchEnqueue, tailRead, preDispatch, codecDecode, codecEncode, preDispatchLargeContext },
       equivalence: {
         traceRecords: traceLines.length,
         tailRecords: tailEntries.length,
         newestTailIndex: typeof tailEntries[0]?.index === "number" ? tailEntries[0].index : -1,
         preDispatchStable,
+        largeContextStable,
       },
     };
   } finally {
@@ -249,14 +319,10 @@ export function validateMultiTurnFixtureOutput(output: string): boolean {
 }
 
 export function buildLiveArmInstructions(arm: StageAArm): string {
-  const blocks: string[] = [];
-  if (arm === "caveman-full" || arm === "both-full") {
-    blocks.push(`[LightRSI Caveman v1 / full]\n${resolveCavemanPolicy("full")}`);
-  }
-  if (arm === "ponytail-full" || arm === "both-full") {
-    blocks.push(`[LightRSI Ponytail v1 / full]\n${resolvePonytailPolicy("full")}`);
-  }
-  return blocks.join("\n\n");
+  return compileGenerationPolicy({
+    caveman: { enabled: arm === "caveman-full" || arm === "both-full", level: "full" },
+    ponytail: { enabled: arm === "ponytail-full" || arm === "both-full", level: "full" },
+  }).block;
 }
 
 export function expectedStageAPolicyDigest(arm: StageAArm): string | null {
@@ -268,9 +334,10 @@ export function expectedStageAPolicyDigest(arm: StageAArm): string | null {
 
 export function buildStageBArmInstructions(arm: StageBArm): string {
   const [mechanism, level] = arm.split("-") as ["caveman" | "ponytail", GenerationPolicyLevel];
-  return mechanism === "caveman"
-    ? `[LightRSI Caveman v1 / ${level}]\n${resolveCavemanPolicy(level)}`
-    : `[LightRSI Ponytail v1 / ${level}]\n${resolvePonytailPolicy(level)}`;
+  return compileGenerationPolicy({
+    caveman: { enabled: mechanism === "caveman", level: mechanism === "caveman" ? level : "full" },
+    ponytail: { enabled: mechanism === "ponytail", level: mechanism === "ponytail" ? level : "full" },
+  }).block;
 }
 
 const STAGE_B_WORKLOAD = {

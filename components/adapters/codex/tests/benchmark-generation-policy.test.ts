@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { promisify } from "node:util";
+import { compileGenerationPolicy } from "@lightrsi/product-surface";
 
 import {
   SECURITY_FIXTURE_PROMPT,
@@ -33,6 +34,7 @@ import {
   runGenerationPolicyMatchedLive,
   runGenerationPolicyBenchmark,
   runGenerationPolicyStageB,
+  runLocalOverheadBenchmark,
   summarizeMatchedStageAArm,
   shouldUseRouterSettingsEvidenceFallback,
   stageAFixturePrompt,
@@ -215,10 +217,21 @@ test("json fixture accepts the numeric schema version stated by the prompt", () 
 
 test("live repair instructions preserve independent arm composition", () => {
   assert.equal(buildLiveArmInstructions("baseline"), "");
-  assert.match(buildLiveArmInstructions("caveman-full"), /LightRSI Caveman/u);
+  assert.equal(
+    buildLiveArmInstructions("caveman-full"),
+    compileGenerationPolicy({
+      caveman: { enabled: true, level: "full" },
+      ponytail: { enabled: false, level: "full" },
+    }).block,
+  );
   assert.doesNotMatch(buildLiveArmInstructions("caveman-full"), /LightRSI Ponytail/u);
-  assert.match(buildLiveArmInstructions("both-full"), /LightRSI Caveman/u);
-  assert.match(buildLiveArmInstructions("both-full"), /LightRSI Ponytail/u);
+  assert.equal(
+    buildLiveArmInstructions("both-full"),
+    compileGenerationPolicy({
+      caveman: { enabled: true, level: "full" },
+      ponytail: { enabled: true, level: "full" },
+    }).block,
+  );
 });
 
 test("Stage B keeps Caveman and Ponytail intensity sweeps independent", () => {
@@ -230,9 +243,21 @@ test("Stage B keeps Caveman and Ponytail intensity sweeps independent", () => {
     "ponytail-full",
     "ponytail-ultra",
   ]);
-  assert.match(buildStageBArmInstructions("caveman-lite"), /LightRSI Caveman v1 \/ lite/u);
+  assert.equal(
+    buildStageBArmInstructions("caveman-lite"),
+    compileGenerationPolicy({
+      caveman: { enabled: true, level: "lite" },
+      ponytail: { enabled: false, level: "full" },
+    }).block,
+  );
   assert.doesNotMatch(buildStageBArmInstructions("caveman-lite"), /LightRSI Ponytail/u);
-  assert.match(buildStageBArmInstructions("ponytail-ultra"), /LightRSI Ponytail v1 \/ ultra/u);
+  assert.equal(
+    buildStageBArmInstructions("ponytail-ultra"),
+    compileGenerationPolicy({
+      caveman: { enabled: false, level: "full" },
+      ponytail: { enabled: true, level: "ultra" },
+    }).block,
+  );
   assert.doesNotMatch(buildStageBArmInstructions("ponytail-ultra"), /LightRSI Caveman/u);
 });
 
@@ -282,6 +307,17 @@ test("mock generation policy benchmark reports contract evidence without provide
   assert.equal(report.liveEconomics, "inconclusive");
   assert.equal(report.decision, "no-promotion");
   assert.ok(Object.values(report.arms).every((arm) => arm.correctness === "unavailable" && arm.stability === "unavailable" && arm.providerCalls === 0));
+});
+
+test("local overhead benchmark reports codec and large-context metrics", async () => {
+  const report = await runLocalOverheadBenchmark({ warmup: 1, samples: 2, records: 2 });
+  for (const metric of ["traceEnqueue", "traceBatchEnqueue", "tailRead", "preDispatch", "codecDecode", "codecEncode", "preDispatchLargeContext"]) {
+    assert.ok(report.metrics[metric]);
+    assert.equal(typeof report.metrics[metric].p50Ms, "number");
+    assert.equal(typeof report.metrics[metric].p95Ms, "number");
+  }
+  assert.equal(report.equivalence.preDispatchStable, true);
+  assert.equal(report.equivalence.largeContextStable, true);
 });
 
 test("matched Stage A freezes the eight-fixture workload across every arm", () => {

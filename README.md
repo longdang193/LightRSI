@@ -153,6 +153,14 @@ default-on change, or Claude Code/OpenClaw reuse is promoted. Downstream/provide
 stability remains unavailable when the boundary does not expose it, and router
 economics are accepted only when authoritative request-level joins exist.
 
+The generation policy compiler centralizes the Caveman/Ponytail instruction block
+and its digest before Codex dispatch. It is prompt guidance, not a centralized
+post-generation LLM-output compression layer. Compact admission is the separate,
+recoverable input-context compaction path described above; it retains originals
+for recovery. A local Responses codec allocation experiment was measured against
+the same long-context workload and deferred because it did not prove a stable
+latency win.
+
 Cleaner validation covers cumulative continuation, repeated releases, retained
 context, and proxy restart. Performance measurements capture forwarded payload
 size, provider-reported usage when available, and request timing.
@@ -217,6 +225,7 @@ Existing fork-specific benchmark scripts live under [`components/adapters/codex/
 
 See the benchmark scripts under [`components/adapters/codex/scripts`](./components/adapters/codex/scripts)
 and the recorded results under [`docs/superpowers/plans`](./docs/superpowers/plans).
+The canonical generation-policy compiler is [`components/packages/foundation/product-surface/src/generation-policy.ts`](./components/packages/foundation/product-surface/src/generation-policy.ts), and the Codex Responses codec is [`components/adapters/codex/src/responses-codec.ts`](./components/adapters/codex/src/responses-codec.ts).
 
 ---
 
