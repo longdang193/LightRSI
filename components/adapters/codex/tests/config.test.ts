@@ -33,17 +33,37 @@ test("normalizeTokenPilotCodexConfig applies stable defaults", () => {
   });
 });
 
-test("normalizeTokenPilotCodexConfig normalizes independent generation policy settings", () => {
+test("normalizeTokenPilotCodexConfig accepts valid independent generation policy settings", () => {
   const config = normalizeTokenPilotCodexConfig({
     generationPolicy: {
       caveman: { enabled: true, level: "ultra" },
-      ponytail: { enabled: "true", level: "invalid" },
+      ponytail: { enabled: "true", level: "lite" },
     },
   });
   assert.deepEqual(config.generationPolicy, {
     caveman: { enabled: true, level: "ultra" },
-    ponytail: { enabled: false, level: "full" },
+    ponytail: { enabled: false, level: "lite" },
   });
+});
+
+test("normalizeTokenPilotCodexConfig rejects explicitly invalid generation policy levels", () => {
+  assert.throws(
+    () => normalizeTokenPilotCodexConfig({ generationPolicy: { caveman: { level: "invalid" } } }),
+    /caveman\.level.*lite, full, ultra/u,
+  );
+  assert.throws(
+    () => normalizeTokenPilotCodexConfig({ generationPolicy: { ponytail: { level: "invalid" } } }),
+    /ponytail\.level.*lite, full, ultra/u,
+  );
+  assert.throws(
+    () => normalizeTokenPilotCodexConfig({
+      generationPolicy: {
+        caveman: { level: "invalid-caveman" },
+        ponytail: { level: "invalid-ponytail" },
+      },
+    }),
+    /caveman\.level, ponytail\.level/u,
+  );
 });
 test("codexProxyBaseUrl uses canonical loopback port", () => {
   assert.equal(codexProxyBaseUrl({ proxyPort: 17667 }), "http://127.0.0.1:17667/v1");

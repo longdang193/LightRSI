@@ -1281,6 +1281,11 @@ export async function startCodexResponsesProxy(params: {
           ? nextEnvelope
           : applyGenerationPolicy(nextEnvelope, compiledGenerationPolicy)
       );
+      const applyGenerationPolicyForCodexFallback = (nextEnvelope: HostRequestEnvelope) => (
+        compactRequest
+          ? nextEnvelope
+          : applyGenerationPolicy(nextEnvelope, compiledGenerationPolicy)
+      );
       const forwardingScopeForCodex = (nextEnvelope: HostRequestEnvelope): CodexForwardingScope => {
         const nextPayload = codec.encodeRequest(nextEnvelope) as JsonObject;
         return {
@@ -1395,7 +1400,7 @@ export async function startCodexResponsesProxy(params: {
           envelope,
           codec,
           config: { mode: "normal" },
-          applyGenerationPolicy: applyGenerationPolicyForCodex,
+          applyGenerationPolicy: applyGenerationPolicyForCodexFallback,
           prepareStablePrefix: prepareStablePrefixForCodex,
           applyBeforeCallReduction: applyBeforeCallReductionForCodex,
         });

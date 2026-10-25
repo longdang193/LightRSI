@@ -1137,6 +1137,10 @@ test("CDR-06 proxy pipeline falls back and cools down rejected rebases", async (
         cooldownMs: 300_000,
         mutationPlan: { operations: [] },
       },
+      generationPolicy: {
+        caveman: { enabled: true, level: "full" },
+        ponytail: { enabled: false, level: "full" },
+      },
     } as any);
     runtime = await startCodexResponsesProxy({
       config,
@@ -1182,6 +1186,8 @@ test("CDR-06 proxy pipeline falls back and cools down rejected rebases", async (
     assert.equal(upstream.requests.length, 3);
     assert.equal("previous_response_id" in (upstream.requests[1] ?? {}), false);
     assert.equal(upstream.requests[2]?.previous_response_id, "resp-pipeline-1");
+    assert.doesNotMatch(String(upstream.requests[1]?.instructions ?? ""), /LightRSI Caveman/u);
+    assert.match(String(upstream.requests[2]?.instructions ?? ""), /LightRSI Caveman v2 \/ full/u);
 
     const third = await fetch(`${runtime.baseUrl}/responses`, {
       method: "POST",

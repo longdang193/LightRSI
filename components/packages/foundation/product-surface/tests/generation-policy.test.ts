@@ -10,6 +10,7 @@ import {
   normalizeGenerationPolicyConfig,
   resolveCavemanPolicy,
   resolvePonytailPolicy,
+  validateGenerationPolicyConfig,
 } from "../src/index.js";
 
 function envelope(rawPayload: Record<string, unknown> = {}): HostRequestEnvelope {
@@ -32,6 +33,25 @@ test("normalizes missing policy to disabled full levels", () => {
   assert.deepEqual(normalizeGenerationPolicyConfig(undefined), {
     caveman: { enabled: false, level: "full" },
     ponytail: { enabled: false, level: "full" },
+  });
+});
+
+test("strict validation distinguishes omitted levels from invalid explicit levels", () => {
+  assert.doesNotThrow(() => validateGenerationPolicyConfig(undefined));
+  assert.doesNotThrow(() => validateGenerationPolicyConfig({
+    caveman: { enabled: true },
+    ponytail: { enabled: false, level: "full" },
+  }));
+  assert.throws(
+    () => validateGenerationPolicyConfig({
+      caveman: { level: "bad-caveman-level" },
+      ponytail: { level: "bad-ponytail-level" },
+    }),
+    /caveman\.level, ponytail\.level.*lite, full, ultra/u,
+  );
+  assert.deepEqual(normalizeGenerationPolicyConfig({ caveman: { level: "bad" } }).caveman, {
+    enabled: false,
+    level: "full",
   });
 });
 
