@@ -705,6 +705,8 @@ export async function startCodexResponsesProxy(params: {
   const requestAdmissionCache = new Map<string, {
     state: "in_progress" | "completed" | "reconciliation_required";
     expiresAt: number;
+    error?: string;
+    responseId?: string;
   }>();
   const requestAdmissionTtlMs = 15 * 60 * 1000;
 
@@ -717,6 +719,7 @@ export async function startCodexResponsesProxy(params: {
   function settleRequestAdmission(
     key: string,
     state: "released" | "completed" | "reconciliation_required",
+    details?: { error?: string; responseId?: string },
   ): void {
     const entry = requestAdmissionCache.get(key);
     if (!entry) return;
@@ -725,6 +728,8 @@ export async function startCodexResponsesProxy(params: {
       return;
     }
     entry.state = state;
+    if (details?.error) entry.error = details.error;
+    if (details?.responseId) entry.responseId = details.responseId;
     entry.expiresAt = Date.now() + requestAdmissionTtlMs;
   }
 
@@ -930,6 +935,8 @@ export async function startCodexResponsesProxy(params: {
           sessionId,
           requestId: candidateRequestId,
           state: existingAdmission.state,
+          responseId: existingAdmission.responseId ?? null,
+          upstreamError: existingAdmission.error ?? null,
         });
         if (!res.destroyed) {
           res.statusCode = 409;
@@ -945,6 +952,8 @@ export async function startCodexResponsesProxy(params: {
             },
             request_id: candidateRequestId,
             state: existingAdmission.state,
+            ...(existingAdmission.responseId ? { response_id: existingAdmission.responseId } : {}),
+            ...(existingAdmission.error ? { upstream_error: existingAdmission.error } : {}),
           }));
         }
         return;
@@ -1547,11 +1556,16 @@ export async function startCodexResponsesProxy(params: {
         headers?: Record<string, string>;
         requestStatus?: CodexJournalStatus;
         attempts?: CodexForwardingAttempt[];
+        error?: string;
+        responseId?: string;
       }): void => {
         const attempt = paramsForSettlement.attempts?.at(-1) ?? forwardingAttempts.at(-1);
         const noReplay = paramsForSettlement.headers?.["x-9router-no-replay"] === "1";
         if (noReplay || attempt?.outcome === "incomplete") {
-          settleRequestAdmission(admissionKey, "reconciliation_required");
+          settleRequestAdmission(admissionKey, "reconciliation_required", {
+            error: paramsForSettlement.error,
+            responseId: paramsForSettlement.responseId,
+          });
           return;
         }
         if (paramsForSettlement.status >= 200 && paramsForSettlement.status < 300) {
@@ -1560,6 +1574,10 @@ export async function startCodexResponsesProxy(params: {
             paramsForSettlement.requestStatus === "completed" && attempt?.responseProducing !== false
               ? "completed"
               : "reconciliation_required",
+            {
+              error: paramsForSettlement.error,
+              responseId: paramsForSettlement.responseId,
+            },
           );
           return;
         }
@@ -1568,6 +1586,10 @@ export async function startCodexResponsesProxy(params: {
         settleRequestAdmission(
           admissionKey,
           safelyRejectedBeforeGeneration ? "released" : "reconciliation_required",
+          {
+            error: paramsForSettlement.error,
+            responseId: paramsForSettlement.responseId,
+          },
         );
       };
       const applyUpstreamAttempts = (
@@ -1903,7 +1925,7 @@ export async function startCodexResponsesProxy(params: {
         markLastForwardingAttempt(status);
         commitSuccessfulForwardingEvidence(status, collected.responseId);
         const error = status === "failed" && paramsForJournal.rawStreamText
-          ? truncateJournalError(paramsForJournal.rawStreamText)
+          ? truncateJournalError(collected.error ?? paramsForJournal.rawStreamText)
           : undefined;
         await appendCodexContextHistoryJournalCompletion({
           response: {
@@ -2244,6 +2266,8 @@ export async function startCodexResponsesProxy(params: {
           status: paramsForRecord.status,
           headers: paramsForRecord.headers,
           requestStatus,
+          error: collected.error,
+          responseId: collected.responseId,
         });
         const routerCacheTelemetry = collectRouterCacheTelemetry({
           headers: paramsForRecord.headers ?? {},
@@ -2337,6 +2361,7 @@ export async function startCodexResponsesProxy(params: {
               stream: true,
               completed: requestStatus === "completed",
               streamStatus: collected.status,
+              upstreamError: collected.error ?? null,
               malformedEventCount: collected.malformedEventCount,
               responseChars: paramsForRecord.responseChars,
               assistantChars: snapshot.assistantText.length,

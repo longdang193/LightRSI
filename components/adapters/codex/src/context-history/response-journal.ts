@@ -105,7 +105,7 @@ export function buildCodexResponseJournalEntry(
     malformedEventCount: streamCollected?.malformedEventCount,
     malformedEventTypeCounts: streamCollected?.malformedEventTypeCounts,
     status: computedStatus === "completed" && !responseId ? "incomplete" : computedStatus,
-    error: params.error,
+    error: params.error ?? streamCollected?.error,
     observedAt: normalizeObservedAt(params.observedAt),
   };
   return entry;
