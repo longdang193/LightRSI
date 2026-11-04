@@ -22,6 +22,7 @@ type CollectorState = {
   usage?: Record<string, unknown>;
   assistantText: string;
   status: CodexJournalStatus;
+  error?: string;
 };
 
 type EventHandler = (state: CollectorState, data: JsonObject, index: number) => void;
@@ -38,7 +39,10 @@ export type CodexSseItemCollectorResult = {
   usage?: Record<string, unknown>;
   assistantText: string;
   status: CodexJournalStatus;
+  error?: string;
 };
+
+const MAX_COLLECTED_ERROR_LENGTH = 1000;
 
 export type CodexSseItemCollector = {
   feed(chunk: string | Uint8Array): void;
@@ -363,6 +367,20 @@ function responseMetadata(data: JsonObject): {
   };
 }
 
+function responseFailureError(data: JsonObject): string | undefined {
+  const response = asJsonObject(data.response);
+  const error = asJsonObject(response?.error) ?? asJsonObject(data.error);
+  if (!error) return undefined;
+
+  const code = typeof error.code === "string" ? error.code.trim() : "";
+  const message = typeof error.message === "string" ? error.message.trim() : "";
+  const formatted = [code, message].filter(Boolean).join(": ");
+  if (!formatted) return undefined;
+  return formatted.length > MAX_COLLECTED_ERROR_LENGTH
+    ? `${formatted.slice(0, MAX_COLLECTED_ERROR_LENGTH)}...`
+    : formatted;
+}
+
 function textFromDelta(value: unknown): string {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value.map(textFromDelta).join("");
@@ -402,7 +420,10 @@ function updateResponseState(state: CollectorState, data: JsonObject, eventType:
     state.assistantText += textFromDelta(data.delta);
   }
   if (eventType === "response.completed") state.status = "completed";
-  if (eventType === "response.failed") state.status = "failed";
+  if (eventType === "response.failed") {
+    state.status = "failed";
+    state.error = responseFailureError(data) ?? state.error;
+  }
   if (eventType === "response.incomplete") state.status = "incomplete";
 
   metadata.output?.forEach((item, outputIndex) => {
@@ -574,6 +595,7 @@ function collectorResult(
     usage: state.usage,
     assistantText: state.assistantText,
     status: state.status,
+    error: state.error,
   };
 }
 

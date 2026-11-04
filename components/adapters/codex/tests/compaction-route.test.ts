@@ -13,7 +13,12 @@ import { createConsoleLogger } from "../src/logger.js";
 import { projectCompactPayload, startCodexResponsesProxy } from "../src/proxy-runtime.js";
 import { codexContextHistoryJournalPath } from "../src/context-history/index.js";
 
-async function startSseUpstream(options: { compactStatus?: number; json?: boolean; rejectStreamField?: boolean } = {}) {
+async function startSseUpstream(options: {
+  compactStatus?: number;
+  failedStream?: boolean;
+  json?: boolean;
+  rejectStreamField?: boolean;
+} = {}) {
   const port = await reserveUnusedPort();
   const requests: Array<Record<string, unknown>> = [];
   const paths: string[] = [];
@@ -45,12 +50,16 @@ async function startSseUpstream(options: { compactStatus?: number; json?: boolea
       return;
     }
     res.setHeader("content-type", "text/event-stream");
-    res.end([
-      `event: response.created\ndata: ${JSON.stringify({
-        type: "response.created",
-        response: { id: "resp_compact_stream", object: "response", status: "in_progress" },
-      })}`,
-      `event: response.completed\ndata: ${JSON.stringify({
+    const terminalEvent = options.failedStream
+      ? `event: response.failed\ndata: ${JSON.stringify({
+        type: "response.failed",
+        response: {
+          id: "resp_compact_stream",
+          status: "failed",
+          error: { code: "server_error", message: "upstream generation failed" },
+        },
+      })}`
+      : `event: response.completed\ndata: ${JSON.stringify({
         type: "response.completed",
         response: {
           id: "resp_compact_stream",
@@ -58,7 +67,13 @@ async function startSseUpstream(options: { compactStatus?: number; json?: boolea
           status: "completed",
           output: req.url === "/v1/responses/compact" ? [{ type: "compaction", id: "cmp_1" }] : [],
         },
+      })}`;
+    res.end([
+      `event: response.created\ndata: ${JSON.stringify({
+        type: "response.created",
+        response: { id: "resp_compact_stream", object: "response", status: "in_progress" },
       })}`,
+      terminalEvent,
       "",
       "",
     ].join("\n\n"));
@@ -264,6 +279,52 @@ test("proxy blocks duplicate streaming ingress before a second upstream dispatch
   } finally {
     await runtime.close();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("proxy includes upstream stream failure details when blocking a replay", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "lightrsi-duplicate-failure-"));
+  const proxyPort = await reserveUnusedPort();
+  const upstream = await startSseUpstream({ failedStream: true });
+  const runtime = await startCodexResponsesProxy({
+    config: normalizeTokenPilotCodexConfig({
+      proxyPort,
+      stateDir,
+      upstream: { name: "capture", baseUrl: upstream.baseUrl, wireApi: "responses" },
+      proxyMode: { pureForward: false },
+      modules: { stabilizer: false, reduction: false },
+      contextRewrite: { enabled: false },
+    }),
+    logger: createConsoleLogger(false),
+  });
+  const payload = {
+    model: "capture-model",
+    stream: true,
+    prompt_cache_key: "duplicate-failure-session",
+    input: [{ role: "user", content: [{ type: "input_text", text: "duplicate failure" }] }],
+  };
+  const request = () => fetch(`${runtime.baseUrl}/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  try {
+    const first = await request();
+    assert.equal(first.status, 200);
+    await first.text();
+
+    const duplicate = await request();
+    assert.equal(duplicate.status, 409);
+    const body = await duplicate.json() as {
+      response_id?: string;
+      upstream_error?: string;
+    };
+    assert.equal(body.response_id, "resp_compact_stream");
+    assert.equal(body.upstream_error, "server_error: upstream generation failed");
+  } finally {
+    await runtime.close();
+    await upstream.close();
     await rm(stateDir, { recursive: true, force: true });
   }
 });

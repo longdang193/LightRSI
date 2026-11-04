@@ -1396,6 +1396,29 @@ test("CDH-02 response journal respects failed non-stream response bodies", async
   });
 });
 
+test("CDH-02 response journal preserves failed stream error details", async () => {
+  await withTempState(async (stateDir) => {
+    const entry = await appendCodexResponseJournalEntry({
+      stateDir,
+      sessionId: "codex-session-1",
+      requestId: "request-1",
+      rawStreamText: [
+        "event: response.created",
+        "data: {\"response\":{\"id\":\"resp-stream-failed\"}}",
+        "",
+        "event: response.failed",
+        "data: {\"response\":{\"id\":\"resp-stream-failed\",\"error\":{\"code\":\"server_error\",\"message\":\"upstream generation failed\"}}}",
+        "",
+      ].join("\n"),
+      status: "completed",
+    });
+
+    assert.equal(entry.status, "failed");
+    assert.equal(entry.responseId, "resp-stream-failed");
+    assert.equal(entry.error, "server_error: upstream generation failed");
+  });
+});
+
 test("CDH-02 response journal respects incomplete non-stream response bodies", async () => {
   await withTempState(async (stateDir) => {
     const entry = await appendCodexResponseJournalEntry({

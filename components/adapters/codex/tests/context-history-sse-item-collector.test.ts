@@ -538,6 +538,21 @@ test("CDH-03 SSE Item Collector marks interrupted streams incomplete", () => {
   assert.equal(outputText(asObject(result.outputItems[0])), "partial");
 });
 
+test("CDH-03 SSE Item Collector preserves response failure details", () => {
+  const result = collectCodexResponseItemsFromStream(sseStream(
+    sseBlock("response.created", { response: { id: "resp-failed" } }),
+    sseBlock("response.failed", {
+      response: {
+        id: "resp-failed",
+        error: { code: "server_error", message: "upstream generation failed" },
+      },
+    }),
+  ));
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.error, "server_error: upstream generation failed");
+});
+
 test("CDH-03 SSE Item Collector parses multiline data fields", () => {
   const result = collectCodexResponseItemsFromStream(sseBlock(
     "response.created",
